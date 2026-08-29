@@ -142,6 +142,21 @@ fn main() -> std::io::Result<()> {
     run_ui(app, Some(rx))
 }
 
+/// Replace `league`'s live ids from a successful scoreboard. `None` (fetch error)
+/// leaves that league's existing ids in place so summaries keep running.
+fn merge_live_ids(live: &mut Vec<(League, String)>, league: League, fetched: Option<&[Game]>) {
+    let Some(games) = fetched else {
+        return;
+    };
+    live.retain(|(l, _)| *l != league);
+    live.extend(
+        games
+            .iter()
+            .filter(|g| g.status == Status::Live)
+            .map(|g| (league, g.id.clone())),
+    );
+}
+
 fn poll_loop(provider: EspnProvider, tx: mpsc::Sender<Msg>, leagues: Vec<League>) {
     let mut last_board = Instant::now() - Duration::from_secs(999);
     let mut last_sum = Instant::now() - Duration::from_secs(999);
@@ -155,18 +170,11 @@ fn poll_loop(provider: EspnProvider, tx: mpsc::Sender<Msg>, leagues: Vec<League>
             Duration::from_secs(20)
         };
         if last_board.elapsed() >= every {
-            let mut next_live = Vec::new();
-            let mut any_ok = false;
+            let mut any_failed = false;
             for league in &leagues {
                 match provider.scoreboard(*league) {
                     Ok(games) => {
-                        next_live.extend(
-                            games
-                                .iter()
-                                .filter(|g| g.status == Status::Live)
-                                .map(|g| (*league, g.id.clone())),
-                        );
-                        any_ok = true;
+                        merge_live_ids(&mut live, *league, Some(&games));
                         let _ = tx.send(Msg::Boards {
                             league: *league,
                             games,
@@ -174,17 +182,18 @@ fn poll_loop(provider: EspnProvider, tx: mpsc::Sender<Msg>, leagues: Vec<League>
                         });
                     }
                     Err(_) => {
-                        attempt = attempt.saturating_add(1);
-                        thread::sleep(Duration::from_secs(gameday::provider::espn::backoff_secs(
-                            attempt,
-                        )));
+                        any_failed = true;
                     }
                 }
             }
-            if any_ok {
+            if any_failed {
+                attempt = attempt.saturating_add(1);
+                thread::sleep(Duration::from_secs(gameday::provider::espn::backoff_secs(
+                    attempt,
+                )));
+            } else {
                 attempt = 0;
             }
-            live = next_live;
             last_board = Instant::now();
         }
         if last_sum.elapsed() >= Duration::from_secs(15) {
@@ -249,11 +258,77 @@ fn run_ui(mut app: App, rx: Option<mpsc::Receiver<Msg>>) -> std::io::Result<()> 
 
 #[cfg(test)]
 mod tests {
-    use super::parse_args;
+    use super::{merge_live_ids, parse_args};
+    use gameday::domain::{Game, League, Status, Team};
+
+    fn live_game(id: &str, league: League) -> Game {
+        Game {
+            id: id.into(),
+            league,
+            away: Team {
+                id: "A".into(),
+                abbr: "A".into(),
+                name: "A".into(),
+                color: [0; 3],
+                alt_color: [0; 3],
+                logo_key: "nfl/a".into(),
+            },
+            home: Team {
+                id: "B".into(),
+                abbr: "B".into(),
+                name: "B".into(),
+                color: [0; 3],
+                alt_color: [0; 3],
+                logo_key: "nfl/b".into(),
+            },
+            away_score: 0,
+            home_score: 0,
+            status: Status::Live,
+            period: "Q1".into(),
+            clock: "15:00".into(),
+            situation: None,
+            last_plays: vec![],
+            meter: None,
+            start_time: None,
+            broadcast: None,
+        }
+    }
 
     #[test]
     fn demo_flag() {
         assert!(parse_args(&["gameday".into(), "--demo".into()]).demo);
         assert!(!parse_args(&["gameday".into()]).demo);
+    }
+
+    #[test]
+    fn ok_nfl_replaces_live_ids() {
+        let mut live = vec![(League::Nfl, "old".into())];
+        merge_live_ids(
+            &mut live,
+            League::Nfl,
+            Some(&[live_game("new", League::Nfl)]),
+        );
+        assert_eq!(live, vec![(League::Nfl, "new".into())]);
+    }
+
+    #[test]
+    fn err_nfl_keeps_previous_live_ids() {
+        let mut live = vec![(League::Nfl, "keep".into())];
+        merge_live_ids(&mut live, League::Nfl, None);
+        assert_eq!(live, vec![(League::Nfl, "keep".into())]);
+    }
+
+    #[test]
+    fn ok_cfb_does_not_drop_nfl_ids() {
+        let mut live = vec![(League::Nfl, "n1".into())];
+        merge_live_ids(
+            &mut live,
+            League::Cfb,
+            Some(&[live_game("c1", League::Cfb)]),
+        );
+        assert_eq!(
+            live,
+            vec![(League::Nfl, "n1".into()), (League::Cfb, "c1".into())]
+        );
     }
 }
