@@ -748,8 +748,8 @@ mod tests {
             abbr: abbr.into(),
             name: abbr.into(),
             color: [1, 2, 3],
-            alt_color: [0, 0, 0],
             logo_key: format!("nfl/{}", abbr.to_lowercase()),
+            ..Default::default()
         }
     }
 

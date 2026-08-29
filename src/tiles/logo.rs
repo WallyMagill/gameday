@@ -1,109 +1,152 @@
 use crate::domain::Team;
 use crate::theme;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-/// A two-color pixel mark. `0` transparent, `1` primary, `2` alt.
-/// Drawn with half-blocks, so a 12-row pixmap occupies 6 terminal rows.
-pub struct Pixmap {
-    pub width: usize,
-    pub rows: Vec<Vec<u8>>,
+/// One cell of pregenerated logo art. `None` colors mean "terminal default":
+/// no bg = transparent over the board, no fg on a space = nothing to draw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ArtCell {
+    pub ch: char,
+    pub fg: Option<(u8, u8, u8)>,
+    pub bg: Option<(u8, u8, u8)>,
 }
 
-pub fn parse_pixmap(raw: &str) -> Option<Pixmap> {
-    let lines: Vec<&str> = raw.lines().filter(|l| !l.is_empty()).collect();
-    if lines.is_empty() || lines.len() > 16 {
-        return None;
-    }
-    let width = lines.iter().map(|l| l.chars().count()).max()?;
-    if width > 16 {
-        return None;
-    }
-    let mut rows = Vec::with_capacity(lines.len());
-    for line in lines {
-        let mut row = vec![0u8; width];
-        for (i, ch) in line.chars().enumerate() {
-            row[i] = match ch {
-                '#' => 1,
-                '+' => 2,
-                '.' | ' ' => 0,
-                _ => return None,
-            };
+pub struct AnsiArt {
+    pub width: u16,
+    pub cells: Vec<Vec<ArtCell>>,
+}
+
+/// Parse chafa `-f symbols` output: truecolor SGR (38;2 / 48;2), reset (0),
+/// default-color resets (39/49), reverse video (7/27), cursor hide/show noise.
+pub fn parse_ansi_art(raw: &str) -> Option<AnsiArt> {
+    let mut rows: Vec<Vec<ArtCell>> = Vec::new();
+    let mut row: Vec<ArtCell> = Vec::new();
+    let mut fg: Option<(u8, u8, u8)> = None;
+    let mut bg: Option<(u8, u8, u8)> = None;
+    let mut reverse = false;
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\x1b' => {
+                if chars.peek() != Some(&'[') {
+                    continue;
+                }
+                chars.next();
+                let mut seq = String::new();
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        seq.push(c);
+                        break;
+                    }
+                    seq.push(c);
+                }
+                let Some(final_byte) = seq.pop() else { continue };
+                if final_byte != 'm' {
+                    continue; // cursor hide/show etc.
+                }
+                let params: Vec<&str> = seq.split(';').collect();
+                let mut i = 0;
+                while i < params.len() {
+                    match params[i] {
+                        "" | "0" => {
+                            fg = None;
+                            bg = None;
+                            reverse = false;
+                        }
+                        "7" => reverse = true,
+                        "27" => reverse = false,
+                        "39" => fg = None,
+                        "49" => bg = None,
+                        "38" | "48" if params.get(i + 1) == Some(&"2") && i + 4 < params.len() => {
+                            let rgb = (
+                                params[i + 2].parse().ok()?,
+                                params[i + 3].parse().ok()?,
+                                params[i + 4].parse().ok()?,
+                            );
+                            if params[i] == "38" {
+                                fg = Some(rgb);
+                            } else {
+                                bg = Some(rgb);
+                            }
+                            i += 4;
+                        }
+                        _ => {}
+                    }
+                    i += 1;
+                }
+            }
+            '\n' => {
+                rows.push(std::mem::take(&mut row));
+            }
+            '\r' => {}
+            ch => {
+                let (mut cfg, mut cbg) = (fg, bg);
+                if reverse {
+                    std::mem::swap(&mut cfg, &mut cbg);
+                }
+                row.push(ArtCell { ch, fg: cfg, bg: cbg });
+            }
         }
+    }
+    if !row.is_empty() {
         rows.push(row);
     }
-    Some(Pixmap { width, rows })
+    // Drop rows that draw nothing (chafa pads square art with blank lines).
+    rows.retain(|r| r.iter().any(cell_visible));
+    if rows.is_empty() {
+        return None;
+    }
+    let width = rows.iter().map(|r| r.len()).max()? as u16;
+    Some(AnsiArt { width, cells: rows })
 }
 
-pub fn load_logo(key: &str) -> Option<Pixmap> {
-    parse_pixmap(match key {
-        "nfl/kc" => include_str!("../../assets/logos/nfl/kc.px"),
-        "nfl/tb" => include_str!("../../assets/logos/nfl/tb.px"),
-        "nba/den" => include_str!("../../assets/logos/nba/den.px"),
-        "nba/bos" => include_str!("../../assets/logos/nba/bos.px"),
-        "mlb/nyy" => include_str!("../../assets/logos/mlb/nyy.px"),
-        "mlb/tor" => include_str!("../../assets/logos/mlb/tor.px"),
-        "nhl/edm" => include_str!("../../assets/logos/nhl/edm.px"),
-        "nhl/dal" => include_str!("../../assets/logos/nhl/dal.px"),
+fn cell_visible(c: &ArtCell) -> bool {
+    if c.ch == ' ' {
+        c.bg.is_some()
+    } else {
+        c.fg.is_some() || c.bg.is_some()
+    }
+}
+
+pub fn load_logo(key: &str) -> Option<AnsiArt> {
+    parse_ansi_art(match key {
+        "nfl/kc" => include_str!("../../assets/logos/nfl/kc.ans"),
+        "nfl/tb" => include_str!("../../assets/logos/nfl/tb.ans"),
+        "nba/den" => include_str!("../../assets/logos/nba/den.ans"),
+        "nba/bos" => include_str!("../../assets/logos/nba/bos.ans"),
+        "mlb/nyy" => include_str!("../../assets/logos/mlb/nyy.ans"),
+        "mlb/tor" => include_str!("../../assets/logos/mlb/tor.ans"),
+        "nhl/edm" => include_str!("../../assets/logos/nhl/edm.ans"),
+        "nhl/dal" => include_str!("../../assets/logos/nhl/dal.ans"),
         _ => return None,
     })
-}
-
-/// Cell height a pixmap needs (two pixel rows per cell).
-pub fn cell_height(map: &Pixmap) -> u16 {
-    (map.rows.len().div_ceil(2)) as u16
 }
 
 pub fn draw_logo(frame: &mut Frame, area: Rect, team: &Team) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let Some(map) = load_logo(&team.logo_key) else {
+    let Some(art) = load_logo(&team.logo_key) else {
         draw_abbr_mark(frame, area, team);
         return;
     };
-    let primary = theme::rgb(team.color);
-    let alt = theme::rgb(team.alt_color);
-    let w = (map.width as u16).min(area.width);
-    let h = cell_height(&map).min(area.height);
+    let w = art.width.min(area.width);
+    let h = (art.cells.len() as u16).min(area.height);
     let x0 = area.x + (area.width - w) / 2;
     let y0 = area.y + (area.height - h) / 2;
     let buf = frame.buffer_mut();
-    for cy in 0..h {
-        let top = &map.rows[(cy * 2) as usize];
-        let bottom = map.rows.get((cy * 2 + 1) as usize);
-        for cx in 0..w {
-            let t = top[cx as usize];
-            let b = bottom.map_or(0, |r| r[cx as usize]);
-            if t == 0 && b == 0 {
+    for (y, row) in art.cells.iter().take(h as usize).enumerate() {
+        for (x, art_cell) in row.iter().take(w as usize).enumerate() {
+            if !cell_visible(art_cell) {
                 continue;
             }
-            let color = |v: u8| if v == 2 { alt } else { primary };
-            let cell = &mut buf[(x0 + cx, y0 + cy)];
-            match (t, b) {
-                (0, b) => {
-                    cell.set_char('▄');
-                    cell.set_fg(color(b));
-                    cell.set_bg(theme::BG);
-                }
-                (t, 0) => {
-                    cell.set_char('▀');
-                    cell.set_fg(color(t));
-                    cell.set_bg(theme::BG);
-                }
-                (t, b) if t == b => {
-                    cell.set_char('█');
-                    cell.set_fg(color(t));
-                    cell.set_bg(theme::BG);
-                }
-                (t, b) => {
-                    cell.set_char('▀');
-                    cell.set_fg(color(t));
-                    cell.set_bg(color(b));
-                }
-            }
+            let cell = &mut buf[(x0 + x as u16, y0 + y as u16)];
+            cell.set_char(art_cell.ch);
+            cell.set_fg(art_cell.fg.map_or(theme::FG, |(r, g, b)| Color::Rgb(r, g, b)));
+            cell.set_bg(art_cell.bg.map_or(theme::BG, |(r, g, b)| Color::Rgb(r, g, b)));
         }
     }
 }
@@ -137,9 +180,13 @@ mod tests {
         for key in [
             "nfl/kc", "nfl/tb", "nba/den", "nba/bos", "mlb/nyy", "mlb/tor", "nhl/edm", "nhl/dal",
         ] {
-            let map = load_logo(key).unwrap_or_else(|| panic!("mark {key} failed to parse"));
-            assert!(map.width >= 8, "{key} width {} < 8", map.width);
-            assert!(map.rows.len() >= 8, "{key} rows {} < 8", map.rows.len());
+            let art = load_logo(key).unwrap_or_else(|| panic!("mark {key} failed to parse"));
+            assert!(art.width >= 8, "{key} width {} < 8", art.width);
+            assert!(
+                (3..=8).contains(&art.cells.len()),
+                "{key} rows {} outside 3..=8",
+                art.cells.len()
+            );
         }
     }
 
@@ -149,14 +196,24 @@ mod tests {
     }
 
     #[test]
-    fn parse_rejects_bad_chars() {
-        assert!(parse_pixmap("##\nx#").is_none());
+    fn parses_truecolor_and_reset() {
+        let art = parse_ansi_art("\x1b[38;2;10;20;30mA\x1b[0mB\n").unwrap();
+        assert_eq!(art.cells[0][0].ch, 'A');
+        assert_eq!(art.cells[0][0].fg, Some((10, 20, 30)));
+        assert_eq!(art.cells[0][1].fg, None);
     }
 
     #[test]
-    fn parse_pads_ragged_rows() {
-        let m = parse_pixmap("##\n#").unwrap();
-        assert_eq!(m.width, 2);
-        assert_eq!(m.rows[1], vec![1, 0]);
+    fn reverse_video_swaps_colors() {
+        let art = parse_ansi_art("\x1b[7m\x1b[38;2;1;2;3mX\n").unwrap();
+        assert_eq!(art.cells[0][0].fg, None);
+        assert_eq!(art.cells[0][0].bg, Some((1, 2, 3)));
+    }
+
+    #[test]
+    fn blank_padding_rows_are_dropped() {
+        let art = parse_ansi_art(" \x1b[38;2;0;0;0m  \x1b[0m\n\x1b[38;2;9;9;9m#\n").unwrap();
+        assert_eq!(art.cells.len(), 1);
+        assert_eq!(art.cells[0][0].ch, '#');
     }
 }

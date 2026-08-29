@@ -11,6 +11,7 @@ fn game(id: &str, abbr: &str, status: Status) -> Game {
         color: [1, 2, 3],
         alt_color: [0, 0, 0],
         logo_key: format!("nfl/{}", a.to_lowercase()),
+        ..Default::default()
     };
     Game {
         id: id.into(),

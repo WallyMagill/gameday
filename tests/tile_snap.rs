@@ -9,7 +9,9 @@ fn live_kc() -> Game {
         away: Team {
             id: "12".into(),
             abbr: "KC".into(),
-            name: "Kansas City Chiefs".into(),
+            name: "Chiefs".into(),
+            location: "Kansas City".into(),
+            record: "11-6".into(),
             color: [227, 24, 55],
             alt_color: [255, 184, 28],
             logo_key: "nfl/kc".into(),
@@ -17,7 +19,9 @@ fn live_kc() -> Game {
         home: Team {
             id: "27".into(),
             abbr: "TB".into(),
-            name: "Tampa Bay Buccaneers".into(),
+            name: "Buccaneers".into(),
+            location: "Tampa Bay".into(),
+            record: "11-6".into(),
             color: [213, 10, 10],
             alt_color: [52, 48, 43],
             logo_key: "nfl/tb".into(),
@@ -34,6 +38,7 @@ fn live_kc() -> Game {
         }),
         last_plays: vec![Play {
             clock: "1:27".into(),
+            team: "KC".into(),
             text: "Mahomes pass to Kelce for 3 yards".into(),
             scoring: false,
         }],
@@ -83,5 +88,7 @@ fn full_tile_includes_last_play_and_situation() {
     t.draw(|f| render_tile(f, f.area(), &live_kc(), Density::Full, false)).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("Kelce"), "{s}");
-    assert!(s.contains("1st & Goal"), "{s}");
+    assert!(s.contains("1ST & GOAL TB 3"), "{s}");
+    assert!(s.contains("MOMENTUM"), "{s}");
+    assert!(s.contains("RED ZONE"), "{s}");
 }

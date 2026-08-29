@@ -5,3 +5,4 @@
 docs/research/mockups/tui/target/
 docs/research/mockups/tui/Cargo.lock
 .worktrees/
+out/

@@ -13,7 +13,7 @@ use ratatui::Frame;
 pub enum Density { Full, Standard, Compact }
 
 const LOGO_W: u16 = 10;
-const SCORE_W: u16 = 9;
+const SCORE_W: u16 = 7;
 const METER_W: u16 = 9;
 const IDENTITY_H: u16 = 6;
 
@@ -23,7 +23,6 @@ pub fn render_tile(frame: &mut Frame, area: Rect, game: &Game, density: Density,
         return;
     }
     let accent = theme::league_accent(game.league);
-    let live = game.status == Status::Live;
     let border = if selected { theme::AMBER } else { theme::BORDER };
 
     let mut left_title = vec![

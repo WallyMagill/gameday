@@ -11,6 +11,7 @@ fn team(abbr: &str) -> Team {
         color: [200, 16, 46],
         alt_color: [255, 184, 28],
         logo_key: format!("nfl/{}", abbr.to_lowercase()),
+        ..Default::default()
     }
 }
 
@@ -32,6 +33,7 @@ fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
         }),
         last_plays: vec![Play {
             clock: "1:27".into(),
+            team: away.into(),
             text: "Mahomes pass to Kelce for 3 yards".into(),
             scoring: false,
         }],
@@ -66,9 +68,10 @@ fn header_and_tabs_render() {
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.to_lowercase().contains("gameday"), "{s}");
-    assert!(s.to_lowercase().contains("home"), "{s}");
-    assert!(s.to_lowercase().contains("nfl"), "{s}");
+    assert!(s.contains("GAMEDAY"), "{s}");
+    assert!(s.contains("FILTER:"), "{s}");
+    assert!(s.contains("[ALL]"), "{s}");
+    assert!(s.contains("NFL"), "{s}");
 }
 
 #[test]
@@ -77,8 +80,9 @@ fn footer_shows_chords() {
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.contains("quit") || s.contains("q "), "{s}");
-    assert!(s.contains("pin") || s.contains("space"), "{s}");
+    assert!(s.contains("NAV:"), "{s}");
+    assert!(s.contains("[Q]"), "{s}");
+    assert!(s.contains("[SPACE]"), "{s}");
 }
 
 #[test]

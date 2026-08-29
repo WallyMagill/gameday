@@ -6,6 +6,7 @@ fn g(id: &str, league: League, live: bool) -> Game {
     let t = |a: &str| Team {
         id: a.into(), abbr: a.into(), name: a.into(),
         color: [0; 3], alt_color: [0; 3], logo_key: "nfl/x".into(),
+        ..Default::default()
     };
     Game {
         id: id.into(), league, away: t("A"), home: t("B"),
