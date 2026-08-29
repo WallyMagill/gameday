@@ -1,3 +1,5 @@
+pub mod packer;
+
 use crate::domain::{Game, Meter, Status};
 use crate::theme;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
