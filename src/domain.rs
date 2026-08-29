@@ -1,0 +1,156 @@
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum League { Nfl, Cfb, Cbb, Nba, Nhl, Mlb }
+
+impl League {
+    pub fn espn_path(self) -> (&'static str, &'static str) {
+        match self {
+            League::Nfl => ("football", "nfl"),
+            League::Cfb => ("football", "college-football"),
+            League::Cbb => ("basketball", "mens-college-basketball"),
+            League::Nba => ("basketball", "nba"),
+            League::Nhl => ("hockey", "nhl"),
+            League::Mlb => ("baseball", "mlb"),
+        }
+    }
+
+    pub fn slug(self) -> &'static str {
+        match self {
+            League::Nfl => "nfl",
+            League::Cfb => "cfb",
+            League::Cbb => "cbb",
+            League::Nba => "nba",
+            League::Nhl => "nhl",
+            League::Mlb => "mlb",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status { Pre, Live, Final }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Team {
+    pub id: String,
+    pub abbr: String,
+    pub name: String,
+    pub color: [u8; 3],
+    pub alt_color: [u8; 3],
+    pub logo_key: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Play {
+    pub clock: String,
+    pub text: String,
+    pub scoring: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Situation {
+    pub down_distance: String,
+    pub possession: Option<String>,
+    pub ball_on: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Meter {
+    RedZone { yards_to_goal: u8 },
+    Lead { plus_minus: i16 },
+    Diamond { occupied: [bool; 3] },
+    Penalty { team_abbr: String, seconds: u16 },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Game {
+    pub id: String,
+    pub league: League,
+    pub home: Team,
+    pub away: Team,
+    pub home_score: u16,
+    pub away_score: u16,
+    pub status: Status,
+    pub period: String,
+    pub clock: String,
+    pub situation: Option<Situation>,
+    pub last_plays: Vec<Play>,
+    pub meter: Option<Meter>,
+    pub start_time: Option<String>,
+    pub broadcast: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Summary {
+    pub last_plays: Vec<Play>,
+    pub scoring_plays: Vec<Play>,
+    pub meter: Option<Meter>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chiefs() -> Team {
+        Team {
+            id: "12".into(),
+            abbr: "KC".into(),
+            name: "Kansas City Chiefs".into(),
+            color: [227, 24, 55],
+            alt_color: [255, 184, 28],
+            logo_key: "nfl/kc".into(),
+        }
+    }
+
+    #[test]
+    fn nfl_espn_path() {
+        assert_eq!(League::Nfl.espn_path(), ("football", "nfl"));
+        assert_eq!(League::Cfb.espn_path(), ("football", "college-football"));
+        assert_eq!(League::Nba.espn_path(), ("basketball", "nba"));
+        assert_eq!(League::Nhl.espn_path(), ("hockey", "nhl"));
+        assert_eq!(League::Cbb.espn_path(), ("basketball", "mens-college-basketball"));
+        assert_eq!(League::Mlb.espn_path(), ("baseball", "mlb"));
+    }
+
+    #[test]
+    fn slugs() {
+        assert_eq!(League::Nfl.slug(), "nfl");
+        assert_eq!(League::Cfb.slug(), "cfb");
+    }
+
+    #[test]
+    fn live_game_holds_situation_and_plays() {
+        let g = Game {
+            id: "401".into(),
+            league: League::Nfl,
+            away: chiefs(),
+            home: Team {
+                id: "27".into(),
+                abbr: "TB".into(),
+                name: "Tampa Bay Buccaneers".into(),
+                color: [213, 10, 10],
+                alt_color: [52, 48, 43],
+                logo_key: "nfl/tb".into(),
+            },
+            away_score: 27,
+            home_score: 24,
+            status: Status::Live,
+            period: "Q4".into(),
+            clock: "1:27".into(),
+            situation: Some(Situation {
+                down_distance: "1st & Goal".into(),
+                possession: Some("KC".into()),
+                ball_on: Some("TB 3".into()),
+            }),
+            last_plays: vec![Play {
+                clock: "1:27".into(),
+                text: "Mahomes pass to Kelce for 3 yards".into(),
+                scoring: false,
+            }],
+            meter: Some(Meter::RedZone { yards_to_goal: 3 }),
+            start_time: None,
+            broadcast: Some("CBS".into()),
+        };
+        assert_eq!(g.status, Status::Live);
+        assert_eq!(g.meter, Some(Meter::RedZone { yards_to_goal: 3 }));
+        assert_eq!(g.away.logo_key, "nfl/kc");
+    }
+}
