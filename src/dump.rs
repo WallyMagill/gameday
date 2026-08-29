@@ -32,14 +32,23 @@ pub fn render_demo_buffer(cols: u16, rows: u16) -> std::io::Result<Buffer> {
 
 pub fn run(out_dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(out_dir)?;
+    capture(out_dir, "board")?;
+    // Second capture for the big-score A/B; harmless extra file until decided.
+    std::env::set_var("GAMEDAY_BIG_SCORES", "1");
+    let res = capture(out_dir, "board-big");
+    std::env::remove_var("GAMEDAY_BIG_SCORES");
+    res
+}
+
+fn capture(out_dir: &Path, stem: &str) -> std::io::Result<()> {
     let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS)?;
-    let html_path = out_dir.join("board.html");
+    let html_path = out_dir.join(format!("{stem}.html"));
     std::fs::write(&html_path, buffer_to_html(&buf))?;
-    std::fs::write(out_dir.join("board.ansi"), buffer_to_ansi(&buf))?;
+    std::fs::write(out_dir.join(format!("{stem}.ansi")), buffer_to_ansi(&buf))?;
     eprintln!("wrote {}", html_path.display());
-    match screenshot(&html_path, &out_dir.join("board.png")) {
+    match screenshot(&html_path, &out_dir.join(format!("{stem}.png"))) {
         Ok(png) => eprintln!("wrote {png}"),
-        Err(e) => eprintln!("png skipped: {e} (open board.html instead)"),
+        Err(e) => eprintln!("png skipped: {e} (open {stem}.html instead)"),
     }
     Ok(())
 }

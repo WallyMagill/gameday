@@ -13,3 +13,4 @@ ureq = "2"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing", "serde", "local-offset"] }
 dirs = "5"
+tui-big-text = "0.7"

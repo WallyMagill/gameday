@@ -102,8 +102,18 @@ fn situation_summary(game: &Game) -> String {
     }
 }
 
+/// A/B experiment: `GAMEDAY_BIG_SCORES=1` renders 3-row sextant digits
+/// instead of the single-row score. Kept until Walter picks one by eye.
+fn big_scores_enabled() -> bool {
+    std::env::var("GAMEDAY_BIG_SCORES").is_ok_and(|v| v == "1")
+}
+
 /// Logo | city/NAME/record | 27 - 24 | city/NAME/record | logo
 fn render_identity(frame: &mut Frame, area: Rect, game: &Game) {
+    if big_scores_enabled() {
+        render_identity_big(frame, area, game);
+        return;
+    }
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -126,6 +136,72 @@ fn render_identity(frame: &mut Frame, area: Rect, game: &Game) {
     );
     render_team_id(frame, cols[3], &game.home);
     logo::draw_logo(frame, cols[4], &game.home);
+}
+
+/// Big-score variant: logos at the edges, 3-row sextant digits in the middle,
+/// names + records on single rows beneath (no city line — the digits take it).
+fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game) {
+    use tui_big_text::{BigText, PixelSize};
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(LOGO_W),
+            Constraint::Min(4),
+            Constraint::Length(LOGO_W),
+        ])
+        .split(area);
+    logo::draw_logo(frame, cols[0], &game.away);
+    logo::draw_logo(frame, cols[2], &game.home);
+    let center = cols[1];
+    let away_s = game.away_score.to_string();
+    let home_s = game.home_score.to_string();
+    let widths = [away_s.len() as u16 * 4, 4, home_s.len() as u16 * 4];
+    let total: u16 = widths.iter().sum();
+    let x0 = center.x + center.width.saturating_sub(total) / 2;
+    let mut x = x0;
+    for (text, w, color) in [
+        (away_s.as_str(), widths[0], theme::rgb(game.away.color)),
+        ("-", widths[1], theme::MUTED),
+        (home_s.as_str(), widths[2], theme::rgb(game.home.color)),
+    ] {
+        let slot = Rect { x, y: center.y, width: w.min(center.width), height: 3.min(center.height) };
+        frame.render_widget(
+            BigText::builder()
+                .pixel_size(PixelSize::Sextant)
+                .style(Style::default().fg(color))
+                .lines(vec![Line::from(text.to_string())])
+                .build(),
+            slot,
+        );
+        x += w;
+    }
+    if center.height >= 5 {
+        let names = Rect { x: center.x, y: center.y + 4, width: center.width, height: 1 };
+        let label = |t: &Team| {
+            let mut s = t.name.to_uppercase();
+            if !t.record.is_empty() {
+                s.push(' ');
+                s.push_str(&t.record);
+            }
+            s
+        };
+        let half = (center.width as usize).saturating_sub(2) / 2;
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                truncate(&label(&game.away), half),
+                Style::default().fg(theme::BRIGHT).add_modifier(Modifier::BOLD),
+            ))),
+            names,
+        );
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                truncate(&label(&game.home), half),
+                Style::default().fg(theme::BRIGHT).add_modifier(Modifier::BOLD),
+            )))
+            .alignment(Alignment::Right),
+            names,
+        );
+    }
 }
 
 fn score_line(game: &Game) -> Line<'static> {
