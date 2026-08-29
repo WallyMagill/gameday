@@ -1,3 +1,4 @@
+pub mod logo;
 pub mod packer;
 
 use crate::domain::{Game, Meter, Status};
@@ -76,9 +77,22 @@ pub fn render_tile(frame: &mut Frame, area: Rect, game: &Game, density: Density,
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Length(8), Constraint::Min(8)])
                     .split(inner);
-                let logo = Paragraph::new(game.away.abbr.clone())
-                    .style(Style::default().fg(theme::rgb(game.away.color)).add_modifier(Modifier::BOLD));
-                frame.render_widget(logo, Rect { x: cols[0].x, y: cols[0].y, width: cols[0].width.min(8), height: cols[0].height.min(5) });
+                let away_slot = Rect {
+                    x: cols[0].x,
+                    y: cols[0].y,
+                    width: cols[0].width.min(8),
+                    height: cols[0].height.min(5),
+                };
+                logo::draw_logo(frame, away_slot, &game.away);
+                if cols[0].height >= 10 {
+                    let home_slot = Rect {
+                        x: cols[0].x,
+                        y: cols[0].y + 5,
+                        width: cols[0].width.min(8),
+                        height: 5,
+                    };
+                    logo::draw_logo(frame, home_slot, &game.home);
+                }
                 frame.render_widget(Paragraph::new(lines), cols[1]);
             } else {
                 frame.render_widget(Paragraph::new(lines), inner);
