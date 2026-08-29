@@ -1,8 +1,15 @@
 use crate::config::{prune_pins, save_pins, Config, Favorite, Pin};
 use crate::domain::{Game, League, Status, Summary};
 use crate::home::home_games;
-use crate::tiles::packer::LayoutPref;
+use crate::theme;
+use crate::tiles::packer::{pack, LayoutPref};
+use crate::tiles::render_tile;
 use crossterm::event::KeyCode;
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Paragraph};
+use ratatui::Frame;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use time::OffsetDateTime;
@@ -258,9 +265,12 @@ impl App {
             return;
         };
         let abbr = game.home.abbr;
-        if let Some(idx) = self.config.favorites.iter().position(|f| {
-            f.league == game.league && f.team_abbr.eq_ignore_ascii_case(&abbr)
-        }) {
+        if let Some(idx) = self
+            .config
+            .favorites
+            .iter()
+            .position(|f| f.league == game.league && f.team_abbr.eq_ignore_ascii_case(&abbr))
+        {
             self.config.favorites.remove(idx);
         } else {
             self.config.favorites.push(Favorite {
@@ -276,6 +286,245 @@ impl App {
         self.config.layout = layout;
         let _ = self.config.save_to(&self.config_dir);
     }
+
+    pub fn draw(&mut self, frame: &mut Frame) {
+        let area = frame.area();
+        frame.render_widget(
+            Block::default().style(Style::default().bg(theme::BG).fg(theme::FG)),
+            area,
+        );
+        if area.width < 40 || area.height < 12 {
+            frame.render_widget(
+                Paragraph::new("need more columns")
+                    .style(Style::default().fg(theme::MUTED).bg(theme::BG)),
+                area,
+            );
+            return;
+        }
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(3),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ])
+            .split(area);
+        self.draw_header(frame, chunks[0]);
+        self.draw_tabs(frame, chunks[1]);
+        self.draw_body(frame, chunks[2]);
+        self.draw_ticker(frame, chunks[3]);
+        self.draw_footer(frame, chunks[4]);
+    }
+
+    fn draw_header(&self, frame: &mut Frame, area: Rect) {
+        let n = self
+            .concat_boards()
+            .iter()
+            .filter(|g| g.status == Status::Live)
+            .count();
+        let mut spans = vec![Span::styled(
+            " gameday ",
+            Style::default()
+                .fg(theme::AMBER)
+                .add_modifier(Modifier::BOLD),
+        )];
+        let mut left_len = " gameday ".len();
+        if n > 0 {
+            let live = format!("{n} live");
+            left_len += live.len();
+            spans.push(Span::styled(live, Style::default().fg(theme::LIVE)));
+        }
+        if self.stale {
+            spans.push(Span::styled(" stale", Style::default().fg(theme::MUTED)));
+            left_len += " stale".len();
+        }
+        let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+        let clock = format!("{:02}:{:02}", now.hour(), now.minute());
+        let spacer = (area.width as usize)
+            .saturating_sub(left_len)
+            .saturating_sub(clock.len());
+        spans.push(Span::raw(" ".repeat(spacer)));
+        spans.push(Span::styled(clock, Style::default().fg(theme::AMBER)));
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::BG)),
+            area,
+        );
+    }
+
+    fn draw_tabs(&self, frame: &mut Frame, area: Rect) {
+        let mut spans = Vec::new();
+        for (i, tab) in self.tab_list().iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled(" · ", Style::default().fg(theme::DIM)));
+            }
+            let label = match tab {
+                Tab::Home => "home",
+                Tab::League(league) => league.slug(),
+            };
+            let style = if *tab == self.tab {
+                Style::default()
+                    .fg(theme::AMBER)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::MUTED)
+            };
+            spans.push(Span::styled(label, style));
+        }
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::BG)),
+            area,
+        );
+    }
+
+    fn draw_body(&self, frame: &mut Frame, area: Rect) {
+        let show_slate = matches!(self.tab, Tab::League(_)) && area.height >= 20;
+        let mosaic = if show_slate {
+            let parts = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(1), Constraint::Length(7)])
+                .split(area);
+            self.draw_slate(frame, parts[1]);
+            parts[0]
+        } else {
+            area
+        };
+        self.draw_mosaic(frame, mosaic, show_slate);
+    }
+
+    fn mosaic_games(&self, show_slate: bool) -> Vec<Game> {
+        match self.tab {
+            Tab::Home => self.visible_games(),
+            Tab::League(_) => {
+                let live = self.live_games();
+                if !live.is_empty() {
+                    live
+                } else if show_slate {
+                    Vec::new()
+                } else {
+                    self.slate_games()
+                }
+            }
+        }
+    }
+
+    fn draw_mosaic(&self, frame: &mut Frame, area: Rect, show_slate: bool) {
+        let games = self.mosaic_games(show_slate);
+        match self.tab {
+            Tab::Home if games.is_empty() => {
+                frame.render_widget(
+                    Paragraph::new("pin a game from nfl (space) · t fav home")
+                        .style(Style::default().fg(theme::MUTED).bg(theme::BG))
+                        .alignment(Alignment::Center),
+                    area,
+                );
+                return;
+            }
+            Tab::League(_) if self.visible_games().is_empty() => {
+                frame.render_widget(
+                    Paragraph::new("next kickoff")
+                        .style(Style::default().fg(theme::MUTED).bg(theme::BG))
+                        .alignment(Alignment::Center),
+                    area,
+                );
+                return;
+            }
+            _ => {}
+        }
+
+        if let Some(id) = &self.focused_id {
+            if let Some(game) = games.iter().find(|g| g.id == *id) {
+                let one = [game.clone()];
+                for tile in pack(&one, area, LayoutPref::One, 0) {
+                    render_tile(frame, tile.area, tile.game, tile.density, true);
+                }
+                return;
+            }
+        }
+
+        let packed = pack(&games, area, self.effective_layout(), self.page);
+        let start = packed
+            .first()
+            .and_then(|tile| games.iter().position(|g| g.id == tile.game.id))
+            .unwrap_or(0);
+        for (i, tile) in packed.iter().enumerate() {
+            let selected = start + i == self.selected || i == self.selected;
+            render_tile(frame, tile.area, tile.game, tile.density, selected);
+        }
+    }
+
+    fn draw_slate(&self, frame: &mut Frame, area: Rect) {
+        let lines: Vec<Line> = self
+            .slate_games()
+            .iter()
+            .map(|g| {
+                Line::from(Span::styled(
+                    slate_line(g),
+                    Style::default().fg(theme::MUTED),
+                ))
+            })
+            .collect();
+        frame.render_widget(
+            Paragraph::new(lines).style(Style::default().bg(theme::BG).fg(theme::MUTED)),
+            area,
+        );
+    }
+
+    fn draw_ticker(&self, frame: &mut Frame, area: Rect) {
+        let plays: Vec<String> = self
+            .live_games()
+            .iter()
+            .flat_map(|g| g.last_plays.iter())
+            .filter(|p| p.scoring)
+            .map(|p| p.text.clone())
+            .collect();
+        let widget = if plays.is_empty() {
+            Paragraph::new("no scoring plays")
+                .style(Style::default().fg(theme::MUTED).bg(theme::BG))
+        } else {
+            Paragraph::new(plays.join("  |  "))
+                .style(Style::default().fg(theme::LIVE).bg(theme::BG))
+        };
+        frame.render_widget(widget, area);
+    }
+
+    fn draw_footer(&self, frame: &mut Frame, area: Rect) {
+        let text = match self.tab {
+            Tab::Home => {
+                " space pin  enter focus  j/k  n/p  t fav home  1/2/4/s layout  tab  r  q "
+            }
+            Tab::League(_) => {
+                " space pin home  enter focus  j/k  n/p  t fav home  1/2/4/s layout  tab  r  q "
+            }
+        };
+        frame.render_widget(
+            Paragraph::new(text).style(Style::default().fg(theme::MUTED).bg(theme::DIM)),
+            area,
+        );
+    }
+}
+
+fn slate_line(game: &Game) -> String {
+    match game.status {
+        Status::Pre => {
+            let mut line = format!("{} @ {}", game.away.abbr, game.home.abbr);
+            if let Some(broadcast) = &game.broadcast {
+                line.push_str("  ");
+                line.push_str(broadcast);
+            }
+            if let Some(start) = &game.start_time {
+                line.push_str("  ");
+                line.push_str(start);
+            }
+            line
+        }
+        Status::Final => format!(
+            "{} {}  {} {}  F",
+            game.away.abbr, game.away_score, game.home.abbr, game.home_score
+        ),
+        Status::Live => String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -288,21 +537,31 @@ mod tests {
 
     fn team(abbr: &str) -> Team {
         Team {
-            id: abbr.into(), abbr: abbr.into(), name: abbr.into(),
-            color: [1, 2, 3], alt_color: [0, 0, 0],
+            id: abbr.into(),
+            abbr: abbr.into(),
+            name: abbr.into(),
+            color: [1, 2, 3],
+            alt_color: [0, 0, 0],
             logo_key: format!("nfl/{}", abbr.to_lowercase()),
         }
     }
 
     fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
         Game {
-            id: id.into(), league: League::Nfl,
-            away: team(away), home: team(home),
-            away_score: 7, home_score: 3,
+            id: id.into(),
+            league: League::Nfl,
+            away: team(away),
+            home: team(home),
+            away_score: 7,
+            home_score: 3,
             status: if live { Status::Live } else { Status::Pre },
-            period: "Q2".into(), clock: "5:00".into(),
-            situation: None, last_plays: vec![], meter: None,
-            start_time: None, broadcast: None,
+            period: "Q2".into(),
+            clock: "5:00".into(),
+            situation: None,
+            last_plays: vec![],
+            meter: None,
+            start_time: None,
+            broadcast: None,
         }
     }
 
@@ -318,7 +577,11 @@ mod tests {
     fn home_shows_only_pinned() {
         let app = app_with(
             vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
-            vec![Pin { game_id: "1".into(), league: League::Nfl, final_at: None }],
+            vec![Pin {
+                game_id: "1".into(),
+                league: League::Nfl,
+                final_at: None,
+            }],
         );
         let ids: Vec<_> = app.visible_games().into_iter().map(|x| x.id).collect();
         assert_eq!(ids, vec!["1"]);
@@ -369,7 +632,13 @@ mod tests {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.tab = Tab::League(League::Nfl);
         app.on_key(KeyCode::Char('t'));
-        assert_eq!(app.config.favorites, vec![Favorite { league: League::Nfl, team_abbr: "TB".into() }]);
+        assert_eq!(
+            app.config.favorites,
+            vec![Favorite {
+                league: League::Nfl,
+                team_abbr: "TB".into()
+            }]
+        );
         app.on_key(KeyCode::Char('t'));
         assert!(app.config.favorites.is_empty());
     }
@@ -397,9 +666,14 @@ mod tests {
 
     #[test]
     fn apply_boards_stamps_final_at() {
-        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![
-            Pin { game_id: "1".into(), league: League::Nfl, final_at: None },
-        ]);
+        let mut app = app_with(
+            vec![g("1", "KC", "TB", true)],
+            vec![Pin {
+                game_id: "1".into(),
+                league: League::Nfl,
+                final_at: None,
+            }],
+        );
         let mut done = g("1", "KC", "TB", false);
         done.status = Status::Final;
         app.apply_boards(League::Nfl, vec![done], false);
