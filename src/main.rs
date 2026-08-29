@@ -214,8 +214,18 @@ fn poll_loop(provider: EspnProvider, tx: mpsc::Sender<Msg>, leagues: Vec<League>
     }
 }
 
+struct RestoreTerminal;
+
+impl Drop for RestoreTerminal {
+    fn drop(&mut self) {
+        let _ = execute!(stdout(), LeaveAlternateScreen);
+        let _ = disable_raw_mode();
+    }
+}
+
 fn run_ui(mut app: App, rx: Option<mpsc::Receiver<Msg>>) -> std::io::Result<()> {
     enable_raw_mode()?;
+    let _restore = RestoreTerminal;
     execute!(stdout(), EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let mut last_err: Option<std::io::Error> = None;
@@ -251,8 +261,6 @@ fn run_ui(mut app: App, rx: Option<mpsc::Receiver<Msg>>) -> std::io::Result<()> 
             break 'ui;
         }
     }
-    execute!(stdout(), LeaveAlternateScreen)?;
-    disable_raw_mode()?;
     match last_err {
         Some(e) => Err(e),
         None => Ok(()),
