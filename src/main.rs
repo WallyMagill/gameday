@@ -130,8 +130,8 @@ fn main() -> std::io::Result<()> {
     if args.demo {
         let mut mem = MemoryProvider::new();
         mem.insert_board(League::Nfl, demo_games());
-        let games = mem.scoreboard(League::Nfl).unwrap();
-        app.apply_boards(League::Nfl, games, false);
+        let (games, stale) = mem.scoreboard(League::Nfl).unwrap();
+        app.apply_boards(League::Nfl, games, stale);
         return run_ui(app, None);
     }
 
@@ -173,13 +173,16 @@ fn poll_loop(provider: EspnProvider, tx: mpsc::Sender<Msg>, leagues: Vec<League>
             let mut any_failed = false;
             for league in &leagues {
                 match provider.scoreboard(*league) {
-                    Ok(games) => {
+                    Ok((games, stale)) => {
                         merge_live_ids(&mut live, *league, Some(&games));
                         let _ = tx.send(Msg::Boards {
                             league: *league,
                             games,
-                            stale: false,
+                            stale,
                         });
+                        if stale {
+                            any_failed = true;
+                        }
                     }
                     Err(_) => {
                         any_failed = true;
@@ -198,7 +201,7 @@ fn poll_loop(provider: EspnProvider, tx: mpsc::Sender<Msg>, leagues: Vec<League>
         }
         if last_sum.elapsed() >= Duration::from_secs(15) {
             for (league, id) in live.iter().take(4) {
-                if let Ok(s) = provider.summary(*league, id) {
+                if let Ok((s, _)) = provider.summary(*league, id) {
                     let _ = tx.send(Msg::Summary {
                         id: id.clone(),
                         summary: s,

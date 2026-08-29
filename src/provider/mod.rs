@@ -15,6 +15,6 @@ pub enum ProviderError {
 }
 
 pub trait SportsProvider {
-    fn scoreboard(&self, league: League) -> Result<Vec<Game>, ProviderError>;
-    fn summary(&self, league: League, game_id: &str) -> Result<Summary, ProviderError>;
+    fn scoreboard(&self, league: League) -> Result<(Vec<Game>, bool), ProviderError>;
+    fn summary(&self, league: League, game_id: &str) -> Result<(Summary, bool), ProviderError>;
 }

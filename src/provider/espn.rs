@@ -13,11 +13,27 @@ impl EspnProvider {
     pub fn new(cache_dir: PathBuf) -> Self {
         Self { cache_dir }
     }
+
+    fn fetch<T, F>(&self, url: &str, key: &str, map: F) -> Result<(T, bool), ProviderError>
+    where
+        F: FnOnce(&str) -> Result<T, ProviderError>,
+    {
+        let cached = cache_read(&self.cache_dir, key).ok();
+        let http = match http_get(url) {
+            Ok(body) => {
+                cache_write(&self.cache_dir, key, &body)?;
+                Ok(body)
+            }
+            Err(e) => Err(e),
+        };
+        http_or_cache(http, cached, map)
+    }
 }
 
 pub fn scoreboard_url(league: League) -> String {
     let (sport, slug) = league.espn_path();
-    let mut u = format!("https://site.web.api.espn.com/apis/site/v2/sports/{sport}/{slug}/scoreboard");
+    let mut u =
+        format!("https://site.web.api.espn.com/apis/site/v2/sports/{sport}/{slug}/scoreboard");
     if league == League::Cfb {
         u.push_str("?groups=80");
     }
@@ -26,7 +42,9 @@ pub fn scoreboard_url(league: League) -> String {
 
 pub fn summary_url(league: League, event_id: &str) -> String {
     let (sport, slug) = league.espn_path();
-    format!("https://site.web.api.espn.com/apis/site/v2/sports/{sport}/{slug}/summary?event={event_id}")
+    format!(
+        "https://site.web.api.espn.com/apis/site/v2/sports/{sport}/{slug}/summary?event={event_id}"
+    )
 }
 
 pub fn cache_write(dir: &Path, key: &str, body: &str) -> std::io::Result<()> {
@@ -59,39 +77,37 @@ fn http_get(url: &str) -> Result<String, ProviderError> {
     }
 }
 
+/// HTTP body or optional disk cache → mapped payload and stale flag.
+pub fn http_or_cache<T, F>(
+    http: Result<String, ProviderError>,
+    cached: Option<String>,
+    map: F,
+) -> Result<(T, bool), ProviderError>
+where
+    F: FnOnce(&str) -> Result<T, ProviderError>,
+{
+    match http {
+        Ok(body) => Ok((map(&body)?, false)),
+        Err(err) => match cached {
+            Some(body) => Ok((map(&body)?, true)),
+            None => Err(err),
+        },
+    }
+}
+
 impl SportsProvider for EspnProvider {
-    fn scoreboard(&self, league: League) -> Result<Vec<Game>, ProviderError> {
+    fn scoreboard(&self, league: League) -> Result<(Vec<Game>, bool), ProviderError> {
         let url = scoreboard_url(league);
         let key = format!("{}-scoreboard", league.slug());
-        match http_get(&url) {
-            Ok(body) => {
-                cache_write(&self.cache_dir, &key, &body)?;
-                Ok(map_scoreboard(league, &body)?)
-            }
-            Err(e) => {
-                if let Ok(cached) = cache_read(&self.cache_dir, &key) {
-                    return Ok(map_scoreboard(league, &cached)?);
-                }
-                Err(e)
-            }
-        }
+        self.fetch(&url, &key, |body| {
+            map_scoreboard(league, body).map_err(Into::into)
+        })
     }
 
-    fn summary(&self, league: League, game_id: &str) -> Result<Summary, ProviderError> {
+    fn summary(&self, league: League, game_id: &str) -> Result<(Summary, bool), ProviderError> {
         let url = summary_url(league, game_id);
         let key = format!("{}-{game_id}-summary", league.slug());
-        match http_get(&url) {
-            Ok(body) => {
-                cache_write(&self.cache_dir, &key, &body)?;
-                Ok(map_summary(&body)?)
-            }
-            Err(e) => {
-                if let Ok(cached) = cache_read(&self.cache_dir, &key) {
-                    return Ok(map_summary(&cached)?);
-                }
-                Err(e)
-            }
-        }
+        self.fetch(&url, &key, |body| map_summary(body).map_err(Into::into))
     }
 }
 
@@ -145,5 +161,29 @@ mod tests {
         assert_eq!(backoff_secs(1), 10);
         assert_eq!(backoff_secs(4), 80);
         assert_eq!(backoff_secs(9), 80);
+    }
+
+    fn map_body(s: &str) -> Result<String, ProviderError> {
+        Ok(s.to_string())
+    }
+
+    #[test]
+    fn http_ok_is_fresh() {
+        let got = http_or_cache(Ok("live".into()), Some("old".into()), map_body).unwrap();
+        assert_eq!(got, ("live".into(), false));
+    }
+
+    #[test]
+    fn http_err_with_cache_is_stale() {
+        let err = ProviderError::Http("status=403 url=x".into());
+        let got = http_or_cache(Err(err), Some("cached".into()), map_body).unwrap();
+        assert_eq!(got, ("cached".into(), true));
+    }
+
+    #[test]
+    fn http_err_without_cache_is_err() {
+        let err = ProviderError::Http("status=500 url=x".into());
+        let got = http_or_cache(Err(err), None, map_body);
+        assert!(matches!(got, Err(ProviderError::Http(_))));
     }
 }
