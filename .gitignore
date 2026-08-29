@@ -1,0 +1,7 @@
+/target/
+**/*.rs.bk
+.DS_Store
+.superpowers/
+docs/research/mockups/tui/target/
+docs/research/mockups/tui/Cargo.lock
+.worktrees/
