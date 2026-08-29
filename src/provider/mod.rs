@@ -1,4 +1,6 @@
+pub mod espn;
 pub mod map;
+pub mod memory;
 
 use crate::{Game, League, Summary};
 
