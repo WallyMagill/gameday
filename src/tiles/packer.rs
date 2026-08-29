@@ -18,7 +18,11 @@ pub struct PackedTile<'a> {
     pub density: Density,
 }
 
-fn page_size(pref: LayoutPref, n: usize) -> usize {
+/// Tiles per page for `pref` over `n` games. Public so `App` can clamp/wrap
+/// its page index with the exact numbers `pack` will use. (The narrow
+/// fallback for widths <60 cols is height-based and can differ; `pack` still
+/// guards its own bounds there.)
+pub fn page_size(pref: LayoutPref, n: usize) -> usize {
     match pref {
         LayoutPref::One => 1,
         LayoutPref::Two => 2,

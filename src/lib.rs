@@ -4,6 +4,7 @@ pub mod demo;
 pub mod domain;
 pub mod dump;
 pub mod home;
+pub mod keymap;
 pub mod poll;
 pub mod provider;
 pub mod sim;

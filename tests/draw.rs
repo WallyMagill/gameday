@@ -1,5 +1,5 @@
 use gameday::app::{App, Tab};
-use gameday::config::{Config, Pin};
+use gameday::config::Config;
 use gameday::domain::*;
 use ratatui::{backend::TestBackend, Terminal};
 
@@ -84,9 +84,73 @@ fn footer_shows_chords() {
     assert!(s.contains("NAV:"), "{s}");
     assert!(s.contains("[Q]"), "{s}");
     assert!(s.contains("[SPC]"), "{s}");
-    assert!(s.contains("[C] THEME"), "{s}");
+    assert!(s.contains("[?] HELP"), "{s}");
     // The whole chord list fits 120 cols: QUIT must not be clipped.
     assert!(s.contains("QUIT"), "{s}");
+    // Theme moved out of the footer into help — the footer shows top chords only.
+    assert!(!s.contains("[C] THEME"), "{s}");
+}
+
+#[test]
+fn help_overlay_lists_every_group_and_the_hidden_chords() {
+    let mut app = mk();
+    app.help_open = true;
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    for needle in [
+        "KEYS", "NAVIGATION", "SELECTION", "VIEW", "APP",
+        // Chords the footer omits must still be discoverable here.
+        "THEME", "LAYOUT", "FAVORITE", "CTRL-C", "S-TAB",
+    ] {
+        assert!(s.contains(needle), "help overlay missing {needle:?}:\n{s}");
+    }
+}
+
+#[test]
+fn focused_footer_shows_back_and_the_focused_game() {
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.focused_id = Some("1".into());
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("[ESC] BACK"), "{s}");
+    assert!(!s.contains("[ENTER] FOCUS"), "{s}");
+    assert!(s.contains("FOCUS KC@TB"), "{s}");
+}
+
+#[test]
+fn footer_shows_freshness_age() {
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("UPD 0s"), "{s}");
+}
+
+#[test]
+fn league_tab_with_only_slate_games_fills_mosaic_and_highlights_selection() {
+    let mut app = mk();
+    app.apply_boards(
+        League::Nfl,
+        vec![g("1", "KC", "TB", false), g("2", "DAL", "PHI", false)],
+        false,
+    );
+    app.tab = Tab::League(League::Nfl);
+    // Tall enough for the slate strip: mosaic must NOT be blank above it.
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("SLATE"), "{s}");
+    // Tiles render in the mosaic (tile chrome, not just slate rows).
+    assert!(s.contains("KC"), "{s}");
+    assert!(s.contains("DAL"), "{s}");
+    // The selected slate row carries the accent marker.
+    assert!(s.contains("▸"), "{s}");
 }
 
 #[test]

@@ -1,17 +1,19 @@
 use crate::config::{prune_pins, save_pins, Config, Favorite, Pin};
 use crate::domain::{Game, League, Status, Summary};
 use crate::home::home_games;
+use crate::keymap;
 use crate::theme;
-use crate::tiles::packer::{pack, LayoutPref};
+use crate::tiles::packer::{pack, page_size, LayoutPref};
 use crate::tiles::{render_tile, TileFx};
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Instant;
 use time::OffsetDateTime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +43,11 @@ pub struct App {
     pub should_quit: bool,
     pub refresh_now: bool,
     pub focused_id: Option<String>,
+    /// '?' overlay. Modal: Esc closes it before Esc touches focus.
+    pub help_open: bool,
+    /// Wall-clock moment of the last successful `apply_boards` — drives the
+    /// footer's "UPD 12s" freshness age.
+    pub last_update: Option<Instant>,
     pub config_dir: PathBuf,
     /// Monotonic render tick (~10/s while live, ~1/s idle). Every animation
     /// is a pure function of this counter plus app state — keyboard input
@@ -66,6 +73,8 @@ impl App {
             should_quit: false,
             refresh_now: false,
             focused_id: None,
+            help_open: false,
+            last_update: None,
             config_dir,
             tick: 0,
             last_scores: HashMap::new(),
@@ -147,12 +156,27 @@ impl App {
         }
     }
 
-    pub fn on_key(&mut self, code: KeyCode) {
+    pub fn on_key(&mut self, code: KeyCode, mods: KeyModifiers) {
+        // Raw mode swallows SIGINT, so Ctrl+C must be an explicit quit.
+        if mods.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('c') {
+            self.should_quit = true;
+            return;
+        }
+        // Help is modal: Esc closes the topmost layer (help before focus),
+        // '?' toggles, q still quits; everything else is inert while open.
+        if self.help_open {
+            match code {
+                KeyCode::Esc | KeyCode::Char('?') => self.help_open = false,
+                KeyCode::Char('q') => self.should_quit = true,
+                _ => {}
+            }
+            return;
+        }
         match code {
-            KeyCode::Tab | KeyCode::Char('l') => self.cycle_tab(1),
-            KeyCode::Char('h') => self.cycle_tab(-1),
-            KeyCode::Char('j') => self.move_selected(1),
-            KeyCode::Char('k') => self.move_selected(-1),
+            KeyCode::Tab | KeyCode::Char('l') | KeyCode::Right => self.cycle_tab(1),
+            KeyCode::BackTab | KeyCode::Char('h') | KeyCode::Left => self.cycle_tab(-1),
+            KeyCode::Char('j') | KeyCode::Down => self.move_selected(1),
+            KeyCode::Char('k') | KeyCode::Up => self.move_selected(-1),
             KeyCode::Char(' ') => self.toggle_pin(),
             KeyCode::Enter => {
                 if let Some(game) = self.selected_game() {
@@ -161,14 +185,9 @@ impl App {
             }
             KeyCode::Esc => self.focused_id = None,
             KeyCode::Char('t') => self.toggle_favorite(),
-            KeyCode::Char('n') => {
-                self.page = self.page.saturating_add(1);
-                self.selected = 0;
-            }
-            KeyCode::Char('p') => {
-                self.page = self.page.saturating_sub(1);
-                self.selected = 0;
-            }
+            KeyCode::Char('n') | KeyCode::PageDown => self.change_page(1),
+            KeyCode::Char('p') | KeyCode::PageUp => self.change_page(-1),
+            KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('1') => self.set_layout(LayoutPref::One),
             KeyCode::Char('2') => self.set_layout(LayoutPref::Two),
             KeyCode::Char('4') => self.set_layout(LayoutPref::Four),
@@ -204,6 +223,7 @@ impl App {
         }
         self.boards.insert(league, games);
         self.stale = stale;
+        self.last_update = Some(Instant::now());
         self.pins = prune_pins(std::mem::take(&mut self.pins), now);
         let _ = save_pins(&self.config_dir, &self.pins);
         self.clamp_selected();
@@ -258,16 +278,15 @@ impl App {
         }
     }
 
+    /// Everything j/k can land on. On a league tab the selection runs through
+    /// the live mosaic tiles first, then continues into the slate rows below.
     fn selection_list(&self) -> Vec<Game> {
         match self.tab {
             Tab::Home => self.visible_games(),
             Tab::League(_) => {
-                let live = self.live_games();
-                if live.is_empty() {
-                    self.slate_games()
-                } else {
-                    live
-                }
+                let mut list = self.live_games();
+                list.extend(self.slate_games());
+                list
             }
         }
     }
@@ -284,6 +303,28 @@ impl App {
         } else if self.selected >= n {
             self.selected = n - 1;
         }
+        // A shrunk board must never leave the page index past the end.
+        self.page = self.page.min(self.page_count() - 1);
+    }
+
+    /// Tiles per mosaic page under the current layout.
+    fn page_len(&self) -> usize {
+        page_size(self.effective_layout(), self.mosaic_games().len().max(1))
+    }
+
+    /// Number of mosaic pages, always >= 1.
+    pub fn page_count(&self) -> usize {
+        let n = self.mosaic_games().len();
+        n.max(1).div_ceil(self.page_len())
+    }
+
+    /// n/p and PgDn/PgUp: wrap around the known page count (never a blank
+    /// page past the end) and land the selection on the page's first tile.
+    fn change_page(&mut self, delta: isize) {
+        let count = self.page_count() as isize;
+        self.page = (self.page as isize + delta).rem_euclid(count) as usize;
+        let sel_len = self.selection_list().len();
+        self.selected = (self.page * self.page_len()).min(sel_len.saturating_sub(1));
     }
 
     fn cycle_tab(&mut self, delta: isize) {
@@ -306,6 +347,11 @@ impl App {
             return;
         }
         self.selected = (self.selected as isize + delta).rem_euclid(n as isize) as usize;
+        // Page follows the selection so the highlighted tile is always on
+        // screen; a selection down in the slate leaves the mosaic page alone.
+        if self.selected < self.mosaic_games().len() {
+            self.page = self.selected / self.page_len();
+        }
     }
 
     fn toggle_pin(&mut self) {
@@ -391,6 +437,9 @@ impl App {
             self.draw_ticker(frame, chunks[2]);
         }
         self.draw_footer(frame, chunks[3]);
+        if self.help_open {
+            self.draw_help(frame, area);
+        }
     }
 
     fn draw_header(&self, frame: &mut Frame, area: Rect) {
@@ -477,7 +526,7 @@ impl App {
         } else {
             main
         };
-        self.draw_mosaic(frame, mosaic, show_slate);
+        self.draw_mosaic(frame, mosaic);
     }
 
     /// Scoring plays across every visible board, newest-ish first: (game, play).
@@ -594,15 +643,16 @@ impl App {
         frame.render_widget(Paragraph::new(lines), inner);
     }
 
-    fn mosaic_games(&self, show_slate: bool) -> Vec<Game> {
+    /// Games shown as mosaic tiles. With no live games on a league tab the
+    /// slate games fill the mosaic as tiles — never a blank pane — while the
+    /// slate strip below still lists them departure-board style.
+    fn mosaic_games(&self) -> Vec<Game> {
         match self.tab {
             Tab::Home => self.visible_games(),
             Tab::League(_) => {
                 let live = self.live_games();
                 if !live.is_empty() {
                     live
-                } else if show_slate {
-                    Vec::new()
                 } else {
                     self.slate_games()
                 }
@@ -633,7 +683,7 @@ impl App {
         }
     }
 
-    fn draw_mosaic(&self, frame: &mut Frame, area: Rect, show_slate: bool) {
+    fn draw_mosaic(&self, frame: &mut Frame, area: Rect) {
         let th = theme::current();
         if let Some(game) = self.focused_game() {
             let fx = self.tile_fx(&game);
@@ -644,7 +694,7 @@ impl App {
             return;
         }
 
-        let games = self.mosaic_games(show_slate);
+        let games = self.mosaic_games();
         match self.tab {
             Tab::Home if games.is_empty() => {
                 frame.render_widget(
@@ -667,13 +717,17 @@ impl App {
             _ => {}
         }
 
-        let packed = pack(&games, area, self.effective_layout(), self.page);
+        // on_key wraps the page, but the board can shrink between keys.
+        let page = self.page.min(self.page_count() - 1);
+        let packed = pack(&games, area, self.effective_layout(), page);
         let start = packed
             .first()
             .and_then(|tile| games.iter().position(|g| g.id == tile.game.id))
             .unwrap_or(0);
         for (i, tile) in packed.iter().enumerate() {
-            let selected = start + i == self.selected || i == self.selected;
+            // Mosaic tiles are the head of selection_list, so the page-global
+            // index start+i compares directly against self.selected.
+            let selected = start + i == self.selected;
             render_tile(
                 frame,
                 tile.area,
@@ -696,14 +750,32 @@ impl App {
             ));
         let inner = block.inner(area);
         frame.render_widget(block, area);
+        // Selection continues past the live tiles into these rows; the
+        // selected row gets the same star accent as a selected tile border.
+        let live_len = self.live_games().len();
+        let sel = self
+            .selected
+            .checked_sub(live_len)
+            .filter(|_| self.focused_id.is_none());
         let lines: Vec<Line> = self
             .slate_games()
             .iter()
-            .map(|g| {
-                Line::from(Span::styled(
-                    slate_line(g),
-                    Style::default().fg(th.muted),
-                ))
+            .enumerate()
+            .map(|(i, g)| {
+                if Some(i) == sel {
+                    Line::from(vec![
+                        Span::styled("▸ ", Style::default().fg(th.star)),
+                        Span::styled(
+                            slate_line(g),
+                            Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+                        ),
+                    ])
+                } else {
+                    Line::from(Span::styled(
+                        format!("  {}", slate_line(g)),
+                        Style::default().fg(th.muted),
+                    ))
+                }
             })
             .collect();
         frame.render_widget(
@@ -781,33 +853,121 @@ impl App {
         frame.render_widget(Paragraph::new(lines), inner);
     }
 
+    /// Context-aware footer: the TOP chords from the keymap table (the full
+    /// set lives in the '?' overlay) plus position + freshness on the right.
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
         let th = theme::current();
-        // "SPC" and single-space separators keep the full list within 120 cols.
-        let chords: &[(&str, &str)] = &[
-            ("TAB", "LEAGUE"),
-            ("J/K", "MOVE"),
-            ("SPC", "PIN"),
-            ("ENTER", "FOCUS"),
-            ("N/P", "PAGE"),
-            ("T", "FAV"),
-            ("1/2/4/S", "LAYOUT"),
-            ("C", "THEME"),
-            ("R", "REFRESH"),
-            ("Q", "QUIT"),
-        ];
+        let focused = self.focused_id.is_some();
         let mut spans = vec![Span::styled(
             " NAV:",
             Style::default().fg(th.fg).add_modifier(Modifier::BOLD),
         )];
-        for (key, action) in chords {
+        for (key, action) in keymap::footer_chords(focused) {
             spans.push(Span::styled(format!(" [{key}]"), Style::default().fg(th.fg)));
             spans.push(Span::styled(format!(" {action}"), Style::default().fg(th.muted)));
+        }
+
+        // Right side, dropped piecewise if the row runs out of columns:
+        // GAME 3/8 goes first, PAGE and UPD stay.
+        let mut right: Vec<String> = Vec::new();
+        if focused {
+            if let Some(g) = self.focused_game() {
+                right.push(format!("FOCUS {}@{}", g.away.abbr, g.home.abbr));
+            }
+        } else {
+            let sel_len = self.selection_list().len();
+            if sel_len > 1 {
+                right.push(format!("GAME {}/{}", self.selected + 1, sel_len));
+            }
+        }
+        let pages = self.page_count();
+        if pages > 1 && !focused {
+            right.push(format!("PAGE {}/{}", self.page.min(pages - 1) + 1, pages));
+        }
+        if let Some(upd) = self.last_update.map(|t| age_label(t.elapsed().as_secs())) {
+            right.push(upd);
+        }
+        let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        let width = area.width as usize;
+        while !right.is_empty() && left_len + right.join("  ").chars().count() + 2 > width {
+            right.remove(0);
+        }
+        if !right.is_empty() {
+            let text = right.join("  ");
+            let spacer = width.saturating_sub(left_len + text.chars().count() + 1);
+            spans.push(Span::raw(" ".repeat(spacer)));
+            spans.push(Span::styled(text, Style::default().fg(th.cyan)));
         }
         frame.render_widget(
             Paragraph::new(Line::from(spans)).style(Style::default().bg(th.bg)),
             area,
         );
+    }
+
+    /// '?': every chord, grouped, over a luminance-dimmed board. Generated
+    /// from the same keymap table as the footer.
+    fn draw_help(&self, frame: &mut Frame, area: Rect) {
+        let th = theme::current();
+        let buf = frame.buffer_mut();
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                let cell = &mut buf[(x, y)];
+                cell.fg = theme::dimmed(cell.fg);
+                cell.bg = theme::dimmed(cell.bg);
+            }
+        }
+        let mut lines: Vec<Line> = Vec::new();
+        for group in keymap::Group::ALL {
+            if !lines.is_empty() {
+                lines.push(Line::from(""));
+            }
+            lines.push(Line::from(Span::styled(
+                group.title(),
+                Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+            )));
+            for (keys, label) in keymap::help_rows(group) {
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  {keys:<22}"), Style::default().fg(th.fg)),
+                    Span::styled(label, Style::default().fg(th.muted)),
+                ]));
+            }
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "ESC/? CLOSES",
+            Style::default().fg(th.dim),
+        )));
+        let w = 40u16.min(area.width.saturating_sub(4));
+        let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
+        let panel = Rect {
+            x: area.x + (area.width - w) / 2,
+            y: area.y + (area.height - h) / 2,
+            width: w,
+            height: h,
+        };
+        frame.render_widget(Clear, panel);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(th.star))
+            .title(Span::styled(
+                " KEYS ",
+                Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+            ));
+        frame.render_widget(
+            Paragraph::new(lines)
+                .block(block)
+                .style(Style::default().bg(th.bg).fg(th.fg)),
+            panel,
+        );
+    }
+}
+
+/// "UPD 12s" freshness age for the footer; minutes past 60s.
+fn age_label(secs: u64) -> String {
+    if secs < 60 {
+        format!("UPD {secs}s")
+    } else {
+        format!("UPD {}m", secs / 60)
     }
 }
 
@@ -884,7 +1044,7 @@ mod tests {
     use crate::config::{Config, Favorite, Pin};
     use crate::domain::*;
     use crate::tiles::packer::LayoutPref;
-    use crossterm::event::KeyCode;
+    use crossterm::event::{KeyCode, KeyModifiers};
 
     fn team(abbr: &str) -> Team {
         Team {
@@ -954,10 +1114,10 @@ mod tests {
     fn space_toggles_pin() {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.tab = Tab::League(League::Nfl);
-        app.on_key(KeyCode::Char(' '));
+        app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
         assert_eq!(app.pins.len(), 1);
         assert_eq!(app.pins[0].game_id, "1");
-        app.on_key(KeyCode::Char(' '));
+        app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
         assert!(app.pins.is_empty());
     }
 
@@ -990,7 +1150,7 @@ mod tests {
     #[test]
     fn q_quits() {
         let mut app = app_with(vec![], vec![]);
-        app.on_key(KeyCode::Char('q'));
+        app.on_key(KeyCode::Char('q'), KeyModifiers::NONE);
         assert!(app.should_quit);
     }
 
@@ -999,9 +1159,9 @@ mod tests {
         let mut app = app_with(vec![], vec![]);
         app.config.enabled_tabs = vec![League::Nfl];
         assert_eq!(app.tab, Tab::Home);
-        app.on_key(KeyCode::Tab);
+        app.on_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.tab, Tab::League(League::Nfl));
-        app.on_key(KeyCode::Tab);
+        app.on_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.tab, Tab::Home);
     }
 
@@ -1009,7 +1169,7 @@ mod tests {
     fn t_favorites_home_team() {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.tab = Tab::League(League::Nfl);
-        app.on_key(KeyCode::Char('t'));
+        app.on_key(KeyCode::Char('t'), KeyModifiers::NONE);
         assert_eq!(
             app.config.favorites,
             vec![Favorite {
@@ -1017,7 +1177,7 @@ mod tests {
                 team_abbr: "TB".into()
             }]
         );
-        app.on_key(KeyCode::Char('t'));
+        app.on_key(KeyCode::Char('t'), KeyModifiers::NONE);
         assert!(app.config.favorites.is_empty());
     }
 
@@ -1025,10 +1185,10 @@ mod tests {
     fn enter_focuses_and_esc_clears() {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.tab = Tab::League(League::Nfl);
-        app.on_key(KeyCode::Enter);
+        app.on_key(KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(app.focused_id.as_deref(), Some("1"));
         assert_eq!(app.effective_layout(), LayoutPref::One);
-        app.on_key(KeyCode::Esc);
+        app.on_key(KeyCode::Esc, KeyModifiers::NONE);
         assert!(app.focused_id.is_none());
         assert_eq!(app.effective_layout(), LayoutPref::Auto);
     }
@@ -1038,9 +1198,9 @@ mod tests {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.config.enabled_tabs = vec![League::Nfl];
         app.tab = Tab::League(League::Nfl);
-        app.on_key(KeyCode::Enter);
+        app.on_key(KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(app.focused_id.as_deref(), Some("1"));
-        app.on_key(KeyCode::Tab);
+        app.on_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.tab, Tab::Home);
         assert!(app.focused_id.is_none());
         let ids: Vec<_> = app.visible_games().into_iter().map(|g| g.id).collect();
@@ -1055,13 +1215,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("gd-theme-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let mut app = App::new(Config::default_all(), vec![], dir);
-        app.on_key(KeyCode::Char('c'));
+        app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
         assert_eq!(theme::current_name(), ThemeName::Ceefax);
         assert_eq!(app.config.theme, "ceefax");
         let saved = Config::load_from(&app.config_dir).unwrap();
         assert_eq!(saved.theme, "ceefax");
-        app.on_key(KeyCode::Char('c'));
-        app.on_key(KeyCode::Char('c'));
+        app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
         assert_eq!(theme::current_name(), ThemeName::Broadcast);
         assert_eq!(app.config.theme, "broadcast");
     }
@@ -1069,9 +1229,9 @@ mod tests {
     #[test]
     fn layout_keys() {
         let mut app = app_with(vec![], vec![]);
-        app.on_key(KeyCode::Char('2'));
+        app.on_key(KeyCode::Char('2'), KeyModifiers::NONE);
         assert_eq!(app.config.layout, LayoutPref::Two);
-        app.on_key(KeyCode::Char('s'));
+        app.on_key(KeyCode::Char('s'), KeyModifiers::NONE);
         assert_eq!(app.config.layout, LayoutPref::Sidebar);
     }
 
@@ -1151,7 +1311,7 @@ mod tests {
             KeyCode::Char('c'),
             KeyCode::Char('2'),
         ] {
-            app.on_key(key);
+            app.on_key(key, KeyModifiers::NONE);
             assert!(!app.flash_active("1"), "{key:?} must not animate");
         }
         app.advance_tick();
@@ -1227,6 +1387,151 @@ mod tests {
             let needle = format!("score number {i}");
             assert!(all.contains(&needle), "missing {needle:?} in ticker");
         }
+    }
+
+    #[test]
+    fn arrow_keys_mirror_vim_keys() {
+        let mut app = app_with(
+            vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
+            vec![],
+        );
+        app.config.enabled_tabs = vec![League::Nfl];
+        app.tab = Tab::League(League::Nfl);
+        app.on_key(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(app.selected, 1, "Down == j");
+        app.on_key(KeyCode::Up, KeyModifiers::NONE);
+        assert_eq!(app.selected, 0, "Up == k");
+        app.on_key(KeyCode::Right, KeyModifiers::NONE);
+        assert_eq!(app.tab, Tab::Home, "Right == l (wraps)");
+        app.on_key(KeyCode::Left, KeyModifiers::NONE);
+        assert_eq!(app.tab, Tab::League(League::Nfl), "Left == h");
+        app.on_key(KeyCode::BackTab, KeyModifiers::NONE);
+        assert_eq!(app.tab, Tab::Home, "Shift+Tab cycles back");
+    }
+
+    #[test]
+    fn ctrl_c_quits() {
+        let mut app = app_with(vec![], vec![]);
+        app.on_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert!(app.should_quit, "Ctrl+C must quit, not cycle the theme");
+        assert_eq!(app.config.theme, "broadcast");
+    }
+
+    #[test]
+    fn question_mark_toggles_help_and_esc_closes_topmost() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.tab = Tab::League(League::Nfl);
+        app.on_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(app.focused_id.is_some());
+        app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
+        assert!(app.help_open);
+        // While help is open other bindings are inert.
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(app.selected, 0);
+        // Esc closes help FIRST; focus survives. A second Esc unfocuses.
+        app.on_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(!app.help_open);
+        assert!(app.focused_id.is_some(), "help closes before focus");
+        app.on_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(app.focused_id.is_none());
+        // '?' also closes it.
+        app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
+        assert!(!app.help_open);
+    }
+
+    fn six_live() -> Vec<Game> {
+        (0..6)
+            .map(|i| g(&format!("g{i}"), "KC", "TB", true))
+            .collect()
+    }
+
+    #[test]
+    fn paging_wraps_instead_of_blanking() {
+        let mut app = app_with(six_live(), vec![]);
+        app.tab = Tab::League(League::Nfl);
+        // Auto over 6 games resolves to Four => 2 pages.
+        assert_eq!(app.page_count(), 2);
+        app.on_key(KeyCode::Char('n'), KeyModifiers::NONE);
+        assert_eq!(app.page, 1);
+        assert_eq!(app.selected, 4, "selection lands on the page's first tile");
+        app.on_key(KeyCode::Char('n'), KeyModifiers::NONE);
+        assert_eq!(app.page, 0, "past the end wraps to page 0, never blank");
+        app.on_key(KeyCode::Char('p'), KeyModifiers::NONE);
+        assert_eq!(app.page, 1, "p from page 0 wraps to the last page");
+        // PgUp/PgDn alias p/n.
+        app.on_key(KeyCode::PageDown, KeyModifiers::NONE);
+        assert_eq!(app.page, 0);
+        app.on_key(KeyCode::PageUp, KeyModifiers::NONE);
+        assert_eq!(app.page, 1);
+    }
+
+    #[test]
+    fn moving_selection_pulls_the_page_along() {
+        let mut app = app_with(six_live(), vec![]);
+        app.tab = Tab::League(League::Nfl);
+        for _ in 0..4 {
+            app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        }
+        assert_eq!(app.selected, 4);
+        assert_eq!(app.page, 1, "page follows the selection");
+        app.on_key(KeyCode::Char('k'), KeyModifiers::NONE);
+        assert_eq!(app.page, 0);
+    }
+
+    #[test]
+    fn shrinking_board_clamps_the_page() {
+        let mut app = app_with(six_live(), vec![]);
+        app.tab = Tab::League(League::Nfl);
+        app.on_key(KeyCode::Char('n'), KeyModifiers::NONE);
+        assert_eq!(app.page, 1);
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        assert_eq!(app.page, 0, "page index must never point past the end");
+    }
+
+    #[test]
+    fn selection_continues_from_live_tiles_into_the_slate() {
+        let mut app = app_with(
+            vec![
+                g("live1", "KC", "TB", true),
+                g("pre1", "DAL", "PHI", false),
+                g("pre2", "NYG", "WSH", false),
+            ],
+            vec![],
+        );
+        app.tab = Tab::League(League::Nfl);
+        // j walks live tile -> slate row 1 -> slate row 2, then wraps.
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(app.selected, 1);
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(app.selected, 2);
+        // Space pins the selected SLATE game.
+        app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert_eq!(app.pins.len(), 1);
+        assert_eq!(app.pins[0].game_id, "pre2");
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(app.selected, 0, "wraps back to the live tile");
+    }
+
+    #[test]
+    fn r_requests_refresh_and_upd_age_formats() {
+        let mut app = app_with(vec![], vec![]);
+        app.on_key(KeyCode::Char('r'), KeyModifiers::NONE);
+        assert!(app.refresh_now);
+        assert_eq!(age_label(0), "UPD 0s");
+        assert_eq!(age_label(12), "UPD 12s");
+        assert_eq!(age_label(59), "UPD 59s");
+        assert_eq!(age_label(60), "UPD 1m");
+        assert_eq!(age_label(150), "UPD 2m");
+    }
+
+    #[test]
+    fn apply_boards_stamps_last_update() {
+        let mut app = app_with(vec![], vec![]);
+        assert!(app.last_update.is_some(), "app_with applies a board");
+        app.last_update = None;
+        app.apply_boards(League::Nba, vec![], false);
+        assert!(app.last_update.is_some());
     }
 
     #[test]

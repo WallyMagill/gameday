@@ -37,6 +37,10 @@ pub fn render_demo_buffer(cols: u16, rows: u16, tick: u64) -> std::io::Result<Bu
     let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     let mut app = demo_app(dir, tick);
+    // Dev hook: GAMEDAY_DUMP_HELP=1 captures the '?' overlay over the board.
+    if std::env::var("GAMEDAY_DUMP_HELP").is_ok() {
+        app.help_open = true;
+    }
     let mut term = Terminal::new(TestBackend::new(cols, rows))?;
     term.draw(|f| app.draw(f))?;
     Ok(term.backend().buffer().clone())

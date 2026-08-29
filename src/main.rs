@@ -1,5 +1,6 @@
 use std::io::stdout;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -85,7 +86,8 @@ fn main() -> std::io::Result<()> {
         let app = gameday::dump::demo_app(dir, 0);
         let (tx, rx) = mpsc::channel::<Msg>();
         thread::spawn(move || sim_loop(tx));
-        return run_ui(app, Some(rx));
+        // The simulator ignores refresh requests; the flag is just unread.
+        return run_ui(app, Some(rx), Arc::new(AtomicBool::new(false)));
     }
 
     let dir = dirs::config_dir()
@@ -101,8 +103,12 @@ fn main() -> std::io::Result<()> {
     let provider = EspnProvider::new(dir.join("cache"));
     let (tx, rx) = mpsc::channel::<Msg>();
     let tx_plan = tx.clone();
-    thread::spawn(move || poll_loop(provider, tx_plan, enabled_tabs));
-    run_ui(app, Some(rx))
+    // R in the UI sets this; poll_loop checks it every ~200ms tick and
+    // treats the board timer as expired, forcing an immediate refetch.
+    let refresh = Arc::new(AtomicBool::new(false));
+    let refresh_poll = refresh.clone();
+    thread::spawn(move || poll_loop(provider, tx_plan, enabled_tabs, refresh_poll));
+    run_ui(app, Some(rx), refresh)
 }
 
 /// Dev verification: fetch and map one league's real scoreboard, print one
@@ -180,7 +186,18 @@ fn sim_loop(tx: mpsc::Sender<Msg>) {
     }
 }
 
-fn poll_loop(provider: EspnProvider, tx: mpsc::Sender<Msg>, leagues: Vec<League>) {
+/// The scoreboard refetch gate: due when the timer expired OR the UI asked
+/// for an immediate refresh (R). Consumes the request flag.
+fn board_due(last_board: Instant, every: Duration, refresh: &AtomicBool) -> bool {
+    refresh.swap(false, Ordering::Relaxed) || last_board.elapsed() >= every
+}
+
+fn poll_loop(
+    provider: EspnProvider,
+    tx: mpsc::Sender<Msg>,
+    leagues: Vec<League>,
+    refresh: Arc<AtomicBool>,
+) {
     let mut last_board = Instant::now() - Duration::from_secs(999);
     let mut last_sum = Instant::now() - Duration::from_secs(999);
     let mut attempt = 0u32;
@@ -192,7 +209,7 @@ fn poll_loop(provider: EspnProvider, tx: mpsc::Sender<Msg>, leagues: Vec<League>
         } else {
             Duration::from_secs(20)
         };
-        if last_board.elapsed() >= every {
+        if board_due(last_board, every, &refresh) {
             let mut any_failed = false;
             for league in &leagues {
                 match provider.scoreboard(*league) {
@@ -259,7 +276,11 @@ const IDLE_TICK: Duration = Duration::from_millis(1000);
 /// (which advances `app.tick` and thus every animation) fires at
 /// [`LIVE_TICK`]/[`IDLE_TICK`]. Keys and data messages redraw immediately but
 /// never advance the tick, so keyboard actions cannot animate anything.
-fn run_ui(mut app: App, rx: Option<mpsc::Receiver<Msg>>) -> std::io::Result<()> {
+fn run_ui(
+    mut app: App,
+    rx: Option<mpsc::Receiver<Msg>>,
+    refresh: Arc<AtomicBool>,
+) -> std::io::Result<()> {
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
     execute!(stdout(), EnterAlternateScreen)?;
@@ -297,7 +318,7 @@ fn run_ui(mut app: App, rx: Option<mpsc::Receiver<Msg>>) -> std::io::Result<()> 
         if event::poll(INPUT_POLL)? {
             match event::read()? {
                 Event::Key(k) if k.kind == KeyEventKind::Press => {
-                    app.on_key(k.code);
+                    app.on_key(k.code, k.modifiers);
                     needs_draw = true;
                 }
                 Event::Resize(_, _) => needs_draw = true,
@@ -306,7 +327,8 @@ fn run_ui(mut app: App, rx: Option<mpsc::Receiver<Msg>>) -> std::io::Result<()> 
         }
         if app.refresh_now {
             app.refresh_now = false;
-            // next poll_loop tick is soon; no extra channel needed in v1
+            // Hand the request to poll_loop, which checks each ~200ms tick.
+            refresh.store(true, Ordering::Relaxed);
         }
         if app.should_quit {
             break 'ui;
@@ -320,8 +342,10 @@ fn run_ui(mut app: App, rx: Option<mpsc::Receiver<Msg>>) -> std::io::Result<()> 
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_live_ids, parse_args};
+    use super::{board_due, merge_live_ids, parse_args};
     use gameday::domain::{Game, League, Status, Team};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
 
     fn live_game(id: &str, league: League) -> Game {
         Game {
@@ -386,6 +410,23 @@ mod tests {
         assert_eq!(parsed(&["gameday"]).probe, None);
         // Missing slug still enters probe mode so it can print the expected set.
         assert_eq!(parsed(&["gameday", "probe"]).probe.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn refresh_flag_forces_an_immediate_board_fetch() {
+        let every = Duration::from_secs(60);
+        let fresh = Instant::now();
+        let refresh = AtomicBool::new(false);
+        assert!(!board_due(fresh, every, &refresh), "timer fresh, no request");
+        refresh.store(true, Ordering::Relaxed);
+        assert!(board_due(fresh, every, &refresh), "R makes the fetch due NOW");
+        assert!(
+            !refresh.load(Ordering::Relaxed),
+            "the request is consumed by the check"
+        );
+        assert!(!board_due(fresh, every, &refresh), "one R, one forced fetch");
+        let expired = Instant::now() - Duration::from_secs(61);
+        assert!(board_due(expired, every, &refresh), "timer still works alone");
     }
 
     #[test]
