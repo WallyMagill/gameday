@@ -121,3 +121,16 @@ fn stale_flag_in_header() {
     let s = buf_text(&t).to_lowercase();
     assert!(s.contains("stale"), "{s}");
 }
+
+#[test]
+fn focused_pre_game_on_nfl_tab_fills_mosaic() {
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", false)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.focused_id = Some("1".into());
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("KC"), "{s}");
+    assert!(s.contains("27"), "{s}");
+}

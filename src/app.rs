@@ -409,7 +409,29 @@ impl App {
         }
     }
 
+    fn focused_game(&self) -> Option<Game> {
+        let id = self.focused_id.as_ref()?;
+        self.visible_games()
+            .into_iter()
+            .find(|g| g.id == *id)
+            .or_else(|| {
+                self.boards
+                    .values()
+                    .flatten()
+                    .find(|g| g.id == *id)
+                    .cloned()
+            })
+    }
+
     fn draw_mosaic(&self, frame: &mut Frame, area: Rect, show_slate: bool) {
+        if let Some(game) = self.focused_game() {
+            let one = [game];
+            for tile in pack(&one, area, LayoutPref::One, 0) {
+                render_tile(frame, tile.area, tile.game, tile.density, true);
+            }
+            return;
+        }
+
         let games = self.mosaic_games(show_slate);
         match self.tab {
             Tab::Home if games.is_empty() => {
@@ -431,16 +453,6 @@ impl App {
                 return;
             }
             _ => {}
-        }
-
-        if let Some(id) = &self.focused_id {
-            if let Some(game) = games.iter().find(|g| g.id == *id) {
-                let one = [game.clone()];
-                for tile in pack(&one, area, LayoutPref::One, 0) {
-                    render_tile(frame, tile.area, tile.game, tile.density, true);
-                }
-                return;
-            }
         }
 
         let packed = pack(&games, area, self.effective_layout(), self.page);
