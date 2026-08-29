@@ -12,15 +12,39 @@ use ratatui::Frame;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Density { Full, Standard, Compact }
 
+/// Per-tile animation state, decided by the caller as a pure function of the
+/// app's render tick — tiles themselves never look at a clock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TileFx {
+    /// Score cells render inverted (bg = live color) during the ~1s
+    /// score-change flash.
+    pub flash: bool,
+    /// LIVE chip pulse phase: bright or the dimmed luminance step.
+    pub live_bright: bool,
+}
+
+impl Default for TileFx {
+    fn default() -> Self {
+        Self { flash: false, live_bright: true }
+    }
+}
+
 const LOGO_W: u16 = 10;
 const SCORE_W: u16 = 7;
 const METER_W: u16 = 9;
 const IDENTITY_H: u16 = 6;
 
-pub fn render_tile(frame: &mut Frame, area: Rect, game: &Game, density: Density, selected: bool) {
+pub fn render_tile(
+    frame: &mut Frame,
+    area: Rect,
+    game: &Game,
+    density: Density,
+    selected: bool,
+    fx: TileFx,
+) {
     let th = theme::current();
     if density == Density::Compact {
-        render_compact(frame, area, game);
+        render_compact(frame, area, game, fx);
         return;
     }
     let accent = th.league_accent(game.league);
@@ -34,7 +58,7 @@ pub fn render_tile(frame: &mut Frame, area: Rect, game: &Game, density: Density,
         Span::raw(" "),
     ];
     left_title.push(match game.status {
-        Status::Live => Span::styled("LIVE", Style::default().fg(th.live).add_modifier(Modifier::BOLD)),
+        Status::Live => Span::styled("LIVE", live_chip_style(fx)),
         Status::Final => Span::styled("FINAL", Style::default().fg(th.muted).add_modifier(Modifier::BOLD)),
         Status::Pre => Span::styled("UPCOMING", Style::default().fg(th.muted)),
     });
@@ -54,7 +78,10 @@ pub fn render_tile(frame: &mut Frame, area: Rect, game: &Game, density: Density,
     frame.render_widget(block, area);
     if inner.height < 8 || inner.width < 30 {
         // Too small for the full grammar: score line only.
-        frame.render_widget(Paragraph::new(score_line(game)).alignment(Alignment::Center), inner);
+        frame.render_widget(
+            Paragraph::new(score_line(game, fx.flash)).alignment(Alignment::Center),
+            inner,
+        );
         return;
     }
 
@@ -62,7 +89,7 @@ pub fn render_tile(frame: &mut Frame, area: Rect, game: &Game, density: Density,
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(IDENTITY_H), Constraint::Min(1)])
         .split(inner);
-    render_identity(frame, rows[0], game);
+    render_identity(frame, rows[0], game, fx.flash);
 
     let lower = Layout::default()
         .direction(Direction::Horizontal)
@@ -103,6 +130,18 @@ fn situation_summary(game: &Game) -> String {
     }
 }
 
+/// LIVE chip: bold live color when bright, the same hue stepped down in
+/// luminance on the dim half of the pulse.
+fn live_chip_style(fx: TileFx) -> Style {
+    let th = theme::current();
+    let fg = if fx.live_bright {
+        th.live
+    } else {
+        theme::dimmed(th.live)
+    };
+    Style::default().fg(fg).add_modifier(Modifier::BOLD)
+}
+
 /// A/B experiment: `GAMEDAY_BIG_SCORES=1` renders 3-row sextant digits
 /// instead of the single-row score. Kept until Walter picks one by eye.
 fn big_scores_enabled() -> bool {
@@ -110,9 +149,9 @@ fn big_scores_enabled() -> bool {
 }
 
 /// Logo | city/NAME/record | 27 - 24 | city/NAME/record | logo
-fn render_identity(frame: &mut Frame, area: Rect, game: &Game) {
+fn render_identity(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
     if big_scores_enabled() {
-        render_identity_big(frame, area, game);
+        render_identity_big(frame, area, game, flash);
         return;
     }
     let cols = Layout::default()
@@ -132,7 +171,7 @@ fn render_identity(frame: &mut Frame, area: Rect, game: &Game) {
         .constraints([Constraint::Length(2), Constraint::Length(1), Constraint::Min(0)])
         .split(cols[2]);
     frame.render_widget(
-        Paragraph::new(score_line(game)).alignment(Alignment::Center),
+        Paragraph::new(score_line(game, flash)).alignment(Alignment::Center),
         score_rows[1],
     );
     render_team_id(frame, cols[3], &game.home);
@@ -141,7 +180,7 @@ fn render_identity(frame: &mut Frame, area: Rect, game: &Game) {
 
 /// Big-score variant: logos at the edges, 3-row sextant digits in the middle,
 /// names + records on single rows beneath (no city line — the digits take it).
-fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game) {
+fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
     let th = theme::current();
     use tui_big_text::{BigText, PixelSize};
     let cols = Layout::default()
@@ -167,10 +206,16 @@ fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game) {
         (home_s.as_str(), widths[2], theme::rgb(game.home.color)),
     ] {
         let slot = Rect { x, y: center.y, width: w.min(center.width), height: 3.min(center.height) };
+        // Flash: swapped colors — dark digit strokes on a live-color field.
+        let style = if flash && text != "-" {
+            Style::default().fg(th.bg).bg(th.live).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(color)
+        };
         frame.render_widget(
             BigText::builder()
                 .pixel_size(PixelSize::Sextant)
-                .style(Style::default().fg(color))
+                .style(style)
                 .lines(vec![Line::from(text.to_string())])
                 .build(),
             slot,
@@ -206,18 +251,22 @@ fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game) {
     }
 }
 
-fn score_line(game: &Game) -> Line<'static> {
+/// Score digits; during the ~1s score-change flash the cells invert to the
+/// theme's live color (one-shot, then they settle back to team colors).
+fn score_line(game: &Game, flash: bool) -> Line<'static> {
     let th = theme::current();
+    let digit = |n: u16, team_color: [u8; 3]| {
+        let style = if flash {
+            Style::default().fg(th.bg).bg(th.live).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme::rgb(team_color)).add_modifier(Modifier::BOLD)
+        };
+        Span::styled(n.to_string(), style)
+    };
     Line::from(vec![
-        Span::styled(
-            game.away_score.to_string(),
-            Style::default().fg(theme::rgb(game.away.color)).add_modifier(Modifier::BOLD),
-        ),
+        digit(game.away_score, game.away.color),
         Span::styled(" - ", Style::default().fg(th.muted)),
-        Span::styled(
-            game.home_score.to_string(),
-            Style::default().fg(theme::rgb(game.home.color)).add_modifier(Modifier::BOLD),
-        ),
+        digit(game.home_score, game.home.color),
     ])
 }
 
@@ -420,9 +469,14 @@ fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
     frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), area);
 }
 
-fn render_compact(frame: &mut Frame, area: Rect, game: &Game) {
+fn render_compact(frame: &mut Frame, area: Rect, game: &Game, fx: TileFx) {
     let th = theme::current();
     let accent = th.league_accent(game.league);
+    let score_style = if fx.flash {
+        Style::default().fg(th.bg).bg(th.live).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(th.bright).add_modifier(Modifier::BOLD)
+    };
     let mut spans = vec![
         Span::styled(
             format!("[{}] ", game.league.slug().to_uppercase()),
@@ -434,7 +488,7 @@ fn render_compact(frame: &mut Frame, area: Rect, game: &Game) {
         ),
         Span::styled(
             format!("{} - {}", game.away_score, game.home_score),
-            Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
+            score_style,
         ),
         Span::styled(
             format!(" {} ", game.home.abbr),
@@ -447,7 +501,7 @@ fn render_compact(frame: &mut Frame, area: Rect, game: &Game) {
                 format!(" {} {} ", game.period, game.clock),
                 Style::default().fg(th.muted),
             ));
-            spans.push(Span::styled("LIVE", Style::default().fg(th.live).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled("LIVE", live_chip_style(fx)));
         }
         Status::Final => spans.push(Span::styled(" FINAL", Style::default().fg(th.muted))),
         Status::Pre => {
@@ -524,10 +578,15 @@ mod tests {
         }
     }
 
-    fn render_to_text(game: &Game, density: Density, w: u16, h: u16) -> String {
+    fn render_buffer(game: &Game, density: Density, w: u16, h: u16, fx: TileFx) -> ratatui::buffer::Buffer {
         let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
-        term.draw(|f| render_tile(f, f.area(), game, density, false)).unwrap();
-        let buf = term.backend().buffer().clone();
+        term.draw(|f| render_tile(f, f.area(), game, density, false, fx))
+            .unwrap();
+        term.backend().buffer().clone()
+    }
+
+    fn render_to_text(game: &Game, density: Density, w: u16, h: u16) -> String {
+        let buf = render_buffer(game, density, w, h, TileFx::default());
         let mut out = String::new();
         for y in 0..h {
             for x in 0..w {
@@ -556,6 +615,52 @@ mod tests {
         let text = render_to_text(&demo_game(), Density::Compact, 49, 3);
         assert!(text.contains("KC 27 - 24 TB"), "compact score missing:\n{text}");
         assert!(text.contains("LIVE"));
+    }
+
+    #[test]
+    fn flash_inverts_score_cells_and_settling_restores_them() {
+        let th = theme::current();
+        let count_live_bg = |fx: TileFx| {
+            let buf = render_buffer(&demo_game(), Density::Standard, 49, 15, fx);
+            let mut n = 0;
+            for y in 0..15 {
+                for x in 0..49 {
+                    if buf[(x, y)].bg == th.live {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let flashed = count_live_bg(TileFx { flash: true, live_bright: true });
+        assert!(flashed >= 4, "score digits + dash should sit on the live bg, got {flashed}");
+        let settled = count_live_bg(TileFx::default());
+        assert_eq!(settled, 0, "no live bg once the flash settles");
+    }
+
+    #[test]
+    fn live_chip_pulses_between_bright_and_dimmed() {
+        let th = theme::current();
+        let chip_fg = |bright: bool| {
+            let buf = render_buffer(
+                &demo_game(),
+                Density::Standard,
+                49,
+                15,
+                TileFx { flash: false, live_bright: bright },
+            );
+            // Find "LIVE" on the top border and return the L cell's fg.
+            for x in 0..46u16 {
+                let word: String = (0..4).map(|i| buf[(x + i, 0)].symbol().to_string()).collect();
+                if word == "LIVE" {
+                    return buf[(x, 0)].fg;
+                }
+            }
+            panic!("LIVE chip not found");
+        };
+        assert_eq!(chip_fg(true), th.live);
+        assert_eq!(chip_fg(false), theme::dimmed(th.live));
+        assert_ne!(th.live, theme::dimmed(th.live), "dim step must be visible");
     }
 
     #[test]

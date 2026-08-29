@@ -246,12 +246,27 @@ impl Drop for RestoreTerminal {
     }
 }
 
+/// Input poll: short so keypresses redraw within ~50ms regardless of the
+/// render cadence.
+const INPUT_POLL: Duration = Duration::from_millis(50);
+/// Render tick while anything is live: ~10fps drives all animation frames.
+const LIVE_TICK: Duration = Duration::from_millis(100);
+/// Render tick with nothing live: ~1fps keeps the header clock honest with
+/// near-zero work.
+const IDLE_TICK: Duration = Duration::from_millis(1000);
+
+/// Two-speed loop: input is polled every [`INPUT_POLL`]; the render tick
+/// (which advances `app.tick` and thus every animation) fires at
+/// [`LIVE_TICK`]/[`IDLE_TICK`]. Keys and data messages redraw immediately but
+/// never advance the tick, so keyboard actions cannot animate anything.
 fn run_ui(mut app: App, rx: Option<mpsc::Receiver<Msg>>) -> std::io::Result<()> {
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
     execute!(stdout(), EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let mut last_err: Option<std::io::Error> = None;
+    let mut last_tick = Instant::now();
+    let mut needs_draw = true;
     'ui: loop {
         if let Some(rx) = &rx {
             while let Ok(msg) = rx.try_recv() {
@@ -263,17 +278,30 @@ fn run_ui(mut app: App, rx: Option<mpsc::Receiver<Msg>>) -> std::io::Result<()> 
                     } => app.apply_boards(league, games, stale),
                     Msg::Summary { id, summary } => app.merge_summary(&id, summary),
                 }
+                needs_draw = true;
             }
         }
-        if let Err(e) = terminal.draw(|f| app.draw(f)) {
-            last_err = Some(e);
-            break;
+        let tick_every = if app.any_live() { LIVE_TICK } else { IDLE_TICK };
+        if last_tick.elapsed() >= tick_every {
+            app.advance_tick();
+            last_tick = Instant::now();
+            needs_draw = true;
         }
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(k) = event::read()? {
-                if k.kind == KeyEventKind::Press {
+        if needs_draw {
+            if let Err(e) = terminal.draw(|f| app.draw(f)) {
+                last_err = Some(e);
+                break;
+            }
+            needs_draw = false;
+        }
+        if event::poll(INPUT_POLL)? {
+            match event::read()? {
+                Event::Key(k) if k.kind == KeyEventKind::Press => {
                     app.on_key(k.code);
+                    needs_draw = true;
                 }
+                Event::Resize(_, _) => needs_draw = true,
+                _ => {}
             }
         }
         if app.refresh_now {

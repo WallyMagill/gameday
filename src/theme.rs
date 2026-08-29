@@ -212,6 +212,19 @@ pub fn rgb(c: [u8; 3]) -> Color {
     Color::Rgb(c[0], c[1], c[2])
 }
 
+/// Luminance step for pulse effects: same hue at ~55% brightness — visible
+/// but subtle (55% picked by eye against the broadcast live red).
+pub fn dimmed(c: Color) -> Color {
+    match c {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            (r as u16 * 11 / 20) as u8,
+            (g as u16 * 11 / 20) as u8,
+            (b as u16 * 11 / 20) as u8,
+        ),
+        other => other,
+    }
+}
+
 /// Word the ticker/alerts use for a scoring play in this league.
 pub fn scoring_word(league: League) -> &'static str {
     match league {

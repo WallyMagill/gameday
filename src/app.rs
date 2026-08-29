@@ -3,7 +3,7 @@ use crate::domain::{Game, League, Status, Summary};
 use crate::home::home_games;
 use crate::theme;
 use crate::tiles::packer::{pack, LayoutPref};
-use crate::tiles::render_tile;
+use crate::tiles::{render_tile, TileFx};
 use crossterm::event::KeyCode;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -20,6 +20,16 @@ pub enum Tab {
     League(League),
 }
 
+/// Render ticks a score flash stays lit: 10 ticks ≈ 1s at the live cadence
+/// (10 render ticks per second while anything is live).
+pub const FLASH_TICKS: u64 = 10;
+
+/// LIVE chip pulse phase, pure in the tick: ~1s bright then ~1s dim at the
+/// 10 ticks/s live cadence. A luminance step, never a hue change.
+pub fn live_pulse_bright(tick: u64) -> bool {
+    (tick / 10) % 2 == 0
+}
+
 pub struct App {
     pub tab: Tab,
     pub page: usize,
@@ -32,6 +42,15 @@ pub struct App {
     pub refresh_now: bool,
     pub focused_id: Option<String>,
     pub config_dir: PathBuf,
+    /// Monotonic render tick (~10/s while live, ~1/s idle). Every animation
+    /// is a pure function of this counter plus app state — keyboard input
+    /// redraws but never advances it, so keys can't animate anything.
+    pub tick: u64,
+    /// Last-seen (away, home) score per game id: apply_boards diffs against
+    /// this to detect data-driven score changes.
+    last_scores: HashMap<String, (u16, u16)>,
+    /// game id -> tick when its score last changed; drives the one-shot flash.
+    flashes: HashMap<String, u64>,
 }
 
 impl App {
@@ -48,7 +67,35 @@ impl App {
             refresh_now: false,
             focused_id: None,
             config_dir,
+            tick: 0,
+            last_scores: HashMap::new(),
+            flashes: HashMap::new(),
         }
+    }
+
+    /// One render tick. Expired flashes are dropped here, so a settled score
+    /// never re-flashes (one-shot).
+    pub fn advance_tick(&mut self) {
+        self.tick += 1;
+        let tick = self.tick;
+        self.flashes
+            .retain(|_, start| tick.saturating_sub(*start) < FLASH_TICKS);
+    }
+
+    /// Is `game_id` inside its ~1s score-flash window? Pure in (tick, flashes).
+    pub fn flash_active(&self, game_id: &str) -> bool {
+        self.flashes
+            .get(game_id)
+            .is_some_and(|start| self.tick.saturating_sub(*start) < FLASH_TICKS)
+    }
+
+    /// Any live game on any board — the render loop runs at ~10fps while true
+    /// and drops to ~1fps otherwise.
+    pub fn any_live(&self) -> bool {
+        self.boards
+            .values()
+            .flatten()
+            .any(|g| g.status == Status::Live)
     }
 
     pub fn tab_list(&self) -> Vec<Tab> {
@@ -135,6 +182,17 @@ impl App {
 
     pub fn apply_boards(&mut self, league: League, games: Vec<Game>, stale: bool) {
         let now = OffsetDateTime::now_utc();
+        // Score-change flash fires ONLY here — from data. A first sighting
+        // (startup, new game) seeds last_scores without flashing.
+        for g in &games {
+            let score = (g.away_score, g.home_score);
+            if let Some(prev) = self.last_scores.get(&g.id) {
+                if *prev != score {
+                    self.flashes.insert(g.id.clone(), self.tick);
+                }
+            }
+            self.last_scores.insert(g.id.clone(), score);
+        }
         for pin in &mut self.pins {
             if pin.final_at.is_none()
                 && games
@@ -566,12 +624,22 @@ impl App {
         }
     }
 
+    /// Per-tile animation state: pure in (tick, flash table) so a dump at a
+    /// fixed tick always renders the same frame.
+    fn tile_fx(&self, game: &Game) -> TileFx {
+        TileFx {
+            flash: self.flash_active(&game.id),
+            live_bright: live_pulse_bright(self.tick),
+        }
+    }
+
     fn draw_mosaic(&self, frame: &mut Frame, area: Rect, show_slate: bool) {
         let th = theme::current();
         if let Some(game) = self.focused_game() {
+            let fx = self.tile_fx(&game);
             let one = [game];
             for tile in pack(&one, area, LayoutPref::One, 0) {
-                render_tile(frame, tile.area, tile.game, tile.density, true);
+                render_tile(frame, tile.area, tile.game, tile.density, true, fx);
             }
             return;
         }
@@ -606,7 +674,14 @@ impl App {
             .unwrap_or(0);
         for (i, tile) in packed.iter().enumerate() {
             let selected = start + i == self.selected || i == self.selected;
-            render_tile(frame, tile.area, tile.game, tile.density, selected);
+            render_tile(
+                frame,
+                tile.area,
+                tile.game,
+                tile.density,
+                selected,
+                self.tile_fx(tile.game),
+            );
         }
     }
 
@@ -637,6 +712,52 @@ impl App {
         );
     }
 
+    /// Ticker content, alternated into two rows. No cap: overflow scrolls
+    /// (marquee), so every event eventually comes into view.
+    fn ticker_rows(&self) -> [Vec<(char, Style)>; 2] {
+        let th = theme::current();
+        let events = self.scoring_events();
+        let mut rows: [Vec<(char, Style)>; 2] = [Vec::new(), Vec::new()];
+        if events.is_empty() {
+            push_cells(
+                &mut rows[0],
+                "no scoring plays yet",
+                Style::default().fg(th.dim),
+            );
+        }
+        for (i, (game, play)) in events.iter().enumerate() {
+            let row = &mut rows[i % 2];
+            if !row.is_empty() {
+                push_cells(row, "  |  ", Style::default().fg(th.dim));
+            }
+            push_cells(
+                row,
+                &format!("{} ", play.clock),
+                Style::default().fg(th.cyan),
+            );
+            push_cells(
+                row,
+                &format!("{} ", play.team),
+                Style::default()
+                    .fg(Self::team_color(game, &play.team))
+                    .add_modifier(Modifier::BOLD),
+            );
+            push_cells(
+                row,
+                &format!("{} ", theme::scoring_word(game.league)),
+                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
+            );
+            push_cells(row, &play.text, Style::default().fg(th.fg));
+            let leader = if game.away_score >= game.home_score {
+                format!(" {}-{} {}", game.away_score, game.home_score, game.away.abbr)
+            } else {
+                format!(" {}-{} {}", game.home_score, game.away_score, game.home.abbr)
+            };
+            push_cells(row, &leader, Style::default().fg(th.bright));
+        }
+        rows
+    }
+
     fn draw_ticker(&self, frame: &mut Frame, area: Rect) {
         let th = theme::current();
         let block = Block::default()
@@ -647,54 +768,15 @@ impl App {
         if inner.height == 0 {
             return;
         }
-        let events = self.scoring_events();
-        let mut rows: [Vec<Span>; 2] = [
-            vec![Span::styled(
-                " GAMEDAY  ",
-                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
-            )],
-            vec![Span::styled(
-                " TICKER   ",
-                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
-            )],
-        ];
-        if events.is_empty() {
-            rows[0].push(Span::styled(
-                "no scoring plays yet",
-                Style::default().fg(th.dim),
-            ));
-        }
-        for (i, (game, play)) in events.iter().take(6).enumerate() {
-            let row = &mut rows[i % 2];
-            if row.len() > 1 {
-                row.push(Span::styled("  |  ", Style::default().fg(th.dim)));
-            }
-            row.push(Span::styled(
-                format!("{} ", play.clock),
-                Style::default().fg(th.cyan),
-            ));
-            row.push(Span::styled(
-                format!("{} ", play.team),
-                Style::default()
-                    .fg(Self::team_color(game, &play.team))
-                    .add_modifier(Modifier::BOLD),
-            ));
-            row.push(Span::styled(
-                format!("{} ", theme::scoring_word(game.league)),
-                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
-            ));
-            row.push(Span::styled(play.text.clone(), Style::default().fg(th.fg)));
-            let leader = if game.away_score >= game.home_score {
-                format!(" {}-{} {}", game.away_score, game.home_score, game.away.abbr)
-            } else {
-                format!(" {}-{} {}", game.home_score, game.away_score, game.home.abbr)
-            };
-            row.push(Span::styled(leader, Style::default().fg(th.bright)));
-        }
-        let [top, bottom] = rows;
-        let mut lines = vec![Line::from(top)];
-        if inner.height >= 2 {
-            lines.push(Line::from(bottom));
+        let labels = [" GAMEDAY  ", " TICKER   "];
+        let label_style = Style::default().fg(th.live).add_modifier(Modifier::BOLD);
+        let content_w = (inner.width as usize).saturating_sub(labels[0].chars().count());
+        let rows = self.ticker_rows();
+        let mut lines = Vec::new();
+        for (label, row) in labels.iter().zip(rows.iter()).take(inner.height as usize) {
+            let mut spans = vec![Span::styled(*label, label_style)];
+            spans.extend(marquee_spans(row, content_w, self.tick));
+            lines.push(Line::from(spans));
         }
         frame.render_widget(Paragraph::new(lines), inner);
     }
@@ -735,6 +817,43 @@ fn rule(width: usize) -> Line<'static> {
         "─".repeat(width),
         Style::default().fg(th.dim),
     ))
+}
+
+/// Blank cells between the tail and the wrapped head of a scrolling ticker
+/// row — enough of a gap to read as "the reel restarted".
+const MARQUEE_GAP: usize = 10;
+
+fn push_cells(row: &mut Vec<(char, Style)>, text: &str, style: Style) {
+    row.extend(text.chars().map(|c| (c, style)));
+}
+
+/// A `width`-cell window into `cells`, scrolled one cell per render tick with
+/// wraparound. Content that fits renders unshifted — no motion. Pure in
+/// (cells, width, tick).
+fn marquee_spans(cells: &[(char, Style)], width: usize, tick: u64) -> Vec<Span<'static>> {
+    if cells.len() <= width {
+        return group_spans(cells.iter().copied());
+    }
+    let total = cells.len() + MARQUEE_GAP;
+    let offset = (tick as usize) % total;
+    group_spans((0..width).map(|i| {
+        let idx = (offset + i) % total;
+        cells.get(idx).copied().unwrap_or((' ', Style::default()))
+    }))
+}
+
+/// Merge runs of identically-styled cells back into spans.
+fn group_spans(cells: impl Iterator<Item = (char, Style)>) -> Vec<Span<'static>> {
+    let mut out: Vec<(String, Style)> = Vec::new();
+    for (ch, style) in cells {
+        match out.last_mut() {
+            Some((text, last)) if *last == style => text.push(ch),
+            _ => out.push((ch.to_string(), style)),
+        }
+    }
+    out.into_iter()
+        .map(|(text, style)| Span::styled(text, style))
+        .collect()
 }
 
 fn slate_line(game: &Game) -> String {
@@ -991,6 +1110,123 @@ mod tests {
                 Tab::League(League::Cfb)
             ]
         );
+    }
+
+    #[test]
+    fn score_change_flashes_then_settles_once() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        assert!(!app.flash_active("1"), "first sighting must not flash");
+        for _ in 0..5 {
+            app.advance_tick();
+        }
+        let mut scored = g("1", "KC", "TB", true);
+        scored.away_score = 13;
+        app.apply_boards(League::Nfl, vec![scored.clone()], false);
+        assert!(app.flash_active("1"), "data-driven score change flashes");
+        for _ in 0..FLASH_TICKS - 1 {
+            app.advance_tick();
+        }
+        assert!(app.flash_active("1"), "still lit one tick before the window ends");
+        app.advance_tick();
+        assert!(!app.flash_active("1"), "settles after FLASH_TICKS");
+        // One-shot: the same score arriving again never re-flashes.
+        app.apply_boards(League::Nfl, vec![scored], false);
+        app.advance_tick();
+        assert!(!app.flash_active("1"));
+    }
+
+    #[test]
+    fn keyboard_never_starts_a_flash() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.tab = Tab::League(League::Nfl);
+        for key in [
+            KeyCode::Tab,
+            KeyCode::Char('h'),
+            KeyCode::Char('j'),
+            KeyCode::Char('k'),
+            KeyCode::Char(' '),
+            KeyCode::Enter,
+            KeyCode::Esc,
+            KeyCode::Char('t'),
+            KeyCode::Char('c'),
+            KeyCode::Char('2'),
+        ] {
+            app.on_key(key);
+            assert!(!app.flash_active("1"), "{key:?} must not animate");
+        }
+        app.advance_tick();
+        assert!(!app.flash_active("1"));
+    }
+
+    #[test]
+    fn live_pulse_is_a_pure_one_second_cadence() {
+        // 10 render ticks bright, 10 dim, repeating.
+        assert!(live_pulse_bright(0));
+        assert!(live_pulse_bright(9));
+        assert!(!live_pulse_bright(10));
+        assert!(!live_pulse_bright(19));
+        assert!(live_pulse_bright(20));
+    }
+
+    #[test]
+    fn any_live_reflects_all_boards() {
+        let mut app = app_with(vec![g("1", "KC", "TB", false)], vec![]);
+        assert!(!app.any_live());
+        app.apply_boards(League::Nba, vec![g("2", "DEN", "BOS", true)], false);
+        assert!(app.any_live(), "a live game on any board counts");
+    }
+
+    fn cells(s: &str) -> Vec<(char, Style)> {
+        s.chars().map(|c| (c, Style::default())).collect()
+    }
+
+    fn window_text(cells: &[(char, Style)], width: usize, tick: u64) -> String {
+        marquee_spans(cells, width, tick)
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect()
+    }
+
+    #[test]
+    fn marquee_is_static_when_content_fits() {
+        let c = cells("SHORT");
+        assert_eq!(window_text(&c, 10, 0), "SHORT");
+        assert_eq!(window_text(&c, 10, 7), "SHORT", "no motion when it fits");
+    }
+
+    #[test]
+    fn marquee_scrolls_one_cell_per_tick_and_wraps() {
+        let c = cells("ABCDEFGHIJ"); // 10 cells, window 6, cycle 10+GAP=20
+        assert_eq!(window_text(&c, 6, 0), "ABCDEF");
+        assert_eq!(window_text(&c, 6, 1), "BCDEFG");
+        assert_eq!(window_text(&c, 6, 4), "EFGHIJ", "tail scrolls into view");
+        assert_eq!(window_text(&c, 6, 15), "     A", "gap, then the head wraps");
+        assert_eq!(window_text(&c, 6, 20), "ABCDEF", "full cycle");
+    }
+
+    #[test]
+    fn ticker_includes_every_scoring_event() {
+        // 8 scoring plays: more than the old take(6) cap — all must be present
+        // in the ticker content so the marquee can bring each into view.
+        let mut game = g("1", "KC", "TB", true);
+        game.last_plays = (0..8)
+            .map(|i| Play {
+                clock: format!("{i}:00"),
+                team: "KC".into(),
+                text: format!("score number {i}"),
+                scoring: true,
+            })
+            .collect();
+        let app = app_with(vec![game], vec![]);
+        let rows = app.ticker_rows();
+        let all: String = rows
+            .iter()
+            .flat_map(|r| r.iter().map(|(c, _)| *c))
+            .collect();
+        for i in 0..8 {
+            let needle = format!("score number {i}");
+            assert!(all.contains(&needle), "missing {needle:?} in ticker");
+        }
     }
 
     #[test]

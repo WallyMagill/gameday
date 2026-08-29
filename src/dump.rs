@@ -16,9 +16,17 @@ pub const DUMP_ROWS: u16 = 36;
 
 /// Demo app at simulation tick `tick` (0 = the seed board in demo.rs).
 /// Advancing is pure — N scripted steps, no wall clock — so `dump --tick N`
-/// always captures the same frame.
+/// always captures the same frame. Boards for tick-1 are applied first so a
+/// score that changes AT `tick` is caught mid-flash, exactly like the live
+/// loop would show it (`--tick 15` captures the KC TD flash).
 pub fn demo_app(config_dir: PathBuf, tick: u64) -> App {
     let mut app = App::new(demo::demo_config(), demo::demo_pins(), config_dir);
+    if tick > 0 {
+        for (league, games) in crate::sim::Simulator::boards_at(tick - 1) {
+            app.apply_boards(league, games, false);
+        }
+    }
+    app.tick = tick;
     for (league, games) in crate::sim::Simulator::boards_at(tick) {
         app.apply_boards(league, games, false);
     }
@@ -229,6 +237,34 @@ mod tests {
         }
         assert!(text.contains("33 - 24"), "KC TD score missing:\n{text}");
         assert!(text.contains("TOUCHDOWN"), "TD play missing:\n{text}");
+    }
+
+    #[test]
+    fn td_tick_dump_captures_the_score_flash() {
+        let th = theme::current();
+        let live_bg_cells = |tick: u64| {
+            let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, tick).unwrap();
+            let mut n = 0;
+            for y in 0..DUMP_ROWS {
+                for x in 0..DUMP_COLS {
+                    if buf[(x, y)].bg == th.live {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        assert_eq!(live_bg_cells(0), 0, "no score changed at tick 0 — nothing flashes");
+        assert!(
+            live_bg_cells(crate::sim::KC_TD_TICK) > 0,
+            "the KC TD at tick {} must render mid-flash",
+            crate::sim::KC_TD_TICK
+        );
+        // Deterministic: the same tick always renders the same frame.
+        assert_eq!(
+            live_bg_cells(crate::sim::KC_TD_TICK),
+            live_bg_cells(crate::sim::KC_TD_TICK)
+        );
     }
 
     #[test]

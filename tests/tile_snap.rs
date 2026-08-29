@@ -1,5 +1,5 @@
 use gameday::domain::*;
-use gameday::tiles::{render_tile, Density};
+use gameday::tiles::{render_tile, Density, TileFx};
 use ratatui::{backend::TestBackend, Terminal};
 
 fn live_kc() -> Game {
@@ -65,7 +65,7 @@ fn buf_text(term: &Terminal<TestBackend>) -> String {
 #[test]
 fn standard_tile_shows_score_and_live() {
     let mut t = Terminal::new(TestBackend::new(40, 12)).unwrap();
-    t.draw(|f| render_tile(f, f.area(), &live_kc(), Density::Standard, true)).unwrap();
+    t.draw(|f| render_tile(f, f.area(), &live_kc(), Density::Standard, true, TileFx::default())).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("27"), "{s}");
     assert!(s.contains("24"), "{s}");
@@ -77,7 +77,7 @@ fn standard_tile_shows_score_and_live() {
 #[test]
 fn compact_tile_has_no_last_play_text() {
     let mut t = Terminal::new(TestBackend::new(40, 4)).unwrap();
-    t.draw(|f| render_tile(f, f.area(), &live_kc(), Density::Compact, false)).unwrap();
+    t.draw(|f| render_tile(f, f.area(), &live_kc(), Density::Compact, false, TileFx::default())).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("27"), "{s}");
     assert!(!s.contains("Kelce"), "{s}");
@@ -86,7 +86,7 @@ fn compact_tile_has_no_last_play_text() {
 #[test]
 fn full_tile_includes_last_play_and_situation() {
     let mut t = Terminal::new(TestBackend::new(60, 20)).unwrap();
-    t.draw(|f| render_tile(f, f.area(), &live_kc(), Density::Full, false)).unwrap();
+    t.draw(|f| render_tile(f, f.area(), &live_kc(), Density::Full, false, TileFx::default())).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("Kelce"), "{s}");
     assert!(s.contains("1ST & GOAL TB 3"), "{s}");
