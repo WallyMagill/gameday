@@ -1,0 +1,20 @@
+{
+  "scoringPlays": [
+    {
+      "text": "Tyler Bass 33 Yd Field Goal",
+      "clock": { "displayValue": "9:33" },
+      "period": { "number": 1 },
+      "type": { "abbreviation": "FG" }
+    }
+  ],
+  "drives": {
+    "previous": [
+      {
+        "plays": [
+          { "text": "Mahomes pass to Kelce for 3 yards", "scoringPlay": false, "clock": { "displayValue": "1:27" }, "period": { "number": 4 } },
+          { "text": "Kelce left for 2 yards", "scoringPlay": false, "clock": { "displayValue": "1:05" }, "period": { "number": 4 } }
+        ]
+      }
+    ]
+  }
+}
