@@ -691,4 +691,46 @@ mod tests {
         app.apply_boards(League::Nfl, vec![done], false);
         assert!(app.pins[0].final_at.is_some());
     }
+
+    #[test]
+    fn enabled_cfb_tab_appears() {
+        let dir = std::env::temp_dir().join(format!("gd-cfb-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let cfg = Config {
+            enabled_tabs: vec![League::Nfl, League::Cfb],
+            layout: LayoutPref::Auto,
+            favorites: vec![],
+        };
+        let app = App::new(cfg, vec![], dir);
+        assert_eq!(
+            app.tab_list(),
+            vec![
+                Tab::Home,
+                Tab::League(League::Nfl),
+                Tab::League(League::Cfb)
+            ]
+        );
+    }
+
+    #[test]
+    fn cfb_board_is_separate_from_nfl() {
+        let dir = std::env::temp_dir().join(format!("gd-cfb2-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let mut app = App::new(
+            Config {
+                enabled_tabs: vec![League::Nfl, League::Cfb],
+                layout: LayoutPref::Auto,
+                favorites: vec![],
+            },
+            vec![],
+            dir,
+        );
+        let mut game = g("c1", "ALA", "UGA", true);
+        game.league = League::Cfb;
+        app.apply_boards(League::Cfb, vec![game], false);
+        app.tab = Tab::League(League::Cfb);
+        assert_eq!(app.visible_games()[0].id, "c1");
+        app.tab = Tab::League(League::Nfl);
+        assert!(app.visible_games().is_empty());
+    }
 }
