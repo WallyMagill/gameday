@@ -18,12 +18,13 @@ const METER_W: u16 = 9;
 const IDENTITY_H: u16 = 6;
 
 pub fn render_tile(frame: &mut Frame, area: Rect, game: &Game, density: Density, selected: bool) {
+    let th = theme::current();
     if density == Density::Compact {
         render_compact(frame, area, game);
         return;
     }
-    let accent = theme::league_accent(game.league);
-    let border = if selected { theme::AMBER } else { theme::BORDER };
+    let accent = th.league_accent(game.league);
+    let border = if selected { th.star } else { th.border };
 
     let mut left_title = vec![
         Span::styled(
@@ -33,9 +34,9 @@ pub fn render_tile(frame: &mut Frame, area: Rect, game: &Game, density: Density,
         Span::raw(" "),
     ];
     left_title.push(match game.status {
-        Status::Live => Span::styled("LIVE", Style::default().fg(theme::LIVE).add_modifier(Modifier::BOLD)),
-        Status::Final => Span::styled("FINAL", Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD)),
-        Status::Pre => Span::styled("UPCOMING", Style::default().fg(theme::MUTED)),
+        Status::Live => Span::styled("LIVE", Style::default().fg(th.live).add_modifier(Modifier::BOLD)),
+        Status::Final => Span::styled("FINAL", Style::default().fg(th.muted).add_modifier(Modifier::BOLD)),
+        Status::Pre => Span::styled("UPCOMING", Style::default().fg(th.muted)),
     });
 
     let block = Block::default()
@@ -45,7 +46,7 @@ pub fn render_tile(frame: &mut Frame, area: Rect, game: &Game, density: Density,
         .title(
             Line::from(Span::styled(
                 format!(" {} ", situation_summary(game)),
-                Style::default().fg(theme::BRIGHT).add_modifier(Modifier::BOLD),
+                Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
             ))
             .right_aligned(),
         );
@@ -141,6 +142,7 @@ fn render_identity(frame: &mut Frame, area: Rect, game: &Game) {
 /// Big-score variant: logos at the edges, 3-row sextant digits in the middle,
 /// names + records on single rows beneath (no city line — the digits take it).
 fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game) {
+    let th = theme::current();
     use tui_big_text::{BigText, PixelSize};
     let cols = Layout::default()
         .direction(Direction::Horizontal)
@@ -161,7 +163,7 @@ fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game) {
     let mut x = x0;
     for (text, w, color) in [
         (away_s.as_str(), widths[0], theme::rgb(game.away.color)),
-        ("-", widths[1], theme::MUTED),
+        ("-", widths[1], th.muted),
         (home_s.as_str(), widths[2], theme::rgb(game.home.color)),
     ] {
         let slot = Rect { x, y: center.y, width: w.min(center.width), height: 3.min(center.height) };
@@ -189,14 +191,14 @@ fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game) {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 truncate(&label(&game.away), half),
-                Style::default().fg(theme::BRIGHT).add_modifier(Modifier::BOLD),
+                Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
             ))),
             names,
         );
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 truncate(&label(&game.home), half),
-                Style::default().fg(theme::BRIGHT).add_modifier(Modifier::BOLD),
+                Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
             )))
             .alignment(Alignment::Right),
             names,
@@ -205,12 +207,13 @@ fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game) {
 }
 
 fn score_line(game: &Game) -> Line<'static> {
+    let th = theme::current();
     Line::from(vec![
         Span::styled(
             game.away_score.to_string(),
             Style::default().fg(theme::rgb(game.away.color)).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" - ", Style::default().fg(theme::MUTED)),
+        Span::styled(" - ", Style::default().fg(th.muted)),
         Span::styled(
             game.home_score.to_string(),
             Style::default().fg(theme::rgb(game.home.color)).add_modifier(Modifier::BOLD),
@@ -219,24 +222,26 @@ fn score_line(game: &Game) -> Line<'static> {
 }
 
 fn render_team_id(frame: &mut Frame, area: Rect, team: &Team) {
+    let th = theme::current();
     let w = area.width as usize;
     let city = if team.location.is_empty() { String::new() } else { team.location.to_uppercase() };
     let name = team.name.to_uppercase();
     let record = if team.record.is_empty() { "--".into() } else { team.record.clone() };
     let lines = vec![
         Line::from(""),
-        Line::from(Span::styled(truncate(&city, w), Style::default().fg(theme::MUTED))),
+        Line::from(Span::styled(truncate(&city, w), Style::default().fg(th.muted))),
         Line::from(Span::styled(
             truncate(&name, w),
-            Style::default().fg(theme::BRIGHT).add_modifier(Modifier::BOLD),
+            Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
         )),
-        Line::from(Span::styled(record, Style::default().fg(theme::MUTED))),
+        Line::from(Span::styled(record, Style::default().fg(th.muted))),
     ];
     frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), area);
 }
 
 /// Momentum row, dim rule, LAST PLAYS label, play lines.
 fn render_lower_left(frame: &mut Frame, area: Rect, game: &Game) {
+    let th = theme::current();
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -250,7 +255,7 @@ fn render_lower_left(frame: &mut Frame, area: Rect, game: &Game) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             "─".repeat(area.width.saturating_sub(2) as usize),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(th.dim),
         ))
         .alignment(Alignment::Center),
         rows[1],
@@ -258,7 +263,7 @@ fn render_lower_left(frame: &mut Frame, area: Rect, game: &Game) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             " LAST PLAYS",
-            Style::default().fg(theme::league_accent(game.league)).add_modifier(Modifier::BOLD),
+            Style::default().fg(th.league_accent(game.league)).add_modifier(Modifier::BOLD),
         )),
         rows[2],
     );
@@ -270,22 +275,22 @@ fn render_lower_left(frame: &mut Frame, area: Rect, game: &Game) {
         } else if p.team.eq_ignore_ascii_case(&game.home.abbr) {
             theme::rgb(game.home.color)
         } else {
-            theme::FG
+            th.fg
         };
         let clock = format!(" [{}]", if p.clock.is_empty() { "-:--" } else { &p.clock });
         let abbr = format!(" {:<3} ", p.team);
         let used = clock.chars().count() + abbr.chars().count();
         let text = truncate(&p.text, (play_area.width as usize).saturating_sub(used + 1));
         lines.push(Line::from(vec![
-            Span::styled(clock, Style::default().fg(theme::MUTED)),
+            Span::styled(clock, Style::default().fg(th.muted)),
             Span::styled(abbr, Style::default().fg(team_color).add_modifier(Modifier::BOLD)),
-            Span::styled(text, Style::default().fg(theme::FG)),
+            Span::styled(text, Style::default().fg(th.fg)),
         ]));
     }
     if lines.is_empty() {
         lines.push(Line::from(Span::styled(
             " no plays yet",
-            Style::default().fg(theme::DIM),
+            Style::default().fg(th.dim),
         )));
     }
     frame.render_widget(Paragraph::new(lines), play_area);
@@ -293,6 +298,7 @@ fn render_lower_left(frame: &mut Frame, area: Rect, game: &Game) {
 
 /// ▶▶▶ MOMENTUM ◀◀◀ — the side that made the most recent (scoring) play is lit.
 fn momentum_line(game: &Game) -> Paragraph<'static> {
+    let th = theme::current();
     let mover = game
         .last_plays
         .iter()
@@ -307,32 +313,33 @@ fn momentum_line(game: &Game) -> Paragraph<'static> {
         if hot {
             Style::default().fg(theme::rgb(color)).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::DIM)
+            Style::default().fg(th.dim)
         }
     };
     Paragraph::new(Line::from(vec![
         Span::styled("▶ ▶ ▶", side(away_hot, game.away.color)),
-        Span::styled("  MOMENTUM  ", Style::default().fg(theme::MUTED)),
+        Span::styled("  MOMENTUM  ", Style::default().fg(th.muted)),
         Span::styled("◀ ◀ ◀", side(home_hot, game.home.color)),
     ]))
 }
 
 fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
+    let th = theme::current();
     let Some(meter) = &game.meter else { return };
-    let accent = theme::league_accent(game.league);
+    let accent = th.league_accent(game.league);
     let label_style = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let mut lines: Vec<Line> = Vec::new();
     match meter {
         Meter::RedZone { yards_to_goal } => {
-            lines.push(Line::from(Span::styled("RED ZONE", Style::default().fg(theme::LIVE).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(Span::styled("RED ZONE", Style::default().fg(th.live).add_modifier(Modifier::BOLD))));
             let h = area.height.saturating_sub(1).max(1);
             // Gauge: 20 yards at the top, goal line at the bottom.
             let pos = ((20u16.saturating_sub(*yards_to_goal as u16)) * (h - 1).max(1) / 20).min(h - 1);
             for i in 0..h {
                 let (sym, style) = if i == pos {
-                    ("──█──", Style::default().fg(theme::LIVE).add_modifier(Modifier::BOLD))
+                    ("──█──", Style::default().fg(th.live).add_modifier(Modifier::BOLD))
                 } else {
-                    ("  ┃  ", Style::default().fg(theme::DIM))
+                    ("  ┃  ", Style::default().fg(th.dim))
                 };
                 let tag = match i {
                     i if i == h / 2 => " 10",
@@ -341,7 +348,7 @@ fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
                 };
                 lines.push(Line::from(vec![
                     Span::styled(sym.to_string(), style),
-                    Span::styled(tag.to_string(), Style::default().fg(theme::MUTED)),
+                    Span::styled(tag.to_string(), Style::default().fg(th.muted)),
                 ]));
             }
         }
@@ -360,13 +367,13 @@ fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
                     _ => "",
                 };
                 let (sym, style) = if i == pos {
-                    ("─█─", Style::default().fg(if pm >= 0 { theme::GREEN } else { theme::LIVE }).add_modifier(Modifier::BOLD))
+                    ("─█─", Style::default().fg(if pm >= 0 { th.green } else { th.live }).add_modifier(Modifier::BOLD))
                 } else {
-                    (" ┃ ", Style::default().fg(theme::DIM))
+                    (" ┃ ", Style::default().fg(th.dim))
                 };
                 lines.push(Line::from(vec![
                     Span::styled(sym.to_string(), style),
-                    Span::styled(tag.to_string(), Style::default().fg(theme::MUTED)),
+                    Span::styled(tag.to_string(), Style::default().fg(th.muted)),
                 ]));
             }
         }
@@ -375,9 +382,9 @@ fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
             lines.push(Line::from(""));
             let base = |on: bool| {
                 if on {
-                    Span::styled("◆", Style::default().fg(theme::AMBER).add_modifier(Modifier::BOLD))
+                    Span::styled("◆", Style::default().fg(th.star).add_modifier(Modifier::BOLD))
                 } else {
-                    Span::styled("◇", Style::default().fg(theme::DIM))
+                    Span::styled("◇", Style::default().fg(th.dim))
                 }
             };
             lines.push(Line::from(vec![Span::raw("   "), base(occupied[1])]));
@@ -389,7 +396,7 @@ fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
             ]));
             lines.push(Line::from(vec![
                 Span::raw("   "),
-                Span::styled("▽", Style::default().fg(theme::MUTED)),
+                Span::styled("▽", Style::default().fg(th.muted)),
             ]));
         }
         Meter::Penalty { team_abbr, seconds } => {
@@ -397,15 +404,15 @@ fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
             lines.push(Line::from(Span::styled("CLOCK", label_style)));
             lines.push(Line::from(""));
             if *seconds == 0 {
-                lines.push(Line::from(Span::styled("--:--", Style::default().fg(theme::DIM))));
+                lines.push(Line::from(Span::styled("--:--", Style::default().fg(th.dim))));
             } else {
                 lines.push(Line::from(Span::styled(
                     team_abbr.clone(),
-                    Style::default().fg(theme::BRIGHT).add_modifier(Modifier::BOLD),
+                    Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
                 )));
                 lines.push(Line::from(Span::styled(
                     format!("{}:{:02}", seconds / 60, seconds % 60),
-                    Style::default().fg(theme::LIVE).add_modifier(Modifier::BOLD),
+                    Style::default().fg(th.live).add_modifier(Modifier::BOLD),
                 )));
             }
         }
@@ -414,7 +421,8 @@ fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
 }
 
 fn render_compact(frame: &mut Frame, area: Rect, game: &Game) {
-    let accent = theme::league_accent(game.league);
+    let th = theme::current();
+    let accent = th.league_accent(game.league);
     let mut spans = vec![
         Span::styled(
             format!("[{}] ", game.league.slug().to_uppercase()),
@@ -426,7 +434,7 @@ fn render_compact(frame: &mut Frame, area: Rect, game: &Game) {
         ),
         Span::styled(
             format!("{} - {}", game.away_score, game.home_score),
-            Style::default().fg(theme::BRIGHT).add_modifier(Modifier::BOLD),
+            Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!(" {} ", game.home.abbr),
@@ -437,14 +445,14 @@ fn render_compact(frame: &mut Frame, area: Rect, game: &Game) {
         Status::Live => {
             spans.push(Span::styled(
                 format!(" {} {} ", game.period, game.clock),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(th.muted),
             ));
-            spans.push(Span::styled("LIVE", Style::default().fg(theme::LIVE).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled("LIVE", Style::default().fg(th.live).add_modifier(Modifier::BOLD)));
         }
-        Status::Final => spans.push(Span::styled(" FINAL", Style::default().fg(theme::MUTED))),
+        Status::Final => spans.push(Span::styled(" FINAL", Style::default().fg(th.muted))),
         Status::Pre => {
             if let Some(t) = &game.start_time {
-                spans.push(Span::styled(format!(" {t}"), Style::default().fg(theme::MUTED)));
+                spans.push(Span::styled(format!(" {t}"), Style::default().fg(th.muted)));
             }
         }
     }

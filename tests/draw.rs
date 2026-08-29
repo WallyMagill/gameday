@@ -83,7 +83,26 @@ fn footer_shows_chords() {
     let s = buf_text(&t);
     assert!(s.contains("NAV:"), "{s}");
     assert!(s.contains("[Q]"), "{s}");
-    assert!(s.contains("[SPACE]"), "{s}");
+    assert!(s.contains("[SPC]"), "{s}");
+    assert!(s.contains("[C] THEME"), "{s}");
+    // The whole chord list fits 120 cols: QUIT must not be clipped.
+    assert!(s.contains("QUIT"), "{s}");
+}
+
+#[test]
+fn draw_reads_the_current_theme() {
+    use gameday::theme::{self, Theme, ThemeName};
+    use ratatui::style::Color;
+    let bg_of = |name: ThemeName| -> Color {
+        theme::set_current(name);
+        let mut app = mk();
+        let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        t.draw(|f| app.draw(f)).unwrap();
+        t.backend().buffer()[(0, 0)].bg
+    };
+    assert_eq!(bg_of(ThemeName::Ceefax), Theme::ceefax().bg);
+    assert_eq!(bg_of(ThemeName::Phosphor), Theme::phosphor().bg);
+    assert_eq!(bg_of(ThemeName::Broadcast), Color::Rgb(0, 0, 0));
 }
 
 #[test]

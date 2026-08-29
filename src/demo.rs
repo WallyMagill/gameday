@@ -42,6 +42,7 @@ pub fn demo_config() -> Config {
         enabled_tabs: vec![League::Nfl, League::Nba, League::Mlb, League::Nhl, League::Epl],
         layout: LayoutPref::Auto,
         favorites: vec![],
+        theme: crate::theme::current_name().as_str().to_string(),
     }
 }
 

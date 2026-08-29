@@ -14,15 +14,16 @@ cargo run -- --demo    # fake NFL slate, no network
 Config: `~/.config/gameday/config.toml`
 
 ```toml
-enabled_tabs = ["Nfl", "Cfb"]   # default: ["Nfl"]
+enabled_tabs = ["Nfl", "Cfb"]   # default: all nine leagues
 layout = "Auto"                 # Auto | One | Two | Four | Sidebar
+theme = "broadcast"             # broadcast | ceefax | phosphor
 ```
 
 Favorites and pins live beside that file. Pins drop 6 hours after a game goes final.
 
 ## Keys
 
-space pin/unpin · enter focus · esc unfocus · j/k move · n/p page · t fav home team · 1/2/4/s layout · tab/h/l tabs · r refresh · q quit
+space pin/unpin · enter focus · esc unfocus · j/k move · n/p page · t fav home team · 1/2/4/s layout · c theme · tab/h/l tabs · r refresh · q quit
 
 ## Data
 

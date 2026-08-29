@@ -126,6 +126,7 @@ impl App {
             KeyCode::Char('2') => self.set_layout(LayoutPref::Two),
             KeyCode::Char('4') => self.set_layout(LayoutPref::Four),
             KeyCode::Char('s') => self.set_layout(LayoutPref::Sidebar),
+            KeyCode::Char('c') => self.cycle_theme(),
             KeyCode::Char('r') => self.refresh_now = true,
             KeyCode::Char('q') => self.should_quit = true,
             _ => {}
@@ -293,16 +294,25 @@ impl App {
         let _ = self.config.save_to(&self.config_dir);
     }
 
+    /// 'c': broadcast -> ceefax -> phosphor -> broadcast, persisted like layout.
+    fn cycle_theme(&mut self) {
+        let next = theme::current_name().next();
+        theme::set_current(next);
+        self.config.theme = next.as_str().to_string();
+        let _ = self.config.save_to(&self.config_dir);
+    }
+
     pub fn draw(&mut self, frame: &mut Frame) {
+        let th = theme::current();
         let area = frame.area();
         frame.render_widget(
-            Block::default().style(Style::default().bg(theme::BG).fg(theme::FG)),
+            Block::default().style(Style::default().bg(th.bg).fg(th.fg)),
             area,
         );
         if area.width < 40 || area.height < 12 {
             frame.render_widget(
                 Paragraph::new("need more columns")
-                    .style(Style::default().fg(theme::MUTED).bg(theme::BG)),
+                    .style(Style::default().fg(th.muted).bg(th.bg)),
                 area,
             );
             return;
@@ -326,12 +336,13 @@ impl App {
     }
 
     fn draw_header(&self, frame: &mut Frame, area: Rect) {
+        let th = theme::current();
         let mut spans = vec![
             Span::styled(
                 " GAMEDAY ",
-                Style::default().fg(theme::LIVE).add_modifier(Modifier::BOLD),
+                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("  FILTER: ", Style::default().fg(theme::MUTED)),
+            Span::styled("  FILTER: ", Style::default().fg(th.muted)),
         ];
         for tab in self.tab_list() {
             let label = match tab {
@@ -342,20 +353,20 @@ impl App {
                 spans.push(Span::styled(
                     format!("[{label}]"),
                     Style::default()
-                        .fg(theme::BG)
-                        .bg(theme::AMBER)
+                        .fg(th.bg)
+                        .bg(th.star)
                         .add_modifier(Modifier::BOLD),
                 ));
             } else {
                 spans.push(Span::styled(
                     format!("[ {label} ]"),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(th.muted),
                 ));
             }
             spans.push(Span::raw(" "));
         }
         if self.stale {
-            spans.push(Span::styled(" STALE", Style::default().fg(theme::AMBER)));
+            spans.push(Span::styled(" STALE", Style::default().fg(th.star)));
         }
         let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
         let date = format!(
@@ -376,12 +387,12 @@ impl App {
         let right_len = date.len() + 2 + clock.len() + 1;
         let spacer = (area.width as usize).saturating_sub(left_len + right_len);
         spans.push(Span::raw(" ".repeat(spacer)));
-        spans.push(Span::styled(date, Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(date, Style::default().fg(th.green).add_modifier(Modifier::BOLD)));
         spans.push(Span::raw("  "));
-        spans.push(Span::styled(clock, Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(clock, Style::default().fg(th.cyan).add_modifier(Modifier::BOLD)));
         spans.push(Span::raw(" "));
         frame.render_widget(
-            Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::BG)),
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(th.bg)),
             area,
         );
     }
@@ -426,19 +437,21 @@ impl App {
     }
 
     fn team_color(game: &Game, abbr: &str) -> ratatui::style::Color {
+        let th = theme::current();
         if game.away.abbr.eq_ignore_ascii_case(abbr) {
             theme::rgb(game.away.color)
         } else if game.home.abbr.eq_ignore_ascii_case(abbr) {
             theme::rgb(game.home.color)
         } else {
-            theme::FG
+            th.fg
         }
     }
 
     fn draw_sidebar(&self, frame: &mut Frame, area: Rect) {
+        let th = theme::current();
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme::BORDER));
+            .border_style(Style::default().fg(th.border));
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let events = self.scoring_events();
@@ -447,10 +460,10 @@ impl App {
 
         lines.push(Line::from(Span::styled(
             "⚑ GLOBAL ALERTS",
-            Style::default().fg(theme::LIVE).add_modifier(Modifier::BOLD),
+            Style::default().fg(th.live).add_modifier(Modifier::BOLD),
         )));
         if events.is_empty() {
-            lines.push(Line::from(Span::styled("no alerts", Style::default().fg(theme::DIM))));
+            lines.push(Line::from(Span::styled("no alerts", Style::default().fg(th.dim))));
         }
         for (game, play) in events.iter().take(4) {
             let word = theme::scoring_word(game.league);
@@ -462,32 +475,32 @@ impl App {
                     format!("{:<4}", play.team),
                     Style::default().fg(Self::team_color(game, &play.team)).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(format!("{word:<11}"), Style::default().fg(theme::LIVE)),
+                Span::styled(format!("{word:<11}"), Style::default().fg(th.live)),
                 Span::raw(" ".repeat(pad)),
-                Span::styled(clock.clone(), Style::default().fg(theme::CYAN)),
+                Span::styled(clock.clone(), Style::default().fg(th.cyan)),
             ]));
         }
         lines.push(rule(w));
 
         lines.push(Line::from(Span::styled(
             "TOP PLAYS",
-            Style::default().fg(theme::AMBER).add_modifier(Modifier::BOLD),
+            Style::default().fg(th.star).add_modifier(Modifier::BOLD),
         )));
         for (game, play) in events.iter().take(5) {
             let text: String = play.text.chars().take(w.saturating_sub(2)).collect();
             lines.push(Line::from(vec![
-                Span::styled("★ ", Style::default().fg(theme::STAR)),
-                Span::styled(text, Style::default().fg(theme::league_accent(game.league))),
+                Span::styled("★ ", Style::default().fg(th.star)),
+                Span::styled(text, Style::default().fg(th.league_accent(game.league))),
             ]));
         }
         if events.is_empty() {
-            lines.push(Line::from(Span::styled("no scoring yet", Style::default().fg(theme::DIM))));
+            lines.push(Line::from(Span::styled("no scoring yet", Style::default().fg(th.dim))));
         }
         lines.push(rule(w));
 
         lines.push(Line::from(Span::styled(
             "RECORDS",
-            Style::default().fg(theme::MAGENTA).add_modifier(Modifier::BOLD),
+            Style::default().fg(th.magenta).add_modifier(Modifier::BOLD),
         )));
         let mut teams: Vec<&crate::domain::Team> = Vec::new();
         let games = self.visible_games();
@@ -507,16 +520,16 @@ impl App {
         rows.sort_by(|a, b| b.1.cmp(&a.1));
         lines.push(Line::from(Span::styled(
             format!("{:<12}{:>3}{:>3}", "TEAM", "W", "L"),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(th.muted),
         )));
         for (i, (team, win, loss)) in rows.iter().take(6).enumerate() {
             lines.push(Line::from(vec![
-                Span::styled(format!("{}. ", i + 1), Style::default().fg(theme::MUTED)),
+                Span::styled(format!("{}. ", i + 1), Style::default().fg(th.muted)),
                 Span::styled(
                     format!("{:<9}", team.name.chars().take(9).collect::<String>()),
                     Style::default().fg(theme::rgb(team.color)),
                 ),
-                Span::styled(format!("{win:>3}{loss:>3}"), Style::default().fg(theme::FG)),
+                Span::styled(format!("{win:>3}{loss:>3}"), Style::default().fg(th.fg)),
             ]));
         }
         lines.truncate(inner.height as usize);
@@ -554,6 +567,7 @@ impl App {
     }
 
     fn draw_mosaic(&self, frame: &mut Frame, area: Rect, show_slate: bool) {
+        let th = theme::current();
         if let Some(game) = self.focused_game() {
             let one = [game];
             for tile in pack(&one, area, LayoutPref::One, 0) {
@@ -567,7 +581,7 @@ impl App {
             Tab::Home if games.is_empty() => {
                 frame.render_widget(
                     Paragraph::new("pin a game from nfl (space) · t fav home")
-                        .style(Style::default().fg(theme::MUTED).bg(theme::BG))
+                        .style(Style::default().fg(th.muted).bg(th.bg))
                         .alignment(Alignment::Center),
                     area,
                 );
@@ -576,7 +590,7 @@ impl App {
             Tab::League(_) if self.visible_games().is_empty() => {
                 frame.render_widget(
                     Paragraph::new("next kickoff")
-                        .style(Style::default().fg(theme::MUTED).bg(theme::BG))
+                        .style(Style::default().fg(th.muted).bg(th.bg))
                         .alignment(Alignment::Center),
                     area,
                 );
@@ -597,12 +611,13 @@ impl App {
     }
 
     fn draw_slate(&self, frame: &mut Frame, area: Rect) {
+        let th = theme::current();
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme::DIM))
+            .border_style(Style::default().fg(th.dim))
             .title(Span::styled(
                 " SLATE ",
-                Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD),
+                Style::default().fg(th.muted).add_modifier(Modifier::BOLD),
             ));
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -612,20 +627,21 @@ impl App {
             .map(|g| {
                 Line::from(Span::styled(
                     slate_line(g),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(th.muted),
                 ))
             })
             .collect();
         frame.render_widget(
-            Paragraph::new(lines).style(Style::default().bg(theme::BG).fg(theme::MUTED)),
+            Paragraph::new(lines).style(Style::default().bg(th.bg).fg(th.muted)),
             inner,
         );
     }
 
     fn draw_ticker(&self, frame: &mut Frame, area: Rect) {
+        let th = theme::current();
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme::LIVE));
+            .border_style(Style::default().fg(th.live));
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if inner.height == 0 {
@@ -635,27 +651,27 @@ impl App {
         let mut rows: [Vec<Span>; 2] = [
             vec![Span::styled(
                 " GAMEDAY  ",
-                Style::default().fg(theme::LIVE).add_modifier(Modifier::BOLD),
+                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
             )],
             vec![Span::styled(
                 " TICKER   ",
-                Style::default().fg(theme::LIVE).add_modifier(Modifier::BOLD),
+                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
             )],
         ];
         if events.is_empty() {
             rows[0].push(Span::styled(
                 "no scoring plays yet",
-                Style::default().fg(theme::DIM),
+                Style::default().fg(th.dim),
             ));
         }
         for (i, (game, play)) in events.iter().take(6).enumerate() {
             let row = &mut rows[i % 2];
             if row.len() > 1 {
-                row.push(Span::styled("  |  ", Style::default().fg(theme::DIM)));
+                row.push(Span::styled("  |  ", Style::default().fg(th.dim)));
             }
             row.push(Span::styled(
                 format!("{} ", play.clock),
-                Style::default().fg(theme::CYAN),
+                Style::default().fg(th.cyan),
             ));
             row.push(Span::styled(
                 format!("{} ", play.team),
@@ -665,15 +681,15 @@ impl App {
             ));
             row.push(Span::styled(
                 format!("{} ", theme::scoring_word(game.league)),
-                Style::default().fg(theme::LIVE).add_modifier(Modifier::BOLD),
+                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
             ));
-            row.push(Span::styled(play.text.clone(), Style::default().fg(theme::FG)));
+            row.push(Span::styled(play.text.clone(), Style::default().fg(th.fg)));
             let leader = if game.away_score >= game.home_score {
                 format!(" {}-{} {}", game.away_score, game.home_score, game.away.abbr)
             } else {
                 format!(" {}-{} {}", game.home_score, game.away_score, game.home.abbr)
             };
-            row.push(Span::styled(leader, Style::default().fg(theme::BRIGHT)));
+            row.push(Span::styled(leader, Style::default().fg(th.bright)));
         }
         let [top, bottom] = rows;
         let mut lines = vec![Line::from(top)];
@@ -684,36 +700,40 @@ impl App {
     }
 
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
+        let th = theme::current();
+        // "SPC" and single-space separators keep the full list within 120 cols.
         let chords: &[(&str, &str)] = &[
             ("TAB", "LEAGUE"),
             ("J/K", "MOVE"),
-            ("SPACE", "PIN"),
+            ("SPC", "PIN"),
             ("ENTER", "FOCUS"),
             ("N/P", "PAGE"),
             ("T", "FAV"),
             ("1/2/4/S", "LAYOUT"),
+            ("C", "THEME"),
             ("R", "REFRESH"),
             ("Q", "QUIT"),
         ];
         let mut spans = vec![Span::styled(
-            " NAV: ",
-            Style::default().fg(theme::FG).add_modifier(Modifier::BOLD),
+            " NAV:",
+            Style::default().fg(th.fg).add_modifier(Modifier::BOLD),
         )];
         for (key, action) in chords {
-            spans.push(Span::styled(format!(" [{key}]"), Style::default().fg(theme::FG)));
-            spans.push(Span::styled(format!(" {action} "), Style::default().fg(theme::MUTED)));
+            spans.push(Span::styled(format!(" [{key}]"), Style::default().fg(th.fg)));
+            spans.push(Span::styled(format!(" {action}"), Style::default().fg(th.muted)));
         }
         frame.render_widget(
-            Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::BG)),
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(th.bg)),
             area,
         );
     }
 }
 
 fn rule(width: usize) -> Line<'static> {
+    let th = theme::current();
     Line::from(Span::styled(
         "─".repeat(width),
-        Style::default().fg(theme::DIM),
+        Style::default().fg(th.dim),
     ))
 }
 
@@ -909,6 +929,25 @@ mod tests {
     }
 
     #[test]
+    fn c_cycles_theme_and_persists() {
+        use crate::theme::{self, ThemeName};
+        theme::set_current(ThemeName::Broadcast);
+        // Own dir: app_with's shared dir is also written by other tests' saves.
+        let dir = std::env::temp_dir().join(format!("gd-theme-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let mut app = App::new(Config::default_all(), vec![], dir);
+        app.on_key(KeyCode::Char('c'));
+        assert_eq!(theme::current_name(), ThemeName::Ceefax);
+        assert_eq!(app.config.theme, "ceefax");
+        let saved = Config::load_from(&app.config_dir).unwrap();
+        assert_eq!(saved.theme, "ceefax");
+        app.on_key(KeyCode::Char('c'));
+        app.on_key(KeyCode::Char('c'));
+        assert_eq!(theme::current_name(), ThemeName::Broadcast);
+        assert_eq!(app.config.theme, "broadcast");
+    }
+
+    #[test]
     fn layout_keys() {
         let mut app = app_with(vec![], vec![]);
         app.on_key(KeyCode::Char('2'));
@@ -941,6 +980,7 @@ mod tests {
             enabled_tabs: vec![League::Nfl, League::Cfb],
             layout: LayoutPref::Auto,
             favorites: vec![],
+            theme: "broadcast".into(),
         };
         let app = App::new(cfg, vec![], dir);
         assert_eq!(
@@ -962,6 +1002,7 @@ mod tests {
                 enabled_tabs: vec![League::Nfl, League::Cfb],
                 layout: LayoutPref::Auto,
                 favorites: vec![],
+                theme: "broadcast".into(),
             },
             vec![],
             dir,

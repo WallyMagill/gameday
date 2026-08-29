@@ -18,12 +18,28 @@ fn roundtrip_config() {
         enabled_tabs: vec![League::Nfl, League::Cfb],
         layout: LayoutPref::Two,
         favorites: vec![Favorite { league: League::Nfl, team_abbr: "KC".into() }],
+        theme: "ceefax".into(),
     };
     c.save_to(&dir).unwrap();
     let loaded = Config::load_from(&dir).unwrap();
     assert_eq!(loaded.favorites[0].team_abbr, "KC");
     assert_eq!(loaded.layout, LayoutPref::Two);
     assert_eq!(loaded.enabled_tabs, vec![League::Nfl, League::Cfb]);
+    assert_eq!(loaded.theme, "ceefax");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn config_without_theme_key_defaults_to_broadcast() {
+    // Configs written before the theme field existed must keep loading.
+    let dir = tmp("cfg-no-theme");
+    fs::write(
+        dir.join("config.toml"),
+        "enabled_tabs = [\"Nfl\"]\nlayout = \"Auto\"\nfavorites = []\n",
+    )
+    .unwrap();
+    let c = Config::load_from(&dir).unwrap();
+    assert_eq!(c.theme, "broadcast");
     fs::remove_dir_all(&dir).ok();
 }
 
@@ -43,6 +59,7 @@ fn new_league_variants_roundtrip_in_toml() {
         enabled_tabs: vec![League::Wnba, League::Epl, League::Mls],
         layout: LayoutPref::Auto,
         favorites: vec![],
+        theme: "broadcast".into(),
     };
     c.save_to(&dir).unwrap();
     let loaded = Config::load_from(&dir).unwrap();

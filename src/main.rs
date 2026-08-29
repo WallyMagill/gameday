@@ -70,6 +70,7 @@ fn main() -> std::io::Result<()> {
         .join("gameday");
     std::fs::create_dir_all(dir.join("cache"))?;
     let config = Config::load_from(&dir).unwrap_or_else(|_| Config::default_all());
+    gameday::theme::set_current(gameday::theme::parse_or_default(&config.theme));
     let pins = load_pins(&dir).unwrap_or_default();
     let enabled_tabs = config.enabled_tabs.clone();
     let app = App::new(config, pins, dir.clone());

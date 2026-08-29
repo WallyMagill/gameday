@@ -126,6 +126,7 @@ pub fn load_logo(key: &str) -> Option<AnsiArt> {
 }
 
 pub fn draw_logo(frame: &mut Frame, area: Rect, team: &Team) {
+    let th = theme::current();
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -145,8 +146,8 @@ pub fn draw_logo(frame: &mut Frame, area: Rect, team: &Team) {
             }
             let cell = &mut buf[(x0 + x as u16, y0 + y as u16)];
             cell.set_char(art_cell.ch);
-            cell.set_fg(art_cell.fg.map_or(theme::FG, |(r, g, b)| Color::Rgb(r, g, b)));
-            cell.set_bg(art_cell.bg.map_or(theme::BG, |(r, g, b)| Color::Rgb(r, g, b)));
+            cell.set_fg(art_cell.fg.map_or(th.fg, |(r, g, b)| Color::Rgb(r, g, b)));
+            cell.set_bg(art_cell.bg.map_or(th.bg, |(r, g, b)| Color::Rgb(r, g, b)));
         }
     }
 }

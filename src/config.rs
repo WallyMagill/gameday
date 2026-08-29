@@ -34,6 +34,15 @@ pub struct Config {
     pub enabled_tabs: Vec<League>,
     pub layout: LayoutPref,
     pub favorites: Vec<Favorite>,
+    /// Palette name ("broadcast" | "ceefax" | "phosphor"). Kept as a string so
+    /// an unknown value degrades to broadcast (with a stderr note) instead of
+    /// failing the whole config load.
+    #[serde(default = "default_theme")]
+    pub theme: String,
+}
+
+fn default_theme() -> String {
+    crate::theme::ThemeName::Broadcast.as_str().to_string()
 }
 
 impl Config {
@@ -42,6 +51,7 @@ impl Config {
             enabled_tabs: League::ALL.to_vec(),
             layout: LayoutPref::Auto,
             favorites: vec![],
+            theme: default_theme(),
         }
     }
 

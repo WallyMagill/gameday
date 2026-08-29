@@ -4,6 +4,7 @@
 
 use crate::app::App;
 use crate::demo;
+use crate::theme;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
@@ -31,6 +32,11 @@ pub fn render_demo_buffer(cols: u16, rows: u16) -> std::io::Result<Buffer> {
 }
 
 pub fn run(out_dir: &Path) -> std::io::Result<()> {
+    // Theme hook for visual iteration: GAMEDAY_THEME=ceefax|phosphor|broadcast.
+    // The dump-gallery task will iterate all themes; this selects one for now.
+    if let Ok(name) = std::env::var("GAMEDAY_THEME") {
+        theme::set_current(theme::parse_or_default(&name));
+    }
     std::fs::create_dir_all(out_dir)?;
     capture(out_dir, "board")?;
     // Second capture for the big-score A/B; harmless extra file until decided.
@@ -103,12 +109,14 @@ pub fn buffer_to_html(buf: &Buffer) -> String {
             )
         })
         .unwrap_or_default();
+    let th = theme::current();
+    let (page_bg, page_fg) = (color_css(th.bg), color_css(th.fg));
     let mut html = format!(
         r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>gameday board</title>
 <style>
-  {font_face}html,body{{margin:0;background:#0a0a0a;}}
+  {font_face}html,body{{margin:0;background:{page_bg};}}
   pre{{font:13px/16px 'DumpMono',Menlo,"Cascadia Mono","SF Mono",ui-monospace,monospace;
-      margin:16px;padding:10px 12px;background:#0a0a0a;color:#c8c8c8;
+      margin:16px;padding:10px 12px;background:{page_bg};color:{page_fg};
       display:inline-block;white-space:pre;}}
   pre span{{font:inherit;}}
 </style></head><body><pre>"#,
