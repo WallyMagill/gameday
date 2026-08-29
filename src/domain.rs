@@ -80,6 +80,21 @@ pub struct Situation {
     pub outs: Option<u8>,
     /// Base runners as [first, second, third].
     pub on_base: Option<[bool; 3]>,
+    /// Basketball shot clock in seconds. ESPN's public scoreboard doesn't
+    /// carry one (checked 2026-08-29: wnba fixture + live NBA/WNBA feeds), so
+    /// on real data this stays None and the chip simply doesn't render;
+    /// `--demo` supplies it. Never synthesized for live games.
+    pub shot_clock: Option<u8>,
+}
+
+impl Situation {
+    /// Baseball headline, reference-board style: "2 OUTS  1-2"
+    /// (outs first, then balls-strikes). None unless all three are known.
+    pub fn mlb_count_headline(&self) -> Option<String> {
+        let (o, b, s) = (self.outs?, self.balls?, self.strikes?);
+        let plural = if o == 1 { "" } else { "S" };
+        Some(format!("{o} OUT{plural}  {b}-{s}"))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,6 +175,23 @@ mod tests {
             assert_eq!(League::from_slug(l.slug()), Some(l), "slug {}", l.slug());
         }
         assert_eq!(League::from_slug("xfl"), None);
+    }
+
+    #[test]
+    fn mlb_count_headline_formats_and_pluralizes() {
+        let sit = |b, s, o| Situation {
+            balls: Some(b),
+            strikes: Some(s),
+            outs: Some(o),
+            ..Default::default()
+        };
+        assert_eq!(sit(1, 2, 2).mlb_count_headline().as_deref(), Some("2 OUTS  1-2"));
+        assert_eq!(sit(3, 2, 1).mlb_count_headline().as_deref(), Some("1 OUT  3-2"));
+        assert_eq!(sit(0, 0, 0).mlb_count_headline().as_deref(), Some("0 OUTS  0-0"));
+        // Any missing component: no headline rather than a half-made one.
+        let partial = Situation { balls: Some(1), strikes: Some(2), ..Default::default() };
+        assert_eq!(partial.mlb_count_headline(), None);
+        assert_eq!(Situation::default().mlb_count_headline(), None);
     }
 
     #[test]

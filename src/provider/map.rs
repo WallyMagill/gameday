@@ -212,6 +212,9 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
         for c in comps {
             let mut team = team_from(league, &c["team"]).ok_or(MapError::Missing("team"))?;
             team.record = record_from(c);
+            // NHL shots on goal: skipped — no NHL fixture exists and the live
+            // scoreboard (2026-08-29, all preseason `pre`) had competitors
+            // with `statistics: []`, so the field name couldn't be verified.
             let score = c["score"].as_str().unwrap_or("0").parse().unwrap_or(0);
             match c["homeAway"].as_str() {
                 Some("home") => { home_score = score; home = Some(team); }
@@ -246,11 +249,14 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
                     sit_v["onThird"].as_bool().unwrap_or(false),
                 ]);
                 // Compose the headline: "2 OUTS  1-2".
-                if let (Some(o), Some(b), Some(s)) = (sit.outs, sit.balls, sit.strikes) {
-                    let plural = if o == 1 { "" } else { "S" };
-                    sit.down_distance = format!("{o} OUT{plural}  {b}-{s}");
+                if let Some(headline) = sit.mlb_count_headline() {
+                    sit.down_distance = headline;
                 }
             }
+            // shot_clock stays None: no shot-clock field exists under
+            // situation/status in the wnba fixture or the live NBA/WNBA
+            // scoreboards (checked 2026-08-29). The tile chip renders only
+            // when a value is present, so real data simply shows no chip.
             Some(sit)
         } else {
             None

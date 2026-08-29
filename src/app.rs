@@ -2,6 +2,7 @@ use crate::config::{prune_pins, save_pins, Config, Favorite, Pin};
 use crate::domain::{Game, League, Status, Summary};
 use crate::home::home_games;
 use crate::keymap;
+use crate::text::truncate;
 use crate::theme;
 use crate::tiles::packer::{pack, page_size, LayoutPref};
 use crate::tiles::{render_tile, TileFx};
@@ -594,10 +595,16 @@ impl App {
             Style::default().fg(th.star).add_modifier(Modifier::BOLD),
         )));
         for (game, play) in events.iter().take(5) {
-            let text: String = play.text.chars().take(w.saturating_sub(2)).collect();
+            // Right-aligned clock column per row (reference board), the play
+            // text ellipsis-truncated so it never hard-clips against it.
+            let clock = play.clock.as_str();
+            let text = truncate(&play.text, w.saturating_sub(2 + clock.chars().count() + 1));
+            let pad = w.saturating_sub(2 + text.chars().count() + clock.chars().count());
             lines.push(Line::from(vec![
                 Span::styled("★ ", Style::default().fg(th.star)),
                 Span::styled(text, Style::default().fg(th.league_accent(game.league))),
+                Span::raw(" ".repeat(pad)),
+                Span::styled(clock.to_string(), Style::default().fg(th.cyan)),
             ]));
         }
         if events.is_empty() {
@@ -633,7 +640,7 @@ impl App {
             lines.push(Line::from(vec![
                 Span::styled(format!("{}. ", i + 1), Style::default().fg(th.muted)),
                 Span::styled(
-                    format!("{:<9}", team.name.chars().take(9).collect::<String>()),
+                    format!("{:<9}", truncate(&team.name, 9)),
                     Style::default().fg(theme::rgb(team.color)),
                 ),
                 Span::styled(format!("{win:>3}{loss:>3}"), Style::default().fg(th.fg)),
@@ -689,7 +696,7 @@ impl App {
             let fx = self.tile_fx(&game);
             let one = [game];
             for tile in pack(&one, area, LayoutPref::One, 0) {
-                render_tile(frame, tile.area, tile.game, tile.density, true, fx);
+                render_tile(frame, tile.area, tile.game, tile.density, true, fx, self.config.score_style);
             }
             return;
         }
@@ -735,6 +742,7 @@ impl App {
                 tile.density,
                 selected,
                 self.tile_fx(tile.game),
+                self.config.score_style,
             );
         }
     }
@@ -1260,6 +1268,7 @@ mod tests {
             layout: LayoutPref::Auto,
             favorites: vec![],
             theme: "broadcast".into(),
+            score_style: Default::default(),
         };
         let app = App::new(cfg, vec![], dir);
         assert_eq!(
@@ -1544,6 +1553,7 @@ mod tests {
                 layout: LayoutPref::Auto,
                 favorites: vec![],
                 theme: "broadcast".into(),
+            score_style: Default::default(),
             },
             vec![],
             dir,

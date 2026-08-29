@@ -1,0 +1,47 @@
+//! Shared text helpers for draw code. Every right-edge cut in the UI goes
+//! through [`truncate`] so nothing ever hard-clips mid-word without a visible
+//! ellipsis.
+
+/// Fit `s` into `width` cells: unchanged when it fits, otherwise cut one
+/// short and finished with `…`. Char-based (the UI is single-width text).
+pub fn truncate(s: &str, width: usize) -> String {
+    if s.chars().count() <= width {
+        s.to_string()
+    } else if width > 1 {
+        let cut: String = s.chars().take(width - 1).collect();
+        format!("{cut}…")
+    } else {
+        // A 0/1-cell window has no room for text + ellipsis; keep what fits.
+        s.chars().take(width).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fits_untouched() {
+        assert_eq!(truncate("SHORT", 10), "SHORT");
+        assert_eq!(truncate("EXACT", 5), "EXACT");
+        assert_eq!(truncate("", 0), "");
+    }
+
+    #[test]
+    fn overflow_gets_an_ellipsis_inside_the_width() {
+        assert_eq!(truncate("TOUCHDOWN", 6), "TOUCH…");
+        assert_eq!(truncate("TOUCHDOWN", 6).chars().count(), 6);
+        assert_eq!(truncate("AB", 1), "A", "width 1 keeps one char, no ellipsis");
+        assert_eq!(truncate("AB", 0), "");
+    }
+
+    #[test]
+    fn counts_chars_not_bytes() {
+        // "90'+3' Bukayo Saka" style text with multibyte chars must not split
+        // a codepoint or overshoot the cell width.
+        assert_eq!(truncate("héllo wörld", 7), "héllo …");
+        assert_eq!(truncate("héllo wörld", 7).chars().count(), 7);
+        assert_eq!(truncate("◆◇◆◇", 4), "◆◇◆◇");
+        assert_eq!(truncate("◆◇◆◇", 3), "◆◇…");
+    }
+}

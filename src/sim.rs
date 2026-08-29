@@ -157,6 +157,10 @@ fn step_nfl(g: &mut Game, t: u64) {
 /// tick 30 — the Lead meter flips sign.
 fn step_nba(g: &mut Game, t: u64) {
     g.clock = fmt_clock(NBA_CLOCK0.saturating_sub(t));
+    // Scripted 24-second shot clock: counts down and resets each cycle.
+    if let Some(sit) = &mut g.situation {
+        sit.shot_clock = Some(24 - (t % 24) as u8);
+    }
     let scored = match t {
         6 => {
             g.home_score += 3;
@@ -200,7 +204,9 @@ fn step_mlb(g: &mut Game, t: u64) {
         12 => {
             if let Some(sit) = &mut g.situation {
                 sit.balls = Some(2); // 1-2 -> 2-2
-                sit.down_distance = headline(sit);
+                if let Some(h) = sit.mlb_count_headline() {
+                    sit.down_distance = h;
+                }
             }
         }
         MLB_INNING_TICK => {
@@ -224,17 +230,6 @@ fn step_mlb(g: &mut Game, t: u64) {
             g.meter = Some(Meter::Diamond { occupied: [true, false, false] });
         }
         _ => {}
-    }
-}
-
-/// "2 OUTS  1-2" — same composition rule as provider::map for MLB.
-fn headline(sit: &Situation) -> String {
-    match (sit.outs, sit.balls, sit.strikes) {
-        (Some(o), Some(b), Some(s)) => {
-            let plural = if o == 1 { "" } else { "S" };
-            format!("{o} OUT{plural}  {b}-{s}")
-        }
-        _ => sit.down_distance.clone(),
     }
 }
 

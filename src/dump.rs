@@ -5,6 +5,7 @@
 use crate::app::App;
 use crate::demo;
 use crate::theme;
+use crate::tiles::ScoreStyle;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
@@ -33,10 +34,17 @@ pub fn demo_app(config_dir: PathBuf, tick: u64) -> App {
     app
 }
 
-pub fn render_demo_buffer(cols: u16, rows: u16, tick: u64) -> std::io::Result<Buffer> {
+pub fn render_demo_buffer(
+    cols: u16,
+    rows: u16,
+    tick: u64,
+    score_style: ScoreStyle,
+) -> std::io::Result<Buffer> {
     let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     let mut app = demo_app(dir, tick);
+    // Dump variants pick the score style programmatically (no env hack).
+    app.config.score_style = score_style;
     // Dev hook: GAMEDAY_DUMP_HELP=1 captures the '?' overlay over the board.
     if std::env::var("GAMEDAY_DUMP_HELP").is_ok() {
         app.help_open = true;
@@ -53,16 +61,14 @@ pub fn run(out_dir: &Path, tick: u64) -> std::io::Result<()> {
         theme::set_current(theme::parse_or_default(&name));
     }
     std::fs::create_dir_all(out_dir)?;
-    capture(out_dir, "board", tick)?;
-    // Second capture for the big-score A/B; harmless extra file until decided.
-    std::env::set_var("GAMEDAY_BIG_SCORES", "1");
-    let res = capture(out_dir, "board-big", tick);
-    std::env::remove_var("GAMEDAY_BIG_SCORES");
-    res
+    // Default board = config-default score style (big); second capture shows
+    // the "compact" score_style option.
+    capture(out_dir, "board", tick, ScoreStyle::default())?;
+    capture(out_dir, "board-compact", tick, ScoreStyle::Compact)
 }
 
-fn capture(out_dir: &Path, stem: &str, tick: u64) -> std::io::Result<()> {
-    let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, tick)?;
+fn capture(out_dir: &Path, stem: &str, tick: u64, style: ScoreStyle) -> std::io::Result<()> {
+    let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, tick, style)?;
     let html_path = out_dir.join(format!("{stem}.html"));
     std::fs::write(&html_path, buffer_to_html(&buf))?;
     std::fs::write(out_dir.join(format!("{stem}.ansi")), buffer_to_ansi(&buf))?;
@@ -212,7 +218,7 @@ mod tests {
 
     #[test]
     fn demo_board_renders_the_redzone_grammar() {
-        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0).unwrap();
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0, ScoreStyle::Compact).unwrap();
         let mut text = String::new();
         for y in 0..DUMP_ROWS {
             for x in 0..DUMP_COLS {
@@ -230,8 +236,33 @@ mod tests {
     }
 
     #[test]
+    fn default_dump_uses_big_scores_and_shows_the_shot_clock_chip() {
+        let th = theme::current();
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0, ScoreStyle::default()).unwrap();
+        let mut text = String::new();
+        let mut star_bg = 0;
+        for y in 0..DUMP_ROWS {
+            for x in 0..DUMP_COLS {
+                text.push_str(buf[(x, y)].symbol());
+                if buf[(x, y)].bg == th.star {
+                    star_bg += 1;
+                }
+            }
+            text.push('\n');
+        }
+        // Big style: sextant digits, so the single-row score text is gone but
+        // the name+record rows appear under the digits.
+        assert!(!text.contains("27 - 24"), "default is big, not the text score row:\n{text}");
+        assert!(text.contains("CHIEFS 11-6"), "big identity row missing:\n{text}");
+        // NBA demo tile carries a shot clock => the boxed amber chip renders
+        // (star-background cells beyond the [ALL] header tab).
+        assert!(text.contains(" 24 "), "shot clock chip text missing");
+        assert!(star_bg > "[ALL]".len(), "amber chip cells missing, got {star_bg}");
+    }
+
+    #[test]
     fn dump_at_td_tick_renders_the_new_score() {
-        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, crate::sim::KC_TD_TICK).unwrap();
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, crate::sim::KC_TD_TICK, ScoreStyle::Compact).unwrap();
         let mut text = String::new();
         for y in 0..DUMP_ROWS {
             for x in 0..DUMP_COLS {
@@ -247,7 +278,7 @@ mod tests {
     fn td_tick_dump_captures_the_score_flash() {
         let th = theme::current();
         let live_bg_cells = |tick: u64| {
-            let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, tick).unwrap();
+            let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, tick, ScoreStyle::default()).unwrap();
             let mut n = 0;
             for y in 0..DUMP_ROWS {
                 for x in 0..DUMP_COLS {
@@ -273,7 +304,7 @@ mod tests {
 
     #[test]
     fn html_dump_contains_colored_cells() {
-        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0).unwrap();
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0, ScoreStyle::default()).unwrap();
         let html = buffer_to_html(&buf);
         assert!(html.contains("color:#"));
         // Cells are individually wrapped in spans; strip tags to check content.

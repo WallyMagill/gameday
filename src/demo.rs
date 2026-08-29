@@ -43,6 +43,7 @@ pub fn demo_config() -> Config {
         layout: LayoutPref::Auto,
         favorites: vec![],
         theme: crate::theme::current_name().as_str().to_string(),
+        score_style: Default::default(),
     }
 }
 
@@ -145,7 +146,12 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
             status: Status::Live,
             period: "Q3".into(),
             clock: "4:38".into(),
-            situation: None,
+            // Real feeds never carry a shot clock (see provider::map); the
+            // demo supplies one so the boxed amber chip is visible.
+            situation: Some(Situation {
+                shot_clock: Some(24),
+                ..Default::default()
+            }),
             last_plays: vec![
                 play("4:38", "DEN", "Nikola Jokic makes layup (28 PTS)", false),
                 play("5:02", "BOS", "Jayson Tatum 3pt shot (23 PTS)", true),

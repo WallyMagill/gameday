@@ -1,7 +1,8 @@
 pub mod logo;
 pub mod packer;
 
-use crate::domain::{Game, Meter, Status, Team};
+use crate::domain::{Game, League, Meter, Status, Team};
+use crate::text::truncate;
 use crate::theme;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -11,6 +12,17 @@ use ratatui::Frame;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Density { Full, Standard, Compact }
+
+/// How score digits render inside a tile: config key `score_style`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScoreStyle {
+    /// 3-row sextant digits via tui_big_text — the jumbotron look (default).
+    #[default]
+    Big,
+    /// Single-row "27 - 24" between the team identity columns.
+    Compact,
+}
 
 /// Per-tile animation state, decided by the caller as a pure function of the
 /// app's render tick — tiles themselves never look at a clock.
@@ -41,6 +53,7 @@ pub fn render_tile(
     density: Density,
     selected: bool,
     fx: TileFx,
+    score_style: ScoreStyle,
 ) {
     let th = theme::current();
     if density == Density::Compact {
@@ -63,17 +76,26 @@ pub fn render_tile(
         Status::Pre => Span::styled("UPCOMING", Style::default().fg(th.muted)),
     });
 
+    let mut right_title = vec![Span::styled(
+        format!(" {} ", situation_summary(game)),
+        Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
+    )];
+    // Basketball shot-clock chip: boxed amber badge, distinct from the game
+    // clock. Renders only when the value is present (demo supplies it; the
+    // real feed doesn't carry one — see provider::map).
+    if let Some(sc) = shot_clock_of(game) {
+        right_title.push(Span::styled(
+            format!(" {sc} "),
+            Style::default().fg(th.bg).bg(th.star).add_modifier(Modifier::BOLD),
+        ));
+        right_title.push(Span::raw(" "));
+    }
+
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border))
         .title(Line::from(left_title))
-        .title(
-            Line::from(Span::styled(
-                format!(" {} ", situation_summary(game)),
-                Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
-            ))
-            .right_aligned(),
-        );
+        .title(Line::from(right_title).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.height < 8 || inner.width < 30 {
@@ -89,7 +111,10 @@ pub fn render_tile(
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(IDENTITY_H), Constraint::Min(1)])
         .split(inner);
-    render_identity(frame, rows[0], game, fx.flash);
+    match score_style {
+        ScoreStyle::Big => render_identity_big(frame, rows[0], game, fx.flash),
+        ScoreStyle::Compact => render_identity(frame, rows[0], game, fx.flash),
+    }
 
     let lower = Layout::default()
         .direction(Direction::Horizontal)
@@ -142,18 +167,21 @@ fn live_chip_style(fx: TileFx) -> Style {
     Style::default().fg(fg).add_modifier(Modifier::BOLD)
 }
 
-/// A/B experiment: `GAMEDAY_BIG_SCORES=1` renders 3-row sextant digits
-/// instead of the single-row score. Kept until Walter picks one by eye.
-fn big_scores_enabled() -> bool {
-    std::env::var("GAMEDAY_BIG_SCORES").is_ok_and(|v| v == "1")
+/// Live basketball shot clock, when the situation actually carries one.
+fn shot_clock_of(game: &Game) -> Option<u8> {
+    if game.status != Status::Live {
+        return None;
+    }
+    match game.league {
+        League::Nba | League::Wnba | League::Cbb => {
+            game.situation.as_ref().and_then(|s| s.shot_clock)
+        }
+        _ => None,
+    }
 }
 
-/// Logo | city/NAME/record | 27 - 24 | city/NAME/record | logo
+/// Compact score style: logo | city/NAME/record | 27 - 24 | … | logo
 fn render_identity(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
-    if big_scores_enabled() {
-        render_identity_big(frame, area, game, flash);
-        return;
-    }
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -178,8 +206,9 @@ fn render_identity(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
     logo::draw_logo(frame, cols[4], &game.home);
 }
 
-/// Big-score variant: logos at the edges, 3-row sextant digits in the middle,
-/// names + records on single rows beneath (no city line — the digits take it).
+/// Big score style (default): logos at the edges, 3-row sextant digits in the
+/// middle, names + records on single rows beneath (no city line — the digits
+/// take it).
 fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
     let th = theme::current();
     use tui_big_text::{BigText, PixelSize};
@@ -345,7 +374,9 @@ fn render_lower_left(frame: &mut Frame, area: Rect, game: &Game) {
     frame.render_widget(Paragraph::new(lines), play_area);
 }
 
-/// ▶▶▶ MOMENTUM ◀◀◀ — the side that made the most recent (scoring) play is lit.
+/// ▶▶▶ MOMENTUM ◀◀◀ — BOTH sides tick in their team color (per the reference
+/// board): the hot side bright and bold, the cold side the same hue stepped
+/// down through the theme's dim luminance.
 fn momentum_line(game: &Game) -> Paragraph<'static> {
     let th = theme::current();
     let mover = game
@@ -362,7 +393,7 @@ fn momentum_line(game: &Game) -> Paragraph<'static> {
         if hot {
             Style::default().fg(theme::rgb(color)).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(th.dim)
+            Style::default().fg(theme::dimmed(theme::rgb(color)))
         }
     };
     Paragraph::new(Line::from(vec![
@@ -447,6 +478,22 @@ fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
                 Span::raw("   "),
                 Span::styled("▽", Style::default().fg(th.muted)),
             ]));
+            // Count sits with the runners: "1-2" over "2 OUTS".
+            if let Some(sit) = &game.situation {
+                if let (Some(b), Some(s)) = (sit.balls, sit.strikes) {
+                    lines.push(Line::from(Span::styled(
+                        format!("{b}-{s}"),
+                        Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
+                    )));
+                }
+                if let Some(o) = sit.outs {
+                    let plural = if o == 1 { "" } else { "S" };
+                    lines.push(Line::from(Span::styled(
+                        format!("{o} OUT{plural}"),
+                        Style::default().fg(th.muted),
+                    )));
+                }
+            }
         }
         Meter::Penalty { team_abbr, seconds } => {
             lines.push(Line::from(Span::styled("PENALTY", label_style)));
@@ -513,17 +560,6 @@ fn render_compact(frame: &mut Frame, area: Rect, game: &Game, fx: TileFx) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn truncate(s: &str, width: usize) -> String {
-    if s.chars().count() <= width {
-        s.to_string()
-    } else if width > 1 {
-        let cut: String = s.chars().take(width - 1).collect();
-        format!("{cut}…")
-    } else {
-        s.chars().take(width).collect()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,15 +614,14 @@ mod tests {
         }
     }
 
-    fn render_buffer(game: &Game, density: Density, w: u16, h: u16, fx: TileFx) -> ratatui::buffer::Buffer {
+    fn render_buffer(game: &Game, density: Density, w: u16, h: u16, fx: TileFx, style: ScoreStyle) -> ratatui::buffer::Buffer {
         let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
-        term.draw(|f| render_tile(f, f.area(), game, density, false, fx))
+        term.draw(|f| render_tile(f, f.area(), game, density, false, fx, style))
             .unwrap();
         term.backend().buffer().clone()
     }
 
-    fn render_to_text(game: &Game, density: Density, w: u16, h: u16) -> String {
-        let buf = render_buffer(game, density, w, h, TileFx::default());
+    fn buffer_text(buf: &ratatui::buffer::Buffer, w: u16, h: u16) -> String {
         let mut out = String::new();
         for y in 0..h {
             for x in 0..w {
@@ -595,6 +630,11 @@ mod tests {
             out.push('\n');
         }
         out
+    }
+
+    fn render_to_text(game: &Game, density: Density, w: u16, h: u16) -> String {
+        let buf = render_buffer(game, density, w, h, TileFx::default(), ScoreStyle::Compact);
+        buffer_text(&buf, w, h)
     }
 
     #[test]
@@ -621,7 +661,7 @@ mod tests {
     fn flash_inverts_score_cells_and_settling_restores_them() {
         let th = theme::current();
         let count_live_bg = |fx: TileFx| {
-            let buf = render_buffer(&demo_game(), Density::Standard, 49, 15, fx);
+            let buf = render_buffer(&demo_game(), Density::Standard, 49, 15, fx, ScoreStyle::Compact);
             let mut n = 0;
             for y in 0..15 {
                 for x in 0..49 {
@@ -648,6 +688,7 @@ mod tests {
                 49,
                 15,
                 TileFx { flash: false, live_bright: bright },
+                ScoreStyle::Compact,
             );
             // Find "LIVE" on the top border and return the L cell's fg.
             for x in 0..46u16 {
@@ -661,6 +702,116 @@ mod tests {
         assert_eq!(chip_fg(true), th.live);
         assert_eq!(chip_fg(false), theme::dimmed(th.live));
         assert_ne!(th.live, theme::dimmed(th.live), "dim step must be visible");
+    }
+
+    #[test]
+    fn score_style_selects_big_or_compact() {
+        let g = demo_game();
+        let big = buffer_text(
+            &render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Big),
+            49,
+            15,
+        );
+        let compact = buffer_text(
+            &render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact),
+            49,
+            15,
+        );
+        assert!(compact.contains("27 - 24"), "compact = single-row score:\n{compact}");
+        assert!(!big.contains("27 - 24"), "big renders sextant digits, not a text row:\n{big}");
+        assert!(big.contains("CHIEFS 11-6"), "big shows name+record under the digits:\n{big}");
+    }
+
+    fn nba_game(shot_clock: Option<u8>) -> Game {
+        let mut g = demo_game();
+        g.league = League::Nba;
+        g.situation = Some(Situation { shot_clock, ..Default::default() });
+        g.meter = Some(Meter::Lead { plus_minus: 3 });
+        g
+    }
+
+    #[test]
+    fn shot_clock_chip_renders_only_when_the_value_is_present() {
+        let th = theme::current();
+        // Chip cells sit on the star (amber) background on the top border row.
+        let chip_cells = |g: &Game| {
+            let buf = render_buffer(g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact);
+            (0..49u16).filter(|&x| buf[(x, 0)].bg == th.star).count()
+        };
+        assert!(chip_cells(&nba_game(Some(24))) >= 4, "boxed '24' badge missing");
+        assert_eq!(chip_cells(&nba_game(None)), 0, "no value => no chip, never faked");
+        // Non-basketball games never grow a chip even if data carried a value.
+        let mut nfl = demo_game();
+        if let Some(sit) = &mut nfl.situation {
+            sit.shot_clock = Some(24);
+        }
+        assert_eq!(chip_cells(&nfl), 0, "shot clock is basketball-only");
+    }
+
+    #[test]
+    fn momentum_ticks_both_sides_hot_bright_cold_dimmed() {
+        // demo_game's newest play is KC (away): away hot, home cold.
+        let g = demo_game();
+        let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact);
+        let mut hot = None;
+        let mut cold = None;
+        for y in 0..15u16 {
+            for x in 0..49u16 {
+                match buf[(x, y)].symbol() {
+                    "▶" => hot = Some(buf[(x, y)].fg),
+                    "◀" => cold = Some(buf[(x, y)].fg),
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!(hot.unwrap(), theme::rgb(g.away.color), "hot side in bright team color");
+        assert_eq!(
+            cold.unwrap(),
+            theme::dimmed(theme::rgb(g.home.color)),
+            "cold side still ticks, dimmed team color"
+        );
+    }
+
+    #[test]
+    fn diamond_meter_shows_count_and_outs() {
+        let mut g = demo_game();
+        g.league = League::Mlb;
+        g.period = "BOT 7TH".into();
+        g.clock = String::new();
+        g.situation = Some(Situation {
+            down_distance: "2 OUTS  1-2".into(),
+            balls: Some(1),
+            strikes: Some(2),
+            outs: Some(2),
+            on_base: Some([true, false, false]),
+            ..Default::default()
+        });
+        g.meter = Some(Meter::Diamond { occupied: [true, false, false] });
+        // Look only below the identity block so the top-border headline
+        // ("BOT 7TH | 2 OUTS 1-2") can't satisfy the assertions for the meter.
+        let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact);
+        let mut lower = String::new();
+        for y in 7..15u16 {
+            for x in 0..49u16 {
+                lower.push_str(buf[(x, y)].symbol());
+            }
+            lower.push('\n');
+        }
+        assert!(lower.contains("BASES"), "{lower}");
+        assert!(lower.contains("1-2"), "balls-strikes beside the diamond:\n{lower}");
+        assert!(lower.contains("2 OUTS"), "outs beside the diamond:\n{lower}");
+    }
+
+    #[test]
+    fn soccer_tile_shows_the_match_minute_as_the_period() {
+        let mut g = demo_game();
+        g.league = League::Epl;
+        g.period = "90'+3'".into();
+        g.clock = String::new();
+        g.situation = None;
+        g.meter = None;
+        let text = render_to_text(&g, Density::Standard, 49, 15);
+        assert!(text.contains("90'+3'"), "match minute missing where other sports show period/clock:\n{text}");
     }
 
     #[test]

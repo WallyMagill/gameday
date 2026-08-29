@@ -1,5 +1,6 @@
 use crate::domain::League;
 use crate::tiles::packer::LayoutPref;
+use crate::tiles::ScoreStyle;
 use std::fs;
 use std::path::Path;
 use time::{Duration, OffsetDateTime};
@@ -39,6 +40,10 @@ pub struct Config {
     /// failing the whole config load.
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Score digit rendering: "big" (sextant digits, default) | "compact"
+    /// (single row). Replaces the old GAMEDAY_BIG_SCORES env hack.
+    #[serde(default)]
+    pub score_style: ScoreStyle,
 }
 
 fn default_theme() -> String {
@@ -52,6 +57,7 @@ impl Config {
             layout: LayoutPref::Auto,
             favorites: vec![],
             theme: default_theme(),
+            score_style: ScoreStyle::default(),
         }
     }
 

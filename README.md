@@ -17,6 +17,7 @@ Config: `~/.config/gameday/config.toml`
 enabled_tabs = ["Nfl", "Cfb"]   # default: all nine leagues
 layout = "Auto"                 # Auto | One | Two | Four | Sidebar
 theme = "broadcast"             # broadcast | ceefax | phosphor
+score_style = "big"             # big (sextant digits) | compact (single row)
 ```
 
 Favorites and pins live beside that file. Pins drop 6 hours after a game goes final.

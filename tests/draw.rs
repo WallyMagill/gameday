@@ -170,6 +170,31 @@ fn draw_reads_the_current_theme() {
 }
 
 #[test]
+fn sidebar_top_plays_right_align_the_clock() {
+    let mut app = mk();
+    let mut game = g("1", "KC", "TB", true);
+    game.last_plays = vec![Play {
+        clock: "1:27".into(),
+        team: "KC".into(),
+        text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
+        scoring: true,
+    }];
+    app.apply_boards(League::Nfl, vec![game], false);
+    app.tab = Tab::League(League::Nfl);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let row = s
+        .lines()
+        .find(|l| l.contains("★"))
+        .expect("TOP PLAYS row with a starred play");
+    // The clock hugs the sidebar's right border; the long play text is
+    // ellipsis-truncated, never hard-cut into it.
+    assert!(row.trim_end().ends_with("1:27│"), "clock not right-aligned: {row:?}");
+    assert!(row.contains("…"), "long play text should truncate with ellipsis: {row:?}");
+}
+
+#[test]
 fn empty_home_prompt() {
     let mut app = mk();
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
@@ -190,6 +215,7 @@ fn too_small_message() {
 #[test]
 fn nfl_tab_draws_live_score() {
     let mut app = mk();
+    app.config.score_style = gameday::tiles::ScoreStyle::Compact;
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
@@ -213,6 +239,7 @@ fn stale_flag_in_header() {
 #[test]
 fn focused_pre_game_on_nfl_tab_fills_mosaic() {
     let mut app = mk();
+    app.config.score_style = gameday::tiles::ScoreStyle::Compact;
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", false)], false);
     app.tab = Tab::League(League::Nfl);
     app.focused_id = Some("1".into());

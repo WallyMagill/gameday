@@ -1,6 +1,7 @@
 use gameday::config::{load_pins, prune_pins, save_pins, Config, Favorite, Pin};
 use gameday::domain::League;
 use gameday::tiles::packer::LayoutPref;
+use gameday::tiles::ScoreStyle;
 use std::fs;
 use time::{Duration, OffsetDateTime};
 
@@ -19,6 +20,7 @@ fn roundtrip_config() {
         layout: LayoutPref::Two,
         favorites: vec![Favorite { league: League::Nfl, team_abbr: "KC".into() }],
         theme: "ceefax".into(),
+        score_style: gameday::tiles::ScoreStyle::Compact,
     };
     c.save_to(&dir).unwrap();
     let loaded = Config::load_from(&dir).unwrap();
@@ -26,6 +28,25 @@ fn roundtrip_config() {
     assert_eq!(loaded.layout, LayoutPref::Two);
     assert_eq!(loaded.enabled_tabs, vec![League::Nfl, League::Cfb]);
     assert_eq!(loaded.theme, "ceefax");
+    assert_eq!(loaded.score_style, ScoreStyle::Compact);
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn config_without_score_style_key_defaults_to_big() {
+    // Configs written before score_style existed must keep loading, and the
+    // TOML value is the lowercase word from the spec ("big"/"compact").
+    let dir = tmp("cfg-no-score-style");
+    fs::write(
+        dir.join("config.toml"),
+        "enabled_tabs = [\"Nfl\"]\nlayout = \"Auto\"\nfavorites = []\n",
+    )
+    .unwrap();
+    let c = Config::load_from(&dir).unwrap();
+    assert_eq!(c.score_style, ScoreStyle::Big);
+    c.save_to(&dir).unwrap();
+    let text = fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert!(text.contains("score_style = \"big\""), "{text}");
     fs::remove_dir_all(&dir).ok();
 }
 
@@ -60,6 +81,7 @@ fn new_league_variants_roundtrip_in_toml() {
         layout: LayoutPref::Auto,
         favorites: vec![],
         theme: "broadcast".into(),
+        score_style: Default::default(),
     };
     c.save_to(&dir).unwrap();
     let loaded = Config::load_from(&dir).unwrap();
