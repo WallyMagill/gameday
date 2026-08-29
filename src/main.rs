@@ -20,6 +20,8 @@ use ratatui::Terminal;
 #[derive(Debug)]
 struct Args {
     demo: bool,
+    /// `dump`: write the fixed-name capture gallery (board-broadcast/-ceefax/
+    /// -phosphor, board-compact, tab-nfl, focus, help, narrow) into out/.
     dump: bool,
     /// `dump --tick N`: capture the demo simulation at tick N (default 0).
     tick: u64,

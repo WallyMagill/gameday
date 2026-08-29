@@ -8,8 +8,15 @@ No account. No API key.
 
 ```bash
 cargo run --release
-cargo run -- --demo    # fake NFL slate, no network
+cargo run -- --demo    # scripted demo slate, no network
+cargo run -- dump      # capture gallery into out/ (no network; --tick N picks the sim frame)
 ```
+
+`dump` writes fixed names: `board-broadcast` / `board-ceefax` / `board-phosphor`
+(home board per theme), `board-compact`, `tab-nfl`, `focus`, `help`, `narrow`
+(80x24) — each as `.html` + `.ansi`, plus `.png` when headless Chrome is
+installed. Set `GAMEDAY_DUMP_FONT=/path/to/CascadiaMono.ttf` so PNGs carry the
+sextant glyphs.
 
 Config: `~/.config/gameday/config.toml`
 
