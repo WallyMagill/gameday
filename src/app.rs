@@ -232,6 +232,7 @@ impl App {
         self.tab = tabs[next];
         self.page = 0;
         self.selected = 0;
+        self.focused_id = None;
     }
 
     fn move_selected(&mut self, delta: isize) {
@@ -411,16 +412,16 @@ impl App {
 
     fn focused_game(&self) -> Option<Game> {
         let id = self.focused_id.as_ref()?;
-        self.visible_games()
-            .into_iter()
-            .find(|g| g.id == *id)
-            .or_else(|| {
-                self.boards
-                    .values()
-                    .flatten()
-                    .find(|g| g.id == *id)
-                    .cloned()
-            })
+        match self.tab {
+            Tab::Home => self.visible_games().into_iter().find(|g| g.id == *id),
+            Tab::League(league) => self
+                .boards
+                .get(&league)
+                .into_iter()
+                .flatten()
+                .find(|g| g.id == *id)
+                .cloned(),
+        }
     }
 
     fn draw_mosaic(&self, frame: &mut Frame, area: Rect, show_slate: bool) {
@@ -665,6 +666,19 @@ mod tests {
         app.on_key(KeyCode::Esc);
         assert!(app.focused_id.is_none());
         assert_eq!(app.effective_layout(), LayoutPref::Auto);
+    }
+
+    #[test]
+    fn tab_clears_focus_and_home_hides_unpinned() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.tab = Tab::League(League::Nfl);
+        app.on_key(KeyCode::Enter);
+        assert_eq!(app.focused_id.as_deref(), Some("1"));
+        app.on_key(KeyCode::Tab);
+        assert_eq!(app.tab, Tab::Home);
+        assert!(app.focused_id.is_none());
+        let ids: Vec<_> = app.visible_games().into_iter().map(|g| g.id).collect();
+        assert!(!ids.iter().any(|id| id == "1"));
     }
 
     #[test]
