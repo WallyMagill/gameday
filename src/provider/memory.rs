@@ -46,9 +46,8 @@ mod tests {
             id: a.into(),
             abbr: a.into(),
             name: a.into(),
-            color: [0; 3],
-            alt_color: [0; 3],
             logo_key: "nfl/x".into(),
+            ..Default::default()
         };
         Game {
             id: "1".into(),
@@ -90,6 +89,7 @@ mod tests {
                     clock: "1:00".into(),
                     text: "TD".into(),
                     scoring: true,
+                    ..Default::default()
                 }],
                 scoring_plays: vec![],
                 meter: None,

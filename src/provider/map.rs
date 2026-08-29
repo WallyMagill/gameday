@@ -43,11 +43,27 @@ fn team_from(league: League, v: &Value) -> Option<Team> {
     Some(Team {
         id,
         logo_key: format!("{}/{}", league.slug(), abbr.to_lowercase()),
-        name: v.get("displayName").and_then(|x| x.as_str()).unwrap_or(&abbr).to_string(),
+        name: v.get("name")
+            .or_else(|| v.get("shortDisplayName"))
+            .or_else(|| v.get("displayName"))
+            .and_then(|x| x.as_str())
+            .unwrap_or(&abbr)
+            .to_string(),
+        location: v.get("location").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        record: String::new(),
         color: hex_color(v.get("color").and_then(|x| x.as_str()).unwrap_or("")),
         alt_color: hex_color(v.get("alternateColor").and_then(|x| x.as_str()).unwrap_or("")),
         abbr,
     })
+}
+
+fn record_from(competitor: &Value) -> String {
+    competitor["records"]
+        .as_array()
+        .and_then(|r| r.first())
+        .and_then(|r| r["summary"].as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError> {
@@ -69,7 +85,8 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
         let mut home_score = 0u16;
         let mut away_score = 0u16;
         for c in comps {
-            let team = team_from(league, &c["team"]).ok_or(MapError::Missing("team"))?;
+            let mut team = team_from(league, &c["team"]).ok_or(MapError::Missing("team"))?;
+            team.record = record_from(c);
             let score = c["score"].as_str().unwrap_or("0").parse().unwrap_or(0);
             match c["homeAway"].as_str() {
                 Some("home") => { home_score = score; home = Some(team); }
@@ -98,6 +115,10 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
         if let Some(text) = sit_v["lastPlay"]["text"].as_str() {
             last_plays.push(Play {
                 clock: sit_v["lastPlay"]["clock"]["displayValue"].as_str().unwrap_or(&clock).to_string(),
+                team: situation
+                    .as_ref()
+                    .and_then(|s| s.possession.clone())
+                    .unwrap_or_default(),
                 text: text.to_string(),
                 scoring: false,
             });
@@ -123,6 +144,7 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
         .filter_map(|p| {
             Some(Play {
                 clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+                team: p["team"]["abbreviation"].as_str().unwrap_or("").to_string(),
                 text: p["text"].as_str()?.to_string(),
                 scoring: true,
             })
@@ -131,11 +153,13 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
     let mut plays = Vec::new();
     if let Some(prev) = v["drives"]["previous"].as_array() {
         for d in prev {
+            let drive_team = d["team"]["abbreviation"].as_str().unwrap_or("");
             if let Some(ps) = d["plays"].as_array() {
                 for p in ps {
                     if let Some(text) = p["text"].as_str() {
                         plays.push(Play {
                             clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+                            team: drive_team.to_string(),
                             text: text.to_string(),
                             scoring: p["scoringPlay"].as_bool().unwrap_or(false),
                         });

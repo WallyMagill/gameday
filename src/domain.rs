@@ -28,19 +28,25 @@ impl League {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status { Pre, Live, Final }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Team {
     pub id: String,
     pub abbr: String,
     pub name: String,
+    /// City / market ("KANSAS CITY"). Empty when the feed only had a display name.
+    pub location: String,
+    /// Overall record ("11-6"). Empty when unknown.
+    pub record: String,
     pub color: [u8; 3],
     pub alt_color: [u8; 3],
     pub logo_key: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Play {
     pub clock: String,
+    /// Abbr of the team credited with the play. Empty when unknown.
+    pub team: String,
     pub text: String,
     pub scoring: bool,
 }
@@ -93,7 +99,9 @@ mod tests {
         Team {
             id: "12".into(),
             abbr: "KC".into(),
-            name: "Kansas City Chiefs".into(),
+            name: "Chiefs".into(),
+            location: "Kansas City".into(),
+            record: "11-6".into(),
             color: [227, 24, 55],
             alt_color: [255, 184, 28],
             logo_key: "nfl/kc".into(),
@@ -125,7 +133,9 @@ mod tests {
             home: Team {
                 id: "27".into(),
                 abbr: "TB".into(),
-                name: "Tampa Bay Buccaneers".into(),
+                name: "Buccaneers".into(),
+                location: "Tampa Bay".into(),
+                record: "11-6".into(),
                 color: [213, 10, 10],
                 alt_color: [52, 48, 43],
                 logo_key: "nfl/tb".into(),
@@ -142,6 +152,7 @@ mod tests {
             }),
             last_plays: vec![Play {
                 clock: "1:27".into(),
+                team: "KC".into(),
                 text: "Mahomes pass to Kelce for 3 yards".into(),
                 scoring: false,
             }],
