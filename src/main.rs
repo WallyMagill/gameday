@@ -19,12 +19,19 @@ use ratatui::Terminal;
 struct Args {
     demo: bool,
     dump: bool,
+    /// `probe <league>`: fetch + map one real scoreboard and print it. Dev-only.
+    probe: Option<String>,
 }
 
 fn parse_args(args: &[String]) -> Args {
+    let probe = args
+        .iter()
+        .position(|a| a == "probe")
+        .map(|i| args.get(i + 1).cloned().unwrap_or_default());
     Args {
         demo: args.iter().any(|a| a == "--demo"),
         dump: args.iter().any(|a| a == "dump" || a == "--dump"),
+        probe,
     }
 }
 
@@ -47,6 +54,10 @@ fn main() -> std::io::Result<()> {
         return gameday::dump::run(std::path::Path::new("out"));
     }
 
+    if let Some(slug) = args.probe {
+        return probe(&slug);
+    }
+
     if args.demo {
         // Demo state lives in a scratch dir so it never touches real pins/config.
         let dir = std::env::temp_dir().join(format!("gameday-demo-{}", std::process::id()));
@@ -58,7 +69,7 @@ fn main() -> std::io::Result<()> {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("gameday");
     std::fs::create_dir_all(dir.join("cache"))?;
-    let config = Config::load_from(&dir).unwrap_or_else(|_| Config::default_nfl());
+    let config = Config::load_from(&dir).unwrap_or_else(|_| Config::default_all());
     let pins = load_pins(&dir).unwrap_or_default();
     let enabled_tabs = config.enabled_tabs.clone();
     let app = App::new(config, pins, dir.clone());
@@ -68,6 +79,44 @@ fn main() -> std::io::Result<()> {
     let tx_plan = tx.clone();
     thread::spawn(move || poll_loop(provider, tx_plan, enabled_tabs));
     run_ui(app, Some(rx))
+}
+
+/// Dev verification: fetch and map one league's real scoreboard, print one
+/// line per game. Not part of the TUI.
+fn probe(slug: &str) -> std::io::Result<()> {
+    let Some(league) = League::from_slug(slug) else {
+        eprintln!(
+            "probe: unknown league {slug:?}, expected one of: {}",
+            League::ALL.map(|l| l.slug()).join("|")
+        );
+        std::process::exit(2);
+    };
+    let cache = std::env::temp_dir().join(format!("gameday-probe-{}", std::process::id()));
+    let provider = EspnProvider::new(cache.clone());
+    let result = provider.scoreboard(league);
+    let _ = std::fs::remove_dir_all(&cache);
+    match result {
+        Ok((games, stale)) => {
+            println!("{} games={} stale={stale}", league.slug(), games.len());
+            for g in &games {
+                let sit = g
+                    .situation
+                    .as_ref()
+                    .map(|s| s.down_distance.clone())
+                    .unwrap_or_default();
+                println!(
+                    "{:>10}  {:?}  {:<3} {:>3} @ {:<3} {:>3}  [{} {}]  meter={:?}  rec={}/{}  sit={:?}",
+                    g.id, g.status, g.away.abbr, g.away_score, g.home.abbr, g.home_score,
+                    g.period, g.clock, g.meter, g.away.record, g.home.record, sit,
+                );
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("probe: fetch/map failed for league={} : {e}", league.slug());
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Replace `league`'s live ids from a successful scoreboard. `None` (fetch error)
@@ -237,6 +286,15 @@ mod tests {
         assert!(!parse_args(&["gameday".into()]).demo);
         assert!(parse_args(&["gameday".into(), "dump".into()]).dump);
         assert!(!parse_args(&["gameday".into(), "--demo".into()]).dump);
+    }
+
+    #[test]
+    fn probe_flag_takes_league_slug() {
+        let a = parse_args(&["gameday".into(), "probe".into(), "wnba".into()]);
+        assert_eq!(a.probe.as_deref(), Some("wnba"));
+        assert_eq!(parse_args(&["gameday".into()]).probe, None);
+        // Missing slug still enters probe mode so it can print the expected set.
+        assert_eq!(parse_args(&["gameday".into(), "probe".into()]).probe.as_deref(), Some(""));
     }
 
     #[test]

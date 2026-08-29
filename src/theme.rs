@@ -25,9 +25,12 @@ pub fn league_accent(league: League) -> Color {
         League::Nfl => Color::Rgb(255, 70, 70),
         League::Cfb => Color::Rgb(255, 150, 60),
         League::Nba => Color::Rgb(80, 140, 255),
+        League::Wnba => Color::Rgb(250, 110, 40),
         League::Cbb => Color::Rgb(120, 120, 255),
         League::Mlb => Color::Rgb(230, 200, 60),
         League::Nhl => Color::Rgb(70, 200, 220),
+        League::Epl => Color::Rgb(160, 90, 230),
+        League::Mls => Color::Rgb(90, 200, 110),
     }
 }
 
@@ -35,8 +38,8 @@ pub fn league_accent(league: League) -> Color {
 pub fn scoring_word(league: League) -> &'static str {
     match league {
         League::Nfl | League::Cfb => "TOUCHDOWN!",
-        League::Nba | League::Cbb => "BUCKET!",
+        League::Nba | League::Wnba | League::Cbb => "BUCKET!",
         League::Mlb => "HOME RUN!",
-        League::Nhl => "GOAL!",
+        League::Nhl | League::Epl | League::Mls => "GOAL!",
     }
 }

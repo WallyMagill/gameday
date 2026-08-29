@@ -502,6 +502,7 @@ mod tests {
                 down_distance: "1st & Goal".into(),
                 possession: Some("KC".into()),
                 ball_on: Some("TB 3".into()),
+                ..Default::default()
             }),
             last_plays: vec![Play {
                 clock: "1:27".into(),

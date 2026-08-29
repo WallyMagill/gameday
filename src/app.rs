@@ -151,6 +151,11 @@ impl App {
     }
 
     pub fn merge_summary(&mut self, game_id: &str, summary: Summary) {
+        // Non-football summaries carry no "drives", so they map to zero plays;
+        // keep the scoreboard's lastPlay instead of blanking the tile.
+        if summary.last_plays.is_empty() {
+            return;
+        }
         for board in self.boards.values_mut() {
             if let Some(game) = board.iter_mut().find(|g| g.id == game_id) {
                 let mut last_plays = summary.last_plays;
@@ -775,7 +780,7 @@ mod tests {
     fn app_with(games: Vec<Game>, pins: Vec<Pin>) -> App {
         let dir = std::env::temp_dir().join(format!("gd-app-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_nfl(), pins, dir);
+        let mut app = App::new(Config::default_all(), pins, dir);
         app.apply_boards(League::Nfl, games, false);
         app
     }
@@ -818,6 +823,32 @@ mod tests {
     }
 
     #[test]
+    fn empty_summary_keeps_scoreboard_plays() {
+        let mut game = g("1", "KC", "TB", true);
+        game.last_plays = vec![crate::domain::Play {
+            clock: "1:27".into(),
+            team: "KC".into(),
+            text: "from scoreboard".into(),
+            scoring: false,
+        }];
+        let mut app = app_with(vec![game], vec![]);
+        // MLB/NBA summaries have no drives => zero mapped plays; don't blank the tile.
+        app.merge_summary("1", crate::domain::Summary::default());
+        let board = &app.boards[&League::Nfl];
+        assert_eq!(board[0].last_plays[0].text, "from scoreboard");
+        // A real summary still replaces them.
+        let mut s = crate::domain::Summary::default();
+        s.last_plays = vec![crate::domain::Play {
+            clock: "0:55".into(),
+            team: "TB".into(),
+            text: "from summary".into(),
+            scoring: false,
+        }];
+        app.merge_summary("1", s);
+        assert_eq!(app.boards[&League::Nfl][0].last_plays[0].text, "from summary");
+    }
+
+    #[test]
     fn q_quits() {
         let mut app = app_with(vec![], vec![]);
         app.on_key(KeyCode::Char('q'));
@@ -827,6 +858,7 @@ mod tests {
     #[test]
     fn tab_cycles_home_then_nfl() {
         let mut app = app_with(vec![], vec![]);
+        app.config.enabled_tabs = vec![League::Nfl];
         assert_eq!(app.tab, Tab::Home);
         app.on_key(KeyCode::Tab);
         assert_eq!(app.tab, Tab::League(League::Nfl));
@@ -865,6 +897,7 @@ mod tests {
     #[test]
     fn tab_clears_focus_and_home_hides_unpinned() {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.config.enabled_tabs = vec![League::Nfl];
         app.tab = Tab::League(League::Nfl);
         app.on_key(KeyCode::Enter);
         assert_eq!(app.focused_id.as_deref(), Some("1"));

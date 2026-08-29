@@ -29,11 +29,68 @@ fn status_from(state: &str) -> Status {
     }
 }
 
-fn period_label(period: i64) -> String {
-    match period {
-        0 => String::new(),
-        1..=4 => format!("Q{period}"),
-        _ => "OT".into(),
+fn ordinal(n: i64) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "TH",
+        (1, _) => "ST",
+        (2, _) => "ND",
+        (3, _) => "RD",
+        _ => "TH",
+    };
+    format!("{n}{suffix}")
+}
+
+/// Human period/inning/minute label per league. Prefers ESPN's own
+/// `status.type.shortDetail` where it carries the label ("Bot 7th"), and
+/// falls back to the period number otherwise.
+fn period_label(
+    league: League,
+    status: Status,
+    period: i64,
+    short_detail: &str,
+    display_clock: &str,
+) -> String {
+    if status == Status::Pre {
+        return String::new();
+    }
+    match league {
+        League::Nfl | League::Cfb | League::Nba | League::Wnba => match period {
+            0 => String::new(),
+            1..=4 => format!("Q{period}"),
+            _ => "OT".into(),
+        },
+        League::Cbb => match period {
+            0 => String::new(),
+            1 => "1ST HALF".into(),
+            2 => "2ND HALF".into(),
+            _ => "OT".into(),
+        },
+        League::Nhl => match period {
+            0 => String::new(),
+            1..=3 => ordinal(period),
+            4 => "OT".into(),
+            _ => "SO".into(),
+        },
+        League::Mlb => {
+            // Live shortDetail is "Top 9th" / "Bot 7th" / "Mid 9th"; post is "Final".
+            // Pre would be a date string, but Pre returns early above.
+            if !short_detail.is_empty() {
+                short_detail.to_uppercase()
+            } else if period > 0 {
+                ordinal(period)
+            } else {
+                String::new()
+            }
+        }
+        League::Epl | League::Mls => {
+            // Soccer shows the match minute ("63'", "90'+3'"); ESPN keeps it
+            // in displayClock. Post games show FT/AET via shortDetail.
+            if status == Status::Final {
+                if short_detail.is_empty() { "FT".into() } else { short_detail.to_uppercase() }
+            } else {
+                display_clock.trim().to_string()
+            }
+        }
     }
 }
 
@@ -58,12 +115,68 @@ fn team_from(league: League, v: &Value) -> Option<Team> {
 }
 
 fn record_from(competitor: &Value) -> String {
-    competitor["records"]
-        .as_array()
-        .and_then(|r| r.first())
+    // Real payloads carry [{type:"total"},{type:"home"},{type:"road"}]; pick
+    // the overall record explicitly, not positionally. CBB preseason can send
+    // `records: null` — the empty-string fallback covers it.
+    let records = competitor["records"].as_array();
+    records
+        .and_then(|rs| rs.iter().find(|r| r["type"].as_str() == Some("total")))
+        .or_else(|| records.and_then(|rs| rs.first()))
         .and_then(|r| r["summary"].as_str())
         .unwrap_or("")
         .to_string()
+}
+
+/// Football red-zone meter from `competition.situation`. ESPN sends an
+/// `isRedZone` bool on live feeds; older/synthetic payloads may lack it, so
+/// fall back to parsing `possessionText` ("TB 3" = ball on TB's 3-yard line):
+/// red zone when the possessing team is inside the OPPONENT'S 20.
+fn redzone_from(sit: &Value, possession_abbr: Option<&str>) -> Option<Meter> {
+    let text = sit["possessionText"].as_str()?;
+    let (territory, yards) = text.rsplit_once(' ')?;
+    let yards: u8 = yards.parse().ok()?;
+    let in_opponent_territory = possession_abbr.is_some_and(|p| !territory.eq_ignore_ascii_case(p));
+    let in_red_zone = sit["isRedZone"]
+        .as_bool()
+        .unwrap_or(in_opponent_territory && yards <= 20);
+    if in_red_zone && yards <= 20 {
+        Some(Meter::RedZone { yards_to_goal: yards })
+    } else {
+        None
+    }
+}
+
+/// Live-game meter per league. `None` when the sport has no meter (soccer),
+/// when the game isn't live, or when the data to build one isn't in the feed.
+fn meter_from(
+    league: League,
+    status: Status,
+    sit: &Value,
+    possession_abbr: Option<&str>,
+    home_score: u16,
+    away_score: u16,
+) -> Option<Meter> {
+    if status != Status::Live {
+        return None;
+    }
+    match league {
+        League::Nfl | League::Cfb => redzone_from(sit, possession_abbr),
+        League::Nba | League::Wnba | League::Cbb => Some(Meter::Lead {
+            plus_minus: home_score as i16 - away_score as i16,
+        }),
+        League::Mlb => Some(Meter::Diamond {
+            occupied: [
+                sit["onFirst"].as_bool().unwrap_or(false),
+                sit["onSecond"].as_bool().unwrap_or(false),
+                sit["onThird"].as_bool().unwrap_or(false),
+            ],
+        }),
+        // NHL penalty clock: no live NHL fixture existed at mapping time
+        // (2026-08-29, preseason) to confirm which situation field carries
+        // penalty state — left unmapped rather than guessing a field name.
+        League::Nhl => None,
+        League::Epl | League::Mls => None,
+    }
 }
 
 pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError> {
@@ -77,8 +190,20 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
             .ok_or(MapError::Missing("competitions"))?;
         let st = &comp["status"];
         let status = status_from(st["type"]["state"].as_str().unwrap_or("pre"));
-        let clock = st["displayClock"].as_str().unwrap_or("").to_string();
-        let period = period_label(st["period"].as_i64().unwrap_or(0));
+        let display_clock = st["displayClock"].as_str().unwrap_or("");
+        let period = period_label(
+            league,
+            status,
+            st["period"].as_i64().unwrap_or(0),
+            st["type"]["shortDetail"].as_str().unwrap_or(""),
+            display_clock,
+        );
+        // Baseball has no game clock and soccer's minute already lives in the
+        // period label; a raw "0:00" next to them is noise.
+        let clock = match league {
+            League::Mlb | League::Epl | League::Mls => String::new(),
+            _ => display_clock.to_string(),
+        };
         let comps = comp.get("competitors").and_then(|c| c.as_array()).ok_or(MapError::Missing("competitors"))?;
         let mut home = None;
         let mut away = None;
@@ -96,29 +221,50 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
         let home = home.ok_or(MapError::Missing("home"))?;
         let away = away.ok_or(MapError::Missing("away"))?;
         let sit_v = &comp["situation"];
-        let situation = if sit_v.is_object() {
-            let poss_id = sit_v["possession"].as_str();
-            let possession = poss_id.and_then(|pid| {
-                if home.id == pid { Some(home.abbr.clone()) }
-                else if away.id == pid { Some(away.abbr.clone()) }
+        let abbr_for_id = |tid: Option<&str>| -> Option<String> {
+            tid.and_then(|tid| {
+                if home.id == tid { Some(home.abbr.clone()) }
+                else if away.id == tid { Some(away.abbr.clone()) }
                 else { None }
-            });
-            Some(Situation {
+            })
+        };
+        let situation = if sit_v.is_object() {
+            let possession = abbr_for_id(sit_v["possession"].as_str());
+            let mut sit = Situation {
                 down_distance: sit_v["downDistanceText"].as_str().unwrap_or("").to_string(),
                 possession,
                 ball_on: sit_v["possessionText"].as_str().map(|s| s.to_string()),
-            })
+                ..Default::default()
+            };
+            if league == League::Mlb {
+                sit.balls = sit_v["balls"].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
+                sit.strikes = sit_v["strikes"].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
+                sit.outs = sit_v["outs"].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
+                sit.on_base = Some([
+                    sit_v["onFirst"].as_bool().unwrap_or(false),
+                    sit_v["onSecond"].as_bool().unwrap_or(false),
+                    sit_v["onThird"].as_bool().unwrap_or(false),
+                ]);
+                // Compose the headline: "2 OUTS  1-2".
+                if let (Some(o), Some(b), Some(s)) = (sit.outs, sit.balls, sit.strikes) {
+                    let plural = if o == 1 { "" } else { "S" };
+                    sit.down_distance = format!("{o} OUT{plural}  {b}-{s}");
+                }
+            }
+            Some(sit)
         } else {
             None
         };
         let mut last_plays = Vec::new();
         if let Some(text) = sit_v["lastPlay"]["text"].as_str() {
+            // Attribute to the team ESPN credits on the play; fall back to
+            // the possessing team when the play carries no team.
+            let team = abbr_for_id(sit_v["lastPlay"]["team"]["id"].as_str())
+                .or_else(|| situation.as_ref().and_then(|s| s.possession.clone()))
+                .unwrap_or_default();
             last_plays.push(Play {
                 clock: sit_v["lastPlay"]["clock"]["displayValue"].as_str().unwrap_or(&clock).to_string(),
-                team: situation
-                    .as_ref()
-                    .and_then(|s| s.possession.clone())
-                    .unwrap_or_default(),
+                team,
                 text: text.to_string(),
                 scoring: false,
             });
@@ -129,9 +275,17 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
             .and_then(|n| n.first())
             .and_then(|n| n.as_str())
             .map(|s| s.to_string());
+        let meter = meter_from(
+            league,
+            status,
+            sit_v,
+            situation.as_ref().and_then(|s| s.possession.as_deref()),
+            home_score,
+            away_score,
+        );
         out.push(Game {
             id, league, home, away, home_score, away_score, status, period, clock,
-            situation, last_plays, meter: None, start_time, broadcast,
+            situation, last_plays, meter, start_time, broadcast,
         });
     }
     Ok(out)
@@ -172,5 +326,8 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
         plays = plays.split_off(plays.len() - 8);
     }
     plays.reverse();
+    // Meter stays None here on purpose: the scoreboard mapping owns meters and
+    // App::merge_summary never reads a summary meter, so mapping one would be
+    // dead data pretending to be live.
     Ok(Summary { last_plays: plays, scoring_plays, meter: None })
 }

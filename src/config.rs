@@ -37,9 +37,9 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn default_nfl() -> Self {
+    pub fn default_all() -> Self {
         Self {
-            enabled_tabs: vec![League::Nfl],
+            enabled_tabs: League::ALL.to_vec(),
             layout: LayoutPref::Auto,
             favorites: vec![],
         }
@@ -48,7 +48,7 @@ impl Config {
     pub fn load_from(dir: &Path) -> Result<Self, ConfigError> {
         let path = dir.join("config.toml");
         if !path.exists() {
-            return Ok(Self::default_nfl());
+            return Ok(Self::default_all());
         }
         let text = fs::read_to_string(path)?;
         Ok(toml::from_str(&text)?)

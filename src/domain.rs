@@ -1,15 +1,25 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum League { Nfl, Cfb, Cbb, Nba, Nhl, Mlb }
+pub enum League { Nfl, Cfb, Cbb, Nba, Wnba, Nhl, Mlb, Epl, Mls }
 
 impl League {
+    pub const ALL: [League; 9] = [
+        League::Nfl, League::Cfb, League::Cbb, League::Nba, League::Wnba,
+        League::Nhl, League::Mlb, League::Epl, League::Mls,
+    ];
+
+    /// ESPN URL parts: (sport, competition slug). Soccer competitions use
+    /// ESPN's league codes ("eng.1", "usa.1") rather than a name slug.
     pub fn espn_path(self) -> (&'static str, &'static str) {
         match self {
             League::Nfl => ("football", "nfl"),
             League::Cfb => ("football", "college-football"),
             League::Cbb => ("basketball", "mens-college-basketball"),
             League::Nba => ("basketball", "nba"),
+            League::Wnba => ("basketball", "wnba"),
             League::Nhl => ("hockey", "nhl"),
             League::Mlb => ("baseball", "mlb"),
+            League::Epl => ("soccer", "eng.1"),
+            League::Mls => ("soccer", "usa.1"),
         }
     }
 
@@ -19,9 +29,16 @@ impl League {
             League::Cfb => "cfb",
             League::Cbb => "cbb",
             League::Nba => "nba",
+            League::Wnba => "wnba",
             League::Nhl => "nhl",
             League::Mlb => "mlb",
+            League::Epl => "epl",
+            League::Mls => "mls",
         }
+    }
+
+    pub fn from_slug(s: &str) -> Option<League> {
+        League::ALL.into_iter().find(|l| l.slug() == s)
     }
 }
 
@@ -51,11 +68,18 @@ pub struct Play {
     pub scoring: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Situation {
+    /// Headline situation text: football "1st & Goal", baseball "2 OUTS  1-2".
     pub down_distance: String,
     pub possession: Option<String>,
     pub ball_on: Option<String>,
+    // Baseball-only fields (None for every other sport).
+    pub balls: Option<u8>,
+    pub strikes: Option<u8>,
+    pub outs: Option<u8>,
+    /// Base runners as [first, second, third].
+    pub on_base: Option<[bool; 3]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -113,15 +137,29 @@ mod tests {
         assert_eq!(League::Nfl.espn_path(), ("football", "nfl"));
         assert_eq!(League::Cfb.espn_path(), ("football", "college-football"));
         assert_eq!(League::Nba.espn_path(), ("basketball", "nba"));
+        assert_eq!(League::Wnba.espn_path(), ("basketball", "wnba"));
         assert_eq!(League::Nhl.espn_path(), ("hockey", "nhl"));
         assert_eq!(League::Cbb.espn_path(), ("basketball", "mens-college-basketball"));
         assert_eq!(League::Mlb.espn_path(), ("baseball", "mlb"));
+        assert_eq!(League::Epl.espn_path(), ("soccer", "eng.1"));
+        assert_eq!(League::Mls.espn_path(), ("soccer", "usa.1"));
     }
 
     #[test]
     fn slugs() {
         assert_eq!(League::Nfl.slug(), "nfl");
         assert_eq!(League::Cfb.slug(), "cfb");
+        assert_eq!(League::Wnba.slug(), "wnba");
+        assert_eq!(League::Epl.slug(), "epl");
+        assert_eq!(League::Mls.slug(), "mls");
+    }
+
+    #[test]
+    fn from_slug_roundtrips_every_league() {
+        for l in League::ALL {
+            assert_eq!(League::from_slug(l.slug()), Some(l), "slug {}", l.slug());
+        }
+        assert_eq!(League::from_slug("xfl"), None);
     }
 
     #[test]
@@ -149,6 +187,7 @@ mod tests {
                 down_distance: "1st & Goal".into(),
                 possession: Some("KC".into()),
                 ball_on: Some("TB 3".into()),
+                ..Default::default()
             }),
             last_plays: vec![Play {
                 clock: "1:27".into(),

@@ -30,6 +30,7 @@ fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
             down_distance: "1st & Goal".into(),
             possession: Some(away.into()),
             ball_on: Some("TB 3".into()),
+            ..Default::default()
         }),
         last_plays: vec![Play {
             clock: "1:27".into(),
@@ -59,7 +60,7 @@ fn buf_text(term: &Terminal<TestBackend>) -> String {
 fn mk() -> App {
     let dir = std::env::temp_dir().join(format!("gd-draw-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
-    App::new(Config::default_nfl(), vec![], dir)
+    App::new(Config::default_all(), vec![], dir)
 }
 
 #[test]

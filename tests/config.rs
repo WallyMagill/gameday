@@ -28,11 +28,25 @@ fn roundtrip_config() {
 }
 
 #[test]
-fn missing_config_is_nfl_only() {
+fn missing_config_enables_every_league() {
     let dir = tmp("missing");
     let c = Config::load_from(&dir).unwrap();
-    assert_eq!(c.enabled_tabs, vec![League::Nfl]);
+    assert_eq!(c.enabled_tabs, League::ALL.to_vec());
     assert_eq!(c.layout, LayoutPref::Auto);
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn new_league_variants_roundtrip_in_toml() {
+    let dir = tmp("cfg-new-leagues");
+    let c = Config {
+        enabled_tabs: vec![League::Wnba, League::Epl, League::Mls],
+        layout: LayoutPref::Auto,
+        favorites: vec![],
+    };
+    c.save_to(&dir).unwrap();
+    let loaded = Config::load_from(&dir).unwrap();
+    assert_eq!(loaded.enabled_tabs, vec![League::Wnba, League::Epl, League::Mls]);
     fs::remove_dir_all(&dir).ok();
 }
 

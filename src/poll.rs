@@ -8,6 +8,9 @@ pub struct PollPlan {
     pub summary_every: Duration,
 }
 
+// One global cadence for all nine leagues on purpose: payload sizes were
+// checked (MLB scoreboard ~372KB, CBB ~268KB) and showed no latency/rate
+// problem worth a per-league schedule.
 pub fn plan(visible_games: &[Game], extra_leagues: &[League]) -> PollPlan {
     let summary_ids: Vec<(League, String)> = visible_games
         .iter()

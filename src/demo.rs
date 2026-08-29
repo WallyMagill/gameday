@@ -39,7 +39,7 @@ fn play(clock: &str, team: &str, text: &str, scoring: bool) -> Play {
 
 pub fn demo_config() -> Config {
     Config {
-        enabled_tabs: vec![League::Nfl, League::Nba, League::Mlb, League::Nhl],
+        enabled_tabs: vec![League::Nfl, League::Nba, League::Mlb, League::Nhl, League::Epl],
         layout: LayoutPref::Auto,
         favorites: vec![],
     }
@@ -83,6 +83,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                     down_distance: "1st & Goal".into(),
                     possession: Some("KC".into()),
                     ball_on: Some("TB 3".into()),
+                    ..Default::default()
                 }),
                 last_plays: vec![
                     play("1:27", "KC", "Patrick Mahomes pass to T. Kelce for 3 yards (1st & Goal)", false),
@@ -172,8 +173,11 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
             clock: String::new(),
             situation: Some(Situation {
                 down_distance: "2 OUTS  1-2".into(),
-                possession: None,
-                ball_on: None,
+                balls: Some(1),
+                strikes: Some(2),
+                outs: Some(2),
+                on_base: Some([true, false, false]),
+                ..Default::default()
             }),
             last_plays: vec![
                 play("0:42", "NYY", "Aaron Judge homers to left (18)  [5-3]", true),
@@ -211,6 +215,33 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
             meter: Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 42 }),
             start_time: None,
             broadcast: Some("ESPN".into()),
+        }],
+    );
+
+    let liv = team("LIV", "Liverpool", "Liverpool", "0-2-0", [211, 19, 23], [220, 220, 220], League::Epl);
+    let ars = team("ARS", "London", "Arsenal", "1-1-0", [239, 1, 7], [220, 220, 220], League::Epl);
+    boards.insert(
+        League::Epl,
+        vec![Game {
+            id: "epl-live".into(),
+            league: League::Epl,
+            away: ars,
+            home: liv,
+            away_score: 1,
+            home_score: 2,
+            status: Status::Live,
+            period: "78'".into(),
+            clock: String::new(),
+            situation: None,
+            last_plays: vec![
+                play("76'", "LIV", "Mohamed Salah right-footed GOAL from the box  [2-1]", true),
+                play("64'", "ARS", "Bukayo Saka curls one in from the edge  [1-1]", true),
+                play("58'", "LIV", "Virgil van Dijk header cleared off the line", false),
+                play("51'", "ARS", "Declan Rice booked for a late challenge", false),
+            ],
+            meter: None,
+            start_time: None,
+            broadcast: Some("NBC".into()),
         }],
     );
 
