@@ -16,23 +16,35 @@ use gameday::provider::SportsProvider;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
+#[derive(Debug)]
 struct Args {
     demo: bool,
     dump: bool,
+    /// `dump --tick N`: capture the demo simulation at tick N (default 0).
+    tick: u64,
     /// `probe <league>`: fetch + map one real scoreboard and print it. Dev-only.
     probe: Option<String>,
 }
 
-fn parse_args(args: &[String]) -> Args {
+fn parse_args(args: &[String]) -> Result<Args, String> {
     let probe = args
         .iter()
         .position(|a| a == "probe")
         .map(|i| args.get(i + 1).cloned().unwrap_or_default());
-    Args {
+    let tick = match args.iter().position(|a| a == "--tick") {
+        None => 0,
+        Some(i) => {
+            let raw = args.get(i + 1).map(String::as_str).unwrap_or("");
+            raw.parse::<u64>()
+                .map_err(|_| format!("--tick expects a non-negative integer, got {raw:?}"))?
+        }
+    };
+    Ok(Args {
         demo: args.iter().any(|a| a == "--demo"),
         dump: args.iter().any(|a| a == "dump" || a == "--dump"),
+        tick,
         probe,
-    }
+    })
 }
 
 enum Msg {
@@ -48,10 +60,16 @@ enum Msg {
 }
 
 fn main() -> std::io::Result<()> {
-    let args = parse_args(&std::env::args().collect::<Vec<_>>());
+    let args = match parse_args(&std::env::args().collect::<Vec<_>>()) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("gameday: {e}");
+            std::process::exit(2);
+        }
+    };
 
     if args.dump {
-        return gameday::dump::run(std::path::Path::new("out"));
+        return gameday::dump::run(std::path::Path::new("out"), args.tick);
     }
 
     if let Some(slug) = args.probe {
@@ -62,7 +80,12 @@ fn main() -> std::io::Result<()> {
         // Demo state lives in a scratch dir so it never touches real pins/config.
         let dir = std::env::temp_dir().join(format!("gameday-demo-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        return run_ui(gameday::dump::demo_app(dir), None);
+        // Seed at tick 0, then the simulator drives the board over the same
+        // Msg channel the live provider uses — the UI path is identical.
+        let app = gameday::dump::demo_app(dir, 0);
+        let (tx, rx) = mpsc::channel::<Msg>();
+        thread::spawn(move || sim_loop(tx));
+        return run_ui(app, Some(rx));
     }
 
     let dir = dirs::config_dir()
@@ -133,6 +156,28 @@ fn merge_live_ids(live: &mut Vec<(League, String)>, league: League, fetched: Opt
             .filter(|g| g.status == Status::Live)
             .map(|g| (league, g.id.clone())),
     );
+}
+
+/// Demo counterpart of `poll_loop`: the scripted simulator advances one tick
+/// per second and each tick's boards flow through the same `Msg::Boards`
+/// channel, so `App::apply_boards` and the draw path see exactly what a real
+/// provider would send. Exits when the UI drops the receiver.
+fn sim_loop(tx: mpsc::Sender<Msg>) {
+    let mut sim = gameday::sim::Simulator::new();
+    loop {
+        for (league, games) in sim.boards() {
+            let msg = Msg::Boards {
+                league: *league,
+                games: games.clone(),
+                stale: false,
+            };
+            if tx.send(msg).is_err() {
+                return;
+            }
+        }
+        thread::sleep(Duration::from_secs(1));
+        sim.step();
+    }
 }
 
 fn poll_loop(provider: EspnProvider, tx: mpsc::Sender<Msg>, leagues: Vec<League>) {
@@ -281,21 +326,38 @@ mod tests {
         }
     }
 
+    fn parsed(args: &[&str]) -> super::Args {
+        let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        parse_args(&owned).expect("valid args")
+    }
+
     #[test]
     fn demo_flag() {
-        assert!(parse_args(&["gameday".into(), "--demo".into()]).demo);
-        assert!(!parse_args(&["gameday".into()]).demo);
-        assert!(parse_args(&["gameday".into(), "dump".into()]).dump);
-        assert!(!parse_args(&["gameday".into(), "--demo".into()]).dump);
+        assert!(parsed(&["gameday", "--demo"]).demo);
+        assert!(!parsed(&["gameday"]).demo);
+        assert!(parsed(&["gameday", "dump"]).dump);
+        assert!(!parsed(&["gameday", "--demo"]).dump);
+    }
+
+    #[test]
+    fn tick_flag_parses_and_defaults_to_zero() {
+        assert_eq!(parsed(&["gameday", "dump"]).tick, 0);
+        assert_eq!(parsed(&["gameday", "dump", "--tick", "15"]).tick, 15);
+        // Bad or missing value is a readable error, not a silent 0.
+        let owned: Vec<String> = ["gameday", "dump", "--tick", "abc"].iter().map(|s| s.to_string()).collect();
+        let err = parse_args(&owned).unwrap_err();
+        assert!(err.contains("abc"), "{err}");
+        let owned: Vec<String> = ["gameday", "dump", "--tick"].iter().map(|s| s.to_string()).collect();
+        assert!(parse_args(&owned).is_err());
     }
 
     #[test]
     fn probe_flag_takes_league_slug() {
-        let a = parse_args(&["gameday".into(), "probe".into(), "wnba".into()]);
+        let a = parsed(&["gameday", "probe", "wnba"]);
         assert_eq!(a.probe.as_deref(), Some("wnba"));
-        assert_eq!(parse_args(&["gameday".into()]).probe, None);
+        assert_eq!(parsed(&["gameday"]).probe, None);
         // Missing slug still enters probe mode so it can print the expected set.
-        assert_eq!(parse_args(&["gameday".into(), "probe".into()]).probe.as_deref(), Some(""));
+        assert_eq!(parsed(&["gameday", "probe"]).probe.as_deref(), Some(""));
     }
 
     #[test]

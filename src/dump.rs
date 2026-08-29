@@ -14,40 +14,43 @@ use std::path::{Path, PathBuf};
 pub const DUMP_COLS: u16 = 120;
 pub const DUMP_ROWS: u16 = 36;
 
-pub fn demo_app(config_dir: PathBuf) -> App {
+/// Demo app at simulation tick `tick` (0 = the seed board in demo.rs).
+/// Advancing is pure — N scripted steps, no wall clock — so `dump --tick N`
+/// always captures the same frame.
+pub fn demo_app(config_dir: PathBuf, tick: u64) -> App {
     let mut app = App::new(demo::demo_config(), demo::demo_pins(), config_dir);
-    for (league, games) in demo::demo_boards() {
+    for (league, games) in crate::sim::Simulator::boards_at(tick) {
         app.apply_boards(league, games, false);
     }
     app
 }
 
-pub fn render_demo_buffer(cols: u16, rows: u16) -> std::io::Result<Buffer> {
+pub fn render_demo_buffer(cols: u16, rows: u16, tick: u64) -> std::io::Result<Buffer> {
     let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
-    let mut app = demo_app(dir);
+    let mut app = demo_app(dir, tick);
     let mut term = Terminal::new(TestBackend::new(cols, rows))?;
     term.draw(|f| app.draw(f))?;
     Ok(term.backend().buffer().clone())
 }
 
-pub fn run(out_dir: &Path) -> std::io::Result<()> {
+pub fn run(out_dir: &Path, tick: u64) -> std::io::Result<()> {
     // Theme hook for visual iteration: GAMEDAY_THEME=ceefax|phosphor|broadcast.
     // The dump-gallery task will iterate all themes; this selects one for now.
     if let Ok(name) = std::env::var("GAMEDAY_THEME") {
         theme::set_current(theme::parse_or_default(&name));
     }
     std::fs::create_dir_all(out_dir)?;
-    capture(out_dir, "board")?;
+    capture(out_dir, "board", tick)?;
     // Second capture for the big-score A/B; harmless extra file until decided.
     std::env::set_var("GAMEDAY_BIG_SCORES", "1");
-    let res = capture(out_dir, "board-big");
+    let res = capture(out_dir, "board-big", tick);
     std::env::remove_var("GAMEDAY_BIG_SCORES");
     res
 }
 
-fn capture(out_dir: &Path, stem: &str) -> std::io::Result<()> {
-    let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS)?;
+fn capture(out_dir: &Path, stem: &str, tick: u64) -> std::io::Result<()> {
+    let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, tick)?;
     let html_path = out_dir.join(format!("{stem}.html"));
     std::fs::write(&html_path, buffer_to_html(&buf))?;
     std::fs::write(out_dir.join(format!("{stem}.ansi")), buffer_to_ansi(&buf))?;
@@ -197,7 +200,7 @@ mod tests {
 
     #[test]
     fn demo_board_renders_the_redzone_grammar() {
-        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS).unwrap();
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0).unwrap();
         let mut text = String::new();
         for y in 0..DUMP_ROWS {
             for x in 0..DUMP_COLS {
@@ -215,8 +218,22 @@ mod tests {
     }
 
     #[test]
+    fn dump_at_td_tick_renders_the_new_score() {
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, crate::sim::KC_TD_TICK).unwrap();
+        let mut text = String::new();
+        for y in 0..DUMP_ROWS {
+            for x in 0..DUMP_COLS {
+                text.push_str(buf[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        assert!(text.contains("33 - 24"), "KC TD score missing:\n{text}");
+        assert!(text.contains("TOUCHDOWN"), "TD play missing:\n{text}");
+    }
+
+    #[test]
     fn html_dump_contains_colored_cells() {
-        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS).unwrap();
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0).unwrap();
         let html = buffer_to_html(&buf);
         assert!(html.contains("color:#"));
         // Cells are individually wrapped in spans; strip tags to check content.
