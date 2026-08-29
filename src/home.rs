@@ -19,19 +19,16 @@ pub fn home_games<'a>(
         }
     }
 
-    for fav in favorites {
-        for g in boards {
-            if g.league != fav.league {
-                continue;
-            }
-            let match_away = g.away.abbr.eq_ignore_ascii_case(&fav.team_abbr);
-            let match_home = g.home.abbr.eq_ignore_ascii_case(&fav.team_abbr);
-            if !(match_away || match_home) {
-                continue;
-            }
-            if out.iter().any(|x| x.id == g.id) {
-                continue;
-            }
+    for g in boards {
+        if out.iter().any(|x| x.id == g.id) {
+            continue;
+        }
+        let matched = favorites.iter().any(|fav| {
+            fav.league == g.league
+                && (g.away.abbr.eq_ignore_ascii_case(&fav.team_abbr)
+                    || g.home.abbr.eq_ignore_ascii_case(&fav.team_abbr))
+        });
+        if matched {
             out.push(g);
         }
     }

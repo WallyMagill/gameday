@@ -68,3 +68,21 @@ fn pin_order_then_favorites() {
     let out = home_games(&pins, &favs, &boards, OffsetDateTime::now_utc());
     assert_eq!(out.iter().map(|g| g.id.as_str()).collect::<Vec<_>>(), vec!["c", "b"]);
 }
+
+#[test]
+fn favorites_follow_board_order_not_favorite_list_order() {
+    // Fav list order is KC then DAL; board order is DAL then KC → expect DAL, KC.
+    let boards = vec![
+        game("dal", "DAL", Status::Live),
+        game("kc", "KC", Status::Live),
+    ];
+    let favs = [
+        Favorite { league: League::Nfl, team_abbr: "KC".into() },
+        Favorite { league: League::Nfl, team_abbr: "DAL".into() },
+    ];
+    let out = home_games(&[], &favs, &boards, OffsetDateTime::now_utc());
+    assert_eq!(
+        out.iter().map(|g| g.id.as_str()).collect::<Vec<_>>(),
+        vec!["dal", "kc"]
+    );
+}
