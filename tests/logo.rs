@@ -57,3 +57,14 @@ fn mark_fits_identity_slot() {
         assert!(art.cells.len() <= 6, "{key} taller than slot: {}", art.cells.len());
     }
 }
+
+#[test]
+fn all_thirty_two_nfl_marks_load() {
+    for abbr in [
+        "ari", "atl", "bal", "buf", "car", "chi", "cin", "cle", "dal", "den", "det", "gb",
+        "hou", "ind", "jax", "kc", "lv", "lac", "lar", "mia", "min", "ne", "no", "nyg",
+        "nyj", "phi", "pit", "sea", "sf", "tb", "ten", "wsh",
+    ] {
+        assert!(load_logo(&format!("nfl/{abbr}")).is_some(), "missing nfl/{abbr}");
+    }
+}

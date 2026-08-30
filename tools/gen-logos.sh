@@ -12,7 +12,11 @@ command -v chafa >/dev/null || { echo "chafa not found (brew install chafa)"; ex
 
 SIZE="${SIZE:-10x6}"
 SYMBOLS="${SYMBOLS:-sextant}"
-TEAMS="${TEAMS:-nfl/kc nfl/tb nba/den nba/bos mlb/nyy mlb/tor nhl/edm nhl/dal}"
+# All 32 NFL teams (ESPN abbrs) + the non-NFL demo set. Other leagues fall
+# back to abbreviation marks until their sets are generated.
+NFL_ALL="ari atl bal buf car chi cin cle dal den det gb hou ind jax kc lv lac lar mia min ne no nyg nyj phi pit sea sf tb ten wsh"
+DEFAULT_TEAMS="$(for a in $NFL_ALL; do printf 'nfl/%s ' "$a"; done)nba/den nba/bos mlb/nyy mlb/tor nhl/edm nhl/dal"
+TEAMS="${TEAMS:-$DEFAULT_TEAMS}"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
