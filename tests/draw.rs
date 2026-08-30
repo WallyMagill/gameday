@@ -249,3 +249,17 @@ fn focused_pre_game_on_nfl_tab_fills_mosaic() {
     assert!(s.contains("KC"), "{s}");
     assert!(s.contains("27"), "{s}");
 }
+
+#[test]
+fn narrow_footer_sheds_low_value_chords_but_keeps_help_and_quit() {
+    // 80 cols can't hold the whole chord list; MOVE/PAGE go first, the way
+    // out and the full keymap never get clipped.
+    let mut app = mk();
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let footer = s.lines().find(|l| l.contains("NAV:")).expect("footer row");
+    assert!(footer.contains("[?] HELP"), "HELP clipped: {footer:?}");
+    assert!(footer.contains("[Q] QUIT"), "QUIT clipped: {footer:?}");
+    assert!(!footer.contains("MOVE"), "MOVE should be shed first: {footer:?}");
+}

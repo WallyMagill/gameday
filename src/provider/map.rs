@@ -299,18 +299,38 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
 
 pub fn map_summary(json: &str) -> Result<Summary, MapError> {
     let v: Value = serde_json::from_str(json)?;
-    let scoring_plays = v["scoringPlays"].as_array().cloned().unwrap_or_default()
+    // Soccer keyEvents and the flat plays arrays credit teams by id only;
+    // the summary header carries the id -> abbreviation map.
+    let mut abbr_by_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if let Some(comps) = v["header"]["competitions"][0]["competitors"].as_array() {
+        for c in comps {
+            if let (Some(id), Some(abbr)) =
+                (c["team"]["id"].as_str(), c["team"]["abbreviation"].as_str())
+            {
+                abbr_by_id.insert(id.to_string(), abbr.to_string());
+            }
+        }
+    }
+    let team_of = |p: &Value| -> String {
+        p["team"]["abbreviation"]
+            .as_str()
+            .map(str::to_string)
+            .or_else(|| p["team"]["id"].as_str().and_then(|id| abbr_by_id.get(id).cloned()))
+            .unwrap_or_default()
+    };
+    let mut scoring_plays: Vec<Play> = v["scoringPlays"].as_array().cloned().unwrap_or_default()
         .iter()
         .filter_map(|p| {
             Some(Play {
                 clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
-                team: p["team"]["abbreviation"].as_str().unwrap_or("").to_string(),
+                team: team_of(p),
                 text: p["text"].as_str()?.to_string(),
                 scoring: true,
             })
         })
         .collect();
     let mut plays = Vec::new();
+    // Football: drives.previous carries the play-by-play.
     if let Some(prev) = v["drives"]["previous"].as_array() {
         for d in prev {
             let drive_team = d["team"]["abbreviation"].as_str().unwrap_or("");
@@ -326,6 +346,34 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                     }
                 }
             }
+        }
+    }
+    // Soccer: no drives/scoringPlays — goals, cards and subs live under
+    // keyEvents (verified against live EPL/MLS summaries 2026-08-29).
+    // Baseball/basketball/hockey: a flat `plays` array. Both shapes share
+    // text/clock/scoringPlay, so one mapper covers them.
+    if plays.is_empty() {
+        for source in [&v["keyEvents"], &v["plays"]] {
+            let Some(events) = source.as_array() else { continue };
+            for p in events {
+                let Some(text) = p["text"].as_str().filter(|t| !t.is_empty()) else {
+                    continue; // delay/period markers carry no text
+                };
+                plays.push(Play {
+                    clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+                    team: team_of(p),
+                    text: text.to_string(),
+                    scoring: p["scoringPlay"].as_bool().unwrap_or(false),
+                });
+            }
+            if !plays.is_empty() {
+                break;
+            }
+        }
+        // No scoringPlays list in these feeds: derive it (newest first) so
+        // goals still reach the flash/marking path.
+        if scoring_plays.is_empty() {
+            scoring_plays = plays.iter().filter(|p| p.scoring).rev().cloned().collect();
         }
     }
     if plays.len() > 8 {

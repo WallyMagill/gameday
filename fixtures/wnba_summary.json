@@ -1,0 +1,381 @@
+{
+ "header": {
+  "competitions": [
+   {
+    "competitors": [
+     {
+      "homeAway": "home",
+      "team": {
+       "id": "9",
+       "abbreviation": "NY",
+       "displayName": "New York Liberty"
+      }
+     },
+     {
+      "homeAway": "away",
+      "team": {
+       "id": "19",
+       "abbreviation": "CHI",
+       "displayName": "Chicago Sky"
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "plays": [
+  {
+   "id": "401857184575",
+   "sequenceNumber": "575",
+   "type": {
+    "id": "155",
+    "text": "Defensive Rebound"
+   },
+   "text": "Rebecca Allen defensive rebound",
+   "awayScore": 66,
+   "homeScore": 84,
+   "period": {
+    "number": 4,
+    "displayValue": "4th Quarter"
+   },
+   "clock": {
+    "displayValue": "1:03"
+   },
+   "scoringPlay": false,
+   "scoreValue": 0,
+   "team": {
+    "id": "9"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "3102133"
+     }
+    }
+   ],
+   "wallclock": "2026-08-29T19:00:06Z",
+   "shootingPlay": false,
+   "coordinate": {
+    "x": 24,
+    "y": 24
+   },
+   "pointsAttempted": 0,
+   "shortDescription": "Rebound"
+  },
+  {
+   "id": "401857184576",
+   "sequenceNumber": "576",
+   "type": {
+    "id": "45",
+    "text": "Personal Foul"
+   },
+   "text": "Jacy Sheldon personal foul",
+   "awayScore": 66,
+   "homeScore": 84,
+   "period": {
+    "number": 4,
+    "displayValue": "4th Quarter"
+   },
+   "clock": {
+    "displayValue": "54.0"
+   },
+   "scoringPlay": false,
+   "scoreValue": 0,
+   "team": {
+    "id": "19"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "4432865"
+     }
+    }
+   ],
+   "wallclock": "2026-08-29T19:00:17Z",
+   "shootingPlay": false,
+   "coordinate": {
+    "x": 26,
+    "y": 3
+   },
+   "pointsAttempted": 0,
+   "shortDescription": "Foul"
+  },
+  {
+   "id": "401857184578",
+   "sequenceNumber": "578",
+   "type": {
+    "id": "44",
+    "text": "Shooting Foul"
+   },
+   "text": "Jacy Sheldon shooting foul",
+   "awayScore": 66,
+   "homeScore": 84,
+   "period": {
+    "number": 4,
+    "displayValue": "4th Quarter"
+   },
+   "clock": {
+    "displayValue": "43.3"
+   },
+   "scoringPlay": false,
+   "scoreValue": 0,
+   "team": {
+    "id": "19"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "4432865"
+     }
+    }
+   ],
+   "wallclock": "2026-08-29T19:00:46Z",
+   "shootingPlay": false,
+   "coordinate": {
+    "x": 27,
+    "y": 2
+   },
+   "pointsAttempted": 0,
+   "shortDescription": "Foul"
+  },
+  {
+   "id": "401857184580",
+   "sequenceNumber": "580",
+   "type": {
+    "id": "98",
+    "text": "Free Throw - 1 of 2"
+   },
+   "text": "Marine Fauthoux misses free throw 1 of 2",
+   "awayScore": 66,
+   "homeScore": 84,
+   "period": {
+    "number": 4,
+    "displayValue": "4th Quarter"
+   },
+   "clock": {
+    "displayValue": "43.3"
+   },
+   "scoringPlay": false,
+   "scoreValue": 0,
+   "team": {
+    "id": "9"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "4790260"
+     }
+    }
+   ],
+   "wallclock": "2026-08-29T19:01:12Z",
+   "shootingPlay": true,
+   "coordinate": {
+    "x": -214748340,
+    "y": -214748365
+   },
+   "pointsAttempted": 1,
+   "shortDescription": "Missed FT"
+  },
+  {
+   "id": "401857184581",
+   "sequenceNumber": "581",
+   "type": {
+    "id": "156",
+    "text": "Offensive Rebound"
+   },
+   "text": "Liberty offensive team rebound",
+   "awayScore": 66,
+   "homeScore": 84,
+   "period": {
+    "number": 4,
+    "displayValue": "4th Quarter"
+   },
+   "clock": {
+    "displayValue": "43.3"
+   },
+   "scoringPlay": false,
+   "scoreValue": 0,
+   "team": {
+    "id": "9"
+   },
+   "wallclock": "2026-08-29T19:01:12Z",
+   "shootingPlay": false,
+   "coordinate": {
+    "x": -214748340,
+    "y": -214748365
+   },
+   "pointsAttempted": 0,
+   "shortDescription": "Rebound"
+  },
+  {
+   "id": "401857184582",
+   "sequenceNumber": "582",
+   "type": {
+    "id": "99",
+    "text": "Free Throw - 2 of 2"
+   },
+   "text": "Marine Fauthoux makes free throw 2 of 2",
+   "awayScore": 66,
+   "homeScore": 85,
+   "period": {
+    "number": 4,
+    "displayValue": "4th Quarter"
+   },
+   "clock": {
+    "displayValue": "43.3"
+   },
+   "scoringPlay": true,
+   "scoreValue": 1,
+   "team": {
+    "id": "9"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "4790260"
+     }
+    }
+   ],
+   "wallclock": "2026-08-29T19:01:25Z",
+   "shootingPlay": true,
+   "coordinate": {
+    "x": -214748340,
+    "y": -214748365
+   },
+   "pointsAttempted": 1,
+   "shortDescription": "+1 Point"
+  },
+  {
+   "id": "401857184584",
+   "sequenceNumber": "584",
+   "type": {
+    "id": "92",
+    "text": "Jump Shot"
+   },
+   "text": "Rachel Banham misses 14-foot jumper",
+   "awayScore": 66,
+   "homeScore": 85,
+   "period": {
+    "number": 4,
+    "displayValue": "4th Quarter"
+   },
+   "clock": {
+    "displayValue": "23.5"
+   },
+   "scoringPlay": false,
+   "scoreValue": 0,
+   "team": {
+    "id": "19"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "2566186"
+     }
+    }
+   ],
+   "wallclock": "2026-08-29T19:02:02Z",
+   "shootingPlay": true,
+   "coordinate": {
+    "x": 11,
+    "y": 2
+   },
+   "pointsAttempted": 2,
+   "shortDescription": "Missed FG"
+  },
+  {
+   "id": "401857184585",
+   "sequenceNumber": "585",
+   "type": {
+    "id": "155",
+    "text": "Defensive Rebound"
+   },
+   "text": "Rebecca Allen defensive rebound",
+   "awayScore": 66,
+   "homeScore": 85,
+   "period": {
+    "number": 4,
+    "displayValue": "4th Quarter"
+   },
+   "clock": {
+    "displayValue": "19.9"
+   },
+   "scoringPlay": false,
+   "scoreValue": 0,
+   "team": {
+    "id": "9"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "3102133"
+     }
+    }
+   ],
+   "wallclock": "2026-08-29T19:02:05Z",
+   "shootingPlay": false,
+   "coordinate": {
+    "x": 11,
+    "y": 2
+   },
+   "pointsAttempted": 0,
+   "shortDescription": "Rebound"
+  },
+  {
+   "id": "401857184586",
+   "sequenceNumber": "586",
+   "type": {
+    "id": "412",
+    "text": "End Period"
+   },
+   "text": "End of the 4th Quarter",
+   "awayScore": 66,
+   "homeScore": 85,
+   "period": {
+    "number": 4,
+    "displayValue": "4th Quarter"
+   },
+   "clock": {
+    "displayValue": "0.0"
+   },
+   "scoringPlay": false,
+   "scoreValue": 0,
+   "wallclock": "2026-08-29T19:02:26Z",
+   "shootingPlay": false,
+   "coordinate": {
+    "x": -214748340,
+    "y": -214748365
+   },
+   "pointsAttempted": 0,
+   "shortDescription": "End of 4th"
+  },
+  {
+   "id": "401857184587",
+   "sequenceNumber": "587",
+   "type": {
+    "id": "402",
+    "text": "End Game"
+   },
+   "text": "End of Game",
+   "awayScore": 66,
+   "homeScore": 85,
+   "period": {
+    "number": 4,
+    "displayValue": "4th Quarter"
+   },
+   "clock": {
+    "displayValue": "0.0"
+   },
+   "scoringPlay": false,
+   "scoreValue": 0,
+   "wallclock": "2026-08-29T19:02:31Z",
+   "shootingPlay": false,
+   "coordinate": {
+    "x": -214748340,
+    "y": -214748365
+   },
+   "pointsAttempted": 0,
+   "shortDescription": "End of Game"
+  }
+ ]
+}

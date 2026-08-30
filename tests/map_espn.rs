@@ -177,3 +177,48 @@ fn record_prefers_type_total_over_first_entry() {
     assert_eq!(g.away.record, "20-11", "type=total wins over first entry");
     assert_eq!(g.home.record, "5-5", "falls back to first when no total");
 }
+
+#[test]
+fn maps_soccer_summary_key_events_with_header_team_abbrs() {
+    // Live EPL/MLS summaries carry no drives/scoringPlays; goals, cards and
+    // subs live under keyEvents, credited by team id (fixture trimmed from
+    // the real 2026-08-29 NFO@LIV payload).
+    let json = include_str!("../fixtures/epl_summary.json");
+    let s = map_summary(json).unwrap();
+    assert!(!s.last_plays.is_empty(), "keyEvents must map to plays");
+    // Newest first: the last keyEvent (End Regular Time) leads.
+    assert!(s.last_plays[0].text.starts_with("Second Half ends"), "{:?}", s.last_plays[0]);
+    // Goals are flagged scoring and credited via the header id->abbr map.
+    let goal = s
+        .last_plays
+        .iter()
+        .find(|p| p.scoring)
+        .expect("a goal within the last 8 events");
+    assert_eq!(goal.team, "LIV");
+    assert!(goal.clock.ends_with('\''), "match minute clock: {:?}", goal.clock);
+    // Empty-text markers (Start Delay) are dropped, not mapped as blanks.
+    assert!(s.last_plays.iter().all(|p| !p.text.is_empty()));
+    // scoringPlays absent => derived from keyEvents, newest goal first.
+    assert_eq!(s.scoring_plays.len(), 4);
+    assert!(s.scoring_plays.iter().all(|p| p.scoring));
+    assert_eq!(s.scoring_plays[0].clock, "82'");
+    assert_eq!(s.scoring_plays[0].team, "LIV");
+    assert_eq!(s.scoring_plays.last().unwrap().team, "NFO");
+}
+
+#[test]
+fn maps_basketball_summary_flat_plays_array() {
+    // Non-football, non-soccer summaries carry a flat `plays` array
+    // (fixture: tail of the real 2026-08-29 CHI@NY WNBA payload).
+    let json = include_str!("../fixtures/wnba_summary.json");
+    let s = map_summary(json).unwrap();
+    assert_eq!(s.last_plays.len(), 8, "capped at 8, like drives");
+    // Newest first.
+    assert_eq!(s.last_plays[0].text, "End of Game");
+    // Team ids resolve to abbrs through the header (9 = NY, 19 = CHI).
+    assert!(s.last_plays.iter().any(|p| p.team == "NY"), "{:?}", s.last_plays);
+    assert!(s.last_plays.iter().any(|p| p.team == "CHI"), "{:?}", s.last_plays);
+    let bucket = s.last_plays.iter().find(|p| p.scoring).expect("a made shot");
+    assert_eq!(bucket.team, "NY");
+    assert!(bucket.text.contains("makes free throw"));
+}

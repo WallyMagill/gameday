@@ -1,0 +1,360 @@
+{
+ "header": {
+  "competitions": [
+   {
+    "competitors": [
+     {
+      "homeAway": "home",
+      "team": {
+       "id": "364",
+       "abbreviation": "LIV",
+       "displayName": "Liverpool"
+      }
+     },
+     {
+      "homeAway": "away",
+      "team": {
+       "id": "393",
+       "abbreviation": "NFO",
+       "displayName": "Nottingham Forest"
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "keyEvents": [
+  {
+   "id": "51586331",
+   "type": {
+    "id": "80",
+    "text": "Kickoff",
+    "type": "kickoff"
+   },
+   "text": "First Half begins.",
+   "period": {
+    "number": 1
+   },
+   "clock": {
+    "value": 0.0,
+    "displayValue": ""
+   },
+   "scoringPlay": false,
+   "source": {
+    "id": "38",
+    "description": "SA.ENVOY"
+   },
+   "wallclock": "2026-08-29T11:31:27Z",
+   "shootout": false
+  },
+  {
+   "id": "51588829",
+   "type": {
+    "id": "70",
+    "text": "Goal",
+    "type": "goal"
+   },
+   "text": "Goal! Liverpool 0, Nottingham Forest 1. Dan Ndoye (Nottingham Forest) right footed shot from the left side of the box to the bottom right corner. Assisted by Morgan Gibbs-White.",
+   "shortText": "Dan Ndoye Goal",
+   "period": {
+    "number": 1
+   },
+   "clock": {
+    "value": 1419.0,
+    "displayValue": "24'"
+   },
+   "scoringPlay": true,
+   "team": {
+    "id": "393",
+    "displayName": "Nottingham Forest"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "275842",
+      "displayName": "Dan Ndoye"
+     }
+    },
+    {
+     "athlete": {
+      "id": "243396",
+      "displayName": "Morgan Gibbs-White"
+     }
+    }
+   ],
+   "source": {
+    "id": "38",
+    "description": "SA.ENVOY"
+   },
+   "wallclock": "2026-08-29T11:55:07Z",
+   "shootout": false,
+   "goalPositionY": 46.4,
+   "fieldPositionX": 89.3,
+   "fieldPositionY": 66.4,
+   "fieldPosition2X": 100.0,
+   "fieldPosition2Y": 46.4
+  },
+  {
+   "id": "51589578",
+   "type": {
+    "id": "129",
+    "text": "Start Delay",
+    "type": "start-delay"
+   },
+   "period": {
+    "number": 1
+   },
+   "clock": {
+    "value": 1912.0,
+    "displayValue": "32'"
+   },
+   "scoringPlay": false,
+   "team": {
+    "id": "364",
+    "displayName": "Liverpool"
+   },
+   "source": {
+    "id": "38",
+    "description": "SA.ENVOY"
+   },
+   "wallclock": "2026-08-29T12:03:20Z",
+   "shootout": false
+  },
+  {
+   "id": "51590725",
+   "type": {
+    "id": "94",
+    "text": "Yellow Card",
+    "type": "yellow-card"
+   },
+   "text": "Igor Jesus (Nottingham Forest) is shown the yellow card for a bad foul.",
+   "shortText": "Igor Jesus Yellow Card",
+   "period": {
+    "number": 1
+   },
+   "clock": {
+    "value": 2608.0,
+    "displayValue": "44'"
+   },
+   "scoringPlay": false,
+   "team": {
+    "id": "393",
+    "displayName": "Nottingham Forest"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "287869",
+      "displayName": "Igor Jesus"
+     }
+    }
+   ],
+   "source": {
+    "id": "38",
+    "description": "SA.ENVOY"
+   },
+   "wallclock": "2026-08-29T12:14:56Z",
+   "shootout": false
+  },
+  {
+   "id": "51593870",
+   "type": {
+    "id": "70",
+    "text": "Goal",
+    "type": "goal"
+   },
+   "text": "Goal! Liverpool 1, Nottingham Forest 1. Alexander Isak (Liverpool) left footed shot from very close range to the centre of the goal. Assisted by Cody Gakpo.",
+   "shortText": "Alexander Isak Goal",
+   "period": {
+    "number": 2
+   },
+   "clock": {
+    "value": 3561.0,
+    "displayValue": "60'"
+   },
+   "scoringPlay": true,
+   "team": {
+    "id": "364",
+    "displayName": "Liverpool"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "235662",
+      "displayName": "Alexander Isak"
+     }
+    },
+    {
+     "athlete": {
+      "id": "249524",
+      "displayName": "Cody Gakpo"
+     }
+    }
+   ],
+   "source": {
+    "id": "38",
+    "description": "SA.ENVOY"
+   },
+   "wallclock": "2026-08-29T12:50:42Z",
+   "shootout": false,
+   "goalPositionY": 51.7,
+   "fieldPositionX": 96.5,
+   "fieldPositionY": 53.6,
+   "fieldPosition2X": 100.0,
+   "fieldPosition2Y": 51.7
+  },
+  {
+   "id": "51594387",
+   "type": {
+    "id": "76",
+    "text": "Substitution",
+    "type": "substitution"
+   },
+   "text": "Substitution, Nottingham Forest. Liam Delap replaces Dan Ndoye.",
+   "shortText": "Liam Delap Substitution",
+   "period": {
+    "number": 2
+   },
+   "clock": {
+    "value": 3923.0,
+    "displayValue": "66'"
+   },
+   "scoringPlay": false,
+   "team": {
+    "id": "393",
+    "displayName": "Nottingham Forest"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "307114",
+      "displayName": "Liam Delap"
+     }
+    },
+    {
+     "athlete": {
+      "id": "275842",
+      "displayName": "Dan Ndoye"
+     }
+    }
+   ],
+   "source": {
+    "id": "38",
+    "description": "SA.ENVOY"
+   },
+   "wallclock": "2026-08-29T12:56:43Z",
+   "shootout": false
+  },
+  {
+   "id": "51594656",
+   "type": {
+    "id": "98",
+    "text": "Penalty - Scored",
+    "type": "penalty---scored"
+   },
+   "text": "Goal! Liverpool 1, Nottingham Forest 2. Morgan Gibbs-White (Nottingham Forest) converts the penalty with a right footed shot to the bottom left corner.",
+   "shortText": "Morgan Gibbs-White Penalty - Sco",
+   "period": {
+    "number": 2
+   },
+   "clock": {
+    "value": 4191.0,
+    "displayValue": "70'"
+   },
+   "scoringPlay": true,
+   "team": {
+    "id": "393",
+    "displayName": "Nottingham Forest"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "243396",
+      "displayName": "Morgan Gibbs-White"
+     }
+    }
+   ],
+   "source": {
+    "id": "38",
+    "description": "SA.ENVOY"
+   },
+   "wallclock": "2026-08-29T13:01:11Z",
+   "shootout": false,
+   "goalPositionY": 52.9,
+   "fieldPositionX": 88.5,
+   "fieldPositionY": 50.0,
+   "fieldPosition2X": 100.0,
+   "fieldPosition2Y": 52.9
+  },
+  {
+   "id": "51595651",
+   "type": {
+    "id": "70",
+    "text": "Goal",
+    "type": "goal"
+   },
+   "text": "Goal! Liverpool 2, Nottingham Forest 2. V\u00edctor Mu\u00f1oz (Liverpool) right footed shot from the right side of the box to the high centre of the goal. Assisted by Florian Wirtz.",
+   "shortText": "V\u00edctor Mu\u00f1oz Goal",
+   "period": {
+    "number": 2
+   },
+   "clock": {
+    "value": 4884.0,
+    "displayValue": "82'"
+   },
+   "scoringPlay": true,
+   "team": {
+    "id": "364",
+    "displayName": "Liverpool"
+   },
+   "participants": [
+    {
+     "athlete": {
+      "id": "397545",
+      "displayName": "V\u00edctor Mu\u00f1oz"
+     }
+    },
+    {
+     "athlete": {
+      "id": "303748",
+      "displayName": "Florian Wirtz"
+     }
+    }
+   ],
+   "source": {
+    "id": "38",
+    "description": "SA.ENVOY"
+   },
+   "wallclock": "2026-08-29T13:12:45Z",
+   "shootout": false,
+   "goalPositionY": 51.4,
+   "fieldPositionX": 88.7,
+   "fieldPositionY": 33.6,
+   "fieldPosition2X": 100.0,
+   "fieldPosition2Y": 51.4
+  },
+  {
+   "id": "51596779",
+   "type": {
+    "id": "83",
+    "text": "End Regular Time",
+    "type": "end-regular-time"
+   },
+   "text": "Second Half ends, Liverpool 2, Nottingham Forest 2.",
+   "period": {
+    "number": 2
+   },
+   "clock": {
+    "value": 5400.0,
+    "displayValue": "90'+6'"
+   },
+   "scoringPlay": false,
+   "source": {
+    "id": "38",
+    "description": "SA.ENVOY"
+   },
+   "wallclock": "2026-08-29T13:26:59Z",
+   "shootout": false
+  }
+ ]
+}

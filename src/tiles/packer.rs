@@ -19,9 +19,9 @@ pub struct PackedTile<'a> {
 }
 
 /// Tiles per page for `pref` over `n` games. Public so `App` can clamp/wrap
-/// its page index with the exact numbers `pack` will use. (The narrow
-/// fallback for widths <60 cols is height-based and can differ; `pack` still
-/// guards its own bounds there.)
+/// its page index with the exact numbers `pack` will use — the narrow
+/// (<60 col / Sidebar) branch slices by this same size, so the two can
+/// never disagree about which games a page holds.
 pub fn page_size(pref: LayoutPref, n: usize) -> usize {
     match pref {
         LayoutPref::One => 1,
@@ -53,7 +53,10 @@ pub fn pack<'a>(games: &'a [Game], area: Rect, pref: LayoutPref, page: usize) ->
     }
     let narrow = pref == LayoutPref::Sidebar || area.width < 60;
     if narrow {
-        let ps = (area.height / 3).max(1) as usize;
+        // Same page size as page_size(): App's n/p paging and j/k selection
+        // math are computed from it, so a height-based size here would strand
+        // games on unreachable pages.
+        let ps = page_size(pref, games.len());
         let start = page.saturating_mul(ps);
         if start >= games.len() {
             return vec![];

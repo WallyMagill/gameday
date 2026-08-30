@@ -42,9 +42,14 @@ impl Default for TileFx {
 }
 
 const LOGO_W: u16 = 10;
-const SCORE_W: u16 = 7;
 const METER_W: u16 = 9;
 const IDENTITY_H: u16 = 6;
+/// Identity rows in the focus view when the full-size (8-row) digits fit:
+/// 8 digit rows + gap + names row.
+const IDENTITY_FULL_H: u16 = 10;
+/// Meter gauge height cap: past this the ticks spread so far apart the gauge
+/// stops reading as one object (seen in the 28-row focus view).
+const METER_MAX_H: u16 = 12;
 
 pub fn render_tile(
     frame: &mut Frame,
@@ -98,21 +103,32 @@ pub fn render_tile(
         .title(Line::from(right_title).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    if inner.height < 8 || inner.width < 30 {
-        // Too small for the full grammar: score line only.
+    if inner.height < 4 || inner.width < 30 {
+        // Too small for any grammar: score line only.
         frame.render_widget(
             Paragraph::new(score_line(game, fx.flash)).alignment(Alignment::Center),
             inner,
         );
         return;
     }
+    if inner.height < 8 {
+        // Short tile (80x24-class terminals): digits + names + momentum +
+        // plays, packed row by row — never a header over a void.
+        render_short(frame, inner, game, fx.flash, score_style);
+        return;
+    }
 
+    // Focus view with room: the digits double in size (8-row LED glyphs).
+    let full_digits = density == Density::Full
+        && score_style == ScoreStyle::Big
+        && inner.height >= IDENTITY_FULL_H + 8;
+    let id_h = if full_digits { IDENTITY_FULL_H } else { IDENTITY_H };
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(IDENTITY_H), Constraint::Min(1)])
+        .constraints([Constraint::Length(id_h), Constraint::Min(1)])
         .split(inner);
     match score_style {
-        ScoreStyle::Big => render_identity_big(frame, rows[0], game, fx.flash),
+        ScoreStyle::Big => render_identity_big(frame, rows[0], game, fx.flash, full_digits),
         ScoreStyle::Compact => render_identity(frame, rows[0], game, fx.flash),
     }
 
@@ -120,8 +136,16 @@ pub fn render_tile(
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(10), Constraint::Length(METER_W)])
         .split(rows[1]);
-    render_lower_left(frame, lower[0], game);
-    render_meter(frame, lower[1], game);
+    if density == Density::Full {
+        render_focus_body(frame, lower[0], game);
+    } else {
+        render_lower_left(frame, lower[0], game);
+    }
+    let meter_area = Rect {
+        height: lower[1].height.min(METER_MAX_H),
+        ..lower[1]
+    };
+    render_meter(frame, meter_area, game);
 }
 
 /// Situation string on the top border, right side.
@@ -180,14 +204,21 @@ fn shot_clock_of(game: &Game) -> Option<u8> {
     }
 }
 
-/// Compact score style: logo | city/NAME/record | 27 - 24 | … | logo
+/// Compact score style: logo | city/NAME/record | 27 - 24 | … | logo.
+/// The score column is sized to the actual score text plus one guaranteed
+/// spacer cell per side, so a long name can never abut the digits.
 fn render_identity(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
+    let score_w = format!("{} - {}", game.away_score, game.home_score)
+        .chars()
+        .count() as u16;
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Length(LOGO_W),
             Constraint::Min(4),
-            Constraint::Length(SCORE_W),
+            Constraint::Length(1),
+            Constraint::Length(score_w),
+            Constraint::Length(1),
             Constraint::Min(4),
             Constraint::Length(LOGO_W),
         ])
@@ -197,44 +228,51 @@ fn render_identity(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
     let score_rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(2), Constraint::Length(1), Constraint::Min(0)])
-        .split(cols[2]);
+        .split(cols[3]);
     frame.render_widget(
         Paragraph::new(score_line(game, flash)).alignment(Alignment::Center),
         score_rows[1],
     );
-    render_team_id(frame, cols[3], &game.home);
-    logo::draw_logo(frame, cols[4], &game.home);
+    render_team_id(frame, cols[5], &game.home);
+    logo::draw_logo(frame, cols[6], &game.home);
 }
 
-/// Big score style (default): logos at the edges, 3-row sextant digits in the
-/// middle, names + records on single rows beneath (no city line — the digits
-/// take it).
-fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
+/// Big digits for `game`'s score centered in `center`: sextant (4x3 cells per
+/// glyph) or, when `full`, whole-cell LED glyphs (8x8). Returns false without
+/// drawing when the digits don't fit `center` — every slot is also clamped to
+/// the rect so a wider-than-expected glyph can never index past the buffer
+/// (3-digit scores in narrow tiles panicked here before).
+fn render_digits(frame: &mut Frame, center: Rect, game: &Game, flash: bool, full: bool) -> bool {
     let th = theme::current();
     use tui_big_text::{BigText, PixelSize};
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(LOGO_W),
-            Constraint::Min(4),
-            Constraint::Length(LOGO_W),
-        ])
-        .split(area);
-    logo::draw_logo(frame, cols[0], &game.away);
-    logo::draw_logo(frame, cols[2], &game.home);
-    let center = cols[1];
+    let (gw, gh, px) = if full {
+        (8u16, 8u16, PixelSize::Full)
+    } else {
+        (4u16, 3u16, PixelSize::Sextant)
+    };
     let away_s = game.away_score.to_string();
     let home_s = game.home_score.to_string();
-    let widths = [away_s.len() as u16 * 4, 4, home_s.len() as u16 * 4];
+    let widths = [away_s.len() as u16 * gw, gw, home_s.len() as u16 * gw];
     let total: u16 = widths.iter().sum();
-    let x0 = center.x + center.width.saturating_sub(total) / 2;
+    if total > center.width || gh > center.height {
+        return false;
+    }
+    let x0 = center.x + (center.width - total) / 2;
     let mut x = x0;
     for (text, w, color) in [
         (away_s.as_str(), widths[0], theme::rgb(game.away.color)),
         ("-", widths[1], th.muted),
         (home_s.as_str(), widths[2], theme::rgb(game.home.color)),
     ] {
-        let slot = Rect { x, y: center.y, width: w.min(center.width), height: 3.min(center.height) };
+        if x >= center.right() {
+            break;
+        }
+        let slot = Rect {
+            x,
+            y: center.y,
+            width: w.min(center.right() - x),
+            height: gh.min(center.height),
+        };
         // Flash: swapped colors — dark digit strokes on a live-color field.
         let style = if flash && text != "-" {
             Style::default().fg(th.bg).bg(th.live).add_modifier(Modifier::BOLD)
@@ -243,7 +281,7 @@ fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game, flash: bool) 
         };
         frame.render_widget(
             BigText::builder()
-                .pixel_size(PixelSize::Sextant)
+                .pixel_size(px)
                 .style(style)
                 .lines(vec![Line::from(text.to_string())])
                 .build(),
@@ -251,32 +289,113 @@ fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game, flash: bool) 
         );
         x += w;
     }
-    if center.height >= 5 {
-        let names = Rect { x: center.x, y: center.y + 4, width: center.width, height: 1 };
-        let label = |t: &Team| {
-            let mut s = t.name.to_uppercase();
-            if !t.record.is_empty() {
-                s.push(' ');
-                s.push_str(&t.record);
-            }
-            s
-        };
-        let half = (center.width as usize).saturating_sub(2) / 2;
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                truncate(&label(&game.away), half),
-                Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
-            ))),
-            names,
-        );
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                truncate(&label(&game.home), half),
-                Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
-            )))
+    true
+}
+
+/// One-row team labels under the digits: away left, home right, in `area`.
+/// The record rides along only when the whole "NAME 11-6" fits its half —
+/// a record cut mid-number reads as a wrong record, so it drops wholesale.
+fn render_name_row(frame: &mut Frame, area: Rect, game: &Game) {
+    let th = theme::current();
+    let half = (area.width as usize).saturating_sub(2) / 2;
+    let label = |t: &Team| {
+        let name = t.name.to_uppercase();
+        if !t.record.is_empty() && name.chars().count() + 1 + t.record.chars().count() <= half {
+            format!("{name} {}", t.record)
+        } else {
+            truncate(&name, half)
+        }
+    };
+    let style = Style::default().fg(th.bright).add_modifier(Modifier::BOLD);
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(label(&game.away), style))),
+        area,
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(label(&game.home), style)))
             .alignment(Alignment::Right),
-            names,
+        area,
+    );
+}
+
+/// Big score style (default): 3-row sextant digits in the middle (8-row LED
+/// digits in the focus view), names + records on single rows beneath. Logos
+/// flank the digits only when both fit beside them — on a narrow tile the
+/// digits keep the whole width instead of falling back to a text score.
+fn render_identity_big(frame: &mut Frame, area: Rect, game: &Game, flash: bool, full: bool) {
+    let gw = if full { 8u16 } else { 4u16 };
+    let digits_w =
+        (game.away_score.to_string().len() + 1 + game.home_score.to_string().len()) as u16 * gw;
+    let center = if area.width >= digits_w + 2 * LOGO_W + 2 {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(LOGO_W),
+                Constraint::Min(4),
+                Constraint::Length(LOGO_W),
+            ])
+            .split(area);
+        logo::draw_logo(frame, cols[0], &game.away);
+        logo::draw_logo(frame, cols[2], &game.home);
+        cols[1]
+    } else {
+        area
+    };
+    let mut gh = if full { 8 } else { 3 };
+    let mut drawn = render_digits(frame, center, game, flash, full);
+    if !drawn && full {
+        // Focus view too tight for LED digits: sextant digits still land.
+        gh = 3;
+        drawn = render_digits(frame, center, game, flash, false);
+    }
+    if !drawn {
+        // Nothing big fits: single-row score, never a blank identity.
+        let row = Rect { x: center.x, y: center.y + 1, width: center.width, height: 1 };
+        frame.render_widget(
+            Paragraph::new(score_line(game, flash)).alignment(Alignment::Center),
+            row,
         );
+        gh = 2; // score row sits on row 1; names follow after the same gap
+    }
+    let name_y = center.y + gh + 1;
+    if name_y < center.bottom() {
+        let names = Rect { x: center.x, y: name_y, width: center.width, height: 1 };
+        render_name_row(frame, names, game);
+    }
+}
+
+/// Short tile (inner height 4..8): score, names, momentum, then plays for
+/// whatever rows remain. The 80x24 four-up board lands here — it must read
+/// as a scoreboard, not a header floating over empty rows.
+fn render_short(frame: &mut Frame, inner: Rect, game: &Game, flash: bool, style: ScoreStyle) {
+    let mut y = inner.y;
+    let row = |y: u16| Rect { x: inner.x, y, width: inner.width, height: 1 };
+    let digits = Rect { x: inner.x, y, width: inner.width, height: 3 };
+    if style == ScoreStyle::Big && render_digits(frame, digits, game, flash, false) {
+        y += 3;
+    } else {
+        frame.render_widget(
+            Paragraph::new(score_line(game, flash)).alignment(Alignment::Center),
+            row(y),
+        );
+        y += 1;
+    }
+    if y < inner.bottom() {
+        render_name_row(frame, row(y), game);
+        y += 1;
+    }
+    if y < inner.bottom() {
+        frame.render_widget(momentum_line(game).alignment(Alignment::Center), row(y));
+        y += 1;
+    }
+    if y < inner.bottom() {
+        let plays = Rect {
+            x: inner.x,
+            y,
+            width: inner.width,
+            height: inner.bottom() - y,
+        };
+        render_play_lines(frame, plays, game);
     }
 }
 
@@ -345,33 +464,164 @@ fn render_lower_left(frame: &mut Frame, area: Rect, game: &Game) {
         )),
         rows[2],
     );
-    let play_area = rows[3];
-    let mut lines = Vec::new();
-    for p in game.last_plays.iter().take(play_area.height as usize) {
-        let team_color = if p.team.eq_ignore_ascii_case(&game.away.abbr) {
-            theme::rgb(game.away.color)
-        } else if p.team.eq_ignore_ascii_case(&game.home.abbr) {
-            theme::rgb(game.home.color)
-        } else {
-            th.fg
-        };
-        let clock = format!(" [{}]", if p.clock.is_empty() { "-:--" } else { &p.clock });
-        let abbr = format!(" {:<3} ", p.team);
-        let used = clock.chars().count() + abbr.chars().count();
-        let text = truncate(&p.text, (play_area.width as usize).saturating_sub(used + 1));
-        lines.push(Line::from(vec![
-            Span::styled(clock, Style::default().fg(th.muted)),
-            Span::styled(abbr, Style::default().fg(team_color).add_modifier(Modifier::BOLD)),
-            Span::styled(text, Style::default().fg(th.fg)),
-        ]));
-    }
+    render_play_lines(frame, rows[3], game);
+}
+
+/// `[clock] ABB text` row for one play, truncated to `width`.
+fn play_line(game: &Game, p: &crate::domain::Play, width: usize) -> Line<'static> {
+    let th = theme::current();
+    let team_color = if p.team.eq_ignore_ascii_case(&game.away.abbr) {
+        theme::rgb(game.away.color)
+    } else if p.team.eq_ignore_ascii_case(&game.home.abbr) {
+        theme::rgb(game.home.color)
+    } else {
+        th.fg
+    };
+    let clock = format!(" [{}]", if p.clock.is_empty() { "-:--" } else { &p.clock });
+    let abbr = format!(" {:<3} ", p.team);
+    let used = clock.chars().count() + abbr.chars().count();
+    let text = truncate(&p.text, width.saturating_sub(used + 1));
+    Line::from(vec![
+        Span::styled(clock, Style::default().fg(th.muted)),
+        Span::styled(abbr, Style::default().fg(team_color).add_modifier(Modifier::BOLD)),
+        Span::styled(text, Style::default().fg(th.fg)),
+    ])
+}
+
+fn render_play_lines(frame: &mut Frame, area: Rect, game: &Game) {
+    let th = theme::current();
+    let mut lines: Vec<Line> = game
+        .last_plays
+        .iter()
+        .take(area.height as usize)
+        .map(|p| play_line(game, p, area.width as usize))
+        .collect();
     if lines.is_empty() {
         lines.push(Line::from(Span::styled(
             " no plays yet",
             Style::default().fg(th.dim),
         )));
     }
-    frame.render_widget(Paragraph::new(lines), play_area);
+    frame.render_widget(Paragraph::new(lines), area);
+}
+
+/// Football field bar for the focus view (the spotify-progress steal): the
+/// drive as a 100-yard bar with the ball on it, filled in the possessing
+/// team's color toward the goal on the right. None when the situation
+/// doesn't carry a parseable spot.
+fn field_line(game: &Game, width: usize) -> Option<Line<'static>> {
+    if !matches!(game.league, League::Nfl | League::Cfb) || game.status != Status::Live {
+        return None;
+    }
+    let th = theme::current();
+    let sit = game.situation.as_ref()?;
+    let poss = sit.possession.as_deref()?;
+    let (territory, yards) = sit.ball_on.as_deref()?.rsplit_once(' ')?;
+    let yards: u16 = yards.parse().ok()?;
+    if yards > 50 {
+        return None;
+    }
+    // Yards left to the opponent's goal line.
+    let to_goal = if territory.eq_ignore_ascii_case(poss) { 100 - yards } else { yards };
+    let color = if poss.eq_ignore_ascii_case(&game.away.abbr) {
+        theme::rgb(game.away.color)
+    } else {
+        theme::rgb(game.home.color)
+    };
+    let label = format!(" {poss} ");
+    let bar_w = width.checked_sub(label.chars().count() + 4)?.max(10);
+    let filled = (bar_w as u16 * (100 - to_goal) / 100).min(bar_w as u16 - 1) as usize;
+    Some(Line::from(vec![
+        Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled("━".repeat(filled), Style::default().fg(color)),
+        Span::styled("●", Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "─".repeat(bar_w.saturating_sub(filled + 1)),
+            Style::default().fg(th.dim),
+        ),
+        Span::styled(" G ", Style::default().fg(th.muted)),
+    ]))
+}
+
+/// Focus-view body (golazo steal: score + scoring ticker + drive): momentum,
+/// the drive/field bar, the last-plays feed, then a SCORING timeline — the
+/// drill-in must never show less than the tile it came from.
+fn render_focus_body(frame: &mut Frame, area: Rect, game: &Game) {
+    let th = theme::current();
+    let accent = th.league_accent(game.league);
+    let n_plays = game.last_plays.len().min(8) as u16;
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),                // momentum
+            Constraint::Length(1),                // field bar / rule
+            Constraint::Length(1),                // LAST PLAYS label
+            Constraint::Length(n_plays.max(1)),   // plays feed
+            Constraint::Length(1),                // rule
+            Constraint::Min(0),                   // scoring timeline
+        ])
+        .split(area);
+    frame.render_widget(momentum_line(game).alignment(Alignment::Center), rows[0]);
+    let divider = field_line(game, area.width as usize).unwrap_or_else(|| {
+        Line::from(Span::styled(
+            "─".repeat(area.width.saturating_sub(2) as usize),
+            Style::default().fg(th.dim),
+        ))
+    });
+    frame.render_widget(Paragraph::new(divider).alignment(Alignment::Center), rows[1]);
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            " LAST PLAYS",
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        )),
+        rows[2],
+    );
+    render_play_lines(frame, rows[3], game);
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "─".repeat(area.width.saturating_sub(2) as usize),
+            Style::default().fg(th.dim),
+        ))
+        .alignment(Alignment::Center),
+        rows[4],
+    );
+    let scoring_area = rows[5];
+    if scoring_area.height == 0 {
+        return;
+    }
+    let mut lines = vec![Line::from(Span::styled(
+        " SCORING",
+        Style::default().fg(th.live).add_modifier(Modifier::BOLD),
+    ))];
+    let word = theme::scoring_word(game.league);
+    for p in game.last_plays.iter().filter(|p| p.scoring) {
+        let team_color = if p.team.eq_ignore_ascii_case(&game.away.abbr) {
+            theme::rgb(game.away.color)
+        } else {
+            theme::rgb(game.home.color)
+        };
+        let head = format!(" [{}] {:<3} ", if p.clock.is_empty() { "-:--" } else { &p.clock }, p.team);
+        let used = head.chars().count() + word.chars().count() + 1;
+        lines.push(Line::from(vec![
+            Span::styled(head, Style::default().fg(team_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{word} "),
+                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                truncate(&p.text, (scoring_area.width as usize).saturating_sub(used + 1)),
+                Style::default().fg(th.fg),
+            ),
+        ]));
+    }
+    if lines.len() == 1 {
+        lines.push(Line::from(Span::styled(
+            " no scoring yet",
+            Style::default().fg(th.dim),
+        )));
+    }
+    lines.truncate(scoring_area.height as usize);
+    frame.render_widget(Paragraph::new(lines), scoring_area);
 }
 
 /// ▶▶▶ MOMENTUM ◀◀◀ — BOTH sides tick in their team color (per the reference
@@ -812,6 +1062,96 @@ mod tests {
         g.meter = None;
         let text = render_to_text(&g, Density::Standard, 49, 15);
         assert!(text.contains("90'+3'"), "match minute missing where other sports show period/clock:\n{text}");
+    }
+
+    #[test]
+    fn big_three_digit_scores_never_panic_in_narrow_tiles() {
+        // Regression: 120-118 in a 32-38 col tile indexed past the buffer
+        // edge (tui-big-text renders the unclamped glyph width). Every
+        // width/height a live mosaic can produce must render, panic-free.
+        let mut g = demo_game();
+        g.league = League::Nba;
+        g.away_score = 120;
+        g.home_score = 118;
+        for w in 30..=60u16 {
+            for h in [9, 12, 15] {
+                let buf = render_buffer(&g, Density::Standard, w, h, TileFx::default(), ScoreStyle::Big);
+                let text = buffer_text(&buf, w, h);
+                assert!(
+                    text.contains("120") || !text.is_empty(),
+                    "tile {w}x{h} rendered:\n{text}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn short_tile_fills_with_digits_names_momentum_and_plays() {
+        // 80x24 four-up board: tiles are ~40x9 (inner 7 rows). That must be
+        // a scoreboard — digits, names, momentum, at least one play — not a
+        // header row floating over a void.
+        let buf = render_buffer(&demo_game(), Density::Standard, 40, 9, TileFx::default(), ScoreStyle::Big);
+        let text = buffer_text(&buf, 40, 9);
+        assert!(!text.contains("27 - 24"), "short tile uses big digits, not the text row:\n{text}");
+        assert!(text.contains("CHIEFS"), "names row missing:\n{text}");
+        assert!(text.contains("MOMENTUM"), "momentum missing:\n{text}");
+        assert!(text.contains("Mahomes"), "play line missing:\n{text}");
+    }
+
+    #[test]
+    fn focus_tile_body_shows_scoring_timeline_and_field_bar() {
+        let mut g = demo_game();
+        g.last_plays.push(crate::domain::Play {
+            clock: "3:21".into(),
+            team: "KC".into(),
+            text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
+            scoring: true,
+        });
+        let buf = render_buffer(&g, Density::Full, 118, 30, TileFx::default(), ScoreStyle::Big);
+        let text = buffer_text(&buf, 118, 30);
+        assert!(text.contains("LAST PLAYS"), "plays feed missing:\n{text}");
+        assert!(text.contains("SCORING"), "scoring timeline missing:\n{text}");
+        assert!(text.contains("TOUCHDOWN!"), "scoring word missing:\n{text}");
+        assert!(text.contains("●"), "field bar ball missing:\n{text}");
+        assert!(text.contains("RED ZONE"), "meter caption missing:\n{text}");
+        // The LED digits actually doubled: sextant "27" fits in 3 rows, the
+        // full-size glyphs span 8 — count rows containing digit strokes.
+        let stroke_rows = (0..30u16)
+            .filter(|&y| (0..118u16).any(|x| buf[(x, y)].symbol() == "█"))
+            .count();
+        assert!(stroke_rows >= 6, "full-size digits should span >=6 rows, got {stroke_rows}");
+    }
+
+    #[test]
+    fn name_row_drops_the_record_rather_than_truncating_it() {
+        // "BUCCANEERS 11-6" cut to "BUCCANEERS 1…" reads as a wrong record:
+        // when the pair doesn't fit, the record must vanish wholesale.
+        let g = demo_game();
+        let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Big);
+        let text = buffer_text(&buf, 49, 15);
+        assert!(text.contains("CHIEFS 11-6"), "fitting record kept:\n{text}");
+        assert!(text.contains("BUCCANEERS"), "name kept:\n{text}");
+        assert!(!text.contains("BUCCANEERS 1"), "no half-record:\n{text}");
+        let home_row = text.lines().find(|l| l.contains("BUCCANEERS")).unwrap();
+        assert!(!home_row.contains('…'), "record dropped, not ellipsized: {home_row:?}");
+    }
+
+    #[test]
+    fn compact_identity_always_gaps_score_from_names() {
+        // Regression: "27 - 24BUCCANEERS" — the score column must carry a
+        // spacer cell on both sides at every width.
+        let g = demo_game();
+        for w in 44..=70u16 {
+            let buf = render_buffer(&g, Density::Standard, w, 15, TileFx::default(), ScoreStyle::Compact);
+            let text = buffer_text(&buf, w, 15);
+            let Some(row) = text.lines().find(|l| l.contains("27 - 24")) else {
+                continue;
+            };
+            assert!(
+                !row.contains("24B") && !row.contains("S27"),
+                "score abuts a name at width {w}: {row:?}"
+            );
+        }
     }
 
     #[test]

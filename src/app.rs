@@ -223,6 +223,12 @@ impl App {
             }
         }
         self.boards.insert(league, games);
+        // Drop score memory for games no board carries any more: unbounded
+        // growth over a days-long session, and a recycled id would flash on
+        // first sighting instead of seeding silently.
+        let mut last_scores = std::mem::take(&mut self.last_scores);
+        last_scores.retain(|id, _| self.boards.values().flatten().any(|g| g.id == *id));
+        self.last_scores = last_scores;
         self.stale = stale;
         self.last_update = Some(Instant::now());
         self.pins = prune_pins(std::mem::take(&mut self.pins), now);
@@ -866,11 +872,26 @@ impl App {
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
         let th = theme::current();
         let focused = self.focused_id.is_some();
+        // Narrow terminals can't hold every chord: shed the low-value ones in
+        // keymap's declared order so HELP and QUIT are never the ones clipped.
+        let mut chords = keymap::footer_chords(focused);
+        let chords_width = |cs: &[(&str, &str)]| -> usize {
+            5 + cs
+                .iter()
+                .map(|(k, a)| 4 + k.chars().count() + a.chars().count())
+                .sum::<usize>()
+        };
+        for drop in keymap::FOOTER_DROP_ORDER {
+            if chords_width(&chords) < area.width as usize {
+                break;
+            }
+            chords.retain(|(_, a)| a != drop);
+        }
         let mut spans = vec![Span::styled(
             " NAV:",
             Style::default().fg(th.fg).add_modifier(Modifier::BOLD),
         )];
-        for (key, action) in keymap::footer_chords(focused) {
+        for (key, action) in chords {
             spans.push(Span::styled(format!(" [{key}]"), Style::default().fg(th.fg)));
             spans.push(Span::styled(format!(" {action}"), Style::default().fg(th.muted)));
         }
@@ -1024,23 +1045,23 @@ fn group_spans(cells: impl Iterator<Item = (char, Style)>) -> Vec<Span<'static>>
         .collect()
 }
 
+/// Departure-board slate row (gegen's status grammar): the status token —
+/// start time or FINAL — is a fixed-width first column, then the matchup in
+/// aligned columns, so rows stack like a split-flap board.
 fn slate_line(game: &Game) -> String {
     match game.status {
-        Status::Pre => {
-            let mut line = format!("{} @ {}", game.away.abbr, game.home.abbr);
-            if let Some(broadcast) = &game.broadcast {
-                line.push_str("  ");
-                line.push_str(broadcast);
-            }
-            if let Some(start) = &game.start_time {
-                line.push_str("  ");
-                line.push_str(start);
-            }
-            line
-        }
+        Status::Pre => format!(
+            "{:<9} {:>4} @ {:<4} {}",
+            game.start_time.as_deref().unwrap_or("--:--"),
+            game.away.abbr,
+            game.home.abbr,
+            game.broadcast.as_deref().unwrap_or(""),
+        )
+        .trim_end()
+        .to_string(),
         Status::Final => format!(
-            "{} {}  {} {}  F",
-            game.away.abbr, game.away_score, game.home.abbr, game.home_score
+            "{:<9} {:>4} {:>3}  {:<4} {:>3}",
+            "FINAL", game.away.abbr, game.away_score, game.home.abbr, game.home_score
         ),
         Status::Live => String::new(),
     }
@@ -1496,6 +1517,52 @@ mod tests {
         assert_eq!(app.page, 1);
         app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
         assert_eq!(app.page, 0, "page index must never point past the end");
+    }
+
+    #[test]
+    fn sidebar_paging_reaches_every_game_and_tracks_the_selection() {
+        // Regression: pack()'s narrow branch used a height-based page size
+        // while App paged by page_size() — games past page_count*8 were
+        // unreachable and j/k could select an off-screen game.
+        use crate::tiles::packer::pack;
+        use ratatui::layout::Rect;
+        let games: Vec<Game> = (0..16).map(|i| g(&format!("g{i}"), "KC", "TB", true)).collect();
+        let mut app = app_with(games.clone(), vec![]);
+        app.tab = Tab::League(League::Nfl);
+        app.config.layout = LayoutPref::Sidebar;
+        assert_eq!(app.page_count(), 2, "16 games / 8 per sidebar page");
+        app.on_key(KeyCode::Char('n'), KeyModifiers::NONE);
+        assert_eq!((app.page, app.selected), (1, 8));
+        // pack agrees: page 1 exists and starts at the game App selected.
+        let area = Rect::new(0, 0, 50, 30); // narrow branch (width < 60)
+        let tiles = pack(&games, area, LayoutPref::Sidebar, app.page);
+        assert!(!tiles.is_empty(), "page 1 must render tiles");
+        assert_eq!(tiles[0].game.id, "g8", "pack's page 1 starts where App thinks it does");
+        // j from the last tile of page 0 pulls the page to where the
+        // selection actually renders.
+        app.on_key(KeyCode::Char('p'), KeyModifiers::NONE);
+        for _ in 0..8 {
+            app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        }
+        assert_eq!(app.selected, 8);
+        assert_eq!(app.page, 1, "page follows selection under Sidebar layout");
+    }
+
+    #[test]
+    fn last_scores_forget_games_that_left_the_boards() {
+        // A game id that vanishes and later returns is a first sighting
+        // again: seed silently, never flash.
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.apply_boards(League::Nfl, vec![], false);
+        app.advance_tick();
+        let mut back = g("1", "KC", "TB", true);
+        back.away_score = 99; // different score than first seen
+        app.apply_boards(League::Nfl, vec![back], false);
+        assert!(
+            !app.flash_active("1"),
+            "re-appearing game must seed, not flash a stale diff"
+        );
+        assert_eq!(app.last_scores.len(), 1, "only games on the boards are remembered");
     }
 
     #[test]

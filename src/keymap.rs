@@ -119,6 +119,12 @@ pub const KEYMAP: &[Binding] = &[
     },
 ];
 
+/// Labels shed from the footer first when the terminal is too narrow for the
+/// whole chord list, least valuable first. HELP and QUIT are deliberately
+/// absent: whatever gets clipped, the way out and the way to the full keymap
+/// stay visible.
+pub const FOOTER_DROP_ORDER: &[&str] = &["MOVE", "PAGE", "PIN", "LEAGUE", "REFRESH"];
+
 /// The footer chord list for the current focus state: (key, label) pairs in
 /// table order.
 pub fn footer_chords(focused: bool) -> Vec<(&'static str, &'static str)> {

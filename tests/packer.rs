@@ -97,3 +97,27 @@ fn two_pane_stacks_when_short() {
     assert_eq!(out[0].area.width, 120);
     assert!(out[1].area.y > out[0].area.y);
 }
+
+#[test]
+fn narrow_pages_slice_by_the_shared_page_size() {
+    // Regression: the narrow branch paged by height/3 while page_size() said
+    // 8 (Sidebar) — App's n/p math and pack() disagreed about page contents.
+    use gameday::tiles::packer::page_size;
+    let games: Vec<_> = (0..16).map(|i| g(&i.to_string(), true)).collect();
+    let ps = page_size(LayoutPref::Sidebar, games.len());
+    let area = Rect::new(0, 0, 50, 30);
+    let p0 = pack(&games, area, LayoutPref::Sidebar, 0);
+    assert_eq!(p0.len(), ps, "page 0 holds exactly page_size tiles");
+    let p1 = pack(&games, area, LayoutPref::Sidebar, 1);
+    assert_eq!(p1.len(), ps);
+    assert_eq!(p1[0].game.id, ps.to_string(), "page 1 starts at page_size");
+    // Every game is reachable within ceil(n/ps) pages.
+    let pages = games.len().div_ceil(ps);
+    let mut seen = std::collections::HashSet::new();
+    for page in 0..pages {
+        for t in pack(&games, area, LayoutPref::Sidebar, page) {
+            seen.insert(t.game.id.clone());
+        }
+    }
+    assert_eq!(seen.len(), games.len(), "no game may be stranded off every page");
+}
