@@ -288,6 +288,58 @@ fn status_line_renders_verbatim_in_the_footer_row() {
 }
 
 #[test]
+fn committed_filter_narrows_the_board_and_shows_in_the_footer() {
+    let mut app = mk();
+    app.apply_boards(
+        League::Nfl,
+        vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
+        false,
+    );
+    app.tab = Tab::League(League::Nfl);
+    app.filter = Some("kc".into());
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("KC"), "filtered-in game missing: {s}");
+    assert!(!s.contains("PHI"), "filtered-out game still drawn: {s}");
+    assert!(s.contains("/kc"), "active filter missing from footer: {s}");
+}
+
+#[test]
+fn filter_mode_typing_filters_incrementally() {
+    use gameday::input::InputMode;
+    let mut app = mk();
+    app.apply_boards(
+        League::Nfl,
+        vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
+        false,
+    );
+    app.tab = Tab::League(League::Nfl);
+    // No commit yet: the open prompt's buffer already narrows the board.
+    app.mode = InputMode::Filter { buf: "phi".into() };
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("PHI"), "{s}");
+    assert!(!s.contains("KC"), "buffer should filter while typing: {s}");
+}
+
+#[test]
+fn filter_matching_nothing_names_the_pattern() {
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.filter = Some("zzz".into());
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(
+        s.contains("no games match \"zzz\""),
+        "empty filter result must name the pattern: {s}"
+    );
+}
+
+#[test]
 fn footer_advertises_command_and_filter_chords() {
     let mut app = mk();
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();

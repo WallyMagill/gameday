@@ -84,14 +84,32 @@ pub fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             _ => {}
         },
         InputMode::Filter { buf } => match code {
-            // Task 2 wires Enter to commit the filter; for now both leave.
-            KeyCode::Esc | KeyCode::Enter => app.mode = InputMode::Normal,
+            // Esc abandons the prompt AND any committed filter — one gesture
+            // back to the full board.
+            KeyCode::Esc => {
+                app.mode = InputMode::Normal;
+                app.filter = None;
+                app.filter_changed();
+            }
+            // Enter commits the buffer; an empty pattern clears the filter.
+            KeyCode::Enter => {
+                let pat = std::mem::take(buf);
+                app.mode = InputMode::Normal;
+                app.filter = (!pat.is_empty()).then_some(pat);
+                app.filter_changed();
+            }
+            // The buffer filters incrementally, so every edit re-clamps the
+            // selection against the narrowed list.
             KeyCode::Backspace => {
                 if buf.pop().is_none() {
                     app.mode = InputMode::Normal;
                 }
+                app.filter_changed();
             }
-            KeyCode::Char(c) => buf.push(c),
+            KeyCode::Char(c) => {
+                buf.push(c);
+                app.filter_changed();
+            }
             _ => {}
         },
     }
@@ -270,6 +288,31 @@ mod tests {
         handle_key(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
         assert_eq!(app.mode, InputMode::Filter { buf: String::new() });
         handle_key(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn enter_commits_the_filter_and_esc_clears_it() {
+        let mut app = mk();
+        handle_key(&mut app, KeyCode::Char('/'), KeyModifiers::NONE);
+        type_line(&mut app, "kc");
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.mode, InputMode::Normal);
+        assert_eq!(app.filter.as_deref(), Some("kc"));
+        // Esc inside a reopened prompt drops the committed filter too.
+        handle_key(&mut app, KeyCode::Char('/'), KeyModifiers::NONE);
+        handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.filter, None);
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn committing_an_empty_pattern_clears_the_filter() {
+        let mut app = mk();
+        app.filter = Some("kc".into());
+        handle_key(&mut app, KeyCode::Char('/'), KeyModifiers::NONE);
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.filter, None, "empty pattern clears");
         assert_eq!(app.mode, InputMode::Normal);
     }
 

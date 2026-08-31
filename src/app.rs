@@ -34,6 +34,17 @@ pub fn live_pulse_bright(tick: u64) -> bool {
     (tick / 10) % 2 == 0
 }
 
+/// Does either team match the `/` filter? Case-insensitive substring on
+/// abbr ("KC"), location ("KANSAS CITY"), and name ("Chiefs").
+fn game_matches(game: &Game, needle: &str) -> bool {
+    let needle = needle.to_lowercase();
+    [&game.away, &game.home].into_iter().any(|t| {
+        t.abbr.to_lowercase().contains(&needle)
+            || t.location.to_lowercase().contains(&needle)
+            || t.name.to_lowercase().contains(&needle)
+    })
+}
+
 pub struct App {
     pub tab: Tab,
     pub page: usize,
@@ -51,6 +62,10 @@ pub struct App {
     /// One-line footer message (command errors, pin results). Cleared by the
     /// next Normal-mode key or by opening a prompt.
     pub status_line: Option<String>,
+    /// Committed `/` filter: case-insensitive substring matched against the
+    /// abbr/location/name of either team. Applied inside `visible_games`, so
+    /// every derived list (mosaic, slate, selection) narrows together.
+    pub filter: Option<String>,
     /// Command-mode Tab-completion cursor; owned by `input::cycle_completion`.
     pub completion: Option<CompletionState>,
     /// '?' overlay. Modal: Esc closes it before Esc touches focus.
@@ -85,6 +100,7 @@ impl App {
             focused_id: None,
             mode: InputMode::Normal,
             status_line: None,
+            filter: None,
             completion: None,
             help_open: false,
             last_update: None,
@@ -134,7 +150,7 @@ impl App {
     }
 
     pub fn visible_games(&self) -> Vec<Game> {
-        match self.tab {
+        let games = match self.tab {
             Tab::Home => {
                 let concat = self.concat_boards();
                 home_games(
@@ -148,7 +164,23 @@ impl App {
                 .collect()
             }
             Tab::League(league) => self.boards.get(&league).cloned().unwrap_or_default(),
+        };
+        match self.active_filter() {
+            Some(needle) => games
+                .into_iter()
+                .filter(|g| game_matches(g, needle))
+                .collect(),
+            None => games,
         }
+    }
+
+    /// The filter the board is narrowed by right now: the open `/` prompt's
+    /// buffer while typing (incremental), else the committed filter.
+    fn active_filter(&self) -> Option<&str> {
+        if let InputMode::Filter { buf } = &self.mode {
+            return (!buf.is_empty()).then_some(buf.as_str());
+        }
+        self.filter.as_deref()
     }
 
     pub fn live_games(&self) -> Vec<Game> {
@@ -196,7 +228,15 @@ impl App {
                     self.focused_id = Some(game.id);
                 }
             }
-            KeyCode::Esc => self.focused_id = None,
+            // Esc peels layers: focused game first, then an active filter.
+            KeyCode::Esc => {
+                if self.focused_id.is_some() {
+                    self.focused_id = None;
+                } else if self.filter.is_some() {
+                    self.filter = None;
+                    self.filter_changed();
+                }
+            }
             KeyCode::Char('t') => self.toggle_favorite(),
             KeyCode::Char('n') | KeyCode::PageDown => self.change_page(1),
             KeyCode::Char('p') | KeyCode::PageUp => self.change_page(-1),
@@ -690,6 +730,12 @@ impl App {
         }
     }
 
+    /// Selection indices shift whenever the filter narrows the lists; callers
+    /// that change the filter re-clamp through here.
+    pub(crate) fn filter_changed(&mut self) {
+        self.clamp_selected();
+    }
+
     fn focused_game(&self) -> Option<Game> {
         let id = self.focused_id.as_ref()?;
         match self.tab {
@@ -726,6 +772,18 @@ impl App {
 
         let games = self.mosaic_games();
         match self.tab {
+            // An active filter that matches nothing names the pattern instead
+            // of pretending the board is empty.
+            _ if games.is_empty() && self.active_filter().is_some() => {
+                let needle = self.active_filter().unwrap_or_default();
+                frame.render_widget(
+                    Paragraph::new(format!("no games match \"{needle}\" · esc clears"))
+                        .style(Style::default().fg(th.muted).bg(th.bg))
+                        .alignment(Alignment::Center),
+                    area,
+                );
+                return;
+            }
             Tab::Home if games.is_empty() => {
                 frame.render_widget(
                     Paragraph::new("pin a game from nfl (space) · t fav home")
@@ -925,11 +983,14 @@ impl App {
         // Narrow terminals can't hold every chord: shed the low-value ones in
         // keymap's declared order so HELP and QUIT are never the ones clipped.
         let mut chords = keymap::footer_chords(focused);
+        // " /kc" steals footer columns, so it counts toward the shed budget.
+        let filter_width = self.filter.as_ref().map_or(0, |f| f.chars().count() + 2);
         let chords_width = |cs: &[(&str, &str)]| -> usize {
-            5 + cs
-                .iter()
-                .map(|(k, a)| 4 + k.chars().count() + a.chars().count())
-                .sum::<usize>()
+            filter_width
+                + 5
+                + cs.iter()
+                    .map(|(k, a)| 4 + k.chars().count() + a.chars().count())
+                    .sum::<usize>()
         };
         for drop in keymap::FOOTER_DROP_ORDER {
             if chords_width(&chords) < area.width as usize {
@@ -937,10 +998,19 @@ impl App {
             }
             chords.retain(|(_, a)| a != drop);
         }
-        let mut spans = vec![Span::styled(
+        let mut spans = Vec::new();
+        // An active committed filter stays visible so a narrowed board is
+        // never mistaken for a quiet one.
+        if let Some(f) = &self.filter {
+            spans.push(Span::styled(
+                format!(" /{f}"),
+                Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+            ));
+        }
+        spans.push(Span::styled(
             " NAV:",
             Style::default().fg(th.fg).add_modifier(Modifier::BOLD),
-        )];
+        ));
         for (key, action) in chords {
             spans.push(Span::styled(format!(" [{key}]"), Style::default().fg(th.fg)));
             spans.push(Span::styled(format!(" {action}"), Style::default().fg(th.muted)));
@@ -1187,6 +1257,43 @@ mod tests {
         assert_eq!(app.visible_games().len(), 2);
         assert_eq!(app.live_games().len(), 1);
         assert_eq!(app.slate_games().len(), 1);
+    }
+
+    #[test]
+    fn filter_matches_abbr_location_and_name_case_insensitively() {
+        let mut chiefs = team("KC");
+        chiefs.location = "KANSAS CITY".into();
+        chiefs.name = "Chiefs".into();
+        let mut game = g("1", "KC", "TB", true);
+        game.away = chiefs;
+        let mut app = app_with(vec![game, g("2", "DAL", "PHI", true)], vec![]);
+        app.tab = Tab::League(League::Nfl);
+        for needle in ["kc", "kansas", "chiefs", "CHIEFS", "tb"] {
+            app.filter = Some(needle.into());
+            let ids: Vec<_> = app.visible_games().into_iter().map(|x| x.id).collect();
+            assert_eq!(ids, vec!["1"], "needle {needle:?}");
+        }
+        app.filter = Some("phi".into());
+        let ids: Vec<_> = app.visible_games().into_iter().map(|x| x.id).collect();
+        assert_eq!(ids, vec!["2"]);
+    }
+
+    #[test]
+    fn filter_narrows_selection_and_esc_restores() {
+        let mut app = app_with(
+            vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
+            vec![],
+        );
+        app.tab = Tab::League(League::Nfl);
+        app.selected = 1;
+        app.filter = Some("kc".into());
+        app.filter_changed();
+        assert_eq!(app.selected, 0, "selection clamps to the narrowed list");
+        assert_eq!(app.live_games().len(), 1);
+        // Esc in Normal mode clears the committed filter.
+        app.on_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.filter, None);
+        assert_eq!(app.live_games().len(), 2);
     }
 
     #[test]
