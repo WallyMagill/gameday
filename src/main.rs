@@ -320,7 +320,7 @@ fn run_ui(
         if event::poll(INPUT_POLL)? {
             match event::read()? {
                 Event::Key(k) if k.kind == KeyEventKind::Press => {
-                    app.on_key(k.code, k.modifiers);
+                    gameday::input::handle_key(&mut app, k.code, k.modifiers);
                     needs_draw = true;
                 }
                 Event::Resize(_, _) => needs_draw = true,

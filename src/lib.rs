@@ -1,9 +1,11 @@
 pub mod app;
+pub mod command;
 pub mod config;
 pub mod demo;
 pub mod domain;
 pub mod dump;
 pub mod home;
+pub mod input;
 pub mod keymap;
 pub mod poll;
 pub mod provider;

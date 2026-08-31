@@ -100,10 +100,23 @@ pub const KEYMAP: &[Binding] = &[
         footer: FooterSlot::Never,
     },
     Binding {
+        keys: &[":"],
+        label: "CMD",
+        group: Group::App,
+        footer: FooterSlot::Always,
+    },
+    Binding {
+        keys: &["/"],
+        label: "FILTER",
+        group: Group::View,
+        footer: FooterSlot::Always,
+    },
+    Binding {
+        // Footer real estate went to [:] and [/]; refresh stays in help.
         keys: &["R"],
         label: "REFRESH",
         group: Group::App,
-        footer: FooterSlot::Always,
+        footer: FooterSlot::Never,
     },
     Binding {
         keys: &["?"],
@@ -123,7 +136,7 @@ pub const KEYMAP: &[Binding] = &[
 /// whole chord list, least valuable first. HELP and QUIT are deliberately
 /// absent: whatever gets clipped, the way out and the way to the full keymap
 /// stay visible.
-pub const FOOTER_DROP_ORDER: &[&str] = &["MOVE", "PAGE", "PIN", "LEAGUE", "REFRESH"];
+pub const FOOTER_DROP_ORDER: &[&str] = &["MOVE", "PAGE", "PIN", "LEAGUE", "FILTER", "CMD"];
 
 /// The footer chord list for the current focus state: (key, label) pairs in
 /// table order.

@@ -251,6 +251,53 @@ fn focused_pre_game_on_nfl_tab_fills_mosaic() {
 }
 
 #[test]
+fn command_prompt_renders_in_the_footer_row() {
+    use gameday::input::InputMode;
+    let mut app = mk();
+    app.mode = InputMode::Command { buf: "nf".into() };
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let footer = s.lines().nth(23).expect("footer row");
+    assert!(footer.contains(":nf"), "prompt missing: {footer:?}");
+    assert!(!footer.contains("NAV:"), "chords must yield to the prompt: {footer:?}");
+}
+
+#[test]
+fn filter_prompt_renders_in_the_footer_row() {
+    use gameday::input::InputMode;
+    let mut app = mk();
+    app.mode = InputMode::Filter { buf: "kc".into() };
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let footer = buf_text(&t).lines().nth(23).unwrap().to_string();
+    assert!(footer.contains("/kc"), "filter prompt missing: {footer:?}");
+}
+
+#[test]
+fn status_line_renders_verbatim_in_the_footer_row() {
+    let mut app = mk();
+    app.status_line = Some("unknown command \"foo\", valid: nfl|standings".into());
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let footer = buf_text(&t).lines().nth(23).unwrap().to_string();
+    assert!(
+        footer.contains("unknown command \"foo\", valid: nfl|standings"),
+        "status line missing: {footer:?}"
+    );
+}
+
+#[test]
+fn footer_advertises_command_and_filter_chords() {
+    let mut app = mk();
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("[:] CMD"), "{s}");
+    assert!(s.contains("[/] FILTER"), "{s}");
+}
+
+#[test]
 fn narrow_footer_sheds_low_value_chords_but_keeps_help_and_quit() {
     // 80 cols can't hold the whole chord list; MOVE/PAGE go first, the way
     // out and the full keymap never get clipped.

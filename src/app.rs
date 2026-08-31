@@ -1,6 +1,7 @@
 use crate::config::{prune_pins, save_pins, Config, Favorite, Pin};
 use crate::domain::{Game, League, Status, Summary};
 use crate::home::home_games;
+use crate::input::{CompletionState, InputMode};
 use crate::keymap;
 use crate::text::truncate;
 use crate::theme;
@@ -44,6 +45,14 @@ pub struct App {
     pub should_quit: bool,
     pub refresh_now: bool,
     pub focused_id: Option<String>,
+    /// Which input mode keys route through; Command/Filter carry the prompt
+    /// buffer the footer renders. See `input::handle_key`.
+    pub mode: InputMode,
+    /// One-line footer message (command errors, pin results). Cleared by the
+    /// next Normal-mode key or by opening a prompt.
+    pub status_line: Option<String>,
+    /// Command-mode Tab-completion cursor; owned by `input::cycle_completion`.
+    pub completion: Option<CompletionState>,
     /// '?' overlay. Modal: Esc closes it before Esc touches focus.
     pub help_open: bool,
     /// Wall-clock moment of the last successful `apply_boards` — drives the
@@ -74,6 +83,9 @@ impl App {
             should_quit: false,
             refresh_now: false,
             focused_id: None,
+            mode: InputMode::Normal,
+            status_line: None,
+            completion: None,
             help_open: false,
             last_update: None,
             config_dir,
@@ -341,7 +353,12 @@ impl App {
         }
         let n = tabs.len() as isize;
         let next = (self.current_tab_index() as isize + delta).rem_euclid(n) as usize;
-        self.tab = tabs[next];
+        self.set_tab(tabs[next]);
+    }
+
+    /// Direct tab jump (`:nfl`, `:home`): same reset a cycled switch does.
+    pub fn set_tab(&mut self, tab: Tab) {
+        self.tab = tab;
         self.page = 0;
         self.selected = 0;
         self.focused_id = None;
@@ -871,6 +888,39 @@ impl App {
     /// set lives in the '?' overlay) plus position + freshness on the right.
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
         let th = theme::current();
+        // An open prompt owns the whole footer row; a status line (command
+        // error, pin result) owns it until the next keypress dismisses it.
+        let prompt = match &self.mode {
+            InputMode::Command { buf } => Some((':', buf)),
+            InputMode::Filter { buf } => Some(('/', buf)),
+            InputMode::Normal => None,
+        };
+        if let Some((sigil, buf)) = prompt {
+            let line = Line::from(vec![
+                Span::styled(
+                    format!(" {sigil}"),
+                    Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(buf.clone(), Style::default().fg(th.bright)),
+                Span::styled("▌", Style::default().fg(th.star)),
+            ]);
+            frame.render_widget(
+                Paragraph::new(line).style(Style::default().bg(th.bg)),
+                area,
+            );
+            return;
+        }
+        if let Some(status) = &self.status_line {
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    format!(" {status}"),
+                    Style::default().fg(th.star),
+                )))
+                .style(Style::default().bg(th.bg)),
+                area,
+            );
+            return;
+        }
         let focused = self.focused_id.is_some();
         // Narrow terminals can't hold every chord: shed the low-value ones in
         // keymap's declared order so HELP and QUIT are never the ones clipped.
