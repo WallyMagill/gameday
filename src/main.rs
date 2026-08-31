@@ -20,13 +20,13 @@ use ratatui::Terminal;
 #[derive(Debug)]
 struct Args {
     demo: bool,
-    /// `dump`: write the fixed-name capture gallery (board-broadcast/-ceefax/
-    /// -phosphor, board-compact, tab-nfl, focus, help, narrow) into out/.
+    /// `dump`: write the fixed-name capture gallery (board-<theme> for every
+    /// built-in theme, board-compact, tab-nfl, focus, help, narrow, …) into out/.
     dump: bool,
     /// `dump --tick N`: capture the demo simulation at tick N (default 0).
     tick: u64,
-    /// `dump --style-lab`: render the nine throwaway style variants
-    /// (calm-1/2/3, meter-a/b/c, ticker-a/b/c) instead of the gallery.
+    /// `dump --style-lab`: render the throwaway style variants (meter-a/b/c,
+    /// ticker-a/b/c) instead of the gallery.
     style_lab: bool,
     /// `probe <league>`: fetch + map one real scoreboard and print it. Dev-only.
     probe: Option<String>,
@@ -153,8 +153,11 @@ fn main() -> std::io::Result<()> {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("gameday");
     std::fs::create_dir_all(dir.join("cache"))?;
-    let config = Config::load_from(&dir).unwrap_or_else(|_| Config::default_all());
-    gameday::theme::set_current(gameday::theme::parse_or_default(&config.theme));
+    let mut config = Config::load_from(&dir).unwrap_or_else(|_| Config::default_all());
+    // User theme files first, so config.theme may name one of them; an
+    // unknown name falls back to broadcast with a stderr note.
+    gameday::theme::install_user_themes(&dir);
+    config.theme = gameday::theme::select_or_default(&config.theme);
     let pins = load_pins(&dir).unwrap_or_default();
     // Seeded from config; the UI loop republishes it when :config toggles a
     // tab so the poll thread follows the live list, not a startup snapshot.

@@ -3,8 +3,8 @@
 //! when headless Chrome is available. This is the visual iteration loop:
 //! compare out/board-broadcast.png to the reference image. The gallery:
 //!
-//!   board-broadcast / board-ceefax / board-phosphor — home board, big scores,
-//!       one per theme (selected programmatically, not via env)
+//!   board-<theme> — home board, big scores, one per BUILT-IN theme (eleven:
+//!       board-broadcast … board-dracula, selected programmatically, not via env)
 //!   board-compact — broadcast theme, compact score_style
 //!   tab-nfl       — NFL league tab with the slate visible and a slate row selected
 //!   focus         — a focused game view
@@ -15,6 +15,7 @@
 //!   standings     — the NFL standings table from the committed fixture
 //!   config        — the in-app config editor (:config)
 //!   filter        — the NFL tab narrowed by a committed /kc filter
+//!   theme-picker  — the `:theme` picker panel over the home board
 //!
 //! Every capture is the sim state at a fixed tick (`--tick N`, default 0), so
 //! repeated runs are pixel-deterministic. No timestamps in file names.
@@ -27,7 +28,7 @@ use crate::demo;
 use crate::domain::League;
 use crate::provider::memory::MemoryProvider;
 use crate::provider::{map, SportsProvider};
-use crate::theme::{self, ThemeName};
+use crate::theme;
 use crate::tiles::ScoreStyle;
 use crate::views::{View, ZoomTab};
 use ratatui::backend::TestBackend;
@@ -48,10 +49,28 @@ pub struct Variant {
     pub stem: &'static str,
     pub cols: u16,
     pub rows: u16,
-    pub theme: ThemeName,
+    /// A built-in theme name (`theme::BUILTIN_NAMES`).
+    pub theme: &'static str,
     pub style: ScoreStyle,
     setup: fn(&mut App),
 }
+
+/// `board-<theme>` stems, one per built-in, in `BUILTIN_NAMES` order. Static
+/// strings because stems are the fixed-name contract other tasks read; a test
+/// pins this list to `BUILTIN_NAMES` so a new theme can't ship without a board.
+pub const BOARD_STEMS: [(&str, &str); 11] = [
+    ("broadcast", "board-broadcast"),
+    ("studio", "board-studio"),
+    ("ceefax", "board-ceefax"),
+    ("phosphor", "board-phosphor"),
+    ("gruvbox", "board-gruvbox"),
+    ("tokyo-night", "board-tokyo-night"),
+    ("nord", "board-nord"),
+    ("catppuccin-mocha", "board-catppuccin-mocha"),
+    ("rose-pine", "board-rose-pine"),
+    ("everforest", "board-everforest"),
+    ("dracula", "board-dracula"),
+];
 
 /// The fixed gallery, in write order. Stems are stable file names — other
 /// tasks (themes, animation frames, tile polish, keyboard) verify against
@@ -115,6 +134,9 @@ pub fn gallery() -> Vec<Variant> {
         app.tab = Tab::League(League::Nfl);
         app.filter = Some("kc".into());
     }
+    fn theme_picker(app: &mut App) {
+        app.open_theme_picker();
+    }
     let full = |stem, theme, style, setup| Variant {
         stem,
         cols: DUMP_COLS,
@@ -123,28 +145,42 @@ pub fn gallery() -> Vec<Variant> {
         style,
         setup,
     };
-    vec![
-        full("board-broadcast", ThemeName::Broadcast, ScoreStyle::Big, home as fn(&mut App)),
-        full("board-ceefax", ThemeName::Ceefax, ScoreStyle::Big, home),
-        full("board-phosphor", ThemeName::Phosphor, ScoreStyle::Big, home),
-        full("board-compact", ThemeName::Broadcast, ScoreStyle::Compact, home),
-        full("tab-nfl", ThemeName::Broadcast, ScoreStyle::Big, tab_nfl),
-        full("focus", ThemeName::Broadcast, ScoreStyle::Big, focus),
-        full("help", ThemeName::Broadcast, ScoreStyle::Big, help),
+    let mut out: Vec<Variant> = BOARD_STEMS
+        .iter()
+        .map(|(name, stem)| full(*stem, *name, ScoreStyle::Big, home as fn(&mut App)))
+        .collect();
+    out.extend([
+        full("board-compact", "broadcast", ScoreStyle::Compact, home),
+        full("tab-nfl", "broadcast", ScoreStyle::Big, tab_nfl),
+        full("focus", "broadcast", ScoreStyle::Big, focus),
+        full("help", "broadcast", ScoreStyle::Big, help),
         Variant {
             stem: "narrow",
             cols: 80,
             rows: 24,
-            theme: ThemeName::Broadcast,
+            theme: "broadcast",
             style: ScoreStyle::Big,
             setup: home,
         },
-        full("zoom-stats", ThemeName::Broadcast, ScoreStyle::Big, zoom_stats),
-        full("plays-feed", ThemeName::Broadcast, ScoreStyle::Big, plays_feed),
-        full("standings", ThemeName::Broadcast, ScoreStyle::Big, standings),
-        full("config", ThemeName::Broadcast, ScoreStyle::Big, config),
-        full("filter", ThemeName::Broadcast, ScoreStyle::Big, filter),
-    ]
+        full("zoom-stats", "broadcast", ScoreStyle::Big, zoom_stats),
+        full("plays-feed", "broadcast", ScoreStyle::Big, plays_feed),
+        full("standings", "broadcast", ScoreStyle::Big, standings),
+        full("config", "broadcast", ScoreStyle::Big, config),
+        full("filter", "broadcast", ScoreStyle::Big, filter),
+        full("theme-picker", "broadcast", ScoreStyle::Big, theme_picker),
+    ]);
+    out
+}
+
+/// Run `f` with `name` as the current theme, restoring the caller's theme
+/// after — variants can't leak palettes into each other (or into tests on
+/// the same thread). A dump asks only for built-ins, so a miss is a bug.
+fn with_theme<T>(name: &str, f: impl FnOnce() -> T) -> T {
+    let prev = theme::current_name();
+    theme::set_current(name).unwrap_or_else(|e| panic!("dump theme: {e}"));
+    let out = f();
+    theme::set_current(&prev).expect("the previous theme is still loaded");
+    out
 }
 
 /// Demo app at simulation tick `tick` (0 = the seed board in demo.rs).
@@ -186,9 +222,7 @@ pub fn render_demo_buffer(
 /// the render and restores the caller's theme after, so variants can't leak
 /// palettes into each other (or into tests on the same thread).
 pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
-    let prev = theme::current_name();
-    theme::set_current(v.theme);
-    let result = (|| {
+    with_theme(v.theme, || {
         let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         let mut app = demo_app(dir, tick);
@@ -197,9 +231,7 @@ pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
         let mut term = Terminal::new(TestBackend::new(v.cols, v.rows))?;
         term.draw(|f| app.draw(f))?;
         Ok(term.backend().buffer().clone())
-    })();
-    theme::set_current(prev);
-    result
+    })
 }
 
 /// One rendered page ready for the shared write/screenshot/verify pipeline —
@@ -208,7 +240,8 @@ pub struct Page {
     pub stem: &'static str,
     pub cols: u16,
     pub rows: u16,
-    pub theme: ThemeName,
+    /// Built-in theme name the page was rendered under (page bg/fg).
+    pub theme: &'static str,
     pub buf: Buffer,
 }
 
@@ -254,14 +287,12 @@ pub fn write_pages(out_dir: &Path, pages: &[Page]) -> std::io::Result<()> {
     for p in pages {
         // buffer_to_html reads theme::current() for the page bg/fg, so the
         // serialization happens under the page's theme.
-        let prev = theme::current_name();
-        theme::set_current(p.theme);
         let html_path = out_dir.join(format!("{}.html", p.stem));
-        let result = std::fs::write(&html_path, buffer_to_html(&p.buf)).and_then(|()| {
-            std::fs::write(out_dir.join(format!("{}.ansi", p.stem)), buffer_to_ansi(&p.buf))
-        });
-        theme::set_current(prev);
-        result?;
+        with_theme(p.theme, || {
+            std::fs::write(&html_path, buffer_to_html(&p.buf)).and_then(|()| {
+                std::fs::write(out_dir.join(format!("{}.ansi", p.stem)), buffer_to_ansi(&p.buf))
+            })
+        })?;
         eprintln!("wrote {}", html_path.display());
     }
     Ok(())
@@ -538,8 +569,16 @@ mod tests {
             stems,
             [
                 "board-broadcast",
+                "board-studio",
                 "board-ceefax",
                 "board-phosphor",
+                "board-gruvbox",
+                "board-tokyo-night",
+                "board-nord",
+                "board-catppuccin-mocha",
+                "board-rose-pine",
+                "board-everforest",
+                "board-dracula",
                 "board-compact",
                 "tab-nfl",
                 "focus",
@@ -550,9 +589,31 @@ mod tests {
                 "standings",
                 "config",
                 "filter",
+                "theme-picker",
             ],
             "gallery stems are a stable contract for other tasks"
         );
+    }
+
+    #[test]
+    fn theme_picker_variant_lists_every_builtin_over_the_board() {
+        let text = text_of(&render_variant(&variant("theme-picker"), 0).unwrap());
+        assert!(text.contains(" THEMES "), "picker panel missing:\n{text}");
+        for name in theme::BUILTIN_NAMES {
+            assert!(text.contains(name), "picker missing {name}:\n{text}");
+        }
+        assert!(text.contains("[NBA]"), "board must still render behind the picker:\n{text}");
+    }
+
+    #[test]
+    fn every_builtin_theme_has_a_board_capture() {
+        // A theme added to BUILTIN_NAMES without a BOARD_STEMS row would
+        // silently miss the gallery; pin the two lists to each other.
+        let names: Vec<&str> = BOARD_STEMS.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, theme::BUILTIN_NAMES.to_vec());
+        for (name, stem) in BOARD_STEMS {
+            assert_eq!(stem, format!("board-{name}"));
+        }
     }
 
     #[test]
@@ -642,17 +703,13 @@ mod tests {
 
     #[test]
     fn themed_boards_use_their_palette_and_restore_the_thread_theme() {
-        assert_eq!(theme::current_name(), ThemeName::Broadcast);
-        for (stem, want) in [
-            ("board-broadcast", theme::Theme::broadcast().bg),
-            ("board-ceefax", theme::Theme::ceefax().bg),
-            ("board-phosphor", theme::Theme::phosphor().bg),
-        ] {
+        assert_eq!(theme::current_name(), "broadcast");
+        for (name, stem) in BOARD_STEMS {
             let buf = render_variant(&variant(stem), 0).unwrap();
-            assert_eq!(buf[(0, 0)].bg, want, "{stem} background");
+            assert_eq!(buf[(0, 0)].bg, theme::builtin(name).bg, "{stem} background");
         }
-        // Rendering ceefax/phosphor must not leak into the thread's theme.
-        assert_eq!(theme::current_name(), ThemeName::Broadcast);
+        // Rendering the other ten must not leak into the thread's theme.
+        assert_eq!(theme::current_name(), "broadcast");
     }
 
     #[test]

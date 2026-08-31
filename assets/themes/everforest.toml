@@ -1,0 +1,33 @@
+# everforest (dark, medium) — canonical sainnhe palette.
+name = "everforest"
+
+[palette]
+bg = "#2d353b"
+fg = "#d3c6aa"
+bright = "#e6e2cc"
+muted = "#859289"
+dim = "#3d484d"
+border = "#475258"
+live = "#e67e80"
+green = "#a7c080"
+cyan = "#7fbbb3"
+magenta = "#d699b6"
+star = "#dbbc7f"
+
+[palette.league]
+nfl = "#e67e80"
+cfb = "#e69875"
+nba = "#7fbbb3"
+wnba = "#83c092"
+cbb = "#d699b6"
+mlb = "#dbbc7f"
+nhl = "#7fbbb3"
+epl = "#a7c080"
+mls = "#83c092"
+
+[discipline]
+chips = true
+section_labels = false
+play_abbrs = true
+clocks = false
+sidebar_headers = "single"

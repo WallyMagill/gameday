@@ -1,0 +1,33 @@
+# dracula — canonical palette. Loud: every knob on, like broadcast.
+name = "dracula"
+
+[palette]
+bg = "#282a36"
+fg = "#f8f8f2"
+bright = "#ffffff"
+muted = "#6272a4"
+dim = "#343746"
+border = "#44475a"
+live = "#ff5555"
+green = "#50fa7b"
+cyan = "#8be9fd"
+magenta = "#ff79c6"
+star = "#f1fa8c"
+
+[palette.league]
+nfl = "#ff5555"
+cfb = "#ffb86c"
+nba = "#bd93f9"
+wnba = "#ff79c6"
+cbb = "#bd93f9"
+mlb = "#f1fa8c"
+nhl = "#8be9fd"
+epl = "#50fa7b"
+mls = "#8be9fd"
+
+[discipline]
+chips = true
+section_labels = true
+play_abbrs = true
+clocks = true
+sidebar_headers = "multi"

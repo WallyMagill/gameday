@@ -1,0 +1,35 @@
+# ceefax — BBC teletext football index: navy-tinted ground, the saturated
+# teletext hue set (yellow headers, cyan body, green/red status). The accent
+# set is deliberately small and reused across leagues — that is teletext.
+name = "ceefax"
+
+[palette]
+bg = "#0a0a3c"
+fg = "#d8e6ff"
+bright = "#ffffff"
+muted = "#7a7ac8"
+dim = "#26266e"
+border = "#3c3c9e"
+live = "#ff3c3c"
+green = "#3ce65a"
+cyan = "#00e5e5"
+magenta = "#ee55ee"
+star = "#ffee00"
+
+[palette.league]
+nfl = "#00e5e5"
+cfb = "#ffee00"
+nba = "#5aaaff"
+wnba = "#ff3c3c"
+cbb = "#ee55ee"
+mlb = "#3ce65a"
+nhl = "#00e5e5"
+epl = "#3ce65a"
+mls = "#5aaaff"
+
+[discipline]
+chips = true
+section_labels = true
+play_abbrs = false
+clocks = true
+sidebar_headers = "single"

@@ -65,13 +65,12 @@ pub fn render_tile(
         render_compact(frame, area, game, fx);
         return;
     }
-    let accent = th.league_accent(game.league);
     let border = if selected { th.star } else { th.border };
 
     let mut left_title = vec![
         Span::styled(
             format!("[{}]", game.league.slug().to_uppercase()),
-            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+            Style::default().fg(th.chip(game.league)).add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
     ];
@@ -467,7 +466,9 @@ fn render_lower_left(frame: &mut Frame, area: Rect, game: &Game) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             " LAST PLAYS",
-            Style::default().fg(th.league_accent(game.league)).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(th.section_label(th.league_accent(game.league)))
+                .add_modifier(Modifier::BOLD),
         )),
         rows[2],
     );
@@ -477,10 +478,11 @@ fn render_lower_left(frame: &mut Frame, area: Rect, game: &Game) {
 /// `[clock] ABB text` row for one play, truncated to `width`.
 fn play_line(game: &Game, p: &crate::domain::Play, width: usize) -> Line<'static> {
     let th = theme::current();
+    // Team color on the abbr is a discipline grant, not a given.
     let team_color = if p.team.eq_ignore_ascii_case(&game.away.abbr) {
-        theme::rgb(game.away.color)
+        th.team_text(game.away.color)
     } else if p.team.eq_ignore_ascii_case(&game.home.abbr) {
-        theme::rgb(game.home.color)
+        th.team_text(game.home.color)
     } else {
         th.fg
     };
@@ -558,7 +560,7 @@ fn field_line(game: &Game, width: usize) -> Option<Line<'static>> {
 /// drill-in must never show less than the tile it came from.
 fn render_focus_body(frame: &mut Frame, area: Rect, game: &Game) {
     let th = theme::current();
-    let accent = th.league_accent(game.league);
+    let accent = th.section_label(th.league_accent(game.league));
     let n_plays = game.last_plays.len().min(8) as u16;
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -606,9 +608,9 @@ fn render_focus_body(frame: &mut Frame, area: Rect, game: &Game) {
     let word = theme::scoring_word(game.league);
     for p in game.last_plays.iter().filter(|p| p.scoring) {
         let team_color = if p.team.eq_ignore_ascii_case(&game.away.abbr) {
-            theme::rgb(game.away.color)
+            th.team_text(game.away.color)
         } else {
-            theme::rgb(game.home.color)
+            th.team_text(game.home.color)
         };
         let head = format!(" [{}] {:<3} ", if p.clock.is_empty() { "-:--" } else { &p.clock }, p.team);
         let used = head.chars().count() + word.chars().count() + 1;
@@ -666,7 +668,9 @@ fn momentum_line(game: &Game) -> Paragraph<'static> {
 fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
     let th = theme::current();
     let Some(meter) = &game.meter else { return };
-    let accent = th.league_accent(game.league);
+    // Meter captions are section labels; RED ZONE below is the earned live
+    // red and stays regardless.
+    let accent = th.section_label(th.league_accent(game.league));
     let label_style = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let mut lines: Vec<Line> = Vec::new();
     match meter {
@@ -778,7 +782,7 @@ fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
 
 fn render_compact(frame: &mut Frame, area: Rect, game: &Game, fx: TileFx) {
     let th = theme::current();
-    let accent = th.league_accent(game.league);
+    let accent = th.chip(game.league);
     let score_style = if fx.flash {
         Style::default().fg(th.bg).bg(th.live).add_modifier(Modifier::BOLD)
     } else {

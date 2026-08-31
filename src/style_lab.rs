@@ -1,16 +1,13 @@
-//! THROWAWAY style lab (`gameday dump --style-lab`): renders nine variant
-//! PNGs of the spec's §4 style questions so Walter can pick each winner by
-//! eye. Nothing here is consumed by the app — once a winner is picked it gets
+//! THROWAWAY style lab (`gameday dump --style-lab`): renders variant PNGs of
+//! the spec's §4 style questions so Walter can pick each winner by eye.
+//! Nothing here is consumed by the app — once a winner is picked it gets
 //! implemented for real in the draw code and this whole module (plus its
 //! test file) is deleted.
 //!
-//!   calm-1/2/3 — three color-discipline levels of the broadcast board:
-//!       (1) current, (2) chrome discipline: league accents only on chips,
-//!       sidebar headers on a single accent, clocks + the date gray,
-//!       (3) only scores, logos, the league chips and LIVE/scoring red stay
-//!       colored — every other text cell (team abbrs/names, momentum arrows,
-//!       the RECORDS rail, amber chrome like the situation line, ★ bullets,
-//!       chips and the selection border) drops to the gray family
+//! The calm-1/2/3 deck is gone: color discipline became a per-theme property
+//! (`theme::Discipline`; `broadcast` is level 1, `studio` is level 3), so the
+//! gallery's `board-broadcast` / `board-studio` are those renders now.
+//!
 //!   meter-a/b/c — meter-column redesigns on a two-tile strip (NFL red zone +
 //!       NBA lead): (a) current right column, (b) borderless inline gauge
 //!       under the identity block, (c) right column with a framed
@@ -26,7 +23,7 @@
 
 use crate::domain::{Game, League, Meter};
 use crate::dump::{self, Page, DUMP_COLS, DUMP_ROWS};
-use crate::theme::{self, ThemeName};
+use crate::theme;
 use crate::tiles::{render_tile, Density, ScoreStyle, TileFx};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
@@ -36,8 +33,7 @@ use ratatui::widgets::Block;
 use ratatui::Terminal;
 use std::path::Path;
 
-/// One lab render. Same shape as a gallery capture, always broadcast theme —
-/// the calm levels are levels *of the broadcast board*.
+/// One lab render. Same shape as a gallery capture, always broadcast theme.
 pub struct LabCapture {
     pub stem: &'static str,
     pub cols: u16,
@@ -45,24 +41,19 @@ pub struct LabCapture {
     pub buf: Buffer,
 }
 
-/// The nine promised variants, in write order. Stems are the file names the
-/// task contract fixes (`calm-1.png` … `ticker-c.png`).
+/// The six variants, in write order. Stems are the file names the task
+/// contract fixes (`meter-a.png` … `ticker-c.png`).
 pub fn captures(tick: u64) -> Vec<LabCapture> {
     let prev = theme::current_name();
-    theme::set_current(ThemeName::Broadcast);
+    theme::set_current("broadcast").expect("broadcast is always loaded");
     let board = dump::render_demo_buffer(DUMP_COLS, DUMP_ROWS, tick, ScoreStyle::Big)
         .expect("offscreen board render cannot fail");
-    let calm2 = calm_level_2(&board);
-    let calm3 = calm_level_3(&calm2);
     let (nfl, nba) = meter_games(tick);
     let cap = |stem, buf: Buffer| {
         let area = *buf.area();
         LabCapture { stem, cols: area.width, rows: area.height, buf }
     };
     let caps = vec![
-        cap("calm-1", board.clone()),
-        cap("calm-2", calm2),
-        cap("calm-3", calm3),
         cap("meter-a", meter_strip(&nfl, &nba, tile_a)),
         cap("meter-b", meter_strip(&nfl, &nba, tile_b)),
         cap("meter-c", meter_strip(&nfl, &nba, tile_c)),
@@ -70,7 +61,7 @@ pub fn captures(tick: u64) -> Vec<LabCapture> {
         cap("ticker-b", ticker_b(&board)),
         cap("ticker-c", ticker_c(&board)),
     ];
-    theme::set_current(prev);
+    theme::set_current(&prev).expect("the previous theme is still loaded");
     caps
 }
 
@@ -96,127 +87,10 @@ fn pages_of(caps: &[LabCapture]) -> Vec<Page> {
             stem: c.stem,
             cols: c.cols,
             rows: c.rows,
-            theme: ThemeName::Broadcast,
+            theme: "broadcast",
             buf: c.buf.clone(),
         })
         .collect()
-}
-
-// ---------------------------------------------------------------- calm levels
-
-/// Same-fg runs on one row: (start x, end x exclusive, run text).
-fn fg_runs(buf: &Buffer, y: u16) -> Vec<(u16, u16, String)> {
-    let area = *buf.area();
-    let mut runs = Vec::new();
-    let mut x = 0;
-    while x < area.width {
-        let fg = buf[(x, y)].fg;
-        let mut end = x;
-        let mut text = String::new();
-        while end < area.width && buf[(end, y)].fg == fg {
-            text.push_str(buf[(end, y)].symbol());
-            end += 1;
-        }
-        runs.push((x, end, text));
-        x = end;
-    }
-    runs
-}
-
-/// Logo art and big score digits: block / sextant glyphs.
-fn is_art(cell: &ratatui::buffer::Cell) -> bool {
-    cell.symbol()
-        .chars()
-        .next()
-        .is_some_and(|c| matches!(c as u32, 0x2580..=0x259F | 0x1FB00..=0x1FBFF))
-}
-
-/// Level 2: chrome discipline. Clock runs (cyan text containing digits and a
-/// colon) and the header date go gray; league-accent runs that aren't a
-/// `[CHIP]` go gray; the three sidebar headers collapse onto one accent
-/// family (star).
-fn calm_level_2(board: &Buffer) -> Buffer {
-    let th = theme::current();
-    let mut buf = board.clone();
-    let area = *buf.area();
-    let accents: Vec<Color> = League::ALL.iter().map(|l| th.league_accent(*l)).collect();
-    for y in 0..area.height {
-        for (x, end, text) in fg_runs(&buf, y) {
-            let fg = buf[(x, y)].fg;
-            let is_clock =
-                fg == th.cyan && text.contains(':') && text.chars().any(|c| c.is_ascii_digit());
-            // The header's green date is chrome too (row 0 only — green
-            // elsewhere is a positive lead value).
-            let is_date = y == 0 && fg == th.green;
-            // Chips are the one place a league accent survives; `[` marks
-            // them ([NFL] on tile borders, [NHL] etc.).
-            let is_stray_accent = accents.contains(&fg) && !text.contains('[');
-            if is_clock || is_date || is_stray_accent {
-                for cx in x..end {
-                    buf[(cx, y)].fg = th.muted;
-                }
-            }
-        }
-    }
-    for needle in ["⚑ GLOBAL ALERTS", "TOP PLAYS", "RECORDS"] {
-        recolor_text(&mut buf, needle, th.star);
-    }
-    buf
-}
-
-/// Level 3 (on top of level 2): only scores, logos, the league chips and the
-/// live red stay colored. Every other text cell drops to the gray family —
-/// team-colored text (play abbrs, momentum arrows, sidebar names, the
-/// RECORDS rail, ticker abbrs) to FG, amber chrome (situation line, ★, ▸,
-/// the sidebar headers, the selection border) to bright white, and the
-/// amber-backed chips ([ALL], the shot clock) invert to white-backed.
-fn calm_level_3(calm2: &Buffer) -> Buffer {
-    let th = theme::current();
-    let mut buf = calm2.clone();
-    let accents: Vec<Color> = League::ALL.iter().map(|l| th.league_accent(*l)).collect();
-    let keep = [th.bg, th.fg, th.bright, th.muted, th.dim, th.border, th.live];
-    let area = *buf.area();
-    for y in 0..area.height {
-        for (x, end, text) in fg_runs(&buf, y) {
-            let fg = buf[(x, y)].fg;
-            let is_chip = accents.contains(&fg) && text.contains('[');
-            if keep.contains(&fg) || is_chip {
-                continue;
-            }
-            let to = if fg == th.star { th.bright } else { th.fg };
-            for cx in x..end {
-                let cell = &mut buf[(cx, y)];
-                if !is_art(cell) {
-                    cell.fg = to;
-                }
-            }
-        }
-        for x in 0..area.width {
-            let cell = &mut buf[(x, y)];
-            if cell.bg == th.star {
-                cell.bg = th.bright;
-                cell.fg = th.bg;
-            }
-        }
-    }
-    buf
-}
-
-/// Recolor every occurrence of `needle` (used for the sidebar headers, whose
-/// texts are unique on the board).
-fn recolor_text(buf: &mut Buffer, needle: &str, fg: Color) {
-    let area = *buf.area();
-    for y in 0..area.height {
-        let row: String = (0..area.width)
-            .map(|x| buf[(x, y)].symbol().chars().next().unwrap_or(' '))
-            .collect();
-        if let Some(byte_pos) = row.find(needle) {
-            let start = row[..byte_pos].chars().count() as u16;
-            for x in start..start + needle.chars().count() as u16 {
-                buf[(x, y)].fg = fg;
-            }
-        }
-    }
 }
 
 // -------------------------------------------------------------- meter strips

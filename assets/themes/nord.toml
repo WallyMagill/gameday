@@ -1,0 +1,34 @@
+# nord — canonical Arctic Ice Studio palette (polar night / snow storm /
+# frost / aurora). Calm by nature: headers and clocks stay gray.
+name = "nord"
+
+[palette]
+bg = "#2e3440"
+fg = "#d8dee9"
+bright = "#eceff4"
+muted = "#7b88a1"
+dim = "#3b4252"
+border = "#434c5e"
+live = "#bf616a"
+green = "#a3be8c"
+cyan = "#88c0d0"
+magenta = "#b48ead"
+star = "#ebcb8b"
+
+[palette.league]
+nfl = "#bf616a"
+cfb = "#d08770"
+nba = "#81a1c1"
+wnba = "#5e81ac"
+cbb = "#b48ead"
+mlb = "#ebcb8b"
+nhl = "#88c0d0"
+epl = "#a3be8c"
+mls = "#8fbcbb"
+
+[discipline]
+chips = true
+section_labels = false
+play_abbrs = false
+clocks = false
+sidebar_headers = "muted"

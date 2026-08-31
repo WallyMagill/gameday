@@ -5,7 +5,7 @@
 use crate::app::{App, Tab};
 use crate::domain::Game;
 use crate::text::truncate;
-use crate::theme;
+use crate::theme::{self, SidebarHeader};
 use crate::tiles::packer::pack;
 use crate::tiles::render_tile;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
@@ -53,9 +53,13 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
     let w = inner.width as usize;
     let mut lines: Vec<Line> = Vec::new();
 
+    // The three headers take their hues from the theme's sidebar mode:
+    // multi (live/star/magenta), single (all star) or muted.
     lines.push(Line::from(Span::styled(
         "⚑ GLOBAL ALERTS",
-        Style::default().fg(th.live).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(th.sidebar_header(SidebarHeader::Alerts))
+            .add_modifier(Modifier::BOLD),
     )));
     if events.is_empty() {
         lines.push(Line::from(Span::styled("no alerts", Style::default().fg(th.dim))));
@@ -74,14 +78,16 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
             ),
             Span::styled(format!("{word:<11}"), Style::default().fg(th.live)),
             Span::raw(" ".repeat(pad)),
-            Span::styled(clock.clone(), Style::default().fg(th.cyan)),
+            Span::styled(clock.clone(), Style::default().fg(th.clock())),
         ]));
     }
     lines.push(rule(w));
 
     lines.push(Line::from(Span::styled(
         "TOP PLAYS",
-        Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(th.sidebar_header(SidebarHeader::TopPlays))
+            .add_modifier(Modifier::BOLD),
     )));
     for (game, play) in events.iter().take(5) {
         // Right-aligned clock column per row (reference board), the play
@@ -91,9 +97,9 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
         let pad = w.saturating_sub(2 + text.chars().count() + clock.chars().count());
         lines.push(Line::from(vec![
             Span::styled("★ ", Style::default().fg(th.star)),
-            Span::styled(text, Style::default().fg(th.league_accent(game.league))),
+            Span::styled(text, Style::default().fg(th.league_text(game.league))),
             Span::raw(" ".repeat(pad)),
-            Span::styled(clock.to_string(), Style::default().fg(th.cyan)),
+            Span::styled(clock.to_string(), Style::default().fg(th.clock())),
         ]));
     }
     if events.is_empty() {
@@ -103,7 +109,9 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
 
     lines.push(Line::from(Span::styled(
         "RECORDS",
-        Style::default().fg(th.magenta).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(th.sidebar_header(SidebarHeader::Records))
+            .add_modifier(Modifier::BOLD),
     )));
     let mut teams: Vec<&crate::domain::Team> = Vec::new();
     let games = app.visible_games();
@@ -137,7 +145,7 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
             Span::styled(format!("{}. ", i + 1), Style::default().fg(th.muted)),
             Span::styled(
                 format!("{:<RECORDS_NAME_W$}", truncate(&name, RECORDS_NAME_W)),
-                Style::default().fg(theme::rgb(team.color)),
+                Style::default().fg(th.team_text(team.color)),
             ),
             Span::styled(format!("{win:>3}{loss:>3}"), Style::default().fg(th.fg)),
         ]));

@@ -1,0 +1,34 @@
+# broadcast — the default identity. RedZone board: true-black ground, warm
+# live red, cool structure. Loud on purpose (discipline level 1).
+name = "broadcast"
+
+[palette]
+bg = "#000000"
+fg = "#c8c8c8"
+bright = "#ebebeb"
+muted = "#787878"
+dim = "#3c3c3c"
+border = "#505050"
+live = "#ff3c3c"
+green = "#50d26e"
+cyan = "#46c8dc"
+magenta = "#dc64dc"
+star = "#f0c846"
+
+[palette.league]
+nfl = "#ff4646"
+cfb = "#ff963c"
+nba = "#508cff"
+wnba = "#6eb4ff"   # near NBA blue, lighter
+cbb = "#7878ff"
+mlb = "#e6c83c"
+nhl = "#46c8dc"
+epl = "#5ad282"    # pitch green
+mls = "#3cc8b4"    # teal, apart from EPL
+
+[discipline]
+chips = true
+section_labels = true
+play_abbrs = true
+clocks = true
+sidebar_headers = "multi"

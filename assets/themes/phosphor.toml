@@ -1,0 +1,35 @@
+# phosphor — amber CRT lamp on a warm near-black tube. Deliberately
+# near-monochrome: green/cyan/magenta roles are amber steps, "live" is the
+# hot pale flare of the phosphor, NHL keeps the single cold accent for ice.
+name = "phosphor"
+
+[palette]
+bg = "#140c02"
+fg = "#ffb000"
+bright = "#ffd060"
+muted = "#a06a14"
+dim = "#4a300a"
+border = "#6e4a14"
+live = "#fff0be"
+green = "#ffdc8c"
+cyan = "#d09030"
+magenta = "#e6aa3c"
+star = "#ffebb4"
+
+[palette.league]
+nfl = "#ffb428"
+cfb = "#ff8c14"
+nba = "#ffd278"
+wnba = "#ffc350"
+cbb = "#c8821e"
+mlb = "#dc960a"
+nhl = "#c8dcdc"
+epl = "#eba52d"
+mls = "#b47819"
+
+[discipline]
+chips = true
+section_labels = false
+play_abbrs = false
+clocks = false
+sidebar_headers = "single"

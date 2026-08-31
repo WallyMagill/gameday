@@ -3,7 +3,7 @@
 //! parses. Pure — applying a `Cmd` to the app lives in `input.rs`.
 
 use crate::domain::League;
-use crate::theme::ThemeName;
+use crate::theme;
 use crate::tiles::packer::LayoutPref;
 use crate::tiles::ScoreStyle;
 
@@ -15,7 +15,9 @@ pub enum Cmd {
     Plays,
     Standings(Option<League>),
     ConfigView,
-    Theme(ThemeName),
+    /// `:theme <name>` applies directly (canonical loaded name); `:theme`
+    /// alone opens the picker.
+    Theme(Option<String>),
     Score(ScoreStyle),
     Layout(LayoutPref),
     Pin(String),
@@ -75,18 +77,19 @@ fn league_slugs() -> String {
 }
 
 fn theme_names() -> String {
-    ThemeName::ALL.map(ThemeName::as_str).join("|")
+    theme::names().join("|")
 }
 
 /// Candidate argument values for completion, per spec. Abbr is free text —
-/// nothing to complete.
-fn arg_values(spec: ArgSpec) -> Vec<&'static str> {
+/// nothing to complete. Theme names are the *loaded* set (built-ins plus the
+/// user's files), so completion and the error text always agree.
+fn arg_values(spec: ArgSpec) -> Vec<String> {
     match spec {
         ArgSpec::None | ArgSpec::Abbr => vec![],
-        ArgSpec::OptLeague => League::ALL.iter().map(|l| l.slug()).collect(),
-        ArgSpec::Theme => ThemeName::ALL.iter().map(|t| t.as_str()).collect(),
-        ArgSpec::Score => SCORE_VALUES.to_vec(),
-        ArgSpec::Layout => LAYOUT_VALUES.to_vec(),
+        ArgSpec::OptLeague => League::ALL.iter().map(|l| l.slug().to_string()).collect(),
+        ArgSpec::Theme => theme::names(),
+        ArgSpec::Score => SCORE_VALUES.iter().map(|s| s.to_string()).collect(),
+        ArgSpec::Layout => LAYOUT_VALUES.iter().map(|s| s.to_string()).collect(),
     }
 }
 
@@ -129,9 +132,9 @@ pub fn parse(input: &str) -> Result<Cmd, String> {
             },
         },
         ArgSpec::Theme => match arg {
-            None => Err(format!("{name:?} needs a name, valid: {}", theme_names())),
-            Some(a) => match ThemeName::parse(a) {
-                Some(t) => Ok(Cmd::Theme(t)),
+            None => Ok(Cmd::Theme(None)),
+            Some(a) => match theme::lookup(a) {
+                Some(entry) => Ok(Cmd::Theme(Some(entry.name))),
                 None => Err(format!("unknown theme {a:?}, valid: {}", theme_names())),
             },
         },
@@ -187,7 +190,7 @@ pub fn complete(input: &str) -> Vec<String> {
             };
             arg_values(*spec)
                 .into_iter()
-                .filter(|v| v.starts_with(frag))
+                .filter(|v| v.to_ascii_lowercase().starts_with(frag))
                 .map(|v| format!("{name} {v}"))
                 .collect()
         }
@@ -203,7 +206,8 @@ mod tests {
         assert_eq!(parse("nfl").unwrap(), Cmd::GoLeague(League::Nfl));
         assert_eq!(parse("standings nba").unwrap(), Cmd::Standings(Some(League::Nba)));
         assert_eq!(parse("standings").unwrap(), Cmd::Standings(None));
-        assert_eq!(parse("theme phosphor").unwrap(), Cmd::Theme(ThemeName::Phosphor));
+        assert_eq!(parse("theme phosphor").unwrap(), Cmd::Theme(Some("phosphor".into())));
+        assert_eq!(parse("theme").unwrap(), Cmd::Theme(None), "bare :theme opens the picker");
         assert_eq!(parse("pin kc").unwrap(), Cmd::Pin("kc".into()));
         let err = parse("foo").unwrap_err();
         assert!(err.contains("\"foo\"") && err.contains("nfl") && err.contains("standings"), "{err}");
@@ -213,6 +217,25 @@ mod tests {
     fn completes_prefixes() {
         assert!(complete("st").contains(&"standings".to_string()));
         assert!(complete("theme ").contains(&"theme phosphor".to_string()));
+    }
+
+    #[test]
+    fn theme_completion_lists_every_loaded_name() {
+        let all = complete("theme ");
+        assert_eq!(all.len(), theme::names().len(), "{all:?}");
+        for name in theme::BUILTIN_NAMES {
+            assert!(all.contains(&format!("theme {name}")), "missing {name}: {all:?}");
+        }
+        assert_eq!(complete("theme gr"), vec!["theme gruvbox"]);
+        assert_eq!(complete("theme TOKYO"), vec!["theme tokyo-night"], "case-insensitive");
+        // A user theme installed on this thread completes too.
+        theme::install(theme::Entry {
+            name: "zebra".into(),
+            theme: theme::builtin("nord"),
+            user: true,
+        });
+        assert_eq!(complete("theme z"), vec!["theme zebra"]);
+        assert_eq!(parse("theme Zebra").unwrap(), Cmd::Theme(Some("zebra".into())));
     }
 
     #[test]
@@ -239,13 +262,14 @@ mod tests {
         assert_eq!(parse("q").unwrap(), Cmd::Quit);
         assert_eq!(parse("quit").unwrap(), Cmd::Quit);
         // Case-insensitive, whitespace-tolerant.
-        assert_eq!(parse("  THEME Ceefax ").unwrap(), Cmd::Theme(ThemeName::Ceefax));
+        assert_eq!(parse("  THEME Ceefax ").unwrap(), Cmd::Theme(Some("ceefax".into())));
     }
 
     #[test]
     fn argument_errors_name_the_value_and_the_valid_set() {
         let err = parse("theme solarized").unwrap_err();
-        assert!(err.contains("\"solarized\"") && err.contains("broadcast|ceefax|phosphor"), "{err}");
+        assert!(err.contains("\"solarized\"") && err.contains("broadcast|studio|ceefax"), "{err}");
+        assert!(err.contains("dracula"), "the valid set is the whole loaded list: {err}");
         let err = parse("standings xfl").unwrap_err();
         assert!(err.contains("\"xfl\"") && err.contains("nfl") && err.contains("mls"), "{err}");
         let err = parse("layout 3").unwrap_err();
@@ -254,8 +278,6 @@ mod tests {
         assert!(err.contains("\"huge\"") && err.contains("big|compact"), "{err}");
         let err = parse("pin").unwrap_err();
         assert!(err.contains("abbr"), "{err}");
-        let err = parse("theme").unwrap_err();
-        assert!(err.contains("broadcast|ceefax|phosphor"), "{err}");
         let err = parse("nfl extra").unwrap_err();
         assert!(err.contains("\"extra\""), "{err}");
         let err = parse("").unwrap_err();

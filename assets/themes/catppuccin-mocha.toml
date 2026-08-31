@@ -1,0 +1,34 @@
+# catppuccin-mocha — canonical palette (base / text / overlay0 / surface).
+# Pastel-loud: every knob on, like broadcast.
+name = "catppuccin-mocha"
+
+[palette]
+bg = "#1e1e2e"
+fg = "#cdd6f4"
+bright = "#f5e0dc"
+muted = "#6c7086"
+dim = "#313244"
+border = "#45475a"
+live = "#f38ba8"
+green = "#a6e3a1"
+cyan = "#89dceb"
+magenta = "#cba6f7"
+star = "#f9e2af"
+
+[palette.league]
+nfl = "#f38ba8"
+cfb = "#fab387"
+nba = "#89b4fa"
+wnba = "#74c7ec"
+cbb = "#cba6f7"
+mlb = "#f9e2af"
+nhl = "#89dceb"
+epl = "#a6e3a1"
+mls = "#94e2d5"
+
+[discipline]
+chips = true
+section_labels = true
+play_abbrs = true
+clocks = true
+sidebar_headers = "multi"

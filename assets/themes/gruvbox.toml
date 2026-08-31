@@ -1,0 +1,33 @@
+# gruvbox (dark, medium contrast) — canonical morhetz palette.
+name = "gruvbox"
+
+[palette]
+bg = "#282828"
+fg = "#ebdbb2"
+bright = "#fbf1c7"
+muted = "#928374"
+dim = "#3c3836"
+border = "#504945"
+live = "#fb4934"
+green = "#b8bb26"
+cyan = "#8ec07c"
+magenta = "#d3869b"
+star = "#fabd2f"
+
+[palette.league]
+nfl = "#fb4934"
+cfb = "#fe8019"
+nba = "#83a598"
+wnba = "#fabd2f"
+cbb = "#d3869b"
+mlb = "#b8bb26"
+nhl = "#8ec07c"
+epl = "#b8bb26"
+mls = "#8ec07c"
+
+[discipline]
+chips = true
+section_labels = false
+play_abbrs = false
+clocks = false
+sidebar_headers = "single"

@@ -12,8 +12,11 @@ cargo run -- --demo    # scripted demo slate, no network
 cargo run -- dump      # capture gallery into out/ (no network; --tick N picks the sim frame)
 ```
 
-`dump` writes fixed names: `board-broadcast` / `board-ceefax` / `board-phosphor`
-(home board per theme), `board-compact`, `tab-nfl`, `focus`, `help`, `narrow`
+`dump` writes fixed names: `board-<theme>` for every built-in theme
+(`board-broadcast`, `board-studio`, `board-ceefax`, `board-phosphor`,
+`board-gruvbox`, `board-tokyo-night`, `board-nord`, `board-catppuccin-mocha`,
+`board-rose-pine`, `board-everforest`, `board-dracula`), `board-compact`,
+`tab-nfl`, `focus`, `help`, `narrow`
 (80x24) — each as `.html` + `.ansi`, plus `.png` when headless Chrome is
 installed. Set `GAMEDAY_DUMP_FONT=/path/to/CascadiaMono.ttf` so PNGs carry the
 sextant glyphs.
@@ -23,7 +26,7 @@ Config: `~/.config/gameday/config.toml`
 ```toml
 enabled_tabs = ["Nfl", "Cfb"]   # default: all nine leagues
 layout = "Auto"                 # Auto | One | Two | Four | Sidebar
-theme = "broadcast"             # broadcast | ceefax | phosphor
+theme = "broadcast"             # any loaded theme: the 11 built-ins or a file in themes/
 score_style = "big"             # big (sextant digits) | compact (single row)
 ```
 

@@ -1,0 +1,33 @@
+# tokyo-night (night variant) — canonical enkia palette.
+name = "tokyo-night"
+
+[palette]
+bg = "#1a1b26"
+fg = "#a9b1d6"
+bright = "#c0caf5"
+muted = "#565f89"
+dim = "#292e42"
+border = "#3b4261"
+live = "#f7768e"
+green = "#9ece6a"
+cyan = "#7dcfff"
+magenta = "#bb9af7"
+star = "#e0af68"
+
+[palette.league]
+nfl = "#f7768e"
+cfb = "#ff9e64"
+nba = "#7aa2f7"
+wnba = "#e0af68"
+cbb = "#bb9af7"
+mlb = "#9ece6a"
+nhl = "#7dcfff"
+epl = "#73daca"
+mls = "#2ac3de"
+
+[discipline]
+chips = true
+section_labels = true
+play_abbrs = false
+clocks = true
+sidebar_headers = "single"

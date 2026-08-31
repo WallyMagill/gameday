@@ -35,9 +35,10 @@ pub struct Config {
     pub enabled_tabs: Vec<League>,
     pub layout: LayoutPref,
     pub favorites: Vec<Favorite>,
-    /// Palette name ("broadcast" | "ceefax" | "phosphor"). Kept as a string so
-    /// an unknown value degrades to broadcast (with a stderr note) instead of
-    /// failing the whole config load.
+    /// Theme name: any loaded theme (`theme::names()` — the built-ins plus
+    /// `<config_dir>/themes/*.toml`). Kept as a string so an unknown value
+    /// degrades to broadcast (with a stderr note naming the valid set)
+    /// instead of failing the whole config load.
     #[serde(default = "default_theme")]
     pub theme: String,
     /// Score digit rendering: "big" (sextant digits, default) | "compact"
@@ -47,7 +48,7 @@ pub struct Config {
 }
 
 fn default_theme() -> String {
-    crate::theme::ThemeName::Broadcast.as_str().to_string()
+    crate::theme::BUILTIN_NAMES[0].to_string()
 }
 
 impl Config {

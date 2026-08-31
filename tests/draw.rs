@@ -182,18 +182,87 @@ fn league_tab_with_only_slate_games_fills_mosaic_and_highlights_selection() {
 
 #[test]
 fn draw_reads_the_current_theme() {
-    use gameday::theme::{self, Theme, ThemeName};
+    use gameday::theme;
     use ratatui::style::Color;
-    let bg_of = |name: ThemeName| -> Color {
-        theme::set_current(name);
+    let bg_of = |name: &str| -> Color {
+        theme::set_current(name).unwrap();
         let mut app = mk();
         let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
         t.backend().buffer()[(0, 0)].bg
     };
-    assert_eq!(bg_of(ThemeName::Ceefax), Theme::ceefax().bg);
-    assert_eq!(bg_of(ThemeName::Phosphor), Theme::phosphor().bg);
-    assert_eq!(bg_of(ThemeName::Broadcast), Color::Rgb(0, 0, 0));
+    assert_eq!(bg_of("ceefax"), theme::builtin("ceefax").bg);
+    assert_eq!(bg_of("phosphor"), theme::builtin("phosphor").bg);
+    assert_eq!(bg_of("gruvbox"), Color::Rgb(0x28, 0x28, 0x28));
+    assert_eq!(bg_of("broadcast"), Color::Rgb(0, 0, 0));
+}
+
+#[test]
+fn theme_picker_renders_every_loaded_name_over_the_board() {
+    use gameday::theme;
+    use gameday::views::View;
+    theme::set_current("broadcast").unwrap();
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.open_theme_picker();
+    assert_eq!(app.view, View::ThemePicker);
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains(" THEMES "), "picker panel title missing:\n{s}");
+    for name in theme::BUILTIN_NAMES {
+        assert!(s.contains(name), "picker missing {name}:\n{s}");
+    }
+    assert!(s.contains("ESC REVERT"), "picker hint missing:\n{s}");
+    // The board is still drawn underneath — the panel is the preview's frame.
+    assert!(s.contains("[NFL]"), "board must render behind the picker:\n{s}");
+    let marked = s.lines().find(|l| l.contains("▸ broadcast")).unwrap_or_else(|| panic!("{s}"));
+    assert!(marked.contains("default"), "{marked}");
+}
+
+#[test]
+fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
+    use gameday::theme;
+    theme::set_current("studio").unwrap();
+    let studio = theme::builtin("studio");
+    let mut app = mk();
+    let mut game = g("1", "KC", "TB", true);
+    game.last_plays = vec![Play {
+        clock: "1:27".into(),
+        team: "KC".into(),
+        text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
+        scoring: true,
+    }];
+    app.config.score_style = gameday::tiles::ScoreStyle::Compact;
+    app.apply_boards(League::Nfl, vec![game], false);
+    app.tab = Tab::League(League::Nfl);
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let b = t.backend().buffer();
+    let area = *b.area();
+    let fg_at = |needle: &str| -> ratatui::style::Color {
+        for y in 0..area.height {
+            let row: String = (0..area.width).map(|x| b[(x, y)].symbol()).collect::<Vec<_>>().join("");
+            if let Some(pos) = row.find(needle) {
+                return b[(row[..pos].chars().count() as u16, y)].fg;
+            }
+        }
+        panic!("{needle:?} not on the board:\n{}", buf_text(&t));
+    };
+    // Chrome disciplined: sidebar headers + clocks + play abbrs go gray.
+    assert_eq!(fg_at("TOP PLAYS"), studio.muted);
+    assert_eq!(fg_at("RECORDS"), studio.muted);
+    assert_eq!(fg_at("GLOBAL ALERTS"), studio.muted);
+    assert_eq!(fg_at("LAST PLAYS"), studio.muted);
+    // Identity floor: chip, LIVE, scoring word and scores stay colored. (The
+    // tile's chip reads "[NFL] LIVE"; the bare "[NFL]" is the header's
+    // inverted tab chip.)
+    assert_eq!(fg_at("[NFL] LIVE"), studio.league_accent(League::Nfl));
+    assert_eq!(fg_at("LIVE"), studio.live);
+    assert_eq!(fg_at("TOUCHDOWN!"), studio.live);
+    assert_eq!(fg_at("27 - 24"), gameday::theme::rgb([200, 16, 46]), "score digits keep team color");
+    theme::set_current("broadcast").unwrap();
 }
 
 #[test]

@@ -175,11 +175,17 @@ fn apply(app: &mut App, cmd: Cmd) {
             app.config_cursor = 0;
             app.config_edit = None;
         }
-        Cmd::Theme(name) => {
-            theme::set_current(name);
-            app.config.theme = name.as_str().to_string();
-            let _ = app.config.save_to(&app.config_dir);
-        }
+        // `:theme` alone opens the live-preview picker; `:theme <name>` (the
+        // parser already resolved it to a loaded canonical name) applies and
+        // persists at once.
+        Cmd::Theme(None) => app.open_theme_picker(),
+        Cmd::Theme(Some(name)) => match theme::set_current(&name) {
+            Ok(canonical) => {
+                app.config.theme = canonical;
+                let _ = app.config.save_to(&app.config_dir);
+            }
+            Err(err) => app.status_line = Some(err),
+        },
         Cmd::Score(style) => {
             app.config.score_style = style;
             let _ = app.config.save_to(&app.config_dir);
@@ -368,19 +374,69 @@ mod tests {
 
     #[test]
     fn theme_command_sets_and_persists() {
-        use crate::theme::ThemeName;
-        theme::set_current(ThemeName::Broadcast);
+        theme::set_current("broadcast").unwrap();
         let dir = std::env::temp_dir().join(format!("gd-input-theme-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let mut app = App::new(Config::default_all(), vec![], dir);
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "theme phosphor");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), ThemeName::Phosphor);
+        assert_eq!(theme::current_name(), "phosphor");
         assert_eq!(app.config.theme, "phosphor");
         let saved = Config::load_from(&app.config_dir).unwrap();
         assert_eq!(saved.theme, "phosphor");
-        theme::set_current(ThemeName::Broadcast);
+        // Case-insensitive, persisted canonical.
+        handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
+        type_line(&mut app, "theme Rose-Pine");
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(theme::current_name(), "rose-pine");
+        assert_eq!(Config::load_from(&app.config_dir).unwrap().theme, "rose-pine");
+        theme::set_current("broadcast").unwrap();
+    }
+
+    #[test]
+    fn bare_theme_command_opens_the_picker_and_esc_reverts_enter_keeps() {
+        theme::set_current("broadcast").unwrap();
+        let dir = std::env::temp_dir().join(format!("gd-input-picker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let mut app = App::new(Config::default_all(), vec![], dir);
+        handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
+        type_line(&mut app, "theme");
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.view, View::ThemePicker);
+        assert_eq!(app.theme_cursor, 0, "cursor starts on the current theme");
+        // j previews live: the current theme changes with the cursor.
+        handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+        handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(theme::current_name(), "ceefax", "j/j previews the third theme");
+        assert_eq!(app.config.theme, "broadcast", "preview is not persisted");
+        // Esc reverts to what was current when the picker opened.
+        handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.view, View::Board);
+        assert_eq!(theme::current_name(), "broadcast");
+        assert!(!std::path::Path::new(&app.config_dir).join("config.toml").exists(), "nothing saved");
+        // Enter commits + persists.
+        handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
+        type_line(&mut app, "theme");
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        handle_key(&mut app, KeyCode::Char('k'), KeyModifiers::NONE);
+        assert_eq!(theme::current_name(), "dracula", "k wraps to the last theme");
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.view, View::Board);
+        assert_eq!(app.config.theme, "dracula");
+        assert_eq!(Config::load_from(&app.config_dir).unwrap().theme, "dracula");
+        // Reopening starts on the now-current theme, and q reverts like Esc.
+        handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
+        type_line(&mut app, "theme");
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.theme_cursor, theme::names().len() - 1);
+        handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(theme::current_name(), "broadcast", "j wraps to the top");
+        handle_key(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
+        assert_eq!(theme::current_name(), "dracula");
+        assert!(!app.should_quit);
+        theme::set_current("broadcast").unwrap();
     }
 
     #[test]

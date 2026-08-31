@@ -99,10 +99,10 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool) -> Line<'a> {
         Span::styled(
             format!("[{}]", game.league.slug().to_uppercase()),
             Style::default()
-                .fg(th.league_accent(game.league))
+                .fg(th.chip(game.league))
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!(" {:>5} ", play.clock), Style::default().fg(th.cyan)),
+        Span::styled(format!(" {:>5} ", play.clock), Style::default().fg(th.clock())),
         Span::styled(
             format!("{:<4}", play.team),
             Style::default()

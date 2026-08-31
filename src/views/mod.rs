@@ -6,6 +6,7 @@ pub mod board;
 pub mod config_view;
 pub mod plays_feed;
 pub mod standings;
+pub mod theme_picker;
 pub mod zoom;
 
 use crate::app::App;
@@ -25,6 +26,9 @@ pub enum View {
     PlaysFeed,
     Standings(League),
     ConfigView,
+    /// `:theme` with no argument: the board stays underneath as the live
+    /// preview; the panel lists every loaded theme.
+    ThemePicker,
 }
 
 /// Tabs inside the zoomed single-game view, cycled with h/l and [/].
@@ -66,6 +70,10 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
         View::PlaysFeed => plays_feed::draw(app, frame, area),
         View::Standings(league) => standings::draw(app, frame, area, league),
         View::ConfigView => config_view::draw(app, frame, area),
+        View::ThemePicker => {
+            board::draw(app, frame, area);
+            theme_picker::draw(app, frame, area);
+        }
     }
 }
 

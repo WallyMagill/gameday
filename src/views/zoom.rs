@@ -135,7 +135,7 @@ fn draw_plays(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
             };
             let mut spans = vec![
                 Span::styled(marker, Style::default().fg(th.star)),
-                Span::styled(format!("{:>5} ", play.clock), Style::default().fg(th.cyan)),
+                Span::styled(format!("{:>5} ", play.clock), Style::default().fg(th.clock())),
                 Span::styled(
                     format!("{:<4}", play.team),
                     Style::default()
@@ -254,7 +254,9 @@ fn draw_stats(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
             Line::from(""),
             Line::from(Span::styled(
                 " LEADERS",
-                Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(th.section_label(th.star))
+                    .add_modifier(Modifier::BOLD),
             )),
         ];
         let label_w = stats

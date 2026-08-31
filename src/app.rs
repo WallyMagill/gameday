@@ -117,6 +117,12 @@ pub struct App {
     /// The favorite-abbr editor the ADD FAVORITE row opens: Some while
     /// typing (keys go to the buffer, Enter commits, Esc cancels).
     pub config_edit: Option<String>,
+    /// Theme picker cursor: an index into `theme::names()`. Moving it
+    /// applies that theme (live preview); Enter persists, Esc restores
+    /// `theme_prior`.
+    pub theme_cursor: usize,
+    /// The theme that was current when the picker opened — Esc's target.
+    pub theme_prior: String,
     /// Which input mode keys route through; Command/Filter carry the prompt
     /// buffer the footer renders. See `input::handle_key`.
     pub mode: InputMode,
@@ -188,6 +194,8 @@ impl App {
             standings_visible: 0,
             config_cursor: 0,
             config_edit: None,
+            theme_cursor: 0,
+            theme_prior: String::new(),
             mode: InputMode::Normal,
             status_line: None,
             filter: None,
@@ -246,6 +254,7 @@ impl App {
                     View::PlaysFeed => self.move_feed_scroll(delta),
                     View::Standings(_) => self.move_standings_scroll(delta),
                     View::ConfigView => self.move_config_cursor(delta),
+                    View::ThemePicker => self.move_theme_cursor(delta),
                 }
             }
         }
@@ -421,7 +430,65 @@ impl App {
             View::PlaysFeed => self.on_key_plays_feed(code),
             View::Standings(_) => self.on_key_standings(code),
             View::ConfigView => self.on_key_config(code),
+            View::ThemePicker => self.on_key_theme_picker(code),
         }
+    }
+
+    /// `:theme` with no argument: remember the current theme (Esc's target),
+    /// land the cursor on it, and show the picker over the board.
+    pub fn open_theme_picker(&mut self) {
+        self.theme_prior = theme::current_name();
+        self.theme_cursor = theme::names()
+            .iter()
+            .position(|n| n.eq_ignore_ascii_case(&self.theme_prior))
+            .unwrap_or(0);
+        self.view = View::ThemePicker;
+    }
+
+    /// Keys in the theme picker: j/k move the cursor and apply that theme at
+    /// once (the board underneath is the preview), Enter keeps it and
+    /// persists, Esc/q put the prior theme back. Tab still switches league
+    /// tabs — that pops the picker, so it reverts first.
+    fn on_key_theme_picker(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('j') | KeyCode::Down => self.move_theme_cursor(1),
+            KeyCode::Char('k') | KeyCode::Up => self.move_theme_cursor(-1),
+            KeyCode::Enter => {
+                self.config.theme = theme::current_name();
+                let _ = self.config.save_to(&self.config_dir);
+                self.view = View::Board;
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.revert_theme_preview();
+                self.view = View::Board;
+            }
+            KeyCode::Tab => {
+                self.revert_theme_preview();
+                self.cycle_tab(1);
+            }
+            KeyCode::BackTab => {
+                self.revert_theme_preview();
+                self.cycle_tab(-1);
+            }
+            KeyCode::Char('?') => self.help_open = true,
+            _ => {}
+        }
+    }
+
+    fn revert_theme_preview(&mut self) {
+        // The prior theme is always a loaded name (it was current); if a
+        // user file vanished mid-session, broadcast is the honest fallback.
+        if theme::set_current(&self.theme_prior).is_err() {
+            let _ = theme::set_current("broadcast");
+        }
+    }
+
+    /// Move the picker cursor `delta` rows (wrapping) and preview that theme.
+    fn move_theme_cursor(&mut self, delta: isize) {
+        let names = theme::names();
+        let n = names.len() as isize;
+        self.theme_cursor = (self.theme_cursor as isize + delta).rem_euclid(n) as usize;
+        let _ = theme::set_current(&names[self.theme_cursor]);
     }
 
     /// Keys in the Config view: j/k move the row cursor, space/enter activate
@@ -588,14 +655,9 @@ impl App {
         let rows = rows(self);
         match rows[self.config_cursor.min(rows.len() - 1)] {
             ConfigRow::Theme => {
-                let all = theme::ThemeName::ALL;
-                let i = all
-                    .iter()
-                    .position(|t| *t == theme::current_name())
-                    .unwrap_or(0) as isize;
-                let next = all[(i + delta).rem_euclid(all.len() as isize) as usize];
-                theme::set_current(next);
-                self.config.theme = next.as_str().to_string();
+                let next = theme::next_name(&theme::current_name(), delta);
+                let _ = theme::set_current(&next);
+                self.config.theme = next;
             }
             ConfigRow::Score => {
                 self.config.score_style = match self.config.score_style {
@@ -1031,11 +1093,12 @@ impl App {
         let _ = self.config.save_to(&self.config_dir);
     }
 
-    /// 'c': broadcast -> ceefax -> phosphor -> broadcast, persisted like layout.
+    /// 'c': step to the next loaded theme in picker order (built-ins, then
+    /// user files), wrapping; persisted like layout.
     fn cycle_theme(&mut self) {
-        let next = theme::current_name().next();
-        theme::set_current(next);
-        self.config.theme = next.as_str().to_string();
+        let next = theme::next_name(&theme::current_name(), 1);
+        let _ = theme::set_current(&next);
+        self.config.theme = next;
         let _ = self.config.save_to(&self.config_dir);
     }
 
@@ -1163,7 +1226,7 @@ impl App {
         spans.push(Span::raw(" ".repeat(spacer)));
         spans.push(Span::styled(date, date_style));
         spans.push(Span::raw("  "));
-        spans.push(Span::styled(clock, Style::default().fg(th.cyan).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(clock, Style::default().fg(th.clock()).add_modifier(Modifier::BOLD)));
         spans.push(Span::raw(" "));
         frame.render_widget(
             Paragraph::new(Line::from(spans)).style(Style::default().bg(th.bg)),
@@ -1185,12 +1248,14 @@ impl App {
         out
     }
 
+    /// Color for a team abbr on a play/event row: the team's color when the
+    /// theme's discipline allows color on play text, else `fg`.
     pub(crate) fn team_color(game: &Game, abbr: &str) -> ratatui::style::Color {
         let th = theme::current();
         if game.away.abbr.eq_ignore_ascii_case(abbr) {
-            theme::rgb(game.away.color)
+            th.team_text(game.away.color)
         } else if game.home.abbr.eq_ignore_ascii_case(abbr) {
-            theme::rgb(game.home.color)
+            th.team_text(game.home.color)
         } else {
             th.fg
         }
@@ -1268,7 +1333,7 @@ impl App {
             push_cells(
                 row,
                 &format!("{} ", play.clock),
-                Style::default().fg(th.cyan),
+                Style::default().fg(th.clock()),
             );
             push_cells(
                 row,
@@ -1362,7 +1427,7 @@ impl App {
             View::Board => keymap::FooterCtx::Board,
             View::ConfigView => keymap::FooterCtx::Config,
             View::Zoom { .. } => keymap::FooterCtx::Zoomed,
-            View::PlaysFeed | View::Standings(_) => keymap::FooterCtx::Feed,
+            View::PlaysFeed | View::Standings(_) | View::ThemePicker => keymap::FooterCtx::Feed,
         };
         // Narrow terminals can't hold every chord: shed the low-value ones in
         // keymap's declared order so HELP and QUIT are never the ones clipped.
@@ -1806,21 +1871,38 @@ mod tests {
 
     #[test]
     fn c_cycles_theme_and_persists() {
-        use crate::theme::{self, ThemeName};
-        theme::set_current(ThemeName::Broadcast);
+        use crate::theme;
+        theme::set_current("broadcast").unwrap();
         // Own dir: app_with's shared dir is also written by other tests' saves.
         let dir = std::env::temp_dir().join(format!("gd-theme-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let mut app = App::new(Config::default_all(), vec![], dir);
         app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), ThemeName::Ceefax);
-        assert_eq!(app.config.theme, "ceefax");
+        assert_eq!(theme::current_name(), "studio");
+        assert_eq!(app.config.theme, "studio");
         let saved = Config::load_from(&app.config_dir).unwrap();
-        assert_eq!(saved.theme, "ceefax");
-        app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
-        app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), ThemeName::Broadcast);
+        assert_eq!(saved.theme, "studio");
+        // The whole loaded set cycles back to the start.
+        for _ in 1..theme::names().len() {
+            app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
+        }
+        assert_eq!(theme::current_name(), "broadcast");
         assert_eq!(app.config.theme, "broadcast");
+    }
+
+    #[test]
+    fn theme_picker_wheel_previews_and_tab_reverts_before_switching() {
+        use crate::theme;
+        theme::set_current("broadcast").unwrap();
+        let mut app = app_with(vec![], vec![]);
+        app.config.enabled_tabs = vec![League::Nfl];
+        app.open_theme_picker();
+        app.on_hit(keymap::Hit::ScrollDown);
+        assert_eq!(theme::current_name(), "studio", "wheel previews like j");
+        app.on_key(KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.view, View::Board, "Tab pops the picker onto the board");
+        assert_eq!(app.tab, Tab::League(League::Nfl));
+        assert_eq!(theme::current_name(), "broadcast", "a tab switch never commits a preview");
     }
 
     #[test]

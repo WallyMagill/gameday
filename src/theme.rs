@@ -1,15 +1,115 @@
-//! Semantic theme: every draw call reads roles (bg/fg/live/...) off the
-//! current `Theme`, never raw colors. Three palettes ship as constructors;
-//! `current()` is thread-local so draw code (single-threaded) sees the theme
-//! the app set, and each test thread can set its own deterministically.
+//! Themes as identities: a theme is a palette plus a *discipline* (what the
+//! chrome is allowed to color). Every draw call reads roles (bg/fg/live/...)
+//! off the current `Theme`, never raw colors, and asks the discipline helpers
+//! (`chip`, `section_label`, `team_text`, `clock`, `sidebar_header`) before
+//! spending an accent.
+//!
+//! One TOML format serves the built-ins (compiled in from `assets/themes/`)
+//! and user files in `<config_dir>/themes/*.toml`; a user file wins on a name
+//! clash, a broken one is skipped with a stderr line naming the file, the key
+//! and the expected form. `current()` is thread-local so draw code
+//! (single-threaded) sees the theme the app set, and each test thread can set
+//! its own deterministically.
 
 use crate::domain::League;
 use ratatui::style::Color;
-use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::sync::OnceLock;
 
-/// Semantic palette. Field names are roles, not hues — `green`/`cyan`/`magenta`
-/// keep their broadcast names even where a palette (phosphor) remaps them to
-/// warm steps, because draw code means "positive"/"clock"/"records header".
+/// Built-in theme names in picker/cycle order. `broadcast` is the default
+/// identity; the community palettes are opt-in.
+pub const BUILTIN_NAMES: [&str; 11] = [
+    "broadcast",
+    "studio",
+    "ceefax",
+    "phosphor",
+    "gruvbox",
+    "tokyo-night",
+    "nord",
+    "catppuccin-mocha",
+    "rose-pine",
+    "everforest",
+    "dracula",
+];
+
+/// The compiled-in theme sources, parallel to [`BUILTIN_NAMES`].
+const BUILTIN_TOML: [&str; 11] = [
+    include_str!("../assets/themes/broadcast.toml"),
+    include_str!("../assets/themes/studio.toml"),
+    include_str!("../assets/themes/ceefax.toml"),
+    include_str!("../assets/themes/phosphor.toml"),
+    include_str!("../assets/themes/gruvbox.toml"),
+    include_str!("../assets/themes/tokyo-night.toml"),
+    include_str!("../assets/themes/nord.toml"),
+    include_str!("../assets/themes/catppuccin-mocha.toml"),
+    include_str!("../assets/themes/rose-pine.toml"),
+    include_str!("../assets/themes/everforest.toml"),
+    include_str!("../assets/themes/dracula.toml"),
+];
+
+/// How the three sidebar headers (⚑ GLOBAL ALERTS / TOP PLAYS / RECORDS) are
+/// colored: each its own hue, one shared accent (`star`), or gray.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SidebarHeaders {
+    Multi,
+    #[default]
+    Single,
+    Muted,
+}
+
+impl SidebarHeaders {
+    pub const VALID: &'static str = "multi|single|muted";
+}
+
+/// What the chrome is allowed to color. The identity floor — scores, logos,
+/// LIVE, scoring words — is always colored and has no knob here.
+///
+/// `sidebar_headers` owns the sidebar's three headers outright (it is the
+/// more specific knob); `section_labels` owns every other section caption
+/// (LAST PLAYS, meter labels, LEADERS).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Discipline {
+    /// League accent on the `[NFL]` chips (false: chips in `fg`).
+    pub chips: bool,
+    /// Accent on section captions — LAST PLAYS, LEAD METER, LEADERS (false: `muted`).
+    pub section_labels: bool,
+    /// Team/league color on play-row text — play abbrs, ticker abbrs, alert
+    /// abbrs, TOP PLAYS lines, the RECORDS rail names (false: `fg`).
+    pub play_abbrs: bool,
+    /// `cyan` clocks (false: `muted`).
+    pub clocks: bool,
+    pub sidebar_headers: SidebarHeaders,
+}
+
+impl Default for Discipline {
+    /// The spec example's values: chips on, everything else calm.
+    fn default() -> Self {
+        Self {
+            chips: true,
+            section_labels: false,
+            play_abbrs: false,
+            clocks: false,
+            sidebar_headers: SidebarHeaders::Single,
+        }
+    }
+}
+
+/// Which sidebar header a draw call is coloring.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SidebarHeader {
+    Alerts,
+    TopPlays,
+    Records,
+}
+
+/// Semantic palette + discipline. Field names are roles, not hues —
+/// `green`/`cyan`/`magenta` keep their broadcast names even where a palette
+/// (phosphor) remaps them to warm steps, because draw code means
+/// "positive"/"clock"/"records header".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Theme {
     pub bg: Color,
@@ -23,190 +123,383 @@ pub struct Theme {
     pub cyan: Color,
     pub magenta: Color,
     pub star: Color,
-    accent_nfl: Color,
-    accent_cfb: Color,
-    accent_nba: Color,
-    accent_wnba: Color,
-    accent_cbb: Color,
-    accent_mlb: Color,
-    accent_nhl: Color,
-    accent_epl: Color,
-    accent_mls: Color,
+    /// One accent per league, indexed like `League::ALL`; slugs a theme file
+    /// leaves out are filled with `star` at parse time.
+    league: [Color; 9],
+    pub discipline: Discipline,
 }
 
 impl Theme {
-    /// Default identity: RedZone board. True-black ground, warm live red,
-    /// cool structure.
-    pub const fn broadcast() -> Self {
-        Self {
-            bg: Color::Rgb(0, 0, 0),
-            fg: Color::Rgb(200, 200, 200),
-            bright: Color::Rgb(235, 235, 235),
-            muted: Color::Rgb(120, 120, 120),
-            dim: Color::Rgb(60, 60, 60),
-            border: Color::Rgb(80, 80, 80),
-            live: Color::Rgb(255, 60, 60),
-            green: Color::Rgb(80, 210, 110),
-            cyan: Color::Rgb(70, 200, 220),
-            magenta: Color::Rgb(220, 100, 220),
-            star: Color::Rgb(240, 200, 70),
-            accent_nfl: Color::Rgb(255, 70, 70),
-            accent_cfb: Color::Rgb(255, 150, 60),
-            accent_nba: Color::Rgb(80, 140, 255),
-            accent_wnba: Color::Rgb(110, 180, 255), // near NBA blue, lighter
-            accent_cbb: Color::Rgb(120, 120, 255),
-            accent_mlb: Color::Rgb(230, 200, 60),
-            accent_nhl: Color::Rgb(70, 200, 220),
-            accent_epl: Color::Rgb(90, 210, 130), // pitch green
-            accent_mls: Color::Rgb(60, 200, 180), // teal, apart from EPL
-        }
-    }
-
-    /// Teletext: dark blue ground, the seven-ish teletext hues. Accent reuse
-    /// across leagues (WNBA red, EPL green, MLS cyan) is authentic teletext —
-    /// the hue set is small.
-    pub const fn ceefax() -> Self {
-        Self {
-            bg: Color::Rgb(10, 10, 46),
-            fg: Color::Rgb(216, 216, 240),
-            bright: Color::Rgb(240, 240, 255),
-            muted: Color::Rgb(106, 106, 154),
-            dim: Color::Rgb(51, 51, 92),
-            border: Color::Rgb(74, 74, 122),
-            live: Color::Rgb(255, 68, 68),
-            green: Color::Rgb(60, 220, 90),
-            cyan: Color::Rgb(0, 224, 224),
-            magenta: Color::Rgb(220, 100, 220),
-            star: Color::Rgb(255, 210, 0),
-            accent_nfl: Color::Rgb(0, 224, 224),
-            accent_cfb: Color::Rgb(255, 210, 0),
-            accent_nba: Color::Rgb(255, 140, 0),
-            accent_wnba: Color::Rgb(255, 68, 68),
-            accent_cbb: Color::Rgb(220, 100, 220),
-            accent_mlb: Color::Rgb(60, 220, 90),
-            accent_nhl: Color::Rgb(90, 140, 255),
-            accent_epl: Color::Rgb(60, 220, 90),
-            accent_mls: Color::Rgb(0, 224, 224),
-        }
-    }
-
-    /// Amber CRT lamp, deliberately near-monochrome: green/cyan/magenta roles
-    /// remap to warm amber steps. NHL keeps the single cold accent for ice.
-    pub const fn phosphor() -> Self {
-        Self {
-            bg: Color::Rgb(8, 6, 0),
-            fg: Color::Rgb(255, 176, 0),
-            bright: Color::Rgb(255, 200, 80),
-            muted: Color::Rgb(150, 100, 20),
-            dim: Color::Rgb(70, 45, 10),
-            border: Color::Rgb(110, 75, 20),
-            live: Color::Rgb(255, 240, 190),
-            green: Color::Rgb(255, 220, 140),
-            cyan: Color::Rgb(200, 140, 40),
-            magenta: Color::Rgb(230, 170, 60),
-            star: Color::Rgb(255, 235, 180),
-            accent_nfl: Color::Rgb(255, 180, 40),
-            accent_cfb: Color::Rgb(255, 140, 20),
-            accent_nba: Color::Rgb(255, 210, 120),
-            accent_wnba: Color::Rgb(255, 195, 80), // amber step between NBA and NFL
-            accent_cbb: Color::Rgb(200, 130, 30),
-            accent_mlb: Color::Rgb(220, 150, 10),
-            accent_nhl: Color::Rgb(200, 220, 220), // the single cold accent for ice
-            accent_epl: Color::Rgb(235, 165, 45), // amber steps
-            accent_mls: Color::Rgb(180, 120, 25),
-        }
-    }
-
-    /// Accent color for a league's chip, LAST PLAYS label, and meter.
+    /// Accent color for a league (chips, LAST PLAYS, meter labels — each
+    /// gated by its discipline helper below).
     pub fn league_accent(&self, league: League) -> Color {
-        match league {
-            League::Nfl => self.accent_nfl,
-            League::Cfb => self.accent_cfb,
-            League::Nba => self.accent_nba,
-            League::Wnba => self.accent_wnba,
-            League::Cbb => self.accent_cbb,
-            League::Mlb => self.accent_mlb,
-            League::Nhl => self.accent_nhl,
-            League::Epl => self.accent_epl,
-            League::Mls => self.accent_mls,
+        self.league[league_index(league)]
+    }
+
+    /// `[NFL]` chip color: the league accent, or `fg` when chips are off.
+    pub fn chip(&self, league: League) -> Color {
+        if self.discipline.chips {
+            self.league_accent(league)
+        } else {
+            self.fg
+        }
+    }
+
+    /// A section caption that would like to be `accent`: granted, or `muted`.
+    pub fn section_label(&self, accent: Color) -> Color {
+        if self.discipline.section_labels {
+            accent
+        } else {
+            self.muted
+        }
+    }
+
+    /// Team color on play-row text: granted, or `fg`.
+    pub fn team_text(&self, team_color: [u8; 3]) -> Color {
+        if self.discipline.play_abbrs {
+            rgb(team_color)
+        } else {
+            self.fg
+        }
+    }
+
+    /// League accent on play-row text (the sidebar's TOP PLAYS lines): the
+    /// same knob as team color on abbrs — both are "color on play text".
+    pub fn league_text(&self, league: League) -> Color {
+        if self.discipline.play_abbrs {
+            self.league_accent(league)
+        } else {
+            self.fg
+        }
+    }
+
+    /// Clock digits: `cyan`, or `muted`.
+    pub fn clock(&self) -> Color {
+        if self.discipline.clocks {
+            self.cyan
+        } else {
+            self.muted
+        }
+    }
+
+    pub fn sidebar_header(&self, which: SidebarHeader) -> Color {
+        match self.discipline.sidebar_headers {
+            SidebarHeaders::Multi => match which {
+                SidebarHeader::Alerts => self.live,
+                SidebarHeader::TopPlays => self.star,
+                SidebarHeader::Records => self.magenta,
+            },
+            SidebarHeaders::Single => self.star,
+            SidebarHeaders::Muted => self.muted,
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ThemeName {
-    Broadcast,
-    Ceefax,
-    Phosphor,
+fn league_index(league: League) -> usize {
+    League::ALL
+        .iter()
+        .position(|l| *l == league)
+        .expect("League::ALL lists every league")
 }
 
-impl ThemeName {
-    pub const ALL: [ThemeName; 3] = [ThemeName::Broadcast, ThemeName::Ceefax, ThemeName::Phosphor];
+// ------------------------------------------------------------------ TOML
 
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ThemeName::Broadcast => "broadcast",
-            ThemeName::Ceefax => "ceefax",
-            ThemeName::Phosphor => "phosphor",
-        }
-    }
+/// On-disk shape. Colors stay strings here so a bad one can be reported by
+/// key ("palette.live") instead of as an anonymous serde error.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ThemeFile {
+    name: String,
+    palette: PaletteFile,
+    #[serde(default)]
+    discipline: Discipline,
+}
 
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "broadcast" => Some(ThemeName::Broadcast),
-            "ceefax" => Some(ThemeName::Ceefax),
-            "phosphor" => Some(ThemeName::Phosphor),
-            _ => None,
-        }
-    }
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PaletteFile {
+    bg: String,
+    fg: String,
+    bright: String,
+    muted: String,
+    dim: String,
+    border: String,
+    live: String,
+    green: String,
+    cyan: String,
+    magenta: String,
+    star: String,
+    #[serde(default)]
+    league: BTreeMap<String, String>,
+}
 
-    /// 'c' key order: broadcast -> ceefax -> phosphor -> broadcast.
-    pub fn next(self) -> Self {
-        match self {
-            ThemeName::Broadcast => ThemeName::Ceefax,
-            ThemeName::Ceefax => ThemeName::Phosphor,
-            ThemeName::Phosphor => ThemeName::Broadcast,
-        }
-    }
-
-    pub fn theme(self) -> Theme {
-        match self {
-            ThemeName::Broadcast => Theme::broadcast(),
-            ThemeName::Ceefax => Theme::ceefax(),
-            ThemeName::Phosphor => Theme::phosphor(),
-        }
+/// `"#rrggbb"` → Color. The error names the key, the value and the form.
+fn parse_hex(key: &str, value: &str) -> Result<Color, String> {
+    let hex = value.strip_prefix('#').filter(|h| h.len() == 6);
+    let parsed = hex.and_then(|h| u32::from_str_radix(h, 16).ok());
+    match parsed {
+        Some(v) => Ok(Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)),
+        None => Err(format!("{key} = {value:?} is not a color, expected \"#rrggbb\"")),
     }
 }
 
-/// Lenient parse for config/env values: unknown names fall back to broadcast
-/// with a stderr note naming the bad value and the valid set.
-pub fn parse_or_default(s: &str) -> ThemeName {
-    ThemeName::parse(s).unwrap_or_else(|| {
-        eprintln!(
-            "gameday: unknown theme {s:?}, valid: {}; using broadcast",
-            ThemeName::ALL.map(|t| t.as_str()).join("|")
-        );
-        ThemeName::Broadcast
+fn hex_of(c: Color) -> String {
+    match c {
+        Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+        // Palettes are truecolor by construction; anything else is a bug
+        // upstream, but serialize something re-parseable rather than panic.
+        _ => "#000000".to_string(),
+    }
+}
+
+/// Parse one theme file's text. Errors name the key and the expected form;
+/// unknown enum values for `sidebar_headers` list the valid set.
+pub fn parse_theme(text: &str) -> Result<(String, Theme), String> {
+    // toml's full Display carries the offending line (key and value) and,
+    // for enums, the expected set — e.g. `sidebar_headers = "rainbow"` /
+    // "unknown variant `rainbow`, expected one of `multi`, `single`, `muted`".
+    let file: ThemeFile = toml::from_str(text).map_err(|e| e.to_string().trim().to_string())?;
+    let name = file.name.trim().to_string();
+    if name.is_empty() {
+        return Err("name = \"\" is empty, expected a short identifier like \"gruvbox\"".into());
+    }
+    let p = &file.palette;
+    let star = parse_hex("palette.star", &p.star)?;
+    let mut league = [star; 9];
+    for (slug, value) in &p.league {
+        let Some(l) = League::from_slug(slug) else {
+            return Err(format!(
+                "palette.league.{slug} is not a league, expected one of {}",
+                League::ALL.map(League::slug).join("|")
+            ));
+        };
+        league[league_index(l)] = parse_hex(&format!("palette.league.{slug}"), value)?;
+    }
+    Ok((
+        name,
+        Theme {
+            bg: parse_hex("palette.bg", &p.bg)?,
+            fg: parse_hex("palette.fg", &p.fg)?,
+            bright: parse_hex("palette.bright", &p.bright)?,
+            muted: parse_hex("palette.muted", &p.muted)?,
+            dim: parse_hex("palette.dim", &p.dim)?,
+            border: parse_hex("palette.border", &p.border)?,
+            live: parse_hex("palette.live", &p.live)?,
+            green: parse_hex("palette.green", &p.green)?,
+            cyan: parse_hex("palette.cyan", &p.cyan)?,
+            magenta: parse_hex("palette.magenta", &p.magenta)?,
+            star,
+            league,
+            discipline: file.discipline,
+        },
+    ))
+}
+
+/// Serialize a theme in the same format `parse_theme` reads (every league
+/// slug written out, so a round trip is exact).
+pub fn to_toml(name: &str, th: &Theme) -> String {
+    let file = ThemeFile {
+        name: name.to_string(),
+        palette: PaletteFile {
+            bg: hex_of(th.bg),
+            fg: hex_of(th.fg),
+            bright: hex_of(th.bright),
+            muted: hex_of(th.muted),
+            dim: hex_of(th.dim),
+            border: hex_of(th.border),
+            live: hex_of(th.live),
+            green: hex_of(th.green),
+            cyan: hex_of(th.cyan),
+            magenta: hex_of(th.magenta),
+            star: hex_of(th.star),
+            league: League::ALL
+                .iter()
+                .map(|l| (l.slug().to_string(), hex_of(th.league_accent(*l))))
+                .collect(),
+        },
+        discipline: th.discipline,
+    };
+    toml::to_string_pretty(&file).expect("theme file shape always serializes")
+}
+
+// -------------------------------------------------------------- registry
+
+/// One loaded theme: its canonical name, the palette, and where it came from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub name: String,
+    pub theme: Theme,
+    /// Loaded from `<config_dir>/themes/` (or installed by a test) rather
+    /// than compiled in.
+    pub user: bool,
+}
+
+fn builtins() -> &'static [Entry] {
+    static BUILTINS: OnceLock<Vec<Entry>> = OnceLock::new();
+    BUILTINS.get_or_init(|| {
+        BUILTIN_NAMES
+            .iter()
+            .zip(BUILTIN_TOML)
+            .map(|(expected, text)| {
+                let (name, theme) = parse_theme(text)
+                    .unwrap_or_else(|e| panic!("built-in theme {expected} fails to parse: {e}"));
+                assert_eq!(&name, expected, "assets/themes/{expected}.toml names itself {name:?}");
+                Entry { name, theme, user: false }
+            })
+            .collect()
     })
 }
 
 thread_local! {
     // Thread-local, not process-global: draw code is single-threaded, and
-    // parallel test threads each get their own current theme.
-    static CURRENT: Cell<ThemeName> = const { Cell::new(ThemeName::Broadcast) };
+    // parallel test threads each get their own user set and current theme.
+    static USER: RefCell<Vec<Entry>> = const { RefCell::new(Vec::new()) };
+    static CURRENT: RefCell<Option<Entry>> = const { RefCell::new(None) };
 }
 
-pub fn set_current(name: ThemeName) {
-    CURRENT.set(name);
+/// Every loaded theme in picker/cycle order: the built-ins (a user file with
+/// the same name replaces the built-in in its slot), then user-only themes.
+pub fn entries() -> Vec<Entry> {
+    let user = USER.with(|u| u.borrow().clone());
+    let mut out: Vec<Entry> = builtins()
+        .iter()
+        .map(|b| {
+            user.iter()
+                .find(|u| u.name.eq_ignore_ascii_case(&b.name))
+                .cloned()
+                .unwrap_or_else(|| b.clone())
+        })
+        .collect();
+    for u in user {
+        if !out.iter().any(|e| e.name.eq_ignore_ascii_case(&u.name)) {
+            out.push(u);
+        }
+    }
+    out
 }
 
-pub fn current_name() -> ThemeName {
-    CURRENT.get()
+pub fn names() -> Vec<String> {
+    entries().into_iter().map(|e| e.name).collect()
+}
+
+/// Case-insensitive lookup by name.
+pub fn lookup(name: &str) -> Option<Entry> {
+    let name = name.trim();
+    entries().into_iter().find(|e| e.name.eq_ignore_ascii_case(name))
+}
+
+/// A built-in by name (panics on a typo — it's a programmer's constant).
+pub fn builtin(name: &str) -> Theme {
+    builtins()
+        .iter()
+        .find(|e| e.name == name)
+        .unwrap_or_else(|| panic!("no built-in theme {name:?}, valid: {}", BUILTIN_NAMES.join("|")))
+        .theme
+}
+
+/// Install (or replace) a user theme on this thread.
+pub fn install(entry: Entry) {
+    USER.with(|u| {
+        let mut u = u.borrow_mut();
+        u.retain(|e| !e.name.eq_ignore_ascii_case(&entry.name));
+        u.push(Entry { user: true, ..entry });
+    });
+}
+
+/// Read `<dir>/themes/*.toml` (sorted by file name). Returns the themes that
+/// parsed and one error line per file that didn't, each naming the file.
+pub fn load_user_themes(dir: &Path) -> (Vec<Entry>, Vec<String>) {
+    let themes_dir = dir.join("themes");
+    let Ok(read) = std::fs::read_dir(&themes_dir) else {
+        return (vec![], vec![]);
+    };
+    let mut paths: Vec<_> = read
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+        .collect();
+    paths.sort();
+    let mut entries = Vec::new();
+    let mut errors = Vec::new();
+    for path in paths {
+        let result = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| parse_theme(&text));
+        match result {
+            Ok((name, theme)) => entries.push(Entry { name, theme, user: true }),
+            Err(e) => errors.push(format!("theme file {} skipped: {e}", path.display())),
+        }
+    }
+    (entries, errors)
+}
+
+/// Load the user's theme files and install them, reporting broken ones on
+/// stderr. Never fails startup.
+pub fn install_user_themes(dir: &Path) {
+    let (entries, errors) = load_user_themes(dir);
+    for e in errors {
+        eprintln!("gameday: {e}");
+    }
+    for entry in entries {
+        install(entry);
+    }
+}
+
+fn valid_names() -> String {
+    names().join("|")
+}
+
+/// Make `name` the current theme. Unknown names leave the theme alone and
+/// return an error naming the value and the valid set.
+pub fn set_current(name: &str) -> Result<String, String> {
+    match lookup(name) {
+        Some(entry) => {
+            let canonical = entry.name.clone();
+            CURRENT.with(|c| *c.borrow_mut() = Some(entry));
+            Ok(canonical)
+        }
+        None => Err(format!("unknown theme {name:?}, valid: {}", valid_names())),
+    }
+}
+
+/// Lenient select for config/env values: unknown names fall back to
+/// broadcast with a stderr note naming the bad value and the valid set.
+/// Returns the name that is now current.
+pub fn select_or_default(name: &str) -> String {
+    set_current(name).unwrap_or_else(|err| {
+        eprintln!("gameday: {err}; using broadcast");
+        set_current("broadcast").expect("broadcast is always loaded")
+    })
+}
+
+fn current_entry() -> Entry {
+    CURRENT.with(|c| {
+        c.borrow_mut()
+            .get_or_insert_with(|| builtins()[0].clone())
+            .clone()
+    })
 }
 
 pub fn current() -> Theme {
-    CURRENT.get().theme()
+    current_entry().theme
 }
+
+pub fn current_name() -> String {
+    current_entry().name
+}
+
+/// The loaded name `delta` steps from `name` in picker order, wrapping. An
+/// unknown `name` counts as "before the first" so +1 lands on broadcast.
+pub fn next_name(name: &str, delta: isize) -> String {
+    let all = names();
+    let n = all.len() as isize;
+    let i = all
+        .iter()
+        .position(|x| x.eq_ignore_ascii_case(name))
+        .map(|i| i as isize)
+        .unwrap_or(-1);
+    let next = if i < 0 && delta >= 0 { (delta - 1).rem_euclid(n) } else { (i + delta).rem_euclid(n) };
+    all[next as usize].clone()
+}
+
+// ---------------------------------------------------------------- helpers
 
 pub fn rgb(c: [u8; 3]) -> Color {
     Color::Rgb(c[0], c[1], c[2])
@@ -241,58 +534,43 @@ mod tests {
 
     #[test]
     fn palettes_carry_their_identity() {
-        assert_eq!(Theme::broadcast().bg, Color::Rgb(0, 0, 0));
-        assert_eq!(Theme::broadcast().live, Color::Rgb(255, 60, 60));
-        assert_eq!(Theme::ceefax().bg, Color::Rgb(10, 10, 46));
-        assert_eq!(Theme::ceefax().star, Color::Rgb(255, 210, 0));
-        assert_eq!(Theme::phosphor().fg, Color::Rgb(255, 176, 0));
+        assert_eq!(builtin("broadcast").bg, Color::Rgb(0, 0, 0));
+        assert_eq!(builtin("broadcast").live, Color::Rgb(255, 60, 60));
+        assert_ne!(builtin("ceefax").bg, Color::Rgb(0, 0, 0), "teletext ground is tinted");
+        assert_eq!(builtin("ceefax").star, Color::Rgb(255, 238, 0));
+        assert_eq!(builtin("phosphor").fg, Color::Rgb(255, 176, 0));
         // NHL keeps the single cold accent in the amber palette.
-        assert_eq!(
-            Theme::phosphor().league_accent(League::Nhl),
-            Color::Rgb(200, 220, 220)
-        );
-    }
-
-    #[test]
-    fn every_league_has_an_accent_in_every_palette() {
-        for name in ThemeName::ALL {
-            let theme = name.theme();
-            for league in League::ALL {
-                // Rgb only — no ANSI-16 leaks into any palette.
-                assert!(
-                    matches!(theme.league_accent(league), Color::Rgb(..)),
-                    "{name:?}/{league:?} accent is not truecolor"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn parse_roundtrips_and_is_lenient() {
-        for name in ThemeName::ALL {
-            assert_eq!(ThemeName::parse(name.as_str()), Some(name));
-        }
-        assert_eq!(ThemeName::parse("CEEFAX"), Some(ThemeName::Ceefax));
-        assert_eq!(ThemeName::parse("solarized"), None);
-        assert_eq!(parse_or_default("solarized"), ThemeName::Broadcast);
-    }
-
-    #[test]
-    fn next_cycles_all_three() {
-        assert_eq!(ThemeName::Broadcast.next(), ThemeName::Ceefax);
-        assert_eq!(ThemeName::Ceefax.next(), ThemeName::Phosphor);
-        assert_eq!(ThemeName::Phosphor.next(), ThemeName::Broadcast);
+        assert_eq!(builtin("phosphor").league_accent(League::Nhl), Color::Rgb(200, 220, 220));
+        assert_eq!(builtin("gruvbox").bg, Color::Rgb(0x28, 0x28, 0x28));
+        assert_eq!(builtin("nord").bg, Color::Rgb(0x2e, 0x34, 0x40));
+        assert_eq!(builtin("dracula").bg, Color::Rgb(0x28, 0x2a, 0x36));
     }
 
     #[test]
     fn current_is_settable_per_thread() {
-        assert_eq!(current_name(), ThemeName::Broadcast);
-        set_current(ThemeName::Phosphor);
-        assert_eq!(current(), Theme::phosphor());
+        assert_eq!(current_name(), "broadcast");
+        set_current("phosphor").unwrap();
+        assert_eq!(current(), builtin("phosphor"));
         // Another thread still sees the default.
-        std::thread::spawn(|| assert_eq!(current_name(), ThemeName::Broadcast))
+        std::thread::spawn(|| assert_eq!(current_name(), "broadcast"))
             .join()
             .unwrap();
-        set_current(ThemeName::Broadcast);
+        set_current("broadcast").unwrap();
+    }
+
+    #[test]
+    fn hex_parse_rejects_short_and_non_hex_values() {
+        assert_eq!(parse_hex("k", "#0a0B0c").unwrap(), Color::Rgb(10, 11, 12));
+        for bad in ["#fff", "ffffff", "#gggggg", "", "#12345678"] {
+            let err = parse_hex("palette.k", bad).unwrap_err();
+            assert!(err.contains("palette.k") && err.contains("#rrggbb"), "{err}");
+        }
+    }
+
+    #[test]
+    fn league_slugs_in_a_theme_file_are_validated() {
+        let text = to_toml("x", &builtin("nord")).replace("nfl = ", "xfl = ");
+        let err = parse_theme(&text).unwrap_err();
+        assert!(err.contains("palette.league.xfl") && err.contains("nfl|cfb"), "{err}");
     }
 }
