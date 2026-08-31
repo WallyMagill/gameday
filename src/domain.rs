@@ -130,6 +130,32 @@ pub struct Summary {
     pub meter: Option<Meter>,
 }
 
+/// One box-score comparison row: "Total Yards  251  277".
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct StatRow {
+    pub label: String,
+    pub away: String,
+    pub home: String,
+}
+
+/// One team's statistical leader in one category:
+/// team "SEA", label "Passing Yards", text "D. Lock 12/14, 103 YDS, 1 TD".
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Leader {
+    pub team: String,
+    pub label: String,
+    pub text: String,
+}
+
+/// Box score for one game, mapped from the summary endpoint's
+/// `boxscore.teams[].statistics` + `leaders`. Per-sport row sets — the
+/// mapper keeps whatever ESPN sends, it doesn't normalize across leagues.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct GameStats {
+    pub rows: Vec<StatRow>,
+    pub leaders: Vec<Leader>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

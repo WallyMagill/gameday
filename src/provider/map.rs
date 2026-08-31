@@ -385,3 +385,61 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
     // dead data pretending to be live.
     Ok(Summary { last_plays: plays, scoring_plays, meter: None })
 }
+
+/// Box score from the same summary payload `map_summary` reads:
+/// `boxscore.teams[].statistics[]` (label/displayValue, sides identified by
+/// `homeAway`, rows paired by stat `name`) and `leaders[].leaders[]` (each
+/// category's top athlete). Verified against a real NFL summary
+/// (fixtures/nfl_boxscore.json, event 401873297).
+pub fn map_stats(json: &str) -> Result<GameStats, MapError> {
+    let v: Value = serde_json::from_str(json)?;
+    let teams = v["boxscore"]["teams"]
+        .as_array()
+        .ok_or(MapError::Missing("boxscore.teams"))?;
+    let side = |which: &str| -> Option<&Value> {
+        teams.iter().find(|t| t["homeAway"].as_str() == Some(which))
+    };
+    let away = side("away").ok_or(MapError::Missing("boxscore.teams[homeAway=away]"))?;
+    let home = side("home").ok_or(MapError::Missing("boxscore.teams[homeAway=home]"))?;
+    let home_stats = home["statistics"].as_array().cloned().unwrap_or_default();
+    let mut rows = Vec::new();
+    for s in away["statistics"].as_array().cloned().unwrap_or_default() {
+        let Some(name) = s["name"].as_str() else { continue };
+        let Some(away_val) = s["displayValue"].as_str() else { continue };
+        // Pair by stat name, not position — order is a payload accident.
+        let Some(home_val) = home_stats
+            .iter()
+            .find(|h| h["name"].as_str() == Some(name))
+            .and_then(|h| h["displayValue"].as_str())
+        else {
+            continue; // one-sided stat: skip rather than render a blank cell
+        };
+        rows.push(StatRow {
+            label: s["label"].as_str().unwrap_or(name).to_string(),
+            away: away_val.to_string(),
+            home: home_val.to_string(),
+        });
+    }
+    let mut leaders = Vec::new();
+    for team_block in v["leaders"].as_array().cloned().unwrap_or_default() {
+        let team = team_block["team"]["abbreviation"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        for cat in team_block["leaders"].as_array().cloned().unwrap_or_default() {
+            let Some(top) = cat["leaders"].get(0) else { continue };
+            let Some(value) = top["displayValue"].as_str() else { continue };
+            let athlete = top["athlete"]["shortName"].as_str().unwrap_or("");
+            leaders.push(Leader {
+                team: team.clone(),
+                label: cat["displayName"]
+                    .as_str()
+                    .or(cat["name"].as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                text: format!("{athlete} {value}").trim().to_string(),
+            });
+        }
+    }
+    Ok(GameStats { rows, leaders })
+}

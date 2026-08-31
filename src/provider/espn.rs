@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::domain::League;
-use crate::provider::map::{map_scoreboard, map_summary};
+use crate::provider::map::{map_scoreboard, map_stats, map_summary};
 use crate::provider::{ProviderError, SportsProvider};
-use crate::{Game, Summary};
+use crate::{Game, GameStats, Summary};
 
 pub struct EspnProvider {
     pub cache_dir: PathBuf,
@@ -108,6 +108,14 @@ impl SportsProvider for EspnProvider {
         let url = summary_url(league, game_id);
         let key = format!("{}-{game_id}-summary", league.slug());
         self.fetch(&url, &key, |body| map_summary(body).map_err(Into::into))
+    }
+
+    fn stats(&self, league: League, game_id: &str) -> Result<(GameStats, bool), ProviderError> {
+        // Same endpoint as summary — the boxscore rides on the same payload —
+        // but its own cache key: summary and stats poll on different cadences.
+        let url = summary_url(league, game_id);
+        let key = format!("{}-{game_id}-stats", league.slug());
+        self.fetch(&url, &key, |body| map_stats(body).map_err(Into::into))
     }
 }
 

@@ -482,3 +482,47 @@ fn narrow_footer_sheds_low_value_chords_but_keeps_help_and_quit() {
     assert!(footer.contains("[Q] QUIT"), "QUIT clipped: {footer:?}");
     assert!(!footer.contains("MOVE"), "MOVE should be shed first: {footer:?}");
 }
+
+#[test]
+fn stats_tab_renders_rows_and_leaders() {
+    use gameday::domain::{GameStats, Leader, StatRow};
+    use gameday::views::{View, ZoomTab};
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Stats };
+    app.merge_stats(
+        "1",
+        GameStats {
+            rows: vec![
+                StatRow { label: "Total Yards".into(), away: "251".into(), home: "277".into() },
+                StatRow { label: "Turnovers".into(), away: "1".into(), home: "0".into() },
+            ],
+            leaders: vec![Leader {
+                team: "KC".into(),
+                label: "Passing Yards".into(),
+                text: "D. Lock 12/14, 103 YDS, 1 TD".into(),
+            }],
+        },
+    );
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("Total Yards"), "{s}");
+    assert!(s.contains("251") && s.contains("277"), "{s}");
+    assert!(s.contains("LEADERS"), "{s}");
+    assert!(s.contains("D. Lock"), "{s}");
+}
+
+#[test]
+fn stats_tab_without_data_says_no_stats_yet() {
+    use gameday::views::{View, ZoomTab};
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Stats };
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("no stats yet"), "{s}");
+}

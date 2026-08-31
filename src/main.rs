@@ -1,6 +1,6 @@
 use std::io::stdout;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -60,7 +60,15 @@ enum Msg {
         id: String,
         summary: Summary,
     },
+    Stats {
+        id: String,
+        stats: GameStats,
+    },
 }
+
+/// The zoomed game the UI wants box-score polling for, shared with the poll
+/// thread the same way the refresh flag is. None whenever no Zoom is open.
+type StatsTarget = Arc<Mutex<Option<(League, String)>>>;
 
 fn main() -> std::io::Result<()> {
     let args = match parse_args(&std::env::args().collect::<Vec<_>>()) {
@@ -88,8 +96,14 @@ fn main() -> std::io::Result<()> {
         let app = gameday::dump::demo_app(dir, 0);
         let (tx, rx) = mpsc::channel::<Msg>();
         thread::spawn(move || sim_loop(tx));
-        // The simulator ignores refresh requests; the flag is just unread.
-        return run_ui(app, Some(rx), Arc::new(AtomicBool::new(false)));
+        // The simulator ignores refresh requests and the stats target; both
+        // are just unread.
+        return run_ui(
+            app,
+            Some(rx),
+            Arc::new(AtomicBool::new(false)),
+            StatsTarget::default(),
+        );
     }
 
     let dir = dirs::config_dir()
@@ -109,8 +123,13 @@ fn main() -> std::io::Result<()> {
     // treats the board timer as expired, forcing an immediate refetch.
     let refresh = Arc::new(AtomicBool::new(false));
     let refresh_poll = refresh.clone();
-    thread::spawn(move || poll_loop(provider, tx_plan, enabled_tabs, refresh_poll));
-    run_ui(app, Some(rx), refresh)
+    // Zoomed-game id for the box-score poll, written by the UI loop.
+    let stats_target = StatsTarget::default();
+    let stats_target_poll = stats_target.clone();
+    thread::spawn(move || {
+        poll_loop(provider, tx_plan, enabled_tabs, refresh_poll, stats_target_poll)
+    });
+    run_ui(app, Some(rx), refresh, stats_target)
 }
 
 /// Dev verification: fetch and map one league's real scoreboard, print one
@@ -199,9 +218,12 @@ fn poll_loop(
     tx: mpsc::Sender<Msg>,
     leagues: Vec<League>,
     refresh: Arc<AtomicBool>,
+    stats_target: StatsTarget,
 ) {
     let mut last_board = Instant::now() - Duration::from_secs(999);
     let mut last_sum = Instant::now() - Duration::from_secs(999);
+    let mut last_stats = Instant::now() - Duration::from_secs(999);
+    let mut stats_last_target: Option<(League, String)> = None;
     let mut attempt = 0u32;
     // Scoreboard every enabled tab (Nfl default). Summaries stay live-only.
     let mut live: Vec<(League, String)> = vec![];
@@ -252,6 +274,23 @@ fn poll_loop(
             }
             last_sum = Instant::now();
         }
+        // Box score for the zoomed game only: every STATS_EVERY (~30s), plus
+        // immediately when the zoom target changes so a fresh zoom isn't
+        // stuck on "no stats yet" for half a minute.
+        let target = stats_target.lock().ok().and_then(|t| t.clone());
+        let target_changed = target != stats_last_target;
+        if target_changed || last_stats.elapsed() >= gameday::poll::STATS_EVERY {
+            if let Some((league, id)) = &target {
+                if let Ok((stats, _)) = provider.stats(*league, id) {
+                    let _ = tx.send(Msg::Stats {
+                        id: id.clone(),
+                        stats,
+                    });
+                }
+            }
+            stats_last_target = target;
+            last_stats = Instant::now();
+        }
         thread::sleep(Duration::from_millis(200));
     }
 }
@@ -282,7 +321,9 @@ fn run_ui(
     mut app: App,
     rx: Option<mpsc::Receiver<Msg>>,
     refresh: Arc<AtomicBool>,
+    stats_target: StatsTarget,
 ) -> std::io::Result<()> {
+    let mut last_stats_target: Option<(League, String)> = None;
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
     execute!(stdout(), EnterAlternateScreen)?;
@@ -300,6 +341,7 @@ fn run_ui(
                         stale,
                     } => app.apply_boards(league, games, stale),
                     Msg::Summary { id, summary } => app.merge_summary(&id, summary),
+                    Msg::Stats { id, stats } => app.merge_stats(&id, stats),
                 }
                 needs_draw = true;
             }
@@ -331,6 +373,15 @@ fn run_ui(
             app.refresh_now = false;
             // Hand the request to poll_loop, which checks each ~200ms tick.
             refresh.store(true, Ordering::Relaxed);
+        }
+        // Tell the poll thread which game (if any) is zoomed; written only on
+        // change so the mutex isn't touched every 50ms input poll.
+        let target = app.stats_target();
+        if target != last_stats_target {
+            if let Ok(mut t) = stats_target.lock() {
+                *t = target.clone();
+            }
+            last_stats_target = target;
         }
         if app.should_quit {
             break 'ui;

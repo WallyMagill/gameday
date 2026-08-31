@@ -1,17 +1,29 @@
 use crate::domain::{Game, League, Status};
 use std::time::Duration;
 
+/// Box-score cadence for the zoomed game. ~30s: stats move slower than
+/// scores/plays, and the payload is the full summary (~hundreds of KB).
+pub const STATS_EVERY: Duration = Duration::from_secs(30);
+
 pub struct PollPlan {
     pub scoreboard_leagues: Vec<League>,
     pub summary_ids: Vec<(League, String)>, // visible live only
+    /// The zoomed game, when the Zoom view is open — the only game whose
+    /// box score gets polled.
+    pub stats_for: Option<(League, String)>,
     pub scoreboard_every: Duration,
     pub summary_every: Duration,
+    pub stats_every: Duration,
 }
 
 // One global cadence for all nine leagues on purpose: payload sizes were
 // checked (MLB scoreboard ~372KB, CBB ~268KB) and showed no latency/rate
 // problem worth a per-league schedule.
-pub fn plan(visible_games: &[Game], extra_leagues: &[League]) -> PollPlan {
+pub fn plan(
+    visible_games: &[Game],
+    extra_leagues: &[League],
+    zoomed: Option<(League, String)>,
+) -> PollPlan {
     let summary_ids: Vec<(League, String)> = visible_games
         .iter()
         .filter(|g| g.status == Status::Live)
@@ -40,7 +52,9 @@ pub fn plan(visible_games: &[Game], extra_leagues: &[League]) -> PollPlan {
     PollPlan {
         scoreboard_leagues,
         summary_ids,
+        stats_for: zoomed,
         scoreboard_every,
         summary_every: Duration::from_secs(15),
+        stats_every: STATS_EVERY,
     }
 }

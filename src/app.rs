@@ -1,5 +1,5 @@
 use crate::config::{prune_pins, save_pins, Config, Favorite, Pin};
-use crate::domain::{Game, League, Status, Summary};
+use crate::domain::{Game, GameStats, League, Status, Summary};
 use crate::home::home_games;
 use crate::input::{CompletionState, InputMode};
 use crate::keymap;
@@ -52,6 +52,9 @@ pub struct App {
     pub pins: Vec<Pin>,
     pub config: Config,
     pub boards: HashMap<League, Vec<Game>>,
+    /// Box scores by game id, filled by the ~30s stats poll while that game
+    /// is zoomed. Pruned with `last_scores` when a game leaves every board.
+    pub stats: HashMap<String, GameStats>,
     pub stale: bool,
     pub should_quit: bool,
     pub refresh_now: bool,
@@ -100,6 +103,7 @@ impl App {
             pins,
             config,
             boards: HashMap::new(),
+            stats: HashMap::new(),
             stale: false,
             should_quit: false,
             refresh_now: false,
@@ -303,12 +307,20 @@ impl App {
         }
     }
 
-    /// j/k in the Zoom Plays tab: move the highlight, clamped to the feed.
+    /// j/k in the Zoom Plays/Stats tabs: move the highlight/window, clamped
+    /// to whichever list the active tab shows.
     fn move_zoom_scroll(&mut self, delta: isize) {
-        let len = self
-            .zoomed_game()
-            .map(|g| g.last_plays.len())
-            .unwrap_or(0);
+        let len = match &self.view {
+            View::Zoom { game_id, tab: ZoomTab::Stats } => self
+                .stats
+                .get(game_id)
+                .map(|s| s.rows.len())
+                .unwrap_or(0),
+            _ => self
+                .zoomed_game()
+                .map(|g| g.last_plays.len())
+                .unwrap_or(0),
+        };
         if len == 0 {
             self.zoom_scroll = 0;
             return;
@@ -346,6 +358,9 @@ impl App {
         let mut last_scores = std::mem::take(&mut self.last_scores);
         last_scores.retain(|id, _| self.boards.values().flatten().any(|g| g.id == *id));
         self.last_scores = last_scores;
+        let mut stats = std::mem::take(&mut self.stats);
+        stats.retain(|id, _| self.boards.values().flatten().any(|g| g.id == *id));
+        self.stats = stats;
         self.stale = stale;
         self.last_update = Some(Instant::now());
         self.pins = prune_pins(std::mem::take(&mut self.pins), now);
@@ -373,8 +388,24 @@ impl App {
         }
     }
 
+    /// The zoomed game's (league, id) — the stats poll's only target. None
+    /// unless the Zoom view is open and its game is still on a board.
+    pub fn stats_target(&self) -> Option<(League, String)> {
+        self.zoomed_game().map(|g| (g.league, g.id))
+    }
+
     pub fn poll_plan(&self) -> crate::poll::PollPlan {
-        crate::poll::plan(&self.visible_for_poll(), &self.config.enabled_tabs)
+        crate::poll::plan(
+            &self.visible_for_poll(),
+            &self.config.enabled_tabs,
+            self.stats_target(),
+        )
+    }
+
+    /// Latest box score for `game_id`, from the stats poll (or a fixture in
+    /// tests/dump). Replaces wholesale — rows are a snapshot, not a delta.
+    pub fn merge_stats(&mut self, game_id: &str, stats: GameStats) {
+        self.stats.insert(game_id.to_string(), stats);
     }
 
     pub fn effective_layout(&self) -> LayoutPref {

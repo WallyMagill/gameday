@@ -35,7 +35,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect, game_id: &str, tab: ZoomTa
     match tab {
         ZoomTab::Overview => draw_overview(app, frame, chunks[1], &game),
         ZoomTab::Plays => draw_plays(app, frame, chunks[1], &game),
-        ZoomTab::Stats => draw_stats(frame, chunks[1]),
+        ZoomTab::Stats => draw_stats(app, frame, chunks[1], &game),
     }
 }
 
@@ -142,13 +142,131 @@ fn draw_plays(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     );
 }
 
-/// Box-score stats land in Task 4; until then the tab says so plainly.
-fn draw_stats(frame: &mut Frame, area: Rect) {
+/// Value columns are sized to the widest value ("6-17", "31:26"), floored at
+/// the 3-char abbr header width plus a space.
+const STAT_COL_MIN: usize = 4;
+
+/// Box score: comparison rows (label + away/home value columns under the team
+/// abbrs) scrolled by j/k, with the LEADERS block pinned below. Empty until
+/// the ~30s stats poll answers — says so instead of rendering a blank pane.
+fn draw_stats(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     let th = theme::current();
+    let stats = app.stats.get(&game.id);
+    let Some(stats) = stats.filter(|s| !s.rows.is_empty() || !s.leaders.is_empty()) else {
+        frame.render_widget(
+            Paragraph::new("no stats yet")
+                .style(Style::default().fg(th.dim).bg(th.bg))
+                .alignment(Alignment::Center),
+            area,
+        );
+        return;
+    };
+    // LEADERS gets its rows plus a header, but never more than half the pane;
+    // the comparison table keeps the rest.
+    let leaders_h = if stats.leaders.is_empty() {
+        0
+    } else {
+        (stats.leaders.len() as u16 + 2).min(area.height / 2)
+    };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(leaders_h)])
+        .split(area);
+
+    let col_w = stats
+        .rows
+        .iter()
+        .flat_map(|r| [r.away.chars().count(), r.home.chars().count()])
+        .max()
+        .unwrap_or(0)
+        .max(STAT_COL_MIN);
+    // Label column hugs the widest label instead of stretching to the pane
+    // edge — a 120-col pane would otherwise put ~70 blank cells between a
+    // label and its values.
+    let widest_label = stats
+        .rows
+        .iter()
+        .map(|r| r.label.chars().count())
+        .max()
+        .unwrap_or(0);
+    let label_w = widest_label.min((chunks[0].width as usize).saturating_sub(2 * (col_w + 2) + 3));
+    let mut lines = vec![Line::from(vec![
+        Span::raw(" ".repeat(label_w + 3)),
+        Span::styled(
+            format!("{:>col_w$}", game.away.abbr),
+            Style::default()
+                .fg(theme::rgb(game.away.color))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            format!("{:>col_w$}", game.home.abbr),
+            Style::default()
+                .fg(theme::rgb(game.home.color))
+                .add_modifier(Modifier::BOLD),
+        ),
+    ])];
+    // j/k move a highlight through the rows; the window follows it, minus the
+    // abbr header line.
+    let sel = app.zoom_scroll.min(stats.rows.len().saturating_sub(1));
+    let visible = (chunks[0].height.max(1) as usize).saturating_sub(1).max(1);
+    let skip = sel.saturating_sub(visible.saturating_sub(1));
+    for (i, row) in stats.rows.iter().enumerate().skip(skip).take(visible) {
+        let marker = if i == sel { "▸ " } else { "  " };
+        let label_style = if i == sel {
+            Style::default().fg(th.bright).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(th.muted)
+        };
+        let mut label: String = row.label.chars().take(label_w).collect();
+        let pad = label_w.saturating_sub(label.chars().count());
+        label.push_str(&" ".repeat(pad));
+        lines.push(Line::from(vec![
+            Span::styled(marker, Style::default().fg(th.star)),
+            Span::styled(label, label_style),
+            Span::raw(" "),
+            Span::styled(format!("{:>col_w$}", row.away), Style::default().fg(th.fg)),
+            Span::raw("  "),
+            Span::styled(format!("{:>col_w$}", row.home), Style::default().fg(th.fg)),
+        ]));
+    }
     frame.render_widget(
-        Paragraph::new("no stats yet")
-            .style(Style::default().fg(th.dim).bg(th.bg))
-            .alignment(Alignment::Center),
-        area,
+        Paragraph::new(lines).style(Style::default().bg(th.bg)),
+        chunks[0],
     );
+
+    if leaders_h > 0 {
+        let mut lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                " LEADERS",
+                Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+            )),
+        ];
+        let label_w = stats
+            .leaders
+            .iter()
+            .map(|l| l.label.chars().count())
+            .max()
+            .unwrap_or(0);
+        for leader in &stats.leaders {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {:<4}", leader.team),
+                    Style::default()
+                        .fg(App::team_color(game, &leader.team))
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{:<label_w$}  ", leader.label.to_uppercase()),
+                    Style::default().fg(th.muted),
+                ),
+                Span::styled(leader.text.clone(), Style::default().fg(th.fg)),
+            ]));
+        }
+        frame.render_widget(
+            Paragraph::new(lines).style(Style::default().bg(th.bg)),
+            chunks[1],
+        );
+    }
 }

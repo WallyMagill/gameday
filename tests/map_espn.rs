@@ -222,3 +222,35 @@ fn maps_basketball_summary_flat_plays_array() {
     assert_eq!(bucket.team, "NY");
     assert!(bucket.text.contains("makes free throw"));
 }
+
+#[test]
+fn maps_nfl_boxscore_stats_and_leaders() {
+    // Fixture: real 2026-08-23 SEA@TEN summary (event 401873297), trimmed to
+    // boxscore.teams + leaders. Values asserted are from that capture.
+    let json = include_str!("../fixtures/nfl_boxscore.json");
+    let s = gameday::provider::map::map_stats(json).unwrap();
+    assert!(s.rows.len() >= 5, "rows={}", s.rows.len());
+    let ty = s
+        .rows
+        .iter()
+        .find(|r| r.label == "Total Yards")
+        .expect("a Total Yards row");
+    assert_eq!(ty.away, "251", "SEA is the away team");
+    assert_eq!(ty.home, "277", "TEN is the home team");
+    // Every row carries both sides — no half-mapped rows.
+    assert!(s.rows.iter().all(|r| !r.away.is_empty() && !r.home.is_empty()));
+    let lock = s
+        .leaders
+        .iter()
+        .find(|l| l.text.contains("D. Lock"))
+        .expect("SEA passing leader");
+    assert_eq!(lock.team, "SEA");
+    assert_eq!(lock.label, "Passing Yards");
+    assert!(lock.text.contains("12/14, 103 YDS, 1 TD"), "{}", lock.text);
+    let ward = s
+        .leaders
+        .iter()
+        .find(|l| l.text.contains("C. Ward"))
+        .expect("TEN passing leader");
+    assert_eq!(ward.team, "TEN");
+}

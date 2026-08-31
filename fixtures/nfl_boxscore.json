@@ -1,0 +1,442 @@
+{
+ "boxscore": {
+  "teams": [
+   {
+    "team": {
+     "id": "26",
+     "abbreviation": "SEA",
+     "displayName": "Seattle Seahawks",
+     "location": "Seattle",
+     "name": "Seahawks"
+    },
+    "homeAway": "away",
+    "displayOrder": 1,
+    "statistics": [
+     {
+      "name": "firstDowns",
+      "displayValue": "14",
+      "label": "1st Downs"
+     },
+     {
+      "name": "firstDownsPassing",
+      "displayValue": "6",
+      "label": "Passing 1st downs"
+     },
+     {
+      "name": "firstDownsRushing",
+      "displayValue": "3",
+      "label": "Rushing 1st downs"
+     },
+     {
+      "name": "firstDownsPenalty",
+      "displayValue": "5",
+      "label": "1st downs from penalties"
+     },
+     {
+      "name": "thirdDownEff",
+      "displayValue": "3-9",
+      "label": "3rd down efficiency"
+     },
+     {
+      "name": "fourthDownEff",
+      "displayValue": "0-1",
+      "label": "4th down efficiency"
+     },
+     {
+      "name": "totalOffensivePlays",
+      "displayValue": "46",
+      "label": "Total Plays"
+     },
+     {
+      "name": "totalYards",
+      "displayValue": "251",
+      "label": "Total Yards"
+     },
+     {
+      "name": "yardsPerPlay",
+      "displayValue": "5.5",
+      "label": "Yards per Play"
+     },
+     {
+      "name": "totalDrives",
+      "displayValue": "11",
+      "label": "Total Drives"
+     },
+     {
+      "name": "netPassingYards",
+      "displayValue": "134",
+      "label": "Passing"
+     },
+     {
+      "name": "completionAttempts",
+      "displayValue": "18/25",
+      "label": "Comp/Att"
+     },
+     {
+      "name": "yardsPerPass",
+      "displayValue": "5.0",
+      "label": "Yards per pass"
+     },
+     {
+      "name": "interceptions",
+      "displayValue": "2",
+      "label": "Interceptions thrown"
+     },
+     {
+      "name": "sacksYardsLost",
+      "displayValue": "2-21",
+      "label": "Sacks-Yards Lost"
+     },
+     {
+      "name": "rushingYards",
+      "displayValue": "117",
+      "label": "Rushing"
+     },
+     {
+      "name": "rushingAttempts",
+      "displayValue": "19",
+      "label": "Rushing Attempts"
+     },
+     {
+      "name": "yardsPerRushAttempt",
+      "displayValue": "6.2",
+      "label": "Yards per rush"
+     },
+     {
+      "name": "redZoneAttempts",
+      "displayValue": "0-0",
+      "label": "Red Zone (Made-Att)"
+     },
+     {
+      "name": "totalPenaltiesYards",
+      "displayValue": "14-129",
+      "label": "Penalties"
+     },
+     {
+      "name": "turnovers",
+      "displayValue": "3",
+      "label": "Turnovers"
+     },
+     {
+      "name": "fumblesLost",
+      "displayValue": "1",
+      "label": "Fumbles lost"
+     },
+     {
+      "name": "interceptions",
+      "displayValue": "2",
+      "label": "Interceptions thrown"
+     },
+     {
+      "name": "defensiveTouchdowns",
+      "displayValue": "0",
+      "label": "Defensive / Special Teams TDs"
+     },
+     {
+      "name": "possessionTime",
+      "displayValue": "25:54",
+      "label": "Possession"
+     }
+    ]
+   },
+   {
+    "team": {
+     "id": "10",
+     "abbreviation": "TEN",
+     "displayName": "Tennessee Titans",
+     "location": "Tennessee",
+     "name": "Titans"
+    },
+    "homeAway": "home",
+    "displayOrder": 2,
+    "statistics": [
+     {
+      "name": "firstDowns",
+      "displayValue": "18",
+      "label": "1st Downs"
+     },
+     {
+      "name": "firstDownsPassing",
+      "displayValue": "5",
+      "label": "Passing 1st downs"
+     },
+     {
+      "name": "firstDownsRushing",
+      "displayValue": "10",
+      "label": "Rushing 1st downs"
+     },
+     {
+      "name": "firstDownsPenalty",
+      "displayValue": "3",
+      "label": "1st downs from penalties"
+     },
+     {
+      "name": "thirdDownEff",
+      "displayValue": "6-17",
+      "label": "3rd down efficiency"
+     },
+     {
+      "name": "fourthDownEff",
+      "displayValue": "1-3",
+      "label": "4th down efficiency"
+     },
+     {
+      "name": "totalOffensivePlays",
+      "displayValue": "71",
+      "label": "Total Plays"
+     },
+     {
+      "name": "totalYards",
+      "displayValue": "277",
+      "label": "Total Yards"
+     },
+     {
+      "name": "yardsPerPlay",
+      "displayValue": "3.9",
+      "label": "Yards per Play"
+     },
+     {
+      "name": "totalDrives",
+      "displayValue": "12",
+      "label": "Total Drives"
+     },
+     {
+      "name": "netPassingYards",
+      "displayValue": "149",
+      "label": "Passing"
+     },
+     {
+      "name": "completionAttempts",
+      "displayValue": "21/32",
+      "label": "Comp/Att"
+     },
+     {
+      "name": "yardsPerPass",
+      "displayValue": "4.3",
+      "label": "Yards per pass"
+     },
+     {
+      "name": "interceptions",
+      "displayValue": "0",
+      "label": "Interceptions thrown"
+     },
+     {
+      "name": "sacksYardsLost",
+      "displayValue": "3-19",
+      "label": "Sacks-Yards Lost"
+     },
+     {
+      "name": "rushingYards",
+      "displayValue": "128",
+      "label": "Rushing"
+     },
+     {
+      "name": "rushingAttempts",
+      "displayValue": "36",
+      "label": "Rushing Attempts"
+     },
+     {
+      "name": "yardsPerRushAttempt",
+      "displayValue": "3.6",
+      "label": "Yards per rush"
+     },
+     {
+      "name": "redZoneAttempts",
+      "displayValue": "1-4",
+      "label": "Red Zone (Made-Att)"
+     },
+     {
+      "name": "totalPenaltiesYards",
+      "displayValue": "11-100",
+      "label": "Penalties"
+     },
+     {
+      "name": "turnovers",
+      "displayValue": "0",
+      "label": "Turnovers"
+     },
+     {
+      "name": "fumblesLost",
+      "displayValue": "0",
+      "label": "Fumbles lost"
+     },
+     {
+      "name": "interceptions",
+      "displayValue": "0",
+      "label": "Interceptions thrown"
+     },
+     {
+      "name": "defensiveTouchdowns",
+      "displayValue": "0",
+      "label": "Defensive / Special Teams TDs"
+     },
+     {
+      "name": "possessionTime",
+      "displayValue": "34:06",
+      "label": "Possession"
+     }
+    ]
+   }
+  ]
+ },
+ "leaders": [
+  {
+   "team": {
+    "id": "10",
+    "abbreviation": "TEN",
+    "displayName": "Tennessee Titans"
+   },
+   "leaders": [
+    {
+     "name": "passingYards",
+     "displayName": "Passing Yards",
+     "leaders": [
+      {
+       "displayValue": "8/12, 69 YDS",
+       "athlete": {
+        "id": "4688380",
+        "shortName": "C. Ward",
+        "displayName": "Cam Ward"
+       }
+      }
+     ]
+    },
+    {
+     "name": "rushingYards",
+     "displayName": "Rushing Yards",
+     "leaders": [
+      {
+       "displayValue": "8 CAR, 48 YDS",
+       "athlete": {
+        "id": "4367567",
+        "shortName": "J. Chestnut",
+        "displayName": "Julius Chestnut"
+       }
+      }
+     ]
+    },
+    {
+     "name": "receivingYards",
+     "displayName": "Receiving Yards",
+     "leaders": [
+      {
+       "displayValue": "1 REC, 33 YDS",
+       "athlete": {
+        "id": "3916148",
+        "shortName": "T. Pollard",
+        "displayName": "Tony Pollard"
+       }
+      }
+     ]
+    },
+    {
+     "name": "sacks",
+     "displayName": "Sacks",
+     "leaders": [
+      {
+       "displayValue": "1.5",
+       "athlete": {
+        "id": "4367828",
+        "shortName": "T. Jones",
+        "displayName": "Truman Jones"
+       }
+      }
+     ]
+    },
+    {
+     "name": "totalTackles",
+     "displayName": "Tackles",
+     "leaders": [
+      {
+       "displayValue": "7",
+       "athlete": {
+        "id": "4870805",
+        "shortName": "A. Hill Jr.",
+        "displayName": "Anthony Hill Jr."
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "team": {
+    "id": "26",
+    "abbreviation": "SEA",
+    "displayName": "Seattle Seahawks"
+   },
+   "leaders": [
+    {
+     "name": "passingYards",
+     "displayName": "Passing Yards",
+     "leaders": [
+      {
+       "displayValue": "12/14, 103 YDS, 1 TD",
+       "athlete": {
+        "id": "3924327",
+        "shortName": "D. Lock",
+        "displayName": "Drew Lock"
+       }
+      }
+     ]
+    },
+    {
+     "name": "rushingYards",
+     "displayName": "Rushing Yards",
+     "leaders": [
+      {
+       "displayValue": "8 CAR, 81 YDS, 1 TD",
+       "athlete": {
+        "id": "4428943",
+        "shortName": "J. Wright",
+        "displayName": "Jacardia Wright"
+       }
+      }
+     ]
+    },
+    {
+     "name": "receivingYards",
+     "displayName": "Receiving Yards",
+     "leaders": [
+      {
+       "displayValue": "2 REC, 50 YDS, 1 TD",
+       "athlete": {
+        "id": "4678006",
+        "shortName": "E. Arroyo",
+        "displayName": "Elijah Arroyo"
+       }
+      }
+     ]
+    },
+    {
+     "name": "sacks",
+     "displayName": "Sacks",
+     "leaders": [
+      {
+       "displayValue": "1.5",
+       "athlete": {
+        "id": "4605491",
+        "shortName": "C. O'Toole",
+        "displayName": "Connor O'Toole"
+       }
+      }
+     ]
+    },
+    {
+     "name": "totalTackles",
+     "displayName": "Tackles",
+     "leaders": [
+      {
+       "displayValue": "10",
+       "athlete": {
+        "id": "4686447",
+        "shortName": "J.R. Singleton",
+        "displayName": "J.R. Singleton"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
