@@ -19,6 +19,7 @@ use crate::demo;
 use crate::domain::League;
 use crate::theme::{self, ThemeName};
 use crate::tiles::ScoreStyle;
+use crate::views::{View, ZoomTab};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
@@ -54,8 +55,11 @@ pub fn gallery() -> Vec<Variant> {
         app.selected = app.live_games().len();
     }
     fn focus(app: &mut App) {
-        // The demo NFL live game; focus renders the expanded single-game view.
-        app.focused_id = Some("nfl-live".into());
+        // The demo NFL live game, zoomed: tab bar + expanded single-game view.
+        app.view = View::Zoom {
+            game_id: "nfl-live".into(),
+            tab: ZoomTab::Overview,
+        };
     }
     fn help(app: &mut App) {
         app.help_open = true;

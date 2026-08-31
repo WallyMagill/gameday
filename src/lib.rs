@@ -13,5 +13,6 @@ pub mod sim;
 pub mod text;
 pub mod theme;
 pub mod tiles;
+pub mod views;
 
 pub use domain::*;

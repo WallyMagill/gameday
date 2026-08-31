@@ -30,10 +30,10 @@ impl Group {
 pub enum FooterSlot {
     Never,
     Always,
-    /// Only while no game is focused ([ENTER] FOCUS).
-    Unfocused,
-    /// Only while a game is focused ([ESC] BACK).
-    Focused,
+    /// Only on the Board view ([Z] ZOOM, [Q] QUIT).
+    Board,
+    /// Only inside a zoomed/full-screen view ([ESC] BACK, tab cycling).
+    Zoomed,
 }
 
 pub struct Binding {
@@ -55,19 +55,19 @@ pub const KEYMAP: &[Binding] = &[
         keys: &["N/P", "PGDN/PGUP"],
         label: "PAGE",
         group: Group::Navigation,
-        footer: FooterSlot::Always,
+        footer: FooterSlot::Board,
     },
     Binding {
         keys: &["J/K", "↓/↑"],
         label: "MOVE",
         group: Group::Selection,
-        footer: FooterSlot::Always,
+        footer: FooterSlot::Board,
     },
     Binding {
         keys: &["SPC"],
         label: "PIN",
         group: Group::Selection,
-        footer: FooterSlot::Always,
+        footer: FooterSlot::Board,
     },
     Binding {
         keys: &["T"],
@@ -76,16 +76,23 @@ pub const KEYMAP: &[Binding] = &[
         footer: FooterSlot::Never,
     },
     Binding {
-        keys: &["ENTER"],
-        label: "FOCUS",
+        keys: &["Z", "ENTER"],
+        label: "ZOOM",
         group: Group::Selection,
-        footer: FooterSlot::Unfocused,
+        footer: FooterSlot::Board,
     },
     Binding {
-        keys: &["ESC"],
+        keys: &["ESC", "Q"],
         label: "BACK",
         group: Group::Selection,
-        footer: FooterSlot::Focused,
+        footer: FooterSlot::Zoomed,
+    },
+    Binding {
+        // Zoom tabs: OVERVIEW | PLAYS | STATS.
+        keys: &["H/L", "[/]"],
+        label: "TABS",
+        group: Group::View,
+        footer: FooterSlot::Zoomed,
     },
     Binding {
         keys: &["1/2/4/S"],
@@ -125,10 +132,12 @@ pub const KEYMAP: &[Binding] = &[
         footer: FooterSlot::Always,
     },
     Binding {
+        // 'q' quits only from the Board (it pops other views); the footer
+        // advertises it only where it's true. Ctrl+C quits from anywhere.
         keys: &["Q", "CTRL-C"],
         label: "QUIT",
         group: Group::App,
-        footer: FooterSlot::Always,
+        footer: FooterSlot::Board,
     },
 ];
 
@@ -138,16 +147,16 @@ pub const KEYMAP: &[Binding] = &[
 /// stay visible.
 pub const FOOTER_DROP_ORDER: &[&str] = &["MOVE", "PAGE", "PIN", "LEAGUE", "FILTER", "CMD"];
 
-/// The footer chord list for the current focus state: (key, label) pairs in
-/// table order.
-pub fn footer_chords(focused: bool) -> Vec<(&'static str, &'static str)> {
+/// The footer chord list for the current view: (key, label) pairs in table
+/// order. `zoomed` is true for any non-Board view.
+pub fn footer_chords(zoomed: bool) -> Vec<(&'static str, &'static str)> {
     KEYMAP
         .iter()
         .filter(|b| match b.footer {
             FooterSlot::Always => true,
             FooterSlot::Never => false,
-            FooterSlot::Unfocused => !focused,
-            FooterSlot::Focused => focused,
+            FooterSlot::Board => !zoomed,
+            FooterSlot::Zoomed => zoomed,
         })
         .map(|b| (b.keys[0], b.label))
         .collect()
@@ -196,15 +205,20 @@ mod tests {
     }
 
     #[test]
-    fn footer_swaps_focus_for_back() {
-        let unfocused = footer_chords(false);
-        let focused = footer_chords(true);
-        assert!(unfocused.iter().any(|(_, l)| *l == "FOCUS"));
-        assert!(!unfocused.iter().any(|(_, l)| *l == "BACK"));
-        assert!(focused.iter().any(|(k, l)| *k == "ESC" && *l == "BACK"));
-        assert!(!focused.iter().any(|(_, l)| *l == "FOCUS"));
+    fn footer_swaps_zoom_for_back_per_view() {
+        let board = footer_chords(false);
+        let zoomed = footer_chords(true);
+        assert!(board.iter().any(|(k, l)| *k == "Z" && *l == "ZOOM"));
+        assert!(!board.iter().any(|(_, l)| *l == "BACK"));
+        // 'q' quits only from the Board, so QUIT is advertised only there…
+        assert!(board.iter().any(|(_, l)| *l == "QUIT"));
+        assert!(!zoomed.iter().any(|(_, l)| *l == "QUIT"));
+        // …and the zoomed footer shows the way back plus the tab cycle.
+        assert!(zoomed.iter().any(|(k, l)| *k == "ESC" && *l == "BACK"));
+        assert!(zoomed.iter().any(|(_, l)| *l == "TABS"));
+        assert!(!zoomed.iter().any(|(_, l)| *l == "ZOOM"));
         // The '?' hint is always advertised.
-        for chords in [&unfocused, &focused] {
+        for chords in [&board, &zoomed] {
             assert!(chords.iter().any(|(k, _)| *k == "?"));
         }
     }

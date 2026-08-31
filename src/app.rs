@@ -3,12 +3,12 @@ use crate::domain::{Game, League, Status, Summary};
 use crate::home::home_games;
 use crate::input::{CompletionState, InputMode};
 use crate::keymap;
-use crate::text::truncate;
 use crate::theme;
-use crate::tiles::packer::{pack, page_size, LayoutPref};
-use crate::tiles::{render_tile, TileFx};
+use crate::tiles::packer::{page_size, LayoutPref};
+use crate::tiles::TileFx;
+use crate::views::{self, View, ZoomTab};
 use crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
@@ -55,7 +55,13 @@ pub struct App {
     pub stale: bool,
     pub should_quit: bool,
     pub refresh_now: bool,
-    pub focused_id: Option<String>,
+    /// Which full-screen surface the body renders; Board is the mosaic.
+    /// Replaces the old `focused_id` mechanism — the zoomed game id lives
+    /// inside `View::Zoom`.
+    pub view: View,
+    /// Highlighted row in the Zoom Plays feed (j/k); reset when the zoom
+    /// opens or its tab changes.
+    pub zoom_scroll: usize,
     /// Which input mode keys route through; Command/Filter carry the prompt
     /// buffer the footer renders. See `input::handle_key`.
     pub mode: InputMode,
@@ -97,7 +103,8 @@ impl App {
             stale: false,
             should_quit: false,
             refresh_now: false,
-            focused_id: None,
+            view: View::Board,
+            zoom_scroll: 0,
             mode: InputMode::Normal,
             status_line: None,
             filter: None,
@@ -176,7 +183,7 @@ impl App {
 
     /// The filter the board is narrowed by right now: the open `/` prompt's
     /// buffer while typing (incremental), else the committed filter.
-    fn active_filter(&self) -> Option<&str> {
+    pub(crate) fn active_filter(&self) -> Option<&str> {
         if let InputMode::Filter { buf } = &self.mode {
             return (!buf.is_empty()).then_some(buf.as_str());
         }
@@ -207,7 +214,7 @@ impl App {
             self.should_quit = true;
             return;
         }
-        // Help is modal: Esc closes the topmost layer (help before focus),
+        // Help is modal: Esc closes the topmost layer (help before views),
         // '?' toggles, q still quits; everything else is inert while open.
         if self.help_open {
             match code {
@@ -217,22 +224,30 @@ impl App {
             }
             return;
         }
+        match self.view {
+            View::Board => self.on_key_board(code),
+            View::Zoom { .. } => self.on_key_zoom(code),
+            // Placeholder views (their tasks land later in this plan): only
+            // the ways out are wired.
+            View::PlaysFeed | View::Standings(_) | View::ConfigView => match code {
+                KeyCode::Esc | KeyCode::Char('q') => self.view = View::Board,
+                KeyCode::Char('?') => self.help_open = true,
+                _ => {}
+            },
+        }
+    }
+
+    fn on_key_board(&mut self, code: KeyCode) {
         match code {
             KeyCode::Tab | KeyCode::Char('l') | KeyCode::Right => self.cycle_tab(1),
             KeyCode::BackTab | KeyCode::Char('h') | KeyCode::Left => self.cycle_tab(-1),
             KeyCode::Char('j') | KeyCode::Down => self.move_selected(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_selected(-1),
             KeyCode::Char(' ') => self.toggle_pin(),
-            KeyCode::Enter => {
-                if let Some(game) = self.selected_game() {
-                    self.focused_id = Some(game.id);
-                }
-            }
-            // Esc peels layers: focused game first, then an active filter.
+            KeyCode::Enter | KeyCode::Char('z') => self.zoom_selected(),
+            // Esc on the board clears an active filter (modes pop in input.rs).
             KeyCode::Esc => {
-                if self.focused_id.is_some() {
-                    self.focused_id = None;
-                } else if self.filter.is_some() {
+                if self.filter.is_some() {
                     self.filter = None;
                     self.filter_changed();
                 }
@@ -250,6 +265,56 @@ impl App {
             KeyCode::Char('q') => self.should_quit = true,
             _ => {}
         }
+    }
+
+    /// Keys inside the zoomed view: h/l and [/] cycle the tab, j/k move the
+    /// Plays highlight, Esc/q/z pop back to the board (q quits ONLY from the
+    /// board), Tab still switches league tabs (which pops the zoom).
+    fn on_key_zoom(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('h') | KeyCode::Left | KeyCode::Char('[') => self.cycle_zoom_tab(-1),
+            KeyCode::Char('l') | KeyCode::Right | KeyCode::Char(']') => self.cycle_zoom_tab(1),
+            KeyCode::Char('j') | KeyCode::Down => self.move_zoom_scroll(1),
+            KeyCode::Char('k') | KeyCode::Up => self.move_zoom_scroll(-1),
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('z') => self.view = View::Board,
+            KeyCode::Tab => self.cycle_tab(1),
+            KeyCode::BackTab => self.cycle_tab(-1),
+            KeyCode::Char('?') => self.help_open = true,
+            KeyCode::Char('r') => self.refresh_now = true,
+            _ => {}
+        }
+    }
+
+    /// `z`/Enter on the board: zoom the selected game, opening on Overview.
+    fn zoom_selected(&mut self) {
+        if let Some(game) = self.selected_game() {
+            self.view = View::Zoom {
+                game_id: game.id,
+                tab: ZoomTab::Overview,
+            };
+            self.zoom_scroll = 0;
+        }
+    }
+
+    fn cycle_zoom_tab(&mut self, delta: isize) {
+        if let View::Zoom { tab, .. } = &mut self.view {
+            *tab = tab.cycled(delta);
+            self.zoom_scroll = 0;
+        }
+    }
+
+    /// j/k in the Zoom Plays tab: move the highlight, clamped to the feed.
+    fn move_zoom_scroll(&mut self, delta: isize) {
+        let len = self
+            .zoomed_game()
+            .map(|g| g.last_plays.len())
+            .unwrap_or(0);
+        if len == 0 {
+            self.zoom_scroll = 0;
+            return;
+        }
+        let next = self.zoom_scroll as isize + delta;
+        self.zoom_scroll = next.clamp(0, len as isize - 1) as usize;
     }
 
     pub fn apply_boards(&mut self, league: League, games: Vec<Game>, stale: bool) {
@@ -313,7 +378,7 @@ impl App {
     }
 
     pub fn effective_layout(&self) -> LayoutPref {
-        if self.focused_id.is_some() {
+        if matches!(self.view, View::Zoom { .. }) {
             LayoutPref::One
         } else {
             self.config.layout
@@ -401,7 +466,7 @@ impl App {
         self.tab = tab;
         self.page = 0;
         self.selected = 0;
-        self.focused_id = None;
+        self.view = View::Board;
     }
 
     fn move_selected(&mut self, delta: isize) {
@@ -496,7 +561,7 @@ impl App {
             ])
             .split(area);
         self.draw_header(frame, chunks[0]);
-        self.draw_body(frame, chunks[1]);
+        views::draw(self, frame, chunks[1]);
         if ticker_h > 0 {
             self.draw_ticker(frame, chunks[2]);
         }
@@ -568,33 +633,8 @@ impl App {
         );
     }
 
-    fn draw_body(&self, frame: &mut Frame, area: Rect) {
-        let main = if area.width >= 100 {
-            let cols = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(60), Constraint::Length(22)])
-                .split(area);
-            self.draw_sidebar(frame, cols[1]);
-            cols[0]
-        } else {
-            area
-        };
-        let show_slate = matches!(self.tab, Tab::League(_)) && main.height >= 24;
-        let mosaic = if show_slate {
-            let parts = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1), Constraint::Length(7)])
-                .split(main);
-            self.draw_slate(frame, parts[1]);
-            parts[0]
-        } else {
-            main
-        };
-        self.draw_mosaic(frame, mosaic);
-    }
-
     /// Scoring plays across every visible board, newest-ish first: (game, play).
-    fn scoring_events(&self) -> Vec<(Game, crate::domain::Play)> {
+    pub(crate) fn scoring_events(&self) -> Vec<(Game, crate::domain::Play)> {
         let mut out = Vec::new();
         for game in self.concat_boards() {
             if game.status != Status::Live {
@@ -607,7 +647,7 @@ impl App {
         out
     }
 
-    fn team_color(game: &Game, abbr: &str) -> ratatui::style::Color {
+    pub(crate) fn team_color(game: &Game, abbr: &str) -> ratatui::style::Color {
         let th = theme::current();
         if game.away.abbr.eq_ignore_ascii_case(abbr) {
             theme::rgb(game.away.color)
@@ -618,105 +658,10 @@ impl App {
         }
     }
 
-    fn draw_sidebar(&self, frame: &mut Frame, area: Rect) {
-        let th = theme::current();
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(th.border));
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        let events = self.scoring_events();
-        let w = inner.width as usize;
-        let mut lines: Vec<Line> = Vec::new();
-
-        lines.push(Line::from(Span::styled(
-            "⚑ GLOBAL ALERTS",
-            Style::default().fg(th.live).add_modifier(Modifier::BOLD),
-        )));
-        if events.is_empty() {
-            lines.push(Line::from(Span::styled("no alerts", Style::default().fg(th.dim))));
-        }
-        for (game, play) in events.iter().take(4) {
-            let word = theme::scoring_word(game.league);
-            let label = format!("{:<4}{:<11}", play.team, word);
-            let clock = &play.clock;
-            let pad = w.saturating_sub(label.chars().count() + clock.len());
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("{:<4}", play.team),
-                    Style::default().fg(Self::team_color(game, &play.team)).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(format!("{word:<11}"), Style::default().fg(th.live)),
-                Span::raw(" ".repeat(pad)),
-                Span::styled(clock.clone(), Style::default().fg(th.cyan)),
-            ]));
-        }
-        lines.push(rule(w));
-
-        lines.push(Line::from(Span::styled(
-            "TOP PLAYS",
-            Style::default().fg(th.star).add_modifier(Modifier::BOLD),
-        )));
-        for (game, play) in events.iter().take(5) {
-            // Right-aligned clock column per row (reference board), the play
-            // text ellipsis-truncated so it never hard-clips against it.
-            let clock = play.clock.as_str();
-            let text = truncate(&play.text, w.saturating_sub(2 + clock.chars().count() + 1));
-            let pad = w.saturating_sub(2 + text.chars().count() + clock.chars().count());
-            lines.push(Line::from(vec![
-                Span::styled("★ ", Style::default().fg(th.star)),
-                Span::styled(text, Style::default().fg(th.league_accent(game.league))),
-                Span::raw(" ".repeat(pad)),
-                Span::styled(clock.to_string(), Style::default().fg(th.cyan)),
-            ]));
-        }
-        if events.is_empty() {
-            lines.push(Line::from(Span::styled("no scoring yet", Style::default().fg(th.dim))));
-        }
-        lines.push(rule(w));
-
-        lines.push(Line::from(Span::styled(
-            "RECORDS",
-            Style::default().fg(th.magenta).add_modifier(Modifier::BOLD),
-        )));
-        let mut teams: Vec<&crate::domain::Team> = Vec::new();
-        let games = self.visible_games();
-        for g in &games {
-            teams.push(&g.away);
-            teams.push(&g.home);
-        }
-        let mut rows: Vec<(&crate::domain::Team, u32, u32)> = teams
-            .into_iter()
-            .filter_map(|t| {
-                let mut parts = t.record.split('-');
-                let win: u32 = parts.next()?.trim().parse().ok()?;
-                let loss: u32 = parts.next()?.trim().parse().ok()?;
-                Some((t, win, loss))
-            })
-            .collect();
-        rows.sort_by(|a, b| b.1.cmp(&a.1));
-        lines.push(Line::from(Span::styled(
-            format!("{:<12}{:>3}{:>3}", "TEAM", "W", "L"),
-            Style::default().fg(th.muted),
-        )));
-        for (i, (team, win, loss)) in rows.iter().take(6).enumerate() {
-            lines.push(Line::from(vec![
-                Span::styled(format!("{}. ", i + 1), Style::default().fg(th.muted)),
-                Span::styled(
-                    format!("{:<9}", truncate(&team.name, 9)),
-                    Style::default().fg(theme::rgb(team.color)),
-                ),
-                Span::styled(format!("{win:>3}{loss:>3}"), Style::default().fg(th.fg)),
-            ]));
-        }
-        lines.truncate(inner.height as usize);
-        frame.render_widget(Paragraph::new(lines), inner);
-    }
-
     /// Games shown as mosaic tiles. With no live games on a league tab the
     /// slate games fill the mosaic as tiles — never a blank pane — while the
     /// slate strip below still lists them departure-board style.
-    fn mosaic_games(&self) -> Vec<Game> {
+    pub(crate) fn mosaic_games(&self) -> Vec<Game> {
         match self.tab {
             Tab::Home => self.visible_games(),
             Tab::League(_) => {
@@ -736,141 +681,26 @@ impl App {
         self.clamp_selected();
     }
 
-    fn focused_game(&self) -> Option<Game> {
-        let id = self.focused_id.as_ref()?;
-        match self.tab {
-            Tab::Home => self.visible_games().into_iter().find(|g| g.id == *id),
-            Tab::League(league) => self
-                .boards
-                .get(&league)
-                .into_iter()
-                .flatten()
-                .find(|g| g.id == *id)
-                .cloned(),
-        }
+    /// The game the Zoom view is showing, looked up across every board so a
+    /// zoom opened from Home survives regardless of the tab it came from.
+    pub(crate) fn zoomed_game(&self) -> Option<Game> {
+        let View::Zoom { game_id, .. } = &self.view else {
+            return None;
+        };
+        self.game_by_id(game_id)
+    }
+
+    pub(crate) fn game_by_id(&self, id: &str) -> Option<Game> {
+        self.boards.values().flatten().find(|g| g.id == id).cloned()
     }
 
     /// Per-tile animation state: pure in (tick, flash table) so a dump at a
     /// fixed tick always renders the same frame.
-    fn tile_fx(&self, game: &Game) -> TileFx {
+    pub(crate) fn tile_fx(&self, game: &Game) -> TileFx {
         TileFx {
             flash: self.flash_active(&game.id),
             live_bright: live_pulse_bright(self.tick),
         }
-    }
-
-    fn draw_mosaic(&self, frame: &mut Frame, area: Rect) {
-        let th = theme::current();
-        if let Some(game) = self.focused_game() {
-            let fx = self.tile_fx(&game);
-            let one = [game];
-            for tile in pack(&one, area, LayoutPref::One, 0) {
-                render_tile(frame, tile.area, tile.game, tile.density, true, fx, self.config.score_style);
-            }
-            return;
-        }
-
-        let games = self.mosaic_games();
-        match self.tab {
-            // An active filter that matches nothing names the pattern instead
-            // of pretending the board is empty.
-            _ if games.is_empty() && self.active_filter().is_some() => {
-                let needle = self.active_filter().unwrap_or_default();
-                frame.render_widget(
-                    Paragraph::new(format!("no games match \"{needle}\" · esc clears"))
-                        .style(Style::default().fg(th.muted).bg(th.bg))
-                        .alignment(Alignment::Center),
-                    area,
-                );
-                return;
-            }
-            Tab::Home if games.is_empty() => {
-                frame.render_widget(
-                    Paragraph::new("pin a game from nfl (space) · t fav home")
-                        .style(Style::default().fg(th.muted).bg(th.bg))
-                        .alignment(Alignment::Center),
-                    area,
-                );
-                return;
-            }
-            Tab::League(_) if self.visible_games().is_empty() => {
-                frame.render_widget(
-                    Paragraph::new("next kickoff")
-                        .style(Style::default().fg(th.muted).bg(th.bg))
-                        .alignment(Alignment::Center),
-                    area,
-                );
-                return;
-            }
-            _ => {}
-        }
-
-        // on_key wraps the page, but the board can shrink between keys.
-        let page = self.page.min(self.page_count() - 1);
-        let packed = pack(&games, area, self.effective_layout(), page);
-        let start = packed
-            .first()
-            .and_then(|tile| games.iter().position(|g| g.id == tile.game.id))
-            .unwrap_or(0);
-        for (i, tile) in packed.iter().enumerate() {
-            // Mosaic tiles are the head of selection_list, so the page-global
-            // index start+i compares directly against self.selected.
-            let selected = start + i == self.selected;
-            render_tile(
-                frame,
-                tile.area,
-                tile.game,
-                tile.density,
-                selected,
-                self.tile_fx(tile.game),
-                self.config.score_style,
-            );
-        }
-    }
-
-    fn draw_slate(&self, frame: &mut Frame, area: Rect) {
-        let th = theme::current();
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(th.dim))
-            .title(Span::styled(
-                " SLATE ",
-                Style::default().fg(th.muted).add_modifier(Modifier::BOLD),
-            ));
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        // Selection continues past the live tiles into these rows; the
-        // selected row gets the same star accent as a selected tile border.
-        let live_len = self.live_games().len();
-        let sel = self
-            .selected
-            .checked_sub(live_len)
-            .filter(|_| self.focused_id.is_none());
-        let lines: Vec<Line> = self
-            .slate_games()
-            .iter()
-            .enumerate()
-            .map(|(i, g)| {
-                if Some(i) == sel {
-                    Line::from(vec![
-                        Span::styled("▸ ", Style::default().fg(th.star)),
-                        Span::styled(
-                            slate_line(g),
-                            Style::default().fg(th.star).add_modifier(Modifier::BOLD),
-                        ),
-                    ])
-                } else {
-                    Line::from(Span::styled(
-                        format!("  {}", slate_line(g)),
-                        Style::default().fg(th.muted),
-                    ))
-                }
-            })
-            .collect();
-        frame.render_widget(
-            Paragraph::new(lines).style(Style::default().bg(th.bg).fg(th.muted)),
-            inner,
-        );
     }
 
     /// Ticker content, alternated into two rows. No cap: overflow scrolls
@@ -979,10 +809,12 @@ impl App {
             );
             return;
         }
-        let focused = self.focused_id.is_some();
+        // Footer chords follow the view: the board advertises zoom + quit,
+        // every other view advertises the way back (and zoom its tab cycle).
+        let zoomed = self.view != View::Board;
         // Narrow terminals can't hold every chord: shed the low-value ones in
         // keymap's declared order so HELP and QUIT are never the ones clipped.
-        let mut chords = keymap::footer_chords(focused);
+        let mut chords = keymap::footer_chords(zoomed);
         // " /kc" steals footer columns, so it counts toward the shed budget.
         let filter_width = self.filter.as_ref().map_or(0, |f| f.chars().count() + 2);
         let chords_width = |cs: &[(&str, &str)]| -> usize {
@@ -1019,8 +851,8 @@ impl App {
         // Right side, dropped piecewise if the row runs out of columns:
         // GAME 3/8 goes first, PAGE and UPD stay.
         let mut right: Vec<String> = Vec::new();
-        if focused {
-            if let Some(g) = self.focused_game() {
+        if zoomed {
+            if let Some(g) = self.zoomed_game() {
                 right.push(format!("FOCUS {}@{}", g.away.abbr, g.home.abbr));
             }
         } else {
@@ -1030,7 +862,7 @@ impl App {
             }
         }
         let pages = self.page_count();
-        if pages > 1 && !focused {
+        if pages > 1 && !zoomed {
             right.push(format!("PAGE {}/{}", self.page.min(pages - 1) + 1, pages));
         }
         if let Some(upd) = self.last_update.map(|t| age_label(t.elapsed().as_secs())) {
@@ -1120,14 +952,6 @@ fn age_label(secs: u64) -> String {
     }
 }
 
-fn rule(width: usize) -> Line<'static> {
-    let th = theme::current();
-    Line::from(Span::styled(
-        "─".repeat(width),
-        Style::default().fg(th.dim),
-    ))
-}
-
 /// Blank cells between the tail and the wrapped head of a scrolling ticker
 /// row — enough of a gap to read as "the reel restarted".
 const MARQUEE_GAP: usize = 10;
@@ -1163,28 +987,6 @@ fn group_spans(cells: impl Iterator<Item = (char, Style)>) -> Vec<Span<'static>>
     out.into_iter()
         .map(|(text, style)| Span::styled(text, style))
         .collect()
-}
-
-/// Departure-board slate row (gegen's status grammar): the status token —
-/// start time or FINAL — is a fixed-width first column, then the matchup in
-/// aligned columns, so rows stack like a split-flap board.
-fn slate_line(game: &Game) -> String {
-    match game.status {
-        Status::Pre => format!(
-            "{:<9} {:>4} @ {:<4} {}",
-            game.start_time.as_deref().unwrap_or("--:--"),
-            game.away.abbr,
-            game.home.abbr,
-            game.broadcast.as_deref().unwrap_or(""),
-        )
-        .trim_end()
-        .to_string(),
-        Status::Final => format!(
-            "{:<9} {:>4} {:>3}  {:<4} {:>3}",
-            "FINAL", game.away.abbr, game.away_score, game.home.abbr, game.home_score
-        ),
-        Status::Live => String::new(),
-    }
 }
 
 #[cfg(test)]
@@ -1368,29 +1170,85 @@ mod tests {
     }
 
     #[test]
-    fn enter_focuses_and_esc_clears() {
+    fn enter_zooms_and_esc_pops() {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.tab = Tab::League(League::Nfl);
         app.on_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(app.focused_id.as_deref(), Some("1"));
+        assert_eq!(
+            app.view,
+            View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview }
+        );
         assert_eq!(app.effective_layout(), LayoutPref::One);
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert!(app.focused_id.is_none());
+        assert_eq!(app.view, View::Board);
         assert_eq!(app.effective_layout(), LayoutPref::Auto);
+        // 'z' aliases Enter, and 'z' inside the zoom restores the board.
+        app.on_key(KeyCode::Char('z'), KeyModifiers::NONE);
+        assert!(matches!(app.view, View::Zoom { .. }));
+        app.on_key(KeyCode::Char('z'), KeyModifiers::NONE);
+        assert_eq!(app.view, View::Board);
     }
 
     #[test]
-    fn tab_clears_focus_and_home_hides_unpinned() {
+    fn tab_pops_zoom_and_home_hides_unpinned() {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.config.enabled_tabs = vec![League::Nfl];
         app.tab = Tab::League(League::Nfl);
         app.on_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(app.focused_id.as_deref(), Some("1"));
+        assert!(matches!(app.view, View::Zoom { .. }));
         app.on_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.tab, Tab::Home);
-        assert!(app.focused_id.is_none());
+        assert_eq!(app.view, View::Board);
         let ids: Vec<_> = app.visible_games().into_iter().map(|g| g.id).collect();
         assert!(!ids.iter().any(|id| id == "1"));
+    }
+
+    #[test]
+    fn zoom_tabs_cycle_with_hl_and_brackets_and_jk_clamp() {
+        let mut game = g("1", "KC", "TB", true);
+        game.last_plays = vec![
+            Play { clock: "1:00".into(), team: "KC".into(), text: "a".into(), scoring: false },
+            Play { clock: "2:00".into(), team: "TB".into(), text: "b".into(), scoring: false },
+        ];
+        let mut app = app_with(vec![game], vec![]);
+        app.tab = Tab::League(League::Nfl);
+        app.on_key(KeyCode::Char('z'), KeyModifiers::NONE);
+        let tab_of = |app: &App| match &app.view {
+            View::Zoom { tab, .. } => *tab,
+            other => panic!("expected zoom, got {other:?}"),
+        };
+        app.on_key(KeyCode::Char('l'), KeyModifiers::NONE);
+        assert_eq!(tab_of(&app), ZoomTab::Plays);
+        app.on_key(KeyCode::Char(']'), KeyModifiers::NONE);
+        assert_eq!(tab_of(&app), ZoomTab::Stats);
+        app.on_key(KeyCode::Char(']'), KeyModifiers::NONE);
+        assert_eq!(tab_of(&app), ZoomTab::Overview, "wraps forward");
+        app.on_key(KeyCode::Char('h'), KeyModifiers::NONE);
+        assert_eq!(tab_of(&app), ZoomTab::Stats, "h/[ wrap backward");
+        app.on_key(KeyCode::Char('['), KeyModifiers::NONE);
+        assert_eq!(tab_of(&app), ZoomTab::Plays);
+        // j/k clamp to the feed: 2 plays => indices 0..=1, never past.
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(app.zoom_scroll, 1, "clamped at last play");
+        app.on_key(KeyCode::Char('k'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char('k'), KeyModifiers::NONE);
+        assert_eq!(app.zoom_scroll, 0, "clamped at first play");
+        // Switching tabs resets the highlight.
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char('l'), KeyModifiers::NONE);
+        assert_eq!(app.zoom_scroll, 0);
+    }
+
+    #[test]
+    fn placeholder_views_pop_with_esc_or_q() {
+        for key in [KeyCode::Esc, KeyCode::Char('q')] {
+            let mut app = app_with(vec![], vec![]);
+            app.view = View::PlaysFeed;
+            app.on_key(key, KeyModifiers::NONE);
+            assert_eq!(app.view, View::Board, "{key:?} pops the placeholder");
+            assert!(!app.should_quit, "{key:?} must not quit outside Board");
+        }
     }
 
     #[test]
@@ -1609,18 +1467,18 @@ mod tests {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.tab = Tab::League(League::Nfl);
         app.on_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert!(app.focused_id.is_some());
+        assert!(matches!(app.view, View::Zoom { .. }));
         app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
         assert!(app.help_open);
         // While help is open other bindings are inert.
         app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
         assert_eq!(app.selected, 0);
-        // Esc closes help FIRST; focus survives. A second Esc unfocuses.
+        // Esc closes help FIRST; the zoom survives. A second Esc pops it.
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
         assert!(!app.help_open);
-        assert!(app.focused_id.is_some(), "help closes before focus");
+        assert!(matches!(app.view, View::Zoom { .. }), "help closes before the view");
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert!(app.focused_id.is_none());
+        assert_eq!(app.view, View::Board);
         // '?' also closes it.
         app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
         app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);

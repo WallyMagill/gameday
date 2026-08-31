@@ -108,16 +108,19 @@ fn help_overlay_lists_every_group_and_the_hidden_chords() {
 }
 
 #[test]
-fn focused_footer_shows_back_and_the_focused_game() {
+fn zoomed_footer_shows_back_and_the_zoomed_game() {
+    use gameday::views::{View, ZoomTab};
     let mut app = mk();
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.tab = Tab::League(League::Nfl);
-    app.focused_id = Some("1".into());
+    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("[ESC] BACK"), "{s}");
-    assert!(!s.contains("[ENTER] FOCUS"), "{s}");
+    assert!(!s.contains("[Z] ZOOM"), "{s}");
+    // 'q' pops here instead of quitting, so QUIT is not advertised.
+    assert!(!s.contains("[Q] QUIT"), "{s}");
     assert!(s.contains("FOCUS KC@TB"), "{s}");
 }
 
@@ -237,12 +240,13 @@ fn stale_flag_in_header() {
 }
 
 #[test]
-fn focused_pre_game_on_nfl_tab_fills_mosaic() {
+fn zoomed_pre_game_on_nfl_tab_fills_the_body() {
+    use gameday::views::{View, ZoomTab};
     let mut app = mk();
     app.config.score_style = gameday::tiles::ScoreStyle::Compact;
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", false)], false);
     app.tab = Tab::League(League::Nfl);
-    app.focused_id = Some("1".into());
+    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
@@ -337,6 +341,122 @@ fn filter_matching_nothing_names_the_pattern() {
         s.contains("no games match \"zzz\""),
         "empty filter result must name the pattern: {s}"
     );
+}
+
+#[test]
+fn z_zooms_the_selected_game_and_shows_the_tab_bar() {
+    use gameday::views::{View, ZoomTab};
+    use ratatui::style::Style;
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    gameday::input::handle_key(
+        &mut app,
+        crossterm::event::KeyCode::Char('z'),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    assert_eq!(
+        app.view,
+        View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview }
+    );
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("OVERVIEW │ PLAYS │ STATS"), "tab bar missing:\n{s}");
+    // OVERVIEW is highlighted: its cells are styled unlike the idle PLAYS tab.
+    let b = t.backend().buffer();
+    let (mut over_style, mut plays_style) = (None::<Style>, None::<Style>);
+    let area = b.area();
+    for y in 0..area.height {
+        let row: String = (0..area.width).map(|x| b[(x, y)].symbol()).collect::<Vec<_>>().join("");
+        if let Some(ox) = row.find("OVERVIEW") {
+            let px = row.find("PLAYS").expect("PLAYS on the same row");
+            over_style = Some(b[(ox as u16, y)].style());
+            plays_style = Some(b[(px as u16, y)].style());
+            break;
+        }
+    }
+    assert_ne!(
+        over_style.expect("OVERVIEW cell"),
+        plays_style.expect("PLAYS cell"),
+        "active tab must be visually highlighted"
+    );
+}
+
+#[test]
+fn l_cycles_to_the_plays_tab_and_jk_move_the_highlight() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::{View, ZoomTab};
+    let mut app = mk();
+    let mut game = g("1", "KC", "TB", true);
+    game.last_plays = vec![
+        Play {
+            clock: "1:27".into(),
+            team: "KC".into(),
+            text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
+            scoring: true,
+        },
+        Play {
+            clock: "2:05".into(),
+            team: "TB".into(),
+            text: "Evans 8 yard reception".into(),
+            scoring: false,
+        },
+    ];
+    app.apply_boards(League::Nfl, vec![game], false);
+    app.tab = Tab::League(League::Nfl);
+    gameday::input::handle_key(&mut app, KeyCode::Char('z'), KeyModifiers::NONE);
+    gameday::input::handle_key(&mut app, KeyCode::Char('l'), KeyModifiers::NONE);
+    assert_eq!(
+        app.view,
+        View::Zoom { game_id: "1".into(), tab: ZoomTab::Plays }
+    );
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    // The full feed reuses the game's last_plays.
+    assert!(s.contains("Mahomes pass to Kelce"), "{s}");
+    assert!(s.contains("Evans 8 yard reception"), "{s}");
+    assert!(s.contains("▸"), "highlight marker missing: {s}");
+    assert_eq!(app.zoom_scroll, 0);
+    gameday::input::handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(app.zoom_scroll, 1, "j moves the highlight");
+    gameday::input::handle_key(&mut app, KeyCode::Char('k'), KeyModifiers::NONE);
+    assert_eq!(app.zoom_scroll, 0, "k moves it back");
+    // ']' cycles tabs too: Plays -> Stats.
+    gameday::input::handle_key(&mut app, KeyCode::Char(']'), KeyModifiers::NONE);
+    assert_eq!(
+        app.view,
+        View::Zoom { game_id: "1".into(), tab: ZoomTab::Stats }
+    );
+}
+
+#[test]
+fn esc_pops_zoom_back_to_board() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    gameday::input::handle_key(&mut app, KeyCode::Char('z'), KeyModifiers::NONE);
+    assert!(matches!(app.view, View::Zoom { .. }));
+    gameday::input::handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+    assert_eq!(app.view, View::Board);
+}
+
+#[test]
+fn q_in_zoom_pops_instead_of_quitting() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    gameday::input::handle_key(&mut app, KeyCode::Char('z'), KeyModifiers::NONE);
+    gameday::input::handle_key(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
+    assert_eq!(app.view, View::Board, "q pops the zoom");
+    assert!(!app.should_quit, "q must not quit outside the Board view");
+    gameday::input::handle_key(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
+    assert!(app.should_quit, "q on the Board quits");
 }
 
 #[test]

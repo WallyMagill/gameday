@@ -7,6 +7,7 @@ use crate::command::{self, Cmd};
 use crate::config::{save_pins, Pin};
 use crate::domain::League;
 use crate::theme;
+use crate::views::View;
 use crossterm::event::{KeyCode, KeyModifiers};
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -141,20 +142,23 @@ fn cycle_completion(app: &mut App) {
     app.completion = Some(CompletionState { stem, idx });
 }
 
-/// Apply a parsed command to the app. View-opening commands whose views land
-/// later in this plan report that honestly instead of silently no-opping.
+/// Apply a parsed command to the app. PlaysFeed/Standings/ConfigView render
+/// placeholders until their tasks in this plan land.
 fn apply(app: &mut App, cmd: Cmd) {
     match cmd {
         Cmd::GoLeague(league) => go_league(app, league),
         Cmd::GoHome => app.set_tab(Tab::Home),
-        // Task 3 introduces the View enum these route into.
-        Cmd::Plays => app.status_line = Some("plays view not built yet (coming in v2)".into()),
-        Cmd::Standings(_) => {
-            app.status_line = Some("standings view not built yet (coming in v2)".into())
+        Cmd::Plays => app.view = View::PlaysFeed,
+        // `:standings` with no league: the current tab's league, or NFL from
+        // Home (the plan's Task 6 contract).
+        Cmd::Standings(league) => {
+            let league = league.unwrap_or(match app.tab {
+                Tab::League(l) => l,
+                Tab::Home => League::Nfl,
+            });
+            app.view = View::Standings(league);
         }
-        Cmd::ConfigView => {
-            app.status_line = Some("config view not built yet (coming in v2)".into())
-        }
+        Cmd::ConfigView => app.view = View::ConfigView,
         Cmd::Theme(name) => {
             theme::set_current(name);
             app.config.theme = name.as_str().to_string();
