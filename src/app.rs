@@ -150,6 +150,11 @@ pub struct App {
     /// Set when a banner starts; main consumes it to write the terminal
     /// bell (`\x07`) — App never touches stdout itself.
     pub bell_pending: bool,
+    /// Clickable regions, rebuilt from scratch on every draw by whichever
+    /// view rendered (tiles, tab chips, slate rows, zoom tabs). A click
+    /// resolves against the LAST frame's zones — stale for at most one
+    /// render tick.
+    pub hit_zones: Vec<(Rect, keymap::Hit)>,
 }
 
 impl App {
@@ -185,6 +190,51 @@ impl App {
             alerts: crate::alerts::AlertState::default(),
             active_alert: None,
             bell_pending: false,
+            hit_zones: Vec::new(),
+        }
+    }
+
+    /// The registered hit under `pos`, last-drawn zone winning (later
+    /// registrations sit on top of earlier ones).
+    pub fn hit_at(&self, pos: ratatui::layout::Position) -> Option<keymap::Hit> {
+        self.hit_zones
+            .iter()
+            .rev()
+            .find(|(rect, _)| rect.contains(pos))
+            .map(|(_, hit)| *hit)
+    }
+
+    /// Apply one resolved mouse gesture. Clicks mirror the keyboard verbs
+    /// (select, switch tab); the wheel scrolls whatever j/k scrolls in the
+    /// current view.
+    pub fn on_hit(&mut self, hit: keymap::Hit) {
+        use keymap::Hit;
+        match hit {
+            Hit::Tile(i) => {
+                self.selected = i;
+                self.clamp_selected();
+            }
+            Hit::SlateRow(i) => {
+                self.selected = self.live_games().len() + i;
+                self.clamp_selected();
+            }
+            Hit::TabChip(tab) => self.set_tab(tab),
+            Hit::ZoomTab(t) => {
+                if let View::Zoom { tab, .. } = &mut self.view {
+                    *tab = t;
+                    self.zoom_scroll = 0;
+                }
+            }
+            Hit::ScrollUp | Hit::ScrollDown => {
+                let delta = if hit == Hit::ScrollUp { -1 } else { 1 };
+                match self.view {
+                    View::Board => self.move_selected(delta),
+                    View::Zoom { .. } => self.move_zoom_scroll(delta),
+                    View::PlaysFeed => self.move_feed_scroll(delta),
+                    View::Standings(_) => self.move_standings_scroll(delta),
+                    View::ConfigView => {}
+                }
+            }
         }
     }
 
@@ -779,6 +829,9 @@ impl App {
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
+        // Mouse zones are rebuilt from scratch every frame: whatever this
+        // draw doesn't register is not clickable.
+        self.hit_zones.clear();
         let th = theme::current();
         let area = frame.area();
         frame.render_widget(
@@ -814,7 +867,7 @@ impl App {
         }
     }
 
-    fn draw_header(&self, frame: &mut Frame, area: Rect) {
+    fn draw_header(&mut self, frame: &mut Frame, area: Rect) {
         let th = theme::current();
         let mut spans = vec![
             Span::styled(
@@ -828,20 +881,33 @@ impl App {
                 Tab::Home => "ALL".to_string(),
                 Tab::League(league) => league.slug().to_uppercase(),
             };
-            if tab == self.tab {
-                spans.push(Span::styled(
+            let chip = if tab == self.tab {
+                Span::styled(
                     format!("[{label}]"),
                     Style::default()
                         .fg(th.bg)
                         .bg(th.star)
                         .add_modifier(Modifier::BOLD),
-                ));
+                )
             } else {
-                spans.push(Span::styled(
-                    format!("[ {label} ]"),
-                    Style::default().fg(th.muted),
+                Span::styled(format!("[ {label} ]"), Style::default().fg(th.muted))
+            };
+            // Register the chip as a click zone at its rendered columns (the
+            // header is all single-width chars, so chars == cells).
+            let x: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+            let w = chip.content.chars().count();
+            if x + w <= area.width as usize {
+                self.hit_zones.push((
+                    Rect {
+                        x: area.x + x as u16,
+                        y: area.y,
+                        width: w as u16,
+                        height: 1,
+                    },
+                    keymap::Hit::TabChip(tab),
                 ));
             }
+            spans.push(chip);
             spans.push(Span::raw(" "));
         }
         if self.stale {

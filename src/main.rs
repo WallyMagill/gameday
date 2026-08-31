@@ -4,7 +4,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -370,7 +370,7 @@ struct RestoreTerminal;
 
 impl Drop for RestoreTerminal {
     fn drop(&mut self) {
-        let _ = execute!(stdout(), LeaveAlternateScreen);
+        let _ = execute!(stdout(), DisableMouseCapture, LeaveAlternateScreen);
         let _ = disable_raw_mode();
     }
 }
@@ -401,7 +401,7 @@ fn run_ui(
     let mut last_dated_target: Option<(League, time::Date)> = None;
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
-    execute!(stdout(), EnterAlternateScreen)?;
+    execute!(stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let mut last_err: Option<std::io::Error> = None;
     let mut last_tick = Instant::now();
@@ -453,6 +453,10 @@ fn run_ui(
             match event::read()? {
                 Event::Key(k) if k.kind == KeyEventKind::Press => {
                     gameday::input::handle_key(&mut app, k.code, k.modifiers);
+                    needs_draw = true;
+                }
+                Event::Mouse(m) => {
+                    gameday::keymap::on_mouse(&mut app, m);
                     needs_draw = true;
                 }
                 Event::Resize(_, _) => needs_draw = true,

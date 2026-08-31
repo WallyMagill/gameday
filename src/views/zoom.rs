@@ -15,7 +15,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-pub fn draw(app: &App, frame: &mut Frame, area: Rect, game_id: &str, tab: ZoomTab) {
+pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, game_id: &str, tab: ZoomTab) {
     let th = theme::current();
     let Some(game) = app.game_by_id(game_id) else {
         // The zoomed game left every board (final pruned, feed hiccup).
@@ -31,7 +31,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect, game_id: &str, tab: ZoomTa
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
-    draw_tab_bar(frame, chunks[0], &game, tab);
+    draw_tab_bar(app, frame, chunks[0], &game, tab);
     match tab {
         ZoomTab::Overview => draw_overview(app, frame, chunks[1], &game),
         ZoomTab::Plays => draw_plays(app, frame, chunks[1], &game),
@@ -40,8 +40,9 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect, game_id: &str, tab: ZoomTa
 }
 
 /// `OVERVIEW │ PLAYS │ STATS` — active tab in the same chip style as the
-/// active league tab; matchup + score right-aligned for orientation.
-fn draw_tab_bar(frame: &mut Frame, area: Rect, game: &Game, active: ZoomTab) {
+/// active league tab; matchup + score right-aligned for orientation. Each
+/// label registers a click zone that switches to its tab.
+fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: Rect, game: &Game, active: ZoomTab) {
     let th = theme::current();
     let mut spans = vec![Span::raw(" ")];
     for (i, tab) in ZoomTab::ALL.into_iter().enumerate() {
@@ -53,6 +54,19 @@ fn draw_tab_bar(frame: &mut Frame, area: Rect, game: &Game, active: ZoomTab) {
         } else {
             Style::default().fg(th.muted)
         };
+        let x: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        let w = tab.label().chars().count();
+        if x + w <= area.width as usize {
+            app.hit_zones.push((
+                Rect {
+                    x: area.x + x as u16,
+                    y: area.y,
+                    width: w as u16,
+                    height: 1,
+                },
+                crate::keymap::Hit::ZoomTab(tab),
+            ));
+        }
         spans.push(Span::styled(tab.label(), style));
     }
     let right = format!(
@@ -88,8 +102,8 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
 }
 
 /// Full play feed for this game (its `last_plays`, newest first as mapped);
-/// `app.zoom_scroll` is the highlighted row, kept on screen by a simple
-/// scroll window. Wheel scrolling arrives with mouse support (Task 9).
+/// `app.zoom_scroll` is the highlighted row (j/k or the mouse wheel), kept
+/// on screen by a simple scroll window.
 fn draw_plays(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     let th = theme::current();
     if game.last_plays.is_empty() {

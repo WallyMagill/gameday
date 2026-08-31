@@ -852,3 +852,169 @@ fn pre_tile_and_slate_show_odds() {
     // Once on the mosaic tile, once on the slate row.
     assert!(s.matches("O/U 47.5").count() >= 2, "{s}");
 }
+
+// ---- Task 9: mouse support -------------------------------------------------
+
+/// Synthetic left click at (x, y), routed through the real mouse handler.
+fn click(app: &mut App, x: u16, y: u16) {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    gameday::keymap::on_mouse(
+        app,
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: x,
+            row: y,
+            modifiers: KeyModifiers::NONE,
+        },
+    );
+}
+
+/// Synthetic wheel event (up = toward row 0).
+fn wheel(app: &mut App, up: bool) {
+    use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+    gameday::keymap::on_mouse(
+        app,
+        MouseEvent {
+            kind: if up {
+                MouseEventKind::ScrollUp
+            } else {
+                MouseEventKind::ScrollDown
+            },
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        },
+    );
+}
+
+/// The registered zone for `hit`, from the last draw.
+fn zone_for(app: &App, hit: gameday::keymap::Hit) -> ratatui::layout::Rect {
+    app.hit_zones
+        .iter()
+        .find(|(_, h)| *h == hit)
+        .map(|(r, _)| *r)
+        .unwrap_or_else(|| panic!("no zone registered for {hit:?}: {:?}", app.hit_zones))
+}
+
+#[test]
+fn clicking_a_tile_selects_it() {
+    use gameday::keymap::Hit;
+    let mut app = mk();
+    app.apply_boards(
+        League::Nfl,
+        vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
+        false,
+    );
+    app.tab = Tab::League(League::Nfl);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    assert_eq!(app.selected, 0);
+    let zone = zone_for(&app, Hit::Tile(1));
+    click(&mut app, zone.x + zone.width / 2, zone.y + zone.height / 2);
+    assert_eq!(app.selected, 1, "click on the second tile selects it");
+    // A click outside every zone (the footer row) changes nothing.
+    click(&mut app, 0, 23);
+    assert_eq!(app.selected, 1);
+}
+
+#[test]
+fn clicking_a_header_tab_chip_switches_tabs() {
+    use gameday::keymap::Hit;
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    assert_eq!(app.tab, Tab::Home);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let zone = zone_for(&app, Hit::TabChip(Tab::League(League::Nfl)));
+    // While help is open the board is modal: clicks are inert.
+    app.help_open = true;
+    click(&mut app, zone.x, zone.y);
+    assert_eq!(app.tab, Tab::Home, "clicks are inert under the help overlay");
+    app.help_open = false;
+    click(&mut app, zone.x, zone.y);
+    assert_eq!(app.tab, Tab::League(League::Nfl));
+}
+
+#[test]
+fn clicking_a_slate_row_selects_it() {
+    use gameday::keymap::Hit;
+    let mut app = mk();
+    app.apply_boards(
+        League::Nfl,
+        vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", false)],
+        false,
+    );
+    app.tab = Tab::League(League::Nfl);
+    // 120x36 keeps the slate strip visible (it needs >= 24 body rows).
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let zone = zone_for(&app, Hit::SlateRow(0));
+    click(&mut app, zone.x + 2, zone.y);
+    // Selection list = live tiles first, then slate rows: 1 live + row 0.
+    assert_eq!(app.selected, 1, "slate row 0 is selection index 1");
+}
+
+#[test]
+fn clicking_a_zoom_tab_switches_it() {
+    use gameday::keymap::Hit;
+    use gameday::views::{View, ZoomTab};
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
+    app.zoom_scroll = 3;
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let zone = zone_for(&app, Hit::ZoomTab(ZoomTab::Stats));
+    click(&mut app, zone.x, zone.y);
+    assert_eq!(
+        app.view,
+        View::Zoom {
+            game_id: "1".into(),
+            tab: ZoomTab::Stats,
+        }
+    );
+    assert_eq!(app.zoom_scroll, 0, "switching tabs resets the scroll");
+}
+
+#[test]
+fn wheel_scrolls_the_plays_feed_and_clamps() {
+    use gameday::views::View;
+    let mut app = mk();
+    let mut nfl = g("1", "KC", "TB", true);
+    nfl.last_plays = vec![Play {
+        clock: "1:27".into(),
+        team: "KC".into(),
+        text: "Mahomes to Kelce, 12 yd".into(),
+        scoring: true,
+    }];
+    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
+    app.view = View::PlaysFeed;
+    assert_eq!(app.feed_scroll, 0);
+    wheel(&mut app, false);
+    assert_eq!(app.feed_scroll, 1, "wheel down moves the marker down");
+    wheel(&mut app, false);
+    assert_eq!(app.feed_scroll, 1, "clamped at the bottom (2 rows)");
+    wheel(&mut app, true);
+    assert_eq!(app.feed_scroll, 0, "wheel up moves it back");
+    wheel(&mut app, true);
+    assert_eq!(app.feed_scroll, 0, "clamped at the top");
+}
+
+#[test]
+fn wheel_on_the_board_moves_the_selection() {
+    let mut app = mk();
+    app.apply_boards(
+        League::Nfl,
+        vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
+        false,
+    );
+    app.tab = Tab::League(League::Nfl);
+    wheel(&mut app, false);
+    assert_eq!(app.selected, 1);
+    wheel(&mut app, true);
+    assert_eq!(app.selected, 0);
+}

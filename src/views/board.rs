@@ -14,7 +14,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
+pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
     let main = if area.width >= 100 {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
@@ -136,7 +136,7 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn draw_mosaic(app: &App, frame: &mut Frame, area: Rect) {
+fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
     let th = theme::current();
     let games = app.mosaic_games();
     match app.tab {
@@ -193,10 +193,13 @@ fn draw_mosaic(app: &App, frame: &mut Frame, area: Rect) {
             app.tile_fx(tile.game),
             app.config.score_style,
         );
+        // A click anywhere on the tile selects it (same index space as j/k).
+        app.hit_zones
+            .push((tile.area, crate::keymap::Hit::Tile(start + i)));
     }
 }
 
-fn draw_slate(app: &App, frame: &mut Frame, area: Rect) {
+fn draw_slate(app: &mut App, frame: &mut Frame, area: Rect) {
     let th = theme::current();
     let block = Block::default()
         .borders(Borders::ALL)
@@ -243,6 +246,20 @@ fn draw_slate(app: &App, frame: &mut Frame, area: Rect) {
             Line::from(spans)
         })
         .collect();
+    // Each rendered slate row is a click zone; the row index is relative to
+    // the slate (on_hit re-adds the live-tile prefix).
+    let visible_rows = app.slate_games().len().min(inner.height as usize);
+    for i in 0..visible_rows {
+        app.hit_zones.push((
+            Rect {
+                x: inner.x,
+                y: inner.y + i as u16,
+                width: inner.width,
+                height: 1,
+            },
+            crate::keymap::Hit::SlateRow(i),
+        ));
+    }
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().bg(th.bg).fg(th.muted)),
         inner,

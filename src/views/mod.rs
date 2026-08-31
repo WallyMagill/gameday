@@ -59,13 +59,16 @@ impl ZoomTab {
     }
 }
 
-/// Render the current view's body into `area`.
-pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
-    match &app.view {
+/// Render the current view's body into `area`. `app` is mutable so views can
+/// register their mouse hit zones while they draw (state itself is read-only
+/// here — drawing must never change what is drawn).
+pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
+    // Cloned so the borrow of `app.view` doesn't pin `app` across the call.
+    match app.view.clone() {
         View::Board => board::draw(app, frame, area),
-        View::Zoom { game_id, tab } => zoom::draw(app, frame, area, game_id, *tab),
+        View::Zoom { game_id, tab } => zoom::draw(app, frame, area, &game_id, tab),
         View::PlaysFeed => plays_feed::draw(app, frame, area),
-        View::Standings(league) => standings::draw(app, frame, area, *league),
+        View::Standings(league) => standings::draw(app, frame, area, league),
         View::ConfigView => placeholder(frame, area, "CONFIG"),
     }
 }

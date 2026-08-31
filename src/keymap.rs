@@ -1,6 +1,55 @@
 //! Single source of truth for every key binding. This one table generates
 //! BOTH the footer chord list and the help overlay, so they cannot drift:
 //! adding a binding here is the only way it becomes visible anywhere.
+//!
+//! Mouse support lives here too: views register `(Rect, Hit)` zones while
+//! they draw, and [`on_mouse`] resolves a click against them (wheel events
+//! scroll the current view without needing a zone).
+
+use crate::app::{App, Tab};
+use crate::views::ZoomTab;
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::Position;
+
+/// What a mouse gesture resolved to. Clicks come from the hit zones the last
+/// draw registered; wheel events map straight to Scroll and let the current
+/// view decide what scrolls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hit {
+    /// Select mosaic tile at this selection-list index.
+    Tile(usize),
+    /// Switch to this header tab.
+    TabChip(Tab),
+    /// Select slate row `i` (selection index = live tiles + i).
+    SlateRow(usize),
+    /// Switch the zoomed view to this tab.
+    ZoomTab(ZoomTab),
+    ScrollUp,
+    ScrollDown,
+}
+
+/// Route one mouse event: left click hit-tests the zones the last draw
+/// registered; the wheel scrolls whatever the current view scrolls with j/k.
+/// Inert while the help overlay is open — help is modal for clicks too.
+pub fn on_mouse(app: &mut App, ev: MouseEvent) {
+    if app.help_open {
+        return;
+    }
+    match ev.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            let pos = Position {
+                x: ev.column,
+                y: ev.row,
+            };
+            if let Some(hit) = app.hit_at(pos) {
+                app.on_hit(hit);
+            }
+        }
+        MouseEventKind::ScrollUp => app.on_hit(Hit::ScrollUp),
+        MouseEventKind::ScrollDown => app.on_hit(Hit::ScrollDown),
+        _ => {}
+    }
+}
 
 /// Help-overlay section a binding belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,7 +1,7 @@
 //! Global scoring feed (`:plays`): one row per scoring play across every
 //! enabled board — `[chip] clock ABBR WORD text  matchup score` — newest
-//! first as the boards report them. j/k and PgUp/PgDn move the ▸ highlight;
-//! the window follows it. Wheel scrolling arrives with mouse support.
+//! first as the boards report them. j/k, PgUp/PgDn, and the mouse wheel move
+//! the ▸ highlight; the window follows it.
 
 use crate::app::App;
 use crate::domain::{Game, Play};
