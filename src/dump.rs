@@ -771,6 +771,34 @@ mod tests {
     }
 
     #[test]
+    fn tick_zero_board_shows_all_four_inline_meters_at_every_size() {
+        // 2x2 at 120x36, the 80x24 narrow board, and the zoom overview all
+        // carry the gauge row: label at the left, value tail intact.
+        let needles: [(&str, &str); 4] = [
+            ("RED ZONE", "3 TO GOAL"),
+            ("LEAD", "DEN +7"),
+            ("BASES", "COUNT 1-2"),
+            ("PENALTY", "0:42"),
+        ];
+        let wide = text_of(&render_variant(&variant("board-broadcast"), 0).unwrap());
+        for (label, tail) in needles {
+            let row = wide.lines().find(|l| l.contains(label) && l.contains(tail));
+            assert!(row.is_some(), "120x36 board: no row with {label:?} … {tail:?}:\n{wide}");
+        }
+        let narrow = text_of(&render_variant(&variant("narrow"), 0).unwrap());
+        for (label, tail) in [("RED ZONE", "TO GOAL"), ("LEAD", "DEN +7"), ("BASES", "1-2"), ("PENALTY", "0:42")] {
+            let row = narrow.lines().find(|l| l.contains(label) && l.contains(tail));
+            assert!(row.is_some(), "80x24 board: no row with {label:?} … {tail:?}:\n{narrow}");
+        }
+        let focus = text_of(&render_variant(&variant("focus"), 0).unwrap());
+        assert!(
+            focus.lines().any(|l| l.contains("RED ZONE") && l.contains("3 TO GOAL")),
+            "zoom overview: red zone row missing:\n{focus}"
+        );
+        assert!(!wide.contains('┃') && !focus.contains('┃'), "the meter column is gone");
+    }
+
+    #[test]
     fn default_dump_uses_big_scores_and_shows_the_shot_clock_chip() {
         let th = theme::current();
         let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0, ScoreStyle::default()).unwrap();

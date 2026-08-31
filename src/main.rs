@@ -25,8 +25,8 @@ struct Args {
     dump: bool,
     /// `dump --tick N`: capture the demo simulation at tick N (default 0).
     tick: u64,
-    /// `dump --style-lab`: render the throwaway style variants (meter-a/b/c,
-    /// ticker-a/b/c) instead of the gallery.
+    /// `dump --style-lab`: render the throwaway style variants (ticker-a/b/c)
+    /// instead of the gallery.
     style_lab: bool,
     /// `probe <league>`: fetch + map one real scoreboard and print it. Dev-only.
     probe: Option<String>,

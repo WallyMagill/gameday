@@ -42,14 +42,25 @@ impl Default for TileFx {
 }
 
 const LOGO_W: u16 = 10;
-const METER_W: u16 = 9;
 const IDENTITY_H: u16 = 6;
 /// Identity rows in the focus view when the full-size (8-row) digits fit:
 /// 8 digit rows + gap + names row.
 const IDENTITY_FULL_H: u16 = 10;
-/// Meter gauge height cap: past this the ticks spread so far apart the gauge
-/// stops reading as one object (seen in the 28-row focus view).
-const METER_MAX_H: u16 = 12;
+/// Narrowest track the RED ZONE / LEAD gauges draw: at 8 cells the red-zone
+/// marker moves every ~2.5 yards and a ±2 lead visibly leaves center. A
+/// by-eye pick, not a measurement — the row's value tag shortens before the
+/// track is allowed to drop below it.
+const METER_MIN_BAR: usize = 8;
+/// Longest RED ZONE / LEAD track. The 2x2 board draws ~20 cells; at the zoom
+/// view's 100+ a 20-yard gauge stops reading as a gauge (and sat on top of
+/// the full-width drive bar as a near-duplicate). By eye.
+const METER_MAX_BAR: usize = 40;
+/// Longest penalty countdown bar: past 20 cells (6 s per cell for a minor)
+/// the drain reads as a progress bar rather than a clock. By eye.
+const PENALTY_BAR_MAX: usize = 20;
+/// The minor penalty the countdown bar is scaled to (2:00 by rule; a major
+/// shows as a full bar until it is inside its last two minutes).
+const PENALTY_MINOR_SECS: u16 = 120;
 
 pub fn render_tile(
     frame: &mut Frame,
@@ -122,29 +133,29 @@ pub fn render_tile(
         && score_style == ScoreStyle::Big
         && inner.height >= IDENTITY_FULL_H + 8;
     let id_h = if full_digits { IDENTITY_FULL_H } else { IDENTITY_H };
+    // Meter B: one gauge row under the identity block, before momentum; no
+    // meter (soccer, no data) and the plays feed gets the line instead.
+    let meter = meter_line(game, inner.width as usize);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(id_h), Constraint::Min(1)])
+        .constraints([
+            Constraint::Length(id_h),
+            Constraint::Length(u16::from(meter.is_some())),
+            Constraint::Min(1),
+        ])
         .split(inner);
     match score_style {
         ScoreStyle::Big => render_identity_big(frame, rows[0], game, fx.flash, full_digits),
         ScoreStyle::Compact => render_identity(frame, rows[0], game, fx.flash),
     }
-
-    let lower = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(10), Constraint::Length(METER_W)])
-        .split(rows[1]);
-    if density == Density::Full {
-        render_focus_body(frame, lower[0], game);
-    } else {
-        render_lower_left(frame, lower[0], game);
+    if let Some(line) = meter {
+        frame.render_widget(Paragraph::new(line), rows[1]);
     }
-    let meter_area = Rect {
-        height: lower[1].height.min(METER_MAX_H),
-        ..lower[1]
-    };
-    render_meter(frame, meter_area, game);
+    if density == Density::Full {
+        render_focus_body(frame, rows[2], game);
+    } else {
+        render_lower_left(frame, rows[2], game);
+    }
 }
 
 /// Situation string on the top border, right side.
@@ -382,6 +393,12 @@ fn render_short(frame: &mut Frame, inner: Rect, game: &Game, flash: bool, style:
     if y < inner.bottom() {
         render_name_row(frame, row(y), game);
         y += 1;
+    }
+    if y < inner.bottom() {
+        if let Some(line) = meter_line(game, inner.width as usize) {
+            frame.render_widget(Paragraph::new(line), row(y));
+            y += 1;
+        }
     }
     if y < inner.bottom() {
         frame.render_widget(momentum_line(game).alignment(Alignment::Center), row(y));
@@ -665,119 +682,148 @@ fn momentum_line(game: &Game) -> Paragraph<'static> {
     ]))
 }
 
-fn render_meter(frame: &mut Frame, area: Rect, game: &Game) {
+/// Meter B: the one-row inline gauge under the identity block. `None` when
+/// the game carries no meter (soccer, pre/final, no data) — the caller gives
+/// the row to the plays feed. Every row is `LABEL  track  VALUE`, left
+/// aligned with the ` LAST PLAYS` caption; labels take the section-label
+/// discipline, RED ZONE stays the earned live red, and the value tag
+/// shortens rather than let the track fall under [`METER_MIN_BAR`] or the
+/// row clip at the border.
+fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
     let th = theme::current();
-    let Some(meter) = &game.meter else { return };
-    // Meter captions are section labels; RED ZONE below is the earned live
-    // red and stays regardless.
-    let accent = th.section_label(th.league_accent(game.league));
-    let label_style = Style::default().fg(accent).add_modifier(Modifier::BOLD);
-    let mut lines: Vec<Line> = Vec::new();
-    match meter {
+    let meter = game.meter.as_ref()?;
+    let label_style = Style::default()
+        .fg(th.section_label(th.league_accent(game.league)))
+        .add_modifier(Modifier::BOLD);
+    let muted = Style::default().fg(th.muted);
+    let dim = Style::default().fg(th.dim);
+    let bright = Style::default().fg(th.bright).add_modifier(Modifier::BOLD);
+    let live = Style::default().fg(th.live);
+    let live_bold = live.add_modifier(Modifier::BOLD);
+    let width_of = |spans: &[Span]| -> usize { spans.iter().map(|s| s.width()).sum() };
+    let spans: Vec<Span<'static>> = match meter {
         Meter::RedZone { yards_to_goal } => {
-            lines.push(Line::from(Span::styled("RED ZONE", Style::default().fg(th.live).add_modifier(Modifier::BOLD))));
-            let h = area.height.saturating_sub(1).max(1);
-            // Gauge: 20 yards at the top, goal line at the bottom.
-            let pos = ((20u16.saturating_sub(*yards_to_goal as u16)) * (h - 1).max(1) / 20).min(h - 1);
-            for i in 0..h {
-                let (sym, style) = if i == pos {
-                    ("──█──", Style::default().fg(th.live).add_modifier(Modifier::BOLD))
-                } else {
-                    ("  ┃  ", Style::default().fg(th.dim))
-                };
-                let tag = match i {
-                    i if i == h / 2 => " 10",
-                    i if i == h - 1 => " G",
-                    _ => "",
-                };
-                lines.push(Line::from(vec![
-                    Span::styled(sym.to_string(), style),
-                    Span::styled(tag.to_string(), Style::default().fg(th.muted)),
-                ]));
-            }
+            // Track runs the 20 → G, marker at the ball.
+            let ytg = usize::from(*yards_to_goal).min(20);
+            let label = " RED ZONE  ";
+            let goal = "  G";
+            let long = format!("   {ytg} TO GOAL");
+            let short = format!("  {ytg} YD");
+            let fixed = label.len() + goal.len();
+            let value = if width >= fixed + long.len() + METER_MIN_BAR { long } else { short };
+            let bar_w = width.saturating_sub(fixed + value.len()).clamp(2, METER_MAX_BAR);
+            let filled = (bar_w - 1) * (20 - ytg) / 20;
+            vec![
+                Span::styled(label, live_bold),
+                Span::styled("━".repeat(filled), live),
+                Span::styled("●", live_bold),
+                Span::styled("─".repeat(bar_w - 1 - filled), dim),
+                Span::styled(goal, muted),
+                Span::styled(value, bright),
+            ]
         }
         Meter::Lead { plus_minus } => {
-            lines.push(Line::from(Span::styled("LEAD", label_style)));
-            lines.push(Line::from(Span::styled("METER", label_style)));
-            let h = area.height.saturating_sub(2).max(3);
-            let span = 15i32;
-            let pm = (*plus_minus as i32).clamp(-span, span);
-            let pos = ((span - pm) * (h as i32 - 1) / (2 * span)) as u16;
-            for i in 0..h {
-                let tag = match i {
-                    0 => "+15",
-                    i if i == h / 2 => "  0",
-                    i if i == h - 1 => "-15",
-                    _ => "",
-                };
-                let (sym, style) = if i == pos {
-                    ("─█─", Style::default().fg(if pm >= 0 { th.green } else { th.live }).add_modifier(Modifier::BOLD))
-                } else {
-                    (" ┃ ", Style::default().fg(th.dim))
-                };
-                lines.push(Line::from(vec![
-                    Span::styled(sym.to_string(), style),
-                    Span::styled(tag.to_string(), Style::default().fg(th.muted)),
-                ]));
-            }
-        }
-        Meter::Diamond { occupied } => {
-            lines.push(Line::from(Span::styled("BASES", label_style)));
-            lines.push(Line::from(""));
-            let base = |on: bool| {
-                if on {
-                    Span::styled("◆", Style::default().fg(th.star).add_modifier(Modifier::BOLD))
-                } else {
-                    Span::styled("◇", Style::default().fg(th.dim))
+            // plus_minus is home − away: away on the −15 end (left, like the
+            // identity block), home on +15. Marker and tag wear the leader's
+            // color — the identity floor, not a discipline grant.
+            let pm = i32::from(*plus_minus);
+            let (tag, tag_style) = match pm.signum() {
+                0 => ("TIED".to_string(), bright),
+                s => {
+                    let team = if s < 0 { &game.away } else { &game.home };
+                    (
+                        format!("{} {:+}", team.abbr, pm.abs()),
+                        Style::default().fg(theme::rgb(team.color)).add_modifier(Modifier::BOLD),
+                    )
                 }
             };
-            lines.push(Line::from(vec![Span::raw("   "), base(occupied[1])]));
-            lines.push(Line::from(vec![
-                Span::raw(" "),
-                base(occupied[2]),
-                Span::raw("   "),
-                base(occupied[0]),
-            ]));
-            lines.push(Line::from(vec![
-                Span::raw("   "),
-                Span::styled("▽", Style::default().fg(th.muted)),
-            ]));
-            // Count sits with the runners: "1-2" over "2 OUTS".
-            if let Some(sit) = &game.situation {
-                if let (Some(b), Some(s)) = (sit.balls, sit.strikes) {
-                    lines.push(Line::from(Span::styled(
-                        format!("{b}-{s}"),
-                        Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
-                    )));
-                }
-                if let Some(o) = sit.outs {
-                    let plural = if o == 1 { "" } else { "S" };
-                    lines.push(Line::from(Span::styled(
-                        format!("{o} OUT{plural}"),
-                        Style::default().fg(th.muted),
-                    )));
-                }
+            let marker_style = if pm == 0 { muted } else { tag_style };
+            let full = width >= " LEAD  -15 ".len() + " +15   ".len() + tag.len() + METER_MIN_BAR;
+            let (head, scale_lo, scale_hi, gap) = if full {
+                (" LEAD  ", "-15 ", " +15", "   ")
+            } else {
+                (" LEAD ", "", "", "  ")
+            };
+            let bar_w = width
+                .saturating_sub(head.len() + scale_lo.len() + scale_hi.len() + gap.len() + tag.len())
+                .clamp(3, METER_MAX_BAR);
+            // Rounded so a ±1 lead already steps off the center tick.
+            let cell = |v: i32| ((v + 15) as usize * (bar_w - 1) * 2 + 30) / 60;
+            let center = cell(0);
+            let pos = cell(pm.clamp(-15, 15));
+            let mut spans = vec![Span::styled(head, label_style), Span::styled(scale_lo, muted)];
+            for i in 0..bar_w {
+                spans.push(if i == pos {
+                    Span::styled("▮", marker_style)
+                } else if i == center {
+                    Span::styled("┼", muted)
+                } else {
+                    Span::styled("─", dim)
+                });
             }
+            spans.push(Span::styled(scale_hi, muted));
+            spans.push(Span::styled(gap, muted));
+            spans.push(Span::styled(tag, tag_style));
+            spans
+        }
+        Meter::Diamond { occupied } => {
+            let sit = game.situation.as_ref();
+            let outs = sit.and_then(|s| s.outs);
+            let count = sit.and_then(|s| Some((s.balls?, s.strikes?)));
+            let build = |full: bool| -> Vec<Span<'static>> {
+                let gap = if full { "   " } else { "  " };
+                let mut spans = vec![Span::styled(if full { " BASES  " } else { " BASES " }, label_style)];
+                // First, second, third — left to right. Empty bases and
+                // outs are information, so they sit at `muted`, not `dim`
+                // (dim vanished on the tinted community palettes).
+                for on in occupied {
+                    spans.push(if *on {
+                        Span::styled("◆", Style::default().fg(th.star).add_modifier(Modifier::BOLD))
+                    } else {
+                        Span::styled("◇", muted)
+                    });
+                }
+                if let Some(o) = outs {
+                    spans.push(Span::styled(format!("{gap}OUTS "), label_style));
+                    for i in 0..3u8 {
+                        spans.push(if i < o { Span::styled("●", bright) } else { Span::styled("○", muted) });
+                    }
+                }
+                if let Some((b, s)) = count {
+                    if full {
+                        spans.push(Span::styled(format!("{gap}COUNT "), label_style));
+                    } else {
+                        spans.push(Span::styled(gap, muted));
+                    }
+                    spans.push(Span::styled(format!("{b}-{s}"), bright));
+                }
+                spans
+            };
+            let full = build(true);
+            if width_of(&full) <= width { full } else { build(false) }
         }
         Meter::Penalty { team_abbr, seconds } => {
-            lines.push(Line::from(Span::styled("PENALTY", label_style)));
-            lines.push(Line::from(Span::styled("CLOCK", label_style)));
-            lines.push(Line::from(""));
-            if *seconds == 0 {
-                lines.push(Line::from(Span::styled("--:--", Style::default().fg(th.dim))));
-            } else {
-                lines.push(Line::from(Span::styled(
-                    team_abbr.clone(),
-                    Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
-                )));
-                lines.push(Line::from(Span::styled(
-                    format!("{}:{:02}", seconds / 60, seconds % 60),
-                    Style::default().fg(th.live).add_modifier(Modifier::BOLD),
-                )));
-            }
+            // Countdown bar of a 2:00 minor: filled cells are the time left.
+            let label = " PENALTY  ";
+            let abbr = format!("{team_abbr} ");
+            let clock = format!(" {}:{:02}", seconds / 60, seconds % 60);
+            let bar_w = width
+                .saturating_sub(label.len() + abbr.len() + clock.len())
+                .clamp(1, PENALTY_BAR_MAX);
+            let left = usize::from((*seconds).min(PENALTY_MINOR_SECS));
+            let minor = usize::from(PENALTY_MINOR_SECS);
+            // Ceiling: one second left still shows one cell.
+            let filled = (left * bar_w).div_ceil(minor);
+            vec![
+                Span::styled(label, label_style),
+                Span::styled(abbr, bright),
+                Span::styled("▮".repeat(filled), live),
+                Span::styled("░".repeat(bar_w - filled), dim),
+                Span::styled(clock, live_bold),
+            ]
         }
-    }
-    frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), area);
+    };
+    Some(Line::from(spans))
 }
 
 fn render_compact(frame: &mut Frame, area: Rect, game: &Game, fx: TileFx) {
@@ -1037,8 +1083,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn diamond_meter_shows_count_and_outs() {
+    fn mlb_game() -> Game {
         let mut g = demo_game();
         g.league = League::Mlb;
         g.period = "BOT 7TH".into();
@@ -1052,19 +1097,213 @@ mod tests {
             ..Default::default()
         });
         g.meter = Some(Meter::Diamond { occupied: [true, false, false] });
-        // Look only below the identity block so the top-border headline
-        // ("BOT 7TH | 2 OUTS 1-2") can't satisfy the assertions for the meter.
-        let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact);
-        let mut lower = String::new();
-        for y in 7..15u16 {
-            for x in 0..49u16 {
-                lower.push_str(buf[(x, y)].symbol());
-            }
-            lower.push('\n');
+        g
+    }
+
+    fn nhl_game() -> Game {
+        let mut g = demo_game();
+        g.league = League::Nhl;
+        g.period = "2ND".into();
+        g.clock = "1:03".into();
+        g.situation = None;
+        g.home.abbr = "DAL".into();
+        g.meter = Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 42 });
+        g
+    }
+
+    /// One tile per meter kind, with the text its gauge row must END on —
+    /// a row that clips loses exactly that tail first.
+    fn metered_games() -> Vec<(&'static str, Game, &'static [&'static str])> {
+        vec![
+            ("RED ZONE", demo_game(), &["TO GOAL", "YD"]),
+            ("LEAD", nba_game(None), &["TB +3"]),
+            ("BASES", mlb_game(), &["1-2"]),
+            ("PENALTY", nhl_game(), &["0:42"]),
+        ]
+    }
+
+    /// Inner (border-stripped) rows of a rendered tile.
+    fn inner_rows(buf: &ratatui::buffer::Buffer, w: u16, h: u16) -> Vec<String> {
+        (1..h - 1)
+            .map(|y| (1..w - 1).map(|x| buf[(x, y)].symbol().to_string()).collect())
+            .collect()
+    }
+
+    fn row_with<'a>(rows: &'a [String], needle: &str) -> Option<(usize, &'a String)> {
+        rows.iter().enumerate().find(|(_, r)| r.contains(needle))
+    }
+
+    #[test]
+    fn diamond_row_shows_bases_outs_and_count_inline() {
+        let buf = render_buffer(&mlb_game(), Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact);
+        let rows = inner_rows(&buf, 49, 15);
+        let (_, row) = row_with(&rows, "BASES").expect("BASES row");
+        assert!(row.contains("◆◇◇"), "runner on first, second/third empty: {row:?}");
+        assert!(row.contains("OUTS ●●○"), "two outs as dots: {row:?}");
+        assert!(row.contains("COUNT 1-2"), "balls-strikes: {row:?}");
+    }
+
+    #[test]
+    fn penalty_row_is_a_countdown_bar_with_the_clock() {
+        let th = theme::current();
+        let buf = render_buffer(&nhl_game(), Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact);
+        let rows = inner_rows(&buf, 49, 15);
+        let (_, row) = row_with(&rows, "PENALTY").expect("PENALTY row");
+        assert!(row.contains("DAL"), "{row:?}");
+        assert!(row.trim_end().ends_with("0:42"), "m:ss ends the row: {row:?}");
+        let filled = row.matches('▮').count();
+        let empty = row.matches('░').count();
+        assert!(filled > 0 && empty > 0, "42s of a 2:00 minor is a partly drained bar: {row:?}");
+        assert!(filled < empty, "42/120 left => more drained than filled: {row:?}");
+        // The filled cells are the live color — a clock, not chrome.
+        let y = rows.iter().position(|r| r.contains("PENALTY")).unwrap() as u16 + 1;
+        let x = row.chars().position(|c| c == '▮').unwrap() as u16 + 1;
+        assert_eq!(buf[(x, y)].fg, th.live);
+    }
+
+    #[test]
+    fn meter_row_sits_under_identity_above_momentum_and_frees_the_right_column() {
+        for (label, g, _) in metered_games() {
+            let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Big);
+            let rows = inner_rows(&buf, 49, 15);
+            let (meter_y, row) = row_with(&rows, label).unwrap_or_else(|| panic!("{label} row missing:\n{}", rows.join("\n")));
+            let (mom_y, _) = row_with(&rows, "MOMENTUM").expect("momentum row");
+            assert_eq!(meter_y, IDENTITY_H as usize, "{label} row directly under the identity block");
+            assert_eq!(mom_y, meter_y + 1, "{label} row precedes momentum");
+            assert!(row.starts_with(&format!(" {label}")), "{label} is the row's leading label: {row:?}");
+            // The old right-hand column is gone: no vertical track anywhere.
+            assert!(!rows.iter().any(|r| r.contains('┃')), "{label}: meter column survived:\n{}", rows.join("\n"));
         }
-        assert!(lower.contains("BASES"), "{lower}");
-        assert!(lower.contains("1-2"), "balls-strikes beside the diamond:\n{lower}");
-        assert!(lower.contains("2 OUTS"), "outs beside the diamond:\n{lower}");
+        // Plays now run the full inner width: the 47-cell tile shows text the
+        // 38-cell column-era row cut off.
+        let mut g = demo_game();
+        g.last_plays[0].text = "Patrick Mahomes pass to T. Kelce for 3 yards (1st & Goal)".into();
+        let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Big);
+        let rows = inner_rows(&buf, 49, 15);
+        let (_, play) = row_with(&rows, "[1:27]").expect("play row");
+        assert!(play.contains("T. Kelce"), "play line should reach the tile edge: {play:?}");
+    }
+
+    #[test]
+    fn meter_rows_fit_every_tile_width_without_clipping() {
+        // Every inner width a live mosaic produces (30..=60): the row keeps
+        // its label at the left, its tail intact at the right, and a track
+        // of at least METER_MIN_BAR cells between them.
+        for (label, g, tails) in metered_games() {
+            for inner_w in 30..=60u16 {
+                let (w, h) = (inner_w + 2, 15);
+                let buf = render_buffer(&g, Density::Standard, w, h, TileFx::default(), ScoreStyle::Big);
+                let rows = inner_rows(&buf, w, h);
+                let (_, row) = row_with(&rows, label)
+                    .unwrap_or_else(|| panic!("{label} row missing at inner width {inner_w}:\n{}", rows.join("\n")));
+                let trimmed = row.trim_end();
+                assert!(
+                    tails.iter().any(|t| trimmed.ends_with(t)),
+                    "{label} at inner width {inner_w}: row must end on one of {tails:?}, got {row:?}"
+                );
+                assert!(row.chars().count() == inner_w as usize, "row is exactly the inner width");
+                let track = row.chars().filter(|c| matches!(c, '━' | '─' | '●' | '┼' | '▮' | '░')).count();
+                if label == "RED ZONE" || label == "LEAD" {
+                    assert!(
+                        track >= METER_MIN_BAR,
+                        "{label} at inner width {inner_w}: track {track} < METER_MIN_BAR {METER_MIN_BAR}: {row:?}"
+                    );
+                    let marker = if label == "RED ZONE" { '●' } else { '▮' };
+                    let m = row.find(marker).unwrap_or_else(|| panic!("{label} marker missing: {row:?}"));
+                    let l = row.find(label).unwrap();
+                    let t = tails.iter().filter_map(|t| row.rfind(t)).max().unwrap();
+                    assert!(l < m && m < t, "{label} at {inner_w}: label < marker < tail: {row:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lead_marker_and_tag_take_the_leading_teams_color() {
+        // DEN (away) 27-24 up in nba_game => plus_minus is home-away = -3.
+        let mut g = nba_game(None);
+        g.away_score = 88;
+        g.home_score = 81;
+        g.meter = Some(Meter::Lead { plus_minus: -7 });
+        let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact);
+        let rows = inner_rows(&buf, 49, 15);
+        let (y, row) = row_with(&rows, "LEAD").expect("LEAD row");
+        assert!(row.contains("-15") && row.contains("+15"), "scale ends: {row:?}");
+        assert!(row.trim_end().ends_with("KC +7"), "tag names the leader: {row:?}");
+        let mx = row.chars().position(|c| c == '▮').expect("marker") as u16;
+        let marker_fg = buf[(mx + 1, y as u16 + 1)].fg;
+        assert_eq!(marker_fg, theme::rgb(g.away.color), "marker in the leading (away) team's color");
+        // Marker sits left of center when the away team leads.
+        let cx = row.chars().position(|c| c == '┼').expect("center tick");
+        assert!((mx as usize) < cx, "away lead => marker left of center: {row:?}");
+
+        g.meter = Some(Meter::Lead { plus_minus: 5 });
+        let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact);
+        let rows = inner_rows(&buf, 49, 15);
+        let (y, row) = row_with(&rows, "LEAD").expect("LEAD row");
+        assert!(row.trim_end().ends_with("TB +5"), "{row:?}");
+        let mx = row.chars().position(|c| c == '▮').unwrap() as u16;
+        assert_eq!(buf[(mx + 1, y as u16 + 1)].fg, theme::rgb(g.home.color));
+        let cx = row.chars().position(|c| c == '┼').unwrap();
+        assert!((mx as usize) > cx, "home lead => marker right of center: {row:?}");
+
+        g.meter = Some(Meter::Lead { plus_minus: 0 });
+        let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact);
+        let rows = inner_rows(&buf, 49, 15);
+        let (_, row) = row_with(&rows, "LEAD").expect("LEAD row");
+        assert!(row.trim_end().ends_with("TIED"), "{row:?}");
+    }
+
+    #[test]
+    fn missing_meter_omits_the_row_and_plays_gain_the_line() {
+        let mut with = demo_game();
+        for i in 0..6 {
+            with.last_plays.push(Play {
+                clock: format!("{i}:00"),
+                team: "TB".into(),
+                text: format!("play number {i}"),
+                scoring: false,
+            });
+        }
+        let mut without = with.clone();
+        without.meter = None;
+        let plays = |g: &Game| {
+            let buf = render_buffer(g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Big);
+            inner_rows(&buf, 49, 15).iter().filter(|r| r.contains('[')).count()
+        };
+        let (n_with, n_without) = (plays(&with), plays(&without));
+        assert!(n_with >= 1, "metered tile still shows plays");
+        assert_eq!(n_without, n_with + 1, "the omitted row goes to the plays feed");
+        let buf = render_buffer(&without, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Big);
+        let rows = inner_rows(&buf, 49, 15);
+        assert_eq!(row_with(&rows, "MOMENTUM").unwrap().0, IDENTITY_H as usize, "momentum moves up");
+    }
+
+    #[test]
+    fn meter_labels_follow_section_label_discipline() {
+        // broadcast grants section labels the league accent; studio is the
+        // same palette with the grant withdrawn (muted). RED ZONE is the
+        // earned live red in both.
+        let label_fg = |theme_name: &str, g: &Game, label: &str| {
+            theme::set_current(theme_name).unwrap();
+            let buf = render_buffer(g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Big);
+            let rows = inner_rows(&buf, 49, 15);
+            let (y, row) = row_with(&rows, label).expect("label row");
+            // Cell index, not byte index: glyphs like ◆ sit ahead of OUTS.
+            let x = row.char_indices().position(|(i, _)| row[i..].starts_with(label)).unwrap() as u16;
+            let fg = buf[(x + 1, y as u16 + 1)].fg;
+            theme::set_current("broadcast").unwrap();
+            fg
+        };
+        let nba = nba_game(None);
+        let bc = theme::builtin("broadcast");
+        let st = theme::builtin("studio");
+        assert!(bc.discipline.section_labels && !st.discipline.section_labels, "themes disagree as expected");
+        assert_eq!(label_fg("broadcast", &nba, "LEAD"), bc.league_accent(League::Nba));
+        assert_eq!(label_fg("studio", &nba, "LEAD"), st.muted);
+        assert_eq!(label_fg("studio", &mlb_game(), "OUTS"), st.muted);
+        assert_eq!(label_fg("studio", &nhl_game(), "PENALTY"), st.muted);
+        assert_eq!(label_fg("studio", &demo_game(), "RED ZONE"), st.live);
     }
 
     #[test]
@@ -1109,8 +1348,15 @@ mod tests {
         let text = buffer_text(&buf, 40, 9);
         assert!(!text.contains("27 - 24"), "short tile uses big digits, not the text row:\n{text}");
         assert!(text.contains("CHIEFS"), "names row missing:\n{text}");
+        assert!(text.contains("RED ZONE") && text.contains("●"), "inline meter row missing:\n{text}");
         assert!(text.contains("MOMENTUM"), "momentum missing:\n{text}");
         assert!(text.contains("Mahomes"), "play line missing:\n{text}");
+        // Order inside the 7 inner rows: digits(3) names meter momentum play.
+        let rows = inner_rows(&buf, 40, 9);
+        assert_eq!(row_with(&rows, "CHIEFS").unwrap().0, 3);
+        assert_eq!(row_with(&rows, "RED ZONE").unwrap().0, 4);
+        assert_eq!(row_with(&rows, "MOMENTUM").unwrap().0, 5);
+        assert_eq!(row_with(&rows, "Mahomes").unwrap().0, 6);
     }
 
     #[test]
@@ -1127,8 +1373,8 @@ mod tests {
         assert!(text.contains("LAST PLAYS"), "plays feed missing:\n{text}");
         assert!(text.contains("SCORING"), "scoring timeline missing:\n{text}");
         assert!(text.contains("TOUCHDOWN!"), "scoring word missing:\n{text}");
-        assert!(text.contains("●"), "field bar ball missing:\n{text}");
-        assert!(text.contains("RED ZONE"), "meter caption missing:\n{text}");
+        assert!(text.contains(" G "), "field bar goal tag missing:\n{text}");
+        assert!(text.contains("RED ZONE") && text.contains("3 TO GOAL"), "inline meter row missing:\n{text}");
         // The LED digits actually doubled: sextant "27" fits in 3 rows, the
         // full-size glyphs span 8 — count rows containing digit strokes.
         let stroke_rows = (0..30u16)
