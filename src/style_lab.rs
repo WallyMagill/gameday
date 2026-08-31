@@ -5,9 +5,12 @@
 //! test file) is deleted.
 //!
 //!   calm-1/2/3 — three color-discipline levels of the broadcast board:
-//!       (1) current, (2) league accents only on chips + sidebar headers on a
-//!       single accent + clocks gray, (3) additionally play abbrs/team text
-//!       gray — only scores, logos, and LIVE/scoring stay colored
+//!       (1) current, (2) chrome discipline: league accents only on chips,
+//!       sidebar headers on a single accent, clocks + the date gray,
+//!       (3) only scores, logos, the league chips and LIVE/scoring red stay
+//!       colored — every other text cell (team abbrs/names, momentum arrows,
+//!       the RECORDS rail, amber chrome like the situation line, ★ bullets,
+//!       chips and the selection border) drops to the gray family
 //!   meter-a/b/c — meter-column redesigns on a two-tile strip (NFL red zone +
 //!       NBA lead): (a) current right column, (b) borderless inline gauge
 //!       under the identity block, (c) right column with a framed
@@ -50,7 +53,7 @@ pub fn captures(tick: u64) -> Vec<LabCapture> {
     let board = dump::render_demo_buffer(DUMP_COLS, DUMP_ROWS, tick, ScoreStyle::Big)
         .expect("offscreen board render cannot fail");
     let calm2 = calm_level_2(&board);
-    let calm3 = calm_level_3(&calm2, tick);
+    let calm3 = calm_level_3(&calm2);
     let (nfl, nba) = meter_games(tick);
     let cap = |stem, buf: Buffer| {
         let area = *buf.area();
@@ -101,35 +104,58 @@ fn pages_of(caps: &[LabCapture]) -> Vec<Page> {
 
 // ---------------------------------------------------------------- calm levels
 
+/// Same-fg runs on one row: (start x, end x exclusive, run text).
+fn fg_runs(buf: &Buffer, y: u16) -> Vec<(u16, u16, String)> {
+    let area = *buf.area();
+    let mut runs = Vec::new();
+    let mut x = 0;
+    while x < area.width {
+        let fg = buf[(x, y)].fg;
+        let mut end = x;
+        let mut text = String::new();
+        while end < area.width && buf[(end, y)].fg == fg {
+            text.push_str(buf[(end, y)].symbol());
+            end += 1;
+        }
+        runs.push((x, end, text));
+        x = end;
+    }
+    runs
+}
+
+/// Logo art and big score digits: block / sextant glyphs.
+fn is_art(cell: &ratatui::buffer::Cell) -> bool {
+    cell.symbol()
+        .chars()
+        .next()
+        .is_some_and(|c| matches!(c as u32, 0x2580..=0x259F | 0x1FB00..=0x1FBFF))
+}
+
 /// Level 2: chrome discipline. Clock runs (cyan text containing digits and a
-/// colon) go gray; league-accent runs that aren't a `[CHIP]` go gray; the
-/// three sidebar headers collapse onto one accent family (star).
+/// colon) and the header date go gray; league-accent runs that aren't a
+/// `[CHIP]` go gray; the three sidebar headers collapse onto one accent
+/// family (star).
 fn calm_level_2(board: &Buffer) -> Buffer {
     let th = theme::current();
     let mut buf = board.clone();
     let area = *buf.area();
     let accents: Vec<Color> = League::ALL.iter().map(|l| th.league_accent(*l)).collect();
     for y in 0..area.height {
-        let mut x = 0;
-        while x < area.width {
+        for (x, end, text) in fg_runs(&buf, y) {
             let fg = buf[(x, y)].fg;
-            let mut end = x;
-            let mut text = String::new();
-            while end < area.width && buf[(end, y)].fg == fg {
-                text.push_str(buf[(end, y)].symbol());
-                end += 1;
-            }
             let is_clock =
                 fg == th.cyan && text.contains(':') && text.chars().any(|c| c.is_ascii_digit());
+            // The header's green date is chrome too (row 0 only — green
+            // elsewhere is a positive lead value).
+            let is_date = y == 0 && fg == th.green;
             // Chips are the one place a league accent survives; `[` marks
             // them ([NFL] on tile borders, [NHL] etc.).
             let is_stray_accent = accents.contains(&fg) && !text.contains('[');
-            if is_clock || is_stray_accent {
+            if is_clock || is_date || is_stray_accent {
                 for cx in x..end {
                     buf[(cx, y)].fg = th.muted;
                 }
             }
-            x = end;
         }
     }
     for needle in ["⚑ GLOBAL ALERTS", "TOP PLAYS", "RECORDS"] {
@@ -138,33 +164,38 @@ fn calm_level_2(board: &Buffer) -> Buffer {
     buf
 }
 
-/// Level 3 (on top of level 2): team colors survive only on score digits and
-/// logo art (block/sextant glyphs) — every team-colored *text* cell (play
-/// abbrs, momentum arrows, sidebar names, ticker abbrs) goes gray.
-fn calm_level_3(calm2: &Buffer, tick: u64) -> Buffer {
+/// Level 3 (on top of level 2): only scores, logos, the league chips and the
+/// live red stay colored. Every other text cell drops to the gray family —
+/// team-colored text (play abbrs, momentum arrows, sidebar names, the
+/// RECORDS rail, ticker abbrs) to FG, amber chrome (situation line, ★, ▸,
+/// the sidebar headers, the selection border) to bright white, and the
+/// amber-backed chips ([ALL], the shot clock) invert to white-backed.
+fn calm_level_3(calm2: &Buffer) -> Buffer {
     let th = theme::current();
     let mut buf = calm2.clone();
-    let mut team_colors = Vec::new();
-    for (_, games) in crate::sim::Simulator::boards_at(tick) {
-        for g in games {
-            for c in [g.away.color, g.home.color] {
-                let rgb = theme::rgb(c);
-                team_colors.push(rgb);
-                team_colors.push(theme::dimmed(rgb)); // momentum's cold side
-            }
-        }
-    }
+    let accents: Vec<Color> = League::ALL.iter().map(|l| th.league_accent(*l)).collect();
+    let keep = [th.bg, th.fg, th.bright, th.muted, th.dim, th.border, th.live];
     let area = *buf.area();
     for y in 0..area.height {
+        for (x, end, text) in fg_runs(&buf, y) {
+            let fg = buf[(x, y)].fg;
+            let is_chip = accents.contains(&fg) && text.contains('[');
+            if keep.contains(&fg) || is_chip {
+                continue;
+            }
+            let to = if fg == th.star { th.bright } else { th.fg };
+            for cx in x..end {
+                let cell = &mut buf[(cx, y)];
+                if !is_art(cell) {
+                    cell.fg = to;
+                }
+            }
+        }
         for x in 0..area.width {
             let cell = &mut buf[(x, y)];
-            let glyph = cell
-                .symbol()
-                .chars()
-                .next()
-                .is_some_and(|c| matches!(c as u32, 0x2580..=0x259F | 0x1FB00..=0x1FBFF));
-            if !glyph && team_colors.contains(&cell.fg) {
-                cell.fg = th.fg;
+            if cell.bg == th.star {
+                cell.bg = th.bright;
+                cell.fg = th.bg;
             }
         }
     }

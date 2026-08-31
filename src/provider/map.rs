@@ -215,9 +215,13 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
             display_clock,
         );
         // Baseball has no game clock and soccer's minute already lives in the
-        // period label; a raw "0:00" next to them is noise.
+        // period label; a raw "0:00" next to them is noise. A final's
+        // displayClock is whatever ESPN left behind (a WNBA final probed
+        // 2026-08-30 carried "10:00" — the fixture keeps one), so it's dropped
+        // too: nothing is on the clock once the game is over.
         let clock = match league {
             League::Mlb | League::Epl | League::Mls => String::new(),
+            _ if status == Status::Final => String::new(),
             _ => display_clock.to_string(),
         };
         let comps = comp.get("competitors").and_then(|c| c.as_array()).ok_or(MapError::Missing("competitors"))?;

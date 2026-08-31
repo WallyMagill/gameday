@@ -14,6 +14,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
+/// Team-name column of the sidebar RECORDS rail, in cells.
+const RECORDS_NAME_W: usize = 9;
+
 pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
     let main = if area.width >= 100 {
         let cols = Layout::default()
@@ -123,10 +126,17 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
         Style::default().fg(th.muted),
     )));
     for (i, (team, win, loss)) in rows.iter().take(6).enumerate() {
+        // A name that doesn't fit the 9-cell column shows as the abbr rather
+        // than "Buccanee…".
+        let name = if team.name.chars().count() <= RECORDS_NAME_W {
+            team.name.clone()
+        } else {
+            team.abbr.clone()
+        };
         lines.push(Line::from(vec![
             Span::styled(format!("{}. ", i + 1), Style::default().fg(th.muted)),
             Span::styled(
-                format!("{:<9}", truncate(&team.name, 9)),
+                format!("{:<RECORDS_NAME_W$}", truncate(&name, RECORDS_NAME_W)),
                 Style::default().fg(theme::rgb(team.color)),
             ),
             Span::styled(format!("{win:>3}{loss:>3}"), Style::default().fg(th.fg)),

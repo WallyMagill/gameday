@@ -73,13 +73,24 @@ impl Group {
     }
 }
 
-/// Which surface the footer is describing — Board, the Config editor, or any
-/// other full-screen view (zoom, plays feed, standings).
+/// Which surface the footer is describing — Board, the zoomed game (with its
+/// OVERVIEW/PLAYS/STATS tabs), the Config editor, or a scrolling feed (plays
+/// feed, standings) that has no tabs of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FooterCtx {
     Board,
     Zoomed,
     Config,
+    Feed,
+}
+
+impl FooterCtx {
+    pub const ALL: [FooterCtx; 4] = [
+        FooterCtx::Board,
+        FooterCtx::Zoomed,
+        FooterCtx::Config,
+        FooterCtx::Feed,
+    ];
 }
 
 /// When a binding appears in the footer. The footer shows only the top
@@ -278,8 +289,19 @@ mod tests {
     }
 
     #[test]
+    fn feed_footer_drops_the_zoom_tab_cycle_but_keeps_league_and_back() {
+        let feed = footer_chords(FooterCtx::Feed);
+        // h/l cycle nothing in the plays feed / standings — never advertised.
+        assert!(!feed.iter().any(|(_, l)| *l == "TABS"), "{feed:?}");
+        for label in ["LEAGUE", "BACK", "HELP", "CMD"] {
+            assert!(feed.iter().any(|(_, l)| *l == label), "feed footer missing {label}: {feed:?}");
+        }
+        assert!(!feed.iter().any(|(_, l)| *l == "QUIT" || *l == "ZOOM" || *l == "TOGGLE"));
+    }
+
+    #[test]
     fn footer_is_a_subset_of_the_keymap() {
-        for ctx in [FooterCtx::Board, FooterCtx::Zoomed, FooterCtx::Config] {
+        for ctx in FooterCtx::ALL {
             for (key, label) in footer_chords(ctx) {
                 assert!(
                     KEYMAP.iter().any(|b| b.keys[0] == key && b.label == label),
@@ -302,7 +324,7 @@ mod tests {
         assert!(!config.iter().any(|(_, l)| *l == "TABS"));
         assert!(!config.iter().any(|(_, l)| *l == "QUIT"));
         // And the config chords leak into no other view's footer.
-        for ctx in [FooterCtx::Board, FooterCtx::Zoomed] {
+        for ctx in [FooterCtx::Board, FooterCtx::Zoomed, FooterCtx::Feed] {
             assert!(!footer_chords(ctx).iter().any(|(_, l)| *l == "TOGGLE"));
         }
     }

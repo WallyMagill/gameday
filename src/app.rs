@@ -104,9 +104,13 @@ pub struct App {
     /// view opens.
     pub feed_scroll: usize,
     /// Top-line offset in the Standings view (j/k, no highlight — the table
-    /// is read-only); reset when the view opens. The renderer re-clamps
-    /// against the real pane height.
+    /// is read-only); reset when the view opens. Clamped against
+    /// `standings_visible` so it can never run past what the pane shows.
     pub standings_scroll: usize,
+    /// Table rows the Standings pane showed on its last draw (the renderer
+    /// records it, like hit zones). 0 until the first draw, when the clamp
+    /// falls back to the line count.
+    pub standings_visible: usize,
     /// Selected row in the Config view, an index into
     /// `views::config_view::rows`; reset when the view opens.
     pub config_cursor: usize,
@@ -181,6 +185,7 @@ impl App {
             zoom_scroll: 0,
             feed_scroll: 0,
             standings_scroll: 0,
+            standings_visible: 0,
             config_cursor: 0,
             config_edit: None,
             mode: InputMode::Normal,
@@ -612,7 +617,8 @@ impl App {
     }
 
     /// Keys in the Standings view: j/k scroll the table one line, PgUp/PgDn
-    /// jump, Esc/q pop back to the board (q quits ONLY there).
+    /// jump, Tab switches league (landing on the board, as in Zoom), Esc/q
+    /// pop back to the board (q quits ONLY there).
     fn on_key_standings(&mut self, code: KeyCode) {
         match code {
             KeyCode::Char('j') | KeyCode::Down => self.move_standings_scroll(1),
@@ -620,15 +626,19 @@ impl App {
             KeyCode::PageDown => self.move_standings_scroll(FEED_PAGE_JUMP),
             KeyCode::PageUp => self.move_standings_scroll(-FEED_PAGE_JUMP),
             KeyCode::Esc | KeyCode::Char('q') => self.view = View::Board,
+            KeyCode::Tab => self.cycle_tab(1),
+            KeyCode::BackTab => self.cycle_tab(-1),
             KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('r') => self.refresh_now = true,
             _ => {}
         }
     }
 
-    /// Scroll the Standings table, clamped to its composed line count (the
-    /// renderer re-clamps against the pane height so the last page can't
-    /// scroll into blank space).
+    /// Scroll the Standings table. The offset is clamped so the last line
+    /// lands on the last pane row (`standings_visible`, recorded by the last
+    /// draw) — the stored value never runs past what is shown, so `k` after
+    /// the bottom moves the table on the first press. Before any draw the
+    /// pane height is unknown and the clamp falls back to the line count.
     fn move_standings_scroll(&mut self, delta: isize) {
         let lines = self
             .standings_target()
@@ -639,12 +649,17 @@ impl App {
             self.standings_scroll = 0;
             return;
         }
+        let max = match self.standings_visible {
+            0 => lines - 1,
+            visible => lines.saturating_sub(visible),
+        };
         let next = self.standings_scroll as isize + delta;
-        self.standings_scroll = next.clamp(0, lines as isize - 1) as usize;
+        self.standings_scroll = next.clamp(0, max as isize) as usize;
     }
 
     /// Keys inside the global PlaysFeed: j/k move the highlight one row,
-    /// PgUp/PgDn jump, Esc/q pop back to the board (q quits ONLY there).
+    /// PgUp/PgDn jump, Tab switches league (landing on the board), Esc/q pop
+    /// back to the board (q quits ONLY there).
     fn on_key_plays_feed(&mut self, code: KeyCode) {
         match code {
             KeyCode::Char('j') | KeyCode::Down => self.move_feed_scroll(1),
@@ -652,6 +667,8 @@ impl App {
             KeyCode::PageDown => self.move_feed_scroll(FEED_PAGE_JUMP),
             KeyCode::PageUp => self.move_feed_scroll(-FEED_PAGE_JUMP),
             KeyCode::Esc | KeyCode::Char('q') => self.view = View::Board,
+            KeyCode::Tab => self.cycle_tab(1),
+            KeyCode::BackTab => self.cycle_tab(-1),
             KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('r') => self.refresh_now = true,
             _ => {}
@@ -1338,12 +1355,14 @@ impl App {
         }
         // Footer chords follow the view: the board advertises zoom + quit,
         // every other view advertises the way back (zoom its tab cycle, the
-        // config editor its toggle/edit/cycle verbs).
+        // config editor its toggle/edit/cycle verbs, the feeds just the
+        // shared chords — they have no tabs to cycle).
         let zoomed = self.view != View::Board;
         let ctx = match self.view {
             View::Board => keymap::FooterCtx::Board,
             View::ConfigView => keymap::FooterCtx::Config,
-            _ => keymap::FooterCtx::Zoomed,
+            View::Zoom { .. } => keymap::FooterCtx::Zoomed,
+            View::PlaysFeed | View::Standings(_) => keymap::FooterCtx::Feed,
         };
         // Narrow terminals can't hold every chord: shed the low-value ones in
         // keymap's declared order so HELP and QUIT are never the ones clipped.

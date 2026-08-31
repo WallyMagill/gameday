@@ -418,15 +418,22 @@ fn score_line(game: &Game, flash: bool) -> Line<'static> {
     ])
 }
 
+/// Compact identity column: city / NAME / record. Identity strings are never
+/// ellipsized ("KANSAS C…", "BUCCANEE…" read as typos): a city that doesn't
+/// fit is dropped (it's the secondary line) and a name that doesn't fit falls
+/// back to the abbr, which always does.
 fn render_team_id(frame: &mut Frame, area: Rect, team: &Team) {
     let th = theme::current();
     let w = area.width as usize;
-    let city = if team.location.is_empty() { String::new() } else { team.location.to_uppercase() };
+    let fits = |s: &str| s.chars().count() <= w;
+    let city = team.location.to_uppercase();
+    let city = if fits(&city) { city } else { String::new() };
     let name = team.name.to_uppercase();
+    let name = if fits(&name) { name } else { team.abbr.to_uppercase() };
     let record = if team.record.is_empty() { "--".into() } else { team.record.clone() };
     let lines = vec![
         Line::from(""),
-        Line::from(Span::styled(truncate(&city, w), Style::default().fg(th.muted))),
+        Line::from(Span::styled(city, Style::default().fg(th.muted))),
         Line::from(Span::styled(
             truncate(&name, w),
             Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
@@ -1138,6 +1145,30 @@ mod tests {
         assert!(!text.contains("BUCCANEERS 1"), "no half-record:\n{text}");
         let home_row = text.lines().find(|l| l.contains("BUCCANEERS")).unwrap();
         assert!(!home_row.contains('…'), "record dropped, not ellipsized: {home_row:?}");
+    }
+
+    #[test]
+    fn compact_identity_never_ellipsizes_city_or_name() {
+        // Regression (board-compact.png): "KANSAS C…" / "BUCCANEE…" in the
+        // 2x2 NFL card. A city that doesn't fit vanishes; a name that doesn't
+        // fit becomes the abbr.
+        let g = demo_game();
+        let mut fell_back = false;
+        for w in 40..=70u16 {
+            let text = render_to_text(&g, Density::Standard, w, 15);
+            for s in ["KANSAS CITY", "TAMPA BAY", "CHIEFS", "BUCCANEERS"] {
+                // Prefixes of 4+ so a play line's own "…to K…" can't match.
+                for k in 4..s.len() {
+                    let cut = format!("{}…", &s[..k]);
+                    assert!(!text.contains(&cut), "width {w} ellipsizes identity {cut:?}:\n{text}");
+                }
+            }
+            if !text.contains("BUCCANEERS") {
+                fell_back = true;
+                assert!(text.contains("TB"), "width {w}: abbr fallback missing:\n{text}");
+            }
+        }
+        assert!(fell_back, "some width in 40..=70 must be too narrow for BUCCANEERS");
     }
 
     #[test]

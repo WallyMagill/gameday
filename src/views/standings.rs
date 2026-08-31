@@ -3,7 +3,9 @@
 //! W/L/third columns. Read-only; j/k and PgUp/PgDn scroll by line. Team abbrs
 //! take their team color when the team is on the league's current board
 //! (scoreboard payloads carry colors; the standings feed doesn't), FG
-//! otherwise.
+//! otherwise. A table taller than the pane gets a one-row marker at the
+//! bottom saying how many lines are hidden above/below, so a clipped
+//! conference never reads as a complete one.
 
 use crate::app::App;
 use crate::domain::{League, StandingsTable};
@@ -27,7 +29,19 @@ pub fn line_count(table: &StandingsTable) -> usize {
     rows + table.groups.len().saturating_sub(1)
 }
 
-pub fn draw(app: &App, frame: &mut Frame, area: Rect, league: League) {
+/// How a table of `lines` lines fits a pane of `pane` rows: the number of
+/// table rows shown (the pane, minus one for the more-marker when clipped)
+/// and the largest top offset that still fills those rows.
+pub fn window(lines: usize, pane: usize) -> (usize, usize) {
+    let pane = pane.max(1);
+    if lines <= pane {
+        return (pane, 0);
+    }
+    let body = (pane - 1).max(1);
+    (body, lines.saturating_sub(body))
+}
+
+pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, league: League) {
     let th = theme::current();
     let table = app.standings.get(&league);
     let chunks = Layout::default()
@@ -49,14 +63,40 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect, league: League) {
     };
     let lines = body_lines(app, table);
     // Clamp the offset so the table's tail always fills the pane — you can
-    // scroll to the end but never past it into blank space.
-    let visible = chunks[1].height.max(1) as usize;
-    let offset = app.standings_scroll.min(lines.len().saturating_sub(visible));
-    let lines: Vec<Line> = lines.into_iter().skip(offset).take(visible).collect();
+    // scroll to the end but never past it into blank space. The key handler
+    // clamps against the same row count, recorded here.
+    let (body, max_offset) = window(lines.len(), chunks[1].height as usize);
+    app.standings_visible = body;
+    let offset = app.standings_scroll.min(max_offset);
+    let total = lines.len();
+    let mut lines: Vec<Line> = lines.into_iter().skip(offset).take(body).collect();
+    if total > body {
+        lines.push(more_marker(offset, total.saturating_sub(offset + body)));
+    }
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().bg(th.bg)),
         chunks[1],
     );
+}
+
+/// The scroll affordance for a clipped table: `▲ 12 ABOVE  ▼ 8 BELOW` (each
+/// half only when non-zero) plus the keys that move it.
+fn more_marker<'a>(above: usize, below: usize) -> Line<'a> {
+    let th = theme::current();
+    let mut parts = Vec::new();
+    if above > 0 {
+        parts.push(format!("▲ {above} ABOVE"));
+    }
+    if below > 0 {
+        parts.push(format!("▼ {below} BELOW"));
+    }
+    Line::from(vec![
+        Span::styled(
+            format!(" {}", parts.join("  ")),
+            Style::default().fg(th.muted).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("  J/K SCROLL", Style::default().fg(th.dim)),
+    ])
 }
 
 /// `STANDINGS` chip (active-tab style, like the other full-screen views) plus
@@ -161,4 +201,18 @@ fn abbr_color(app: &App, league: League, abbr: &str) -> Color {
             }
         })
         .unwrap_or(theme::current().fg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window;
+
+    #[test]
+    fn window_reserves_a_marker_row_only_when_clipped() {
+        assert_eq!(window(12, 30), (30, 0), "fits: whole pane, no scroll");
+        assert_eq!(window(30, 30), (30, 0), "exact fit: no marker");
+        // 41 lines in 22 rows: 21 table rows + the marker, top offset 20.
+        assert_eq!(window(41, 22), (21, 20));
+        assert_eq!(window(5, 1), (1, 4), "a one-row pane still shows a row");
+    }
 }

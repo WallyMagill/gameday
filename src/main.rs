@@ -93,6 +93,19 @@ type StandingsTarget = Arc<Mutex<Option<League>>>;
 /// live-polled (the provider caches them per date).
 type DatedTarget = Arc<Mutex<Option<(League, time::Date)>>>;
 
+/// The leagues the poll thread scoreboards, shared like the targets. The UI
+/// rewrites it whenever the Config view toggles `enabled_tabs`, so a tab
+/// enabled at runtime starts fetching without a restart (and a disabled one
+/// stops).
+type LeaguesShared = Arc<Mutex<Vec<League>>>;
+
+/// How long a failed dated-slate fetch waits before the same (league, date)
+/// is tried again. A guess, not a measurement: the UI clears the target only
+/// once a slate merges, so without this a transient error would leave the
+/// traveled board empty forever; 15s matches the summary cadence so a retry
+/// can't hammer ESPN during an outage.
+const DATED_RETRY: Duration = Duration::from_secs(15);
+
 fn main() -> std::io::Result<()> {
     let args = match parse_args(&std::env::args().collect::<Vec<_>>()) {
         Ok(args) => args,
@@ -123,8 +136,8 @@ fn main() -> std::io::Result<()> {
         let app = gameday::dump::demo_app(dir, 0);
         let (tx, rx) = mpsc::channel::<Msg>();
         thread::spawn(move || sim_loop(tx));
-        // The simulator ignores refresh requests and the stats/standings/
-        // dated targets; all four are just unread.
+        // The simulator ignores refresh requests, the stats/standings/dated
+        // targets, and the league list; all five are just unread.
         return run_ui(
             app,
             Some(rx),
@@ -132,6 +145,7 @@ fn main() -> std::io::Result<()> {
             StatsTarget::default(),
             StandingsTarget::default(),
             DatedTarget::default(),
+            LeaguesShared::default(),
         );
     }
 
@@ -142,7 +156,10 @@ fn main() -> std::io::Result<()> {
     let config = Config::load_from(&dir).unwrap_or_else(|_| Config::default_all());
     gameday::theme::set_current(gameday::theme::parse_or_default(&config.theme));
     let pins = load_pins(&dir).unwrap_or_default();
-    let enabled_tabs = config.enabled_tabs.clone();
+    // Seeded from config; the UI loop republishes it when :config toggles a
+    // tab so the poll thread follows the live list, not a startup snapshot.
+    let enabled_tabs = LeaguesShared::new(Mutex::new(config.enabled_tabs.clone()));
+    let enabled_tabs_poll = enabled_tabs.clone();
     let app = App::new(config, pins, dir.clone());
 
     let provider = EspnProvider::new(dir.join("cache"));
@@ -165,14 +182,22 @@ fn main() -> std::io::Result<()> {
         poll_loop(
             provider,
             tx_plan,
-            enabled_tabs,
+            enabled_tabs_poll,
             refresh_poll,
             stats_target_poll,
             standings_target_poll,
             dated_target_poll,
         )
     });
-    run_ui(app, Some(rx), refresh, stats_target, standings_target, dated_target)
+    run_ui(
+        app,
+        Some(rx),
+        refresh,
+        stats_target,
+        standings_target,
+        dated_target,
+        enabled_tabs,
+    )
 }
 
 /// Dev verification: fetch and map one league's real scoreboard, print one
@@ -199,9 +224,9 @@ fn probe(slug: &str) -> std::io::Result<()> {
                     .map(|s| s.down_distance.clone())
                     .unwrap_or_default();
                 println!(
-                    "{:>10}  {:?}  {:<3} {:>3} @ {:<3} {:>3}  [{} {}]  meter={:?}  rec={}/{}  sit={:?}",
+                    "{:>10}  {:?}  {:<3} {:>3} @ {:<3} {:>3}  [{} {}]  meter={:?}  rec={}/{}  sit={:?}  odds={:?}",
                     g.id, g.status, g.away.abbr, g.away_score, g.home.abbr, g.home_score,
-                    g.period, g.clock, g.meter, g.away.record, g.home.record, sit,
+                    g.period, g.clock, g.meter, g.away.record, g.home.record, sit, g.odds,
                 );
             }
             Ok(())
@@ -256,16 +281,46 @@ fn board_due(last_board: Instant, every: Duration, refresh: &AtomicBool) -> bool
     refresh.swap(false, Ordering::Relaxed) || last_board.elapsed() >= every
 }
 
+/// Did the enabled-league list change since the last pass? Records `current`
+/// as the new baseline when it did. The first pass always counts as a change.
+fn leagues_changed(current: &[League], last: &mut Option<Vec<League>>) -> bool {
+    if last.as_deref() == Some(current) {
+        return false;
+    }
+    *last = Some(current.to_vec());
+    true
+}
+
+/// Drop live ids for leagues no longer enabled so their summaries stop too.
+fn prune_live_ids(live: &mut Vec<(League, String)>, leagues: &[League]) {
+    live.retain(|(l, _)| leagues.contains(l));
+}
+
+/// The dated-slate fetch gate: a new (league, date) fires at once; the same
+/// still-wanted target fires again once [`DATED_RETRY`] has passed since the
+/// last attempt (the UI clears the target only after a slate merges, so a
+/// lingering target means the last attempt failed).
+fn dated_due(
+    target: Option<(League, time::Date)>,
+    last_target: Option<(League, time::Date)>,
+    last_attempt: Instant,
+    retry: Duration,
+) -> bool {
+    target.is_some() && (target != last_target || last_attempt.elapsed() >= retry)
+}
+
 fn poll_loop(
     provider: EspnProvider,
     tx: mpsc::Sender<Msg>,
-    leagues: Vec<League>,
+    leagues_shared: LeaguesShared,
     refresh: Arc<AtomicBool>,
     stats_target: StatsTarget,
     standings_target: StandingsTarget,
     dated_target: DatedTarget,
 ) {
     let mut dated_last_target: Option<(League, time::Date)> = None;
+    let mut dated_last_attempt = Instant::now() - Duration::from_secs(999);
+    let mut last_leagues: Option<Vec<League>> = None;
     let mut last_board = Instant::now() - Duration::from_secs(999);
     let mut last_sum = Instant::now() - Duration::from_secs(999);
     let mut last_stats = Instant::now() - Duration::from_secs(999);
@@ -281,7 +336,14 @@ fn poll_loop(
         } else {
             Duration::from_secs(20)
         };
-        if board_due(last_board, every, &refresh) {
+        // The live league list: a :config toggle makes the boards due at
+        // once so a freshly enabled tab isn't "next kickoff" for a minute.
+        let leagues = leagues_shared.lock().map(|l| l.clone()).unwrap_or_default();
+        let list_changed = leagues_changed(&leagues, &mut last_leagues);
+        if list_changed {
+            prune_live_ids(&mut live, &leagues);
+        }
+        if board_due(last_board, every, &refresh) || list_changed {
             let mut any_failed = false;
             for league in &leagues {
                 match provider.scoreboard(*league) {
@@ -339,12 +401,12 @@ fn poll_loop(
             stats_last_target = target;
             last_stats = Instant::now();
         }
-        // Dated slates: fetched only when the traveled (league, date) target
-        // changes — never re-polled, past/future boards don't move live. The
-        // UI clears the target once the slate is merged, so a fetch failure
-        // simply retries on the next travel step.
+        // Dated slates: fetched when the traveled (league, date) target
+        // changes — never live-polled, past/future boards don't move. The UI
+        // clears the target once the slate merges; a target that lingers
+        // means the fetch failed, and it is retried every DATED_RETRY.
         let target = dated_target.lock().ok().and_then(|t| *t);
-        if target != dated_last_target {
+        if dated_due(target, dated_last_target, dated_last_attempt, DATED_RETRY) {
             if let Some((league, date)) = target {
                 if let Ok((games, _)) = provider.scoreboard_on(league, date) {
                     let _ = tx.send(Msg::DatedBoards {
@@ -354,8 +416,9 @@ fn poll_loop(
                     });
                 }
             }
-            dated_last_target = target;
+            dated_last_attempt = Instant::now();
         }
+        dated_last_target = target;
         // Standings: on demand when the view opens (target change), then at
         // the provider's own 10-min freshness window while it stays open —
         // the fetch is served from disk whenever the cache is younger.
@@ -403,10 +466,12 @@ fn run_ui(
     stats_target: StatsTarget,
     standings_target: StandingsTarget,
     dated_target: DatedTarget,
+    enabled_tabs: LeaguesShared,
 ) -> std::io::Result<()> {
     let mut last_stats_target: Option<(League, String)> = None;
     let mut last_standings_target: Option<League> = None;
     let mut last_dated_target: Option<(League, time::Date)> = None;
+    let mut last_enabled_tabs = app.config.enabled_tabs.clone();
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
     execute!(stdout(), EnterAlternateScreen, EnableMouseCapture)?;
@@ -500,6 +565,13 @@ fn run_ui(
                 *t = target;
             }
             last_dated_target = target;
+        }
+        // And the league list itself, which the Config view edits in place.
+        if app.config.enabled_tabs != last_enabled_tabs {
+            if let Ok(mut l) = enabled_tabs.lock() {
+                l.clone_from(&app.config.enabled_tabs);
+            }
+            last_enabled_tabs.clone_from(&app.config.enabled_tabs);
         }
         if app.should_quit {
             break 'ui;
@@ -599,6 +671,42 @@ mod tests {
         assert!(!board_due(fresh, every, &refresh), "one R, one forced fetch");
         let expired = Instant::now() - Duration::from_secs(61);
         assert!(board_due(expired, every, &refresh), "timer still works alone");
+    }
+
+    #[test]
+    fn league_list_change_is_detected_once_and_prunes_live_ids() {
+        // The Config view toggles enabled_tabs at runtime; the poll thread
+        // must notice (fetch the new league now, stop polling the dropped one).
+        let mut last: Option<Vec<League>> = None;
+        assert!(super::leagues_changed(&[League::Nfl], &mut last), "first sighting counts");
+        assert!(!super::leagues_changed(&[League::Nfl], &mut last), "same list, no change");
+        assert!(
+            super::leagues_changed(&[League::Nfl, League::Nhl], &mut last),
+            "NHL enabled via :config"
+        );
+        assert!(super::leagues_changed(&[League::Nhl], &mut last), "NFL disabled");
+        let mut live = vec![(League::Nfl, "n1".into()), (League::Nhl, "h1".into())];
+        super::prune_live_ids(&mut live, &[League::Nhl]);
+        assert_eq!(live, vec![(League::Nhl, "h1".into())], "disabled league stops summaries");
+    }
+
+    #[test]
+    fn dated_fetch_refires_after_a_failed_attempt() {
+        let d = time::Date::from_calendar_date(2026, time::Month::August, 29).unwrap();
+        let target = Some((League::Nfl, d));
+        let retry = Duration::from_secs(15);
+        let just_now = Instant::now();
+        let long_ago = Instant::now() - Duration::from_secs(16);
+        assert!(super::dated_due(target, None, just_now, retry), "new target fetches now");
+        assert!(
+            !super::dated_due(target, target, just_now, retry),
+            "same unmerged target inside the retry window waits"
+        );
+        assert!(
+            super::dated_due(target, target, long_ago, retry),
+            "same unmerged target past the window retries (the UI only clears it on merge)"
+        );
+        assert!(!super::dated_due(None, None, long_ago, retry), "nothing wanted, nothing fetched");
     }
 
     #[test]

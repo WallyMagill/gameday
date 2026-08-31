@@ -74,15 +74,14 @@ pub fn gallery() -> Vec<Variant> {
     fn help(app: &mut App) {
         app.help_open = true;
     }
-    // The stats/standings captures feed from the committed fixtures through
-    // MemoryProvider — the same trait path the live poll uses, no network.
+    // The stats/standings captures feed through MemoryProvider — the same
+    // trait path the live poll uses, no network. Standings come from the
+    // committed fixture; the box score is the demo game's own (the fixture
+    // is a real TEN@SEA game, and its players under KC/TB columns made the
+    // capture contradict itself).
     fn zoom_stats(app: &mut App) {
         let mut p = MemoryProvider::new();
-        p.stats.insert(
-            "nfl-live".into(),
-            map::map_stats(include_str!("../fixtures/nfl_boxscore.json"))
-                .expect("nfl_boxscore.json fixture must map"),
-        );
+        p.stats.insert("nfl-live".into(), demo::demo_stats());
         let (stats, _) = p.stats(League::Nfl, "nfl-live").expect("seeded stats");
         app.merge_stats("nfl-live", stats);
         app.view = View::Zoom {
@@ -557,11 +556,24 @@ mod tests {
     }
 
     #[test]
-    fn zoom_stats_variant_renders_fixture_rows_and_leaders() {
+    fn zoom_stats_variant_renders_rows_and_leaders_of_the_zoomed_game() {
         let text = text_of(&render_variant(&variant("zoom-stats"), 0).unwrap());
         assert!(text.contains("STATS"), "zoom tab bar with STATS missing:\n{text}");
-        assert!(text.contains("Total Yards"), "fixture stat row missing:\n{text}");
+        assert!(text.contains("Total Yards"), "stat row missing:\n{text}");
         assert!(text.contains("LEADERS"), "leaders block missing:\n{text}");
+        // The capture zooms KC@TB, so every leader line must belong to KC or
+        // TB — no TEN/SEA players from the mapper fixture under KC/TB columns.
+        let leaders: Vec<&str> = text
+            .lines()
+            .filter(|l| l.contains("PASSING YARDS") || l.contains("TACKLES"))
+            .collect();
+        assert!(!leaders.is_empty(), "no leader lines:\n{text}");
+        for line in &leaders {
+            let team = line.trim_start().split_whitespace().next().unwrap_or("");
+            assert!(team == "KC" || team == "TB", "leader from another game: {line:?}");
+        }
+        assert!(text.contains("Mahomes"), "KC leader missing:\n{text}");
+        assert!(!text.contains("TEN ") && !text.contains("SEA "), "fixture teams leaked:\n{text}");
     }
 
     #[test]

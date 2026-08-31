@@ -140,6 +140,86 @@ fn calm_3_grays_team_colored_text_but_keeps_scores_and_logos() {
     );
 }
 
+/// Every cell's (fg, bg) compared between two same-size buffers.
+fn styled_cells_differing(a: &Buffer, b: &Buffer) -> usize {
+    let area = *a.area();
+    let mut n = 0;
+    for y in 0..area.height {
+        for x in 0..area.width {
+            if a[(x, y)].fg != b[(x, y)].fg || a[(x, y)].bg != b[(x, y)].bg {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+#[test]
+fn calm_3_leaves_only_scores_logos_and_live_colored() {
+    // Level 3's rule, checked cell by cell: apart from logo/score glyphs and
+    // the league chips, no text cell carries any color but the gray family
+    // or the earned live red — no amber chrome, no cyan clocks, no team
+    // colors on names/abbrs (the RECORDS rail included), no green date.
+    let th = Theme::broadcast();
+    let calm3 = capture("calm-3").buf;
+    let allowed = [th.bg, th.fg, th.bright, th.muted, th.dim, th.border, th.live];
+    let accents: Vec<Color> = gameday::League::ALL.iter().map(|l| th.league_accent(*l)).collect();
+    let area = *calm3.area();
+    let mut offenders = Vec::new();
+    for y in 0..area.height {
+        let row: Vec<char> = (0..area.width)
+            .map(|x| calm3[(x, y)].symbol().chars().next().unwrap_or(' '))
+            .collect();
+        for x in 0..area.width {
+            let cell = &calm3[(x, y)];
+            let ch = row[x as usize];
+            if ch == ' ' || is_glyph(ch) || allowed.contains(&cell.fg) {
+                continue;
+            }
+            // A league accent survives only inside a [CHIP] (5 cells wide).
+            if accents.contains(&cell.fg) {
+                let x = x as usize;
+                let open = row[..=x].iter().rposition(|&c| c == '[');
+                let close = row[x..].iter().position(|&c| c == ']');
+                if open.is_some_and(|o| x - o <= 5) && close.is_some_and(|c| c <= 5) {
+                    continue;
+                }
+            }
+            let line: String = row.iter().collect();
+            offenders.push(format!("({x},{y}) {ch:?} fg={:?} in {:?}", cell.fg, line.trim_end()));
+        }
+    }
+    assert!(offenders.is_empty(), "colored text left on calm-3:\n{}", offenders.join("\n"));
+    // Chrome that was amber-on-black or black-on-amber is now white/black.
+    let star_bg = (0..area.height)
+        .flat_map(|y| (0..area.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| calm3[(x, y)].bg == th.star)
+        .count();
+    assert_eq!(star_bg, 0, "amber chip backgrounds must go with the amber chrome");
+    // Scores and logos stay in team colors — the board is not monochrome.
+    assert!(count_cells(&calm3, theme::rgb([227, 24, 55]), is_glyph) > 0);
+}
+
+#[test]
+fn calm_levels_are_visibly_distinct_steps() {
+    // Review finding: the first cut of the deck changed ~240 styled cells
+    // per step — small chrome text only, so 2→3 was invisible at a glance.
+    // Measured after the rework (tick 0, 120x36 = 4320 cells): 1→2 = 255,
+    // 2→3 = 388 (level 3 now also strips the amber chrome, chip backgrounds
+    // and the RECORDS rail's team colors). Floors sit under those so a
+    // regression back to near-identical boards fails here.
+    let c1 = capture("calm-1").buf;
+    let c2 = capture("calm-2").buf;
+    let c3 = capture("calm-3").buf;
+    let d12 = styled_cells_differing(&c1, &c2);
+    let d23 = styled_cells_differing(&c2, &c3);
+    assert!(d12 >= 200, "calm-1 → calm-2 changed only {d12} cells (measured 255)");
+    assert!(d23 >= 300, "calm-2 → calm-3 changed only {d23} cells (measured 388)");
+    // And the text is identical: the levels are color discipline, not layout.
+    assert_eq!(text_of(&c1), text_of(&c2));
+    assert_eq!(text_of(&c2), text_of(&c3));
+}
+
 #[test]
 fn meter_variants_are_three_different_gauges() {
     let a = text_of(&capture("meter-a").buf);

@@ -34,13 +34,21 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     // bottom row (same windowing as the Zoom Plays tab).
     let visible = chunks[1].height.max(1) as usize;
     let skip = sel.saturating_sub(visible.saturating_sub(1));
-    let lines: Vec<Line> = events
+    let mut lines: Vec<Line> = events
         .iter()
         .enumerate()
         .skip(skip)
         .take(visible)
         .map(|(i, (game, play))| feed_row(game, play, i == sel))
         .collect();
+    // A short feed closes with an end marker so the blank pane below reads
+    // as "that's all", not as rows that failed to render.
+    if lines.len() < visible {
+        lines.push(Line::from(Span::styled(
+            "  ── END OF FEED ──",
+            Style::default().fg(th.dim),
+        )));
+    }
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().bg(th.bg)),
         chunks[1],

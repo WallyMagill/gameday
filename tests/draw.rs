@@ -761,6 +761,166 @@ fn standings_view_scrolls_with_j_and_clamps() {
     assert!(!app.should_quit);
 }
 
+/// A 40-line standings table (two 18-team groups) that never fits a 24-row
+/// terminal, for the scroll-clamp and scroll-affordance tests.
+fn tall_standings_table() -> gameday::domain::StandingsTable {
+    use gameday::domain::{StandingRow, StandingsGroup, StandingsTable};
+    let group = |name: &str, prefix: &str| StandingsGroup {
+        name: name.into(),
+        rows: (0..18)
+            .map(|i| StandingRow {
+                abbr: format!("{prefix}{i:02}"),
+                name: format!("{prefix}team{i:02}"),
+                wins: 10,
+                losses: i,
+                third: None,
+                third_label: "",
+            })
+            .collect(),
+    };
+    StandingsTable {
+        league: League::Nfl,
+        groups: vec![group("American Football Conference", "A"), group("National Football Conference", "N")],
+    }
+}
+
+#[test]
+fn standings_scroll_clamps_to_the_pane_so_k_moves_back_at_once() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Nfl);
+    app.merge_standings(tall_standings_table());
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let lines = gameday::views::standings::line_count(&app.standings[&League::Nfl]);
+    assert_eq!(lines, 41, "18+2 rows per group, one blank between");
+    for _ in 0..60 {
+        gameday::input::handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+    }
+    t.draw(|f| app.draw(f)).unwrap();
+    let bottom = app.standings_scroll;
+    // The stored offset stops where the renderer stops (last line on the
+    // last pane row) instead of running on to line_count - 1.
+    assert!(bottom < lines - 1, "offset must clamp against the pane: {bottom} of {lines}");
+    let s = buf_text(&t);
+    assert!(s.contains("NTEAM17"), "bottom of the table is on screen:\n{s}");
+    // One k visibly scrolls back up — no dead presses.
+    gameday::input::handle_key(&mut app, KeyCode::Char('k'), KeyModifiers::NONE);
+    assert_eq!(app.standings_scroll, bottom - 1);
+    t.draw(|f| app.draw(f)).unwrap();
+    let s2 = buf_text(&t);
+    assert_ne!(s, s2, "a single k after the bottom must move the table");
+}
+
+#[test]
+fn standings_shows_a_more_marker_when_the_table_is_clipped() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Nfl);
+    app.merge_standings(tall_standings_table());
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let marker = s
+        .lines()
+        .find(|l| l.contains('▼'))
+        .unwrap_or_else(|| panic!("clipped table needs a ▼ more marker:\n{s}"));
+    assert!(marker.contains("BELOW"), "marker counts what's hidden: {marker}");
+    assert!(!marker.contains('▲'), "nothing above at the top: {marker}");
+    for _ in 0..60 {
+        gameday::input::handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+    }
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let marker = s
+        .lines()
+        .find(|l| l.contains('▲'))
+        .unwrap_or_else(|| panic!("scrolled table needs a ▲ marker:\n{s}"));
+    assert!(marker.contains("ABOVE") && !marker.contains('▼'), "{marker}");
+    // A table that fits shows no marker at all.
+    let mut small = mk();
+    small.view = View::Standings(League::Nfl);
+    small.merge_standings(standings_table());
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| small.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(!s.contains('▼') && !s.contains('▲'), "no marker when it fits:\n{s}");
+}
+
+#[test]
+fn feed_and_standings_footers_advertise_only_keys_that_work_there() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    for view in [View::PlaysFeed, View::Standings(League::Nfl)] {
+        let mut app = mk();
+        app.config.enabled_tabs = vec![League::Nfl];
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        app.view = view.clone();
+        let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        t.draw(|f| app.draw(f)).unwrap();
+        let s = buf_text(&t);
+        let footer = s.lines().last().unwrap();
+        assert!(!footer.contains("TABS"), "{view:?}: zoom's tab cycle is a no-op here: {footer}");
+        assert!(footer.contains("BACK"), "{view:?}: {footer}");
+        // [TAB] LEAGUE is advertised, so Tab must actually switch tabs.
+        assert!(footer.contains("LEAGUE"), "{view:?}: {footer}");
+        assert_eq!(app.tab, Tab::Home);
+        gameday::input::handle_key(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.tab, Tab::League(League::Nfl), "{view:?}: Tab switches league");
+        assert_eq!(app.view, View::Board, "{view:?}: a tab switch lands on the board");
+    }
+}
+
+#[test]
+fn plays_feed_marks_its_end_when_the_pane_has_room() {
+    use gameday::views::View;
+    let mut app = mk();
+    let mut nfl = g("1", "KC", "TB", true);
+    nfl.last_plays = vec![Play {
+        clock: "1:27".into(),
+        team: "KC".into(),
+        text: "Mahomes to Kelce, 12 yd".into(),
+        scoring: true,
+    }];
+    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.view = View::PlaysFeed;
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let lines: Vec<&str> = s.lines().collect();
+    let row = lines.iter().position(|l| l.contains("Mahomes to Kelce")).unwrap();
+    assert!(
+        lines[row + 1].contains("END OF FEED"),
+        "the row after the last play closes the feed:\n{s}"
+    );
+}
+
+#[test]
+fn records_rail_shows_the_abbr_instead_of_a_clipped_name() {
+    // filter.png: "2. Buccanee… 11 6" — a name past the 9-cell column falls
+    // back to the abbr rather than an ellipsized fragment.
+    let mut app = mk();
+    let mut game = g("1", "KC", "TB", true);
+    game.away.name = "Chiefs".into();
+    game.away.record = "11-6".into();
+    game.home.name = "Buccaneers".into();
+    game.home.record = "11-6".into();
+    app.apply_boards(League::Nfl, vec![game], false);
+    app.tab = Tab::League(League::Nfl);
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("RECORDS"), "sidebar rail present:\n{s}");
+    assert!(!s.contains("Buccanee…"), "clipped name in the rail:\n{s}");
+    let rail_rows: Vec<&str> = s.lines().filter(|l| l.contains(". ") && l.contains(" 11  6")).collect();
+    assert!(
+        rail_rows.iter().any(|l| l.contains("Chiefs")) && rail_rows.iter().any(|l| l.contains("TB ")),
+        "rail rows: {rail_rows:?}\n{s}"
+    );
+}
+
 #[test]
 fn standings_command_opens_the_view_and_sets_the_poll_target() {
     use crossterm::event::{KeyCode, KeyModifiers};

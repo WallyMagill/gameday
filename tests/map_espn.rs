@@ -70,6 +70,9 @@ fn maps_wnba_scoreboard_with_total_records() {
     assert_eq!(g.home.record, "24-16");
     assert_eq!(g.away.record, "15-25");
     assert_eq!(g.period, "Q4");
+    // The fixture's final carries ESPN's leftover displayClock "10:00"; a
+    // finished game has nothing on the clock.
+    assert_eq!(g.clock, "");
     // Meters are live-only; a final carries none.
     assert_eq!(g.meter, None);
 }

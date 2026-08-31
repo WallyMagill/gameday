@@ -59,6 +59,63 @@ pub fn demo_pins() -> Vec<Pin> {
         .collect()
 }
 
+/// A box score for the demo `nfl-live` game (KC 27 @ TB 24), shaped like
+/// `map_stats` output from the summary endpoint: comparison rows in ESPN's
+/// order with the labels the real feed uses, then one leader per team per
+/// category. The dump's zoom-stats capture feeds from this so the STATS tab
+/// shows KC/TB numbers and KC/TB players under KC/TB columns — the committed
+/// `nfl_boxscore.json` is a real TEN@SEA game and stays the mapper's fixture.
+pub fn demo_stats() -> GameStats {
+    let row = |label: &str, away: &str, home: &str| StatRow {
+        label: label.into(),
+        away: away.into(),
+        home: home.into(),
+    };
+    let leader = |team: &str, label: &str, text: &str| Leader {
+        team: team.into(),
+        label: label.into(),
+        text: text.into(),
+    };
+    GameStats {
+        rows: vec![
+            row("1st Downs", "19", "21"),
+            row("Passing 1st downs", "12", "13"),
+            row("Rushing 1st downs", "5", "6"),
+            row("1st downs from penalties", "2", "2"),
+            row("3rd down efficiency", "6-11", "5-12"),
+            row("4th down efficiency", "1-1", "0-2"),
+            row("Total Plays", "58", "64"),
+            row("Total Yards", "356", "341"),
+            row("Yards per Play", "6.1", "5.3"),
+            row("Total Drives", "10", "11"),
+            row("Passing", "241", "228"),
+            row("Comp/Att", "22/31", "24/38"),
+            row("Yards per pass", "7.3", "5.7"),
+            row("Interceptions thrown", "0", "1"),
+            row("Sacks-Yards Lost", "2-14", "3-22"),
+            row("Rushing", "115", "113"),
+            row("Rushing Attempts", "25", "23"),
+            row("Yards per rush", "4.6", "4.9"),
+            row("Red Zone (Made-Att)", "2-4", "3-3"),
+            row("Penalties", "5-40", "7-61"),
+            row("Turnovers", "0", "1"),
+            row("Possession", "28:41", "31:19"),
+        ],
+        leaders: vec![
+            leader("KC", "Passing Yards", "P. Mahomes 22/31, 255 YDS, 2 TD"),
+            leader("KC", "Rushing Yards", "I. Pacheco 17 CAR, 82 YDS, 1 TD"),
+            leader("KC", "Receiving Yards", "T. Kelce 8 REC, 96 YDS, 1 TD"),
+            leader("KC", "Sacks", "G. Karlaftis 2.0"),
+            leader("KC", "Tackles", "N. Bolton 9"),
+            leader("TB", "Passing Yards", "B. Mayfield 24/38, 250 YDS, 1 TD, 1 INT"),
+            leader("TB", "Rushing Yards", "R. White 15 CAR, 71 YDS, 1 TD"),
+            leader("TB", "Receiving Yards", "M. Evans 6 REC, 88 YDS, 1 TD"),
+            leader("TB", "Sacks", "Y. Diaby 1.5"),
+            leader("TB", "Tackles", "L. David 11"),
+        ],
+    }
+}
+
 pub fn demo_boards() -> HashMap<League, Vec<Game>> {
     let mut boards = HashMap::new();
 
