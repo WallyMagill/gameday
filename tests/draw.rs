@@ -526,3 +526,123 @@ fn stats_tab_without_data_says_no_stats_yet() {
     let s = buf_text(&t);
     assert!(s.contains("no stats yet"), "{s}");
 }
+
+/// Live NBA game with one scoring play, for cross-league feed tests.
+fn nba_game(id: &str, away: &str, home: &str) -> Game {
+    let t = |abbr: &str| Team {
+        id: abbr.into(),
+        abbr: abbr.into(),
+        name: abbr.into(),
+        color: [0, 122, 51],
+        alt_color: [186, 150, 83],
+        logo_key: format!("nba/{}", abbr.to_lowercase()),
+        ..Default::default()
+    };
+    Game {
+        id: id.into(),
+        league: League::Nba,
+        away: t(away),
+        home: t(home),
+        away_score: 88,
+        home_score: 81,
+        status: Status::Live,
+        period: "Q3".into(),
+        clock: "4:12".into(),
+        situation: None,
+        last_plays: vec![Play {
+            clock: "4:12".into(),
+            team: away.into(),
+            text: "Tatum pull-up three".into(),
+            scoring: true,
+        }],
+        meter: None,
+        start_time: None,
+        broadcast: None,
+    }
+}
+
+#[test]
+fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
+    use gameday::views::View;
+    let mut app = mk();
+    let mut nfl = g("1", "KC", "TB", true);
+    nfl.last_plays = vec![Play {
+        clock: "1:27".into(),
+        team: "KC".into(),
+        text: "Mahomes to Kelce, 12 yd".into(),
+        scoring: true,
+    }];
+    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
+    app.view = View::PlaysFeed;
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let lines: Vec<&str> = s.lines().collect();
+    // Both boards' scoring plays are rows, each tagged with its league chip
+    // and scoring word, and carrying the matchup score for orientation.
+    let nfl_row = lines
+        .iter()
+        .find(|l| l.contains("Mahomes to Kelce"))
+        .unwrap_or_else(|| panic!("NFL scoring play missing from feed:\n{s}"));
+    assert!(nfl_row.contains("NFL") && nfl_row.contains("TOUCHDOWN!"), "{nfl_row}");
+    assert!(nfl_row.contains("KC@TB") && nfl_row.contains("27-24"), "{nfl_row}");
+    let nba_row = lines
+        .iter()
+        .find(|l| l.contains("Tatum pull-up three"))
+        .unwrap_or_else(|| panic!("NBA scoring play missing from feed:\n{s}"));
+    assert!(nba_row.contains("NBA") && nba_row.contains("BUCKET!"), "{nba_row}");
+    // Row 0 (the NFL play — enabled-tab order) carries the ▸ marker.
+    assert!(nfl_row.contains("▸"), "marker must start on row 0: {nfl_row}");
+    assert!(!nba_row.contains("▸"), "only one row is marked: {nba_row}");
+}
+
+#[test]
+fn plays_feed_j_and_k_move_the_marker_and_clamp() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    let mut app = mk();
+    let mut nfl = g("1", "KC", "TB", true);
+    nfl.last_plays = vec![Play {
+        clock: "1:27".into(),
+        team: "KC".into(),
+        text: "Mahomes to Kelce, 12 yd".into(),
+        scoring: true,
+    }];
+    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
+    app.view = View::PlaysFeed;
+    assert_eq!(app.feed_scroll, 0);
+    gameday::input::handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(app.feed_scroll, 1, "j moves the marker down");
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let marked = s
+        .lines()
+        .find(|l| l.contains("▸"))
+        .unwrap_or_else(|| panic!("no marked row:\n{s}"));
+    assert!(marked.contains("Tatum pull-up three"), "marker follows j: {marked}");
+    // Clamped at the last row; k walks back; PgUp clamps at the top.
+    gameday::input::handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(app.feed_scroll, 1, "clamped at the bottom (2 rows)");
+    gameday::input::handle_key(&mut app, KeyCode::Char('k'), KeyModifiers::NONE);
+    assert_eq!(app.feed_scroll, 0);
+    gameday::input::handle_key(&mut app, KeyCode::PageUp, KeyModifiers::NONE);
+    assert_eq!(app.feed_scroll, 0, "PgUp clamps at the top");
+    // Esc pops back to the board.
+    gameday::input::handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+    assert_eq!(app.view, View::Board);
+}
+
+#[test]
+fn plays_feed_without_scoring_plays_says_so() {
+    use gameday::views::View;
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.view = View::PlaysFeed;
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("no scoring plays yet"), "{s}");
+}

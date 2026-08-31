@@ -3,6 +3,7 @@
 //! `app.rs` — they are shared chrome, identical across views.
 
 pub mod board;
+pub mod plays_feed;
 pub mod zoom;
 
 use crate::app::App;
@@ -13,10 +14,10 @@ use ratatui::style::Style;
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-/// Which surface fills the body. PlaysFeed/Standings/ConfigView render
-/// placeholders until their tasks in this plan land — they exist now so
-/// `command::Cmd` routing compiles and `:plays`/`:standings`/`:config`
-/// navigate somewhere honest instead of erroring.
+/// Which surface fills the body. Standings/ConfigView render placeholders
+/// until their tasks in this plan land — they exist now so `command::Cmd`
+/// routing compiles and `:standings`/`:config` navigate somewhere honest
+/// instead of erroring.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum View {
     #[default]
@@ -63,7 +64,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     match &app.view {
         View::Board => board::draw(app, frame, area),
         View::Zoom { game_id, tab } => zoom::draw(app, frame, area, game_id, *tab),
-        View::PlaysFeed => placeholder(frame, area, "PLAYS FEED"),
+        View::PlaysFeed => plays_feed::draw(app, frame, area),
         View::Standings(league) => {
             placeholder(frame, area, &format!("{} STANDINGS", league.slug().to_uppercase()))
         }

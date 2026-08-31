@@ -142,13 +142,16 @@ fn cycle_completion(app: &mut App) {
     app.completion = Some(CompletionState { stem, idx });
 }
 
-/// Apply a parsed command to the app. PlaysFeed/Standings/ConfigView render
+/// Apply a parsed command to the app. Standings/ConfigView render
 /// placeholders until their tasks in this plan land.
 fn apply(app: &mut App, cmd: Cmd) {
     match cmd {
         Cmd::GoLeague(league) => go_league(app, league),
         Cmd::GoHome => app.set_tab(Tab::Home),
-        Cmd::Plays => app.view = View::PlaysFeed,
+        Cmd::Plays => {
+            app.view = View::PlaysFeed;
+            app.feed_scroll = 0;
+        }
         // `:standings` with no league: the current tab's league, or NFL from
         // Home (the plan's Task 6 contract).
         Cmd::Standings(league) => {

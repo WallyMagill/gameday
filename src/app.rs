@@ -28,6 +28,11 @@ pub enum Tab {
 /// (10 render ticks per second while anything is live).
 pub const FLASH_TICKS: u64 = 10;
 
+/// PgUp/PgDn jump in the PlaysFeed, in rows. A guess at "most of a screen":
+/// the feed body is ~30 rows at the default 120x36 capture size, and key
+/// handling can't see the real pane height (draw takes &App).
+const FEED_PAGE_JUMP: isize = 10;
+
 /// LIVE chip pulse phase, pure in the tick: ~1s bright then ~1s dim at the
 /// 10 ticks/s live cadence. A luminance step, never a hue change.
 pub fn live_pulse_bright(tick: u64) -> bool {
@@ -65,6 +70,9 @@ pub struct App {
     /// Highlighted row in the Zoom Plays feed (j/k); reset when the zoom
     /// opens or its tab changes.
     pub zoom_scroll: usize,
+    /// Highlighted row in the global PlaysFeed (`:plays`); reset when the
+    /// view opens.
+    pub feed_scroll: usize,
     /// Which input mode keys route through; Command/Filter carry the prompt
     /// buffer the footer renders. See `input::handle_key`.
     pub mode: InputMode,
@@ -109,6 +117,7 @@ impl App {
             refresh_now: false,
             view: View::Board,
             zoom_scroll: 0,
+            feed_scroll: 0,
             mode: InputMode::Normal,
             status_line: None,
             filter: None,
@@ -231,14 +240,43 @@ impl App {
         match self.view {
             View::Board => self.on_key_board(code),
             View::Zoom { .. } => self.on_key_zoom(code),
+            View::PlaysFeed => self.on_key_plays_feed(code),
             // Placeholder views (their tasks land later in this plan): only
             // the ways out are wired.
-            View::PlaysFeed | View::Standings(_) | View::ConfigView => match code {
+            View::Standings(_) | View::ConfigView => match code {
                 KeyCode::Esc | KeyCode::Char('q') => self.view = View::Board,
                 KeyCode::Char('?') => self.help_open = true,
                 _ => {}
             },
         }
+    }
+
+    /// Keys inside the global PlaysFeed: j/k move the highlight one row,
+    /// PgUp/PgDn jump, Esc/q pop back to the board (q quits ONLY there).
+    fn on_key_plays_feed(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('j') | KeyCode::Down => self.move_feed_scroll(1),
+            KeyCode::Char('k') | KeyCode::Up => self.move_feed_scroll(-1),
+            KeyCode::PageDown => self.move_feed_scroll(FEED_PAGE_JUMP),
+            KeyCode::PageUp => self.move_feed_scroll(-FEED_PAGE_JUMP),
+            KeyCode::Esc | KeyCode::Char('q') => self.view = View::Board,
+            KeyCode::Char('?') => self.help_open = true,
+            KeyCode::Char('r') => self.refresh_now = true,
+            _ => {}
+        }
+    }
+
+    /// j/k/PgUp/PgDn in the PlaysFeed: move the highlight, clamped to the
+    /// current scoring-event list (the renderer re-clamps if boards shrink
+    /// between a keypress and the next draw).
+    fn move_feed_scroll(&mut self, delta: isize) {
+        let len = self.scoring_events().len();
+        if len == 0 {
+            self.feed_scroll = 0;
+            return;
+        }
+        let next = self.feed_scroll as isize + delta;
+        self.feed_scroll = next.clamp(0, len as isize - 1) as usize;
     }
 
     fn on_key_board(&mut self, code: KeyCode) {
