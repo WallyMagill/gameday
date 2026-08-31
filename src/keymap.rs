@@ -73,6 +73,15 @@ impl Group {
     }
 }
 
+/// Which surface the footer is describing — Board, the Config editor, or any
+/// other full-screen view (zoom, plays feed, standings).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FooterCtx {
+    Board,
+    Zoomed,
+    Config,
+}
+
 /// When a binding appears in the footer. The footer shows only the top
 /// chords; the help overlay always shows the whole table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,8 +90,12 @@ pub enum FooterSlot {
     Always,
     /// Only on the Board view ([Z] ZOOM, [Q] QUIT).
     Board,
-    /// Only inside a zoomed/full-screen view ([ESC] BACK, tab cycling).
+    /// Only inside the zoomed view (tab cycling).
     Zoomed,
+    /// Only in the Config editor (toggle/edit/cycle).
+    Config,
+    /// Every full-screen view that pops back to the board ([ESC] BACK).
+    NotBoard,
 }
 
 pub struct Binding {
@@ -134,7 +147,7 @@ pub const KEYMAP: &[Binding] = &[
         keys: &["ESC", "Q"],
         label: "BACK",
         group: Group::Selection,
-        footer: FooterSlot::Zoomed,
+        footer: FooterSlot::NotBoard,
     },
     Binding {
         // Zoom tabs: OVERVIEW | PLAYS | STATS.
@@ -142,6 +155,27 @@ pub const KEYMAP: &[Binding] = &[
         label: "TABS",
         group: Group::View,
         footer: FooterSlot::Zoomed,
+    },
+    Binding {
+        // Config rows: enable/disable a league tab, remove a favorite.
+        keys: &["SPC"],
+        label: "TOGGLE",
+        group: Group::View,
+        footer: FooterSlot::Config,
+    },
+    Binding {
+        // Config: ENTER activates the row (add/remove favorite, toggle).
+        keys: &["ENTER"],
+        label: "EDIT",
+        group: Group::View,
+        footer: FooterSlot::Config,
+    },
+    Binding {
+        // Config display rows: THEME / SCORE / LAYOUT values.
+        keys: &["H/L"],
+        label: "CYCLE",
+        group: Group::View,
+        footer: FooterSlot::Config,
     },
     Binding {
         keys: &["1/2/4/S"],
@@ -197,15 +231,17 @@ pub const KEYMAP: &[Binding] = &[
 pub const FOOTER_DROP_ORDER: &[&str] = &["MOVE", "PAGE", "PIN", "LEAGUE", "FILTER", "CMD"];
 
 /// The footer chord list for the current view: (key, label) pairs in table
-/// order. `zoomed` is true for any non-Board view.
-pub fn footer_chords(zoomed: bool) -> Vec<(&'static str, &'static str)> {
+/// order.
+pub fn footer_chords(ctx: FooterCtx) -> Vec<(&'static str, &'static str)> {
     KEYMAP
         .iter()
         .filter(|b| match b.footer {
             FooterSlot::Always => true,
             FooterSlot::Never => false,
-            FooterSlot::Board => !zoomed,
-            FooterSlot::Zoomed => zoomed,
+            FooterSlot::Board => ctx == FooterCtx::Board,
+            FooterSlot::Zoomed => ctx == FooterCtx::Zoomed,
+            FooterSlot::Config => ctx == FooterCtx::Config,
+            FooterSlot::NotBoard => ctx != FooterCtx::Board,
         })
         .map(|b| (b.keys[0], b.label))
         .collect()
@@ -243,8 +279,8 @@ mod tests {
 
     #[test]
     fn footer_is_a_subset_of_the_keymap() {
-        for focused in [false, true] {
-            for (key, label) in footer_chords(focused) {
+        for ctx in [FooterCtx::Board, FooterCtx::Zoomed, FooterCtx::Config] {
+            for (key, label) in footer_chords(ctx) {
                 assert!(
                     KEYMAP.iter().any(|b| b.keys[0] == key && b.label == label),
                     "footer chord [{key}] {label} not in KEYMAP"
@@ -254,9 +290,27 @@ mod tests {
     }
 
     #[test]
+    fn config_footer_shows_its_own_chords_and_the_way_back() {
+        let config = footer_chords(FooterCtx::Config);
+        for label in ["TOGGLE", "EDIT", "CYCLE", "BACK", "HELP"] {
+            assert!(
+                config.iter().any(|(_, l)| *l == label),
+                "config footer missing {label}: {config:?}"
+            );
+        }
+        // Zoom's tab cycling and the board's quit don't apply there.
+        assert!(!config.iter().any(|(_, l)| *l == "TABS"));
+        assert!(!config.iter().any(|(_, l)| *l == "QUIT"));
+        // And the config chords leak into no other view's footer.
+        for ctx in [FooterCtx::Board, FooterCtx::Zoomed] {
+            assert!(!footer_chords(ctx).iter().any(|(_, l)| *l == "TOGGLE"));
+        }
+    }
+
+    #[test]
     fn footer_swaps_zoom_for_back_per_view() {
-        let board = footer_chords(false);
-        let zoomed = footer_chords(true);
+        let board = footer_chords(FooterCtx::Board);
+        let zoomed = footer_chords(FooterCtx::Zoomed);
         assert!(board.iter().any(|(k, l)| *k == "Z" && *l == "ZOOM"));
         assert!(!board.iter().any(|(_, l)| *l == "BACK"));
         // 'q' quits only from the Board, so QUIT is advertised only there…

@@ -10,6 +10,11 @@
 //!   focus         — a focused game view
 //!   help          — the '?' overlay over the dimmed board
 //!   narrow        — 80x24, the sidebar-less layout
+//!   zoom-stats    — the Zoom STATS tab, box score from the committed fixture
+//!   plays-feed    — the global scoring feed (:plays)
+//!   standings     — the NFL standings table from the committed fixture
+//!   config        — the in-app config editor (:config)
+//!   filter        — the NFL tab narrowed by a committed /kc filter
 //!
 //! Every capture is the sim state at a fixed tick (`--tick N`, default 0), so
 //! repeated runs are pixel-deterministic. No timestamps in file names.
@@ -17,6 +22,8 @@
 use crate::app::{App, Tab};
 use crate::demo;
 use crate::domain::League;
+use crate::provider::memory::MemoryProvider;
+use crate::provider::{map, SportsProvider};
 use crate::theme::{self, ThemeName};
 use crate::tiles::ScoreStyle;
 use crate::views::{View, ZoomTab};
@@ -64,6 +71,48 @@ pub fn gallery() -> Vec<Variant> {
     fn help(app: &mut App) {
         app.help_open = true;
     }
+    // The stats/standings captures feed from the committed fixtures through
+    // MemoryProvider — the same trait path the live poll uses, no network.
+    fn zoom_stats(app: &mut App) {
+        let mut p = MemoryProvider::new();
+        p.stats.insert(
+            "nfl-live".into(),
+            map::map_stats(include_str!("../fixtures/nfl_boxscore.json"))
+                .expect("nfl_boxscore.json fixture must map"),
+        );
+        let (stats, _) = p.stats(League::Nfl, "nfl-live").expect("seeded stats");
+        app.merge_stats("nfl-live", stats);
+        app.view = View::Zoom {
+            game_id: "nfl-live".into(),
+            tab: ZoomTab::Stats,
+        };
+    }
+    fn plays_feed(app: &mut App) {
+        app.view = View::PlaysFeed;
+    }
+    fn standings(app: &mut App) {
+        let mut p = MemoryProvider::new();
+        p.standings.insert(
+            League::Nfl,
+            map::map_standings(League::Nfl, include_str!("../fixtures/nfl_standings.json"))
+                .expect("nfl_standings.json fixture must map"),
+        );
+        let (table, _) = p.standings(League::Nfl).expect("seeded standings");
+        app.merge_standings(table);
+        app.view = View::Standings(League::Nfl);
+    }
+    fn config(app: &mut App) {
+        // A seeded favorite so the FAVORITES section shows a real row.
+        app.config.favorites.push(crate::config::Favorite {
+            league: League::Nfl,
+            team_abbr: "KC".into(),
+        });
+        app.view = View::ConfigView;
+    }
+    fn filter(app: &mut App) {
+        app.tab = Tab::League(League::Nfl);
+        app.filter = Some("kc".into());
+    }
     let full = |stem, theme, style, setup| Variant {
         stem,
         cols: DUMP_COLS,
@@ -88,6 +137,11 @@ pub fn gallery() -> Vec<Variant> {
             style: ScoreStyle::Big,
             setup: home,
         },
+        full("zoom-stats", ThemeName::Broadcast, ScoreStyle::Big, zoom_stats),
+        full("plays-feed", ThemeName::Broadcast, ScoreStyle::Big, plays_feed),
+        full("standings", ThemeName::Broadcast, ScoreStyle::Big, standings),
+        full("config", ThemeName::Broadcast, ScoreStyle::Big, config),
+        full("filter", ThemeName::Broadcast, ScoreStyle::Big, filter),
     ]
 }
 
@@ -458,8 +512,60 @@ mod tests {
                 "focus",
                 "help",
                 "narrow",
+                "zoom-stats",
+                "plays-feed",
+                "standings",
+                "config",
+                "filter",
             ],
             "gallery stems are a stable contract for other tasks"
+        );
+    }
+
+    #[test]
+    fn zoom_stats_variant_renders_fixture_rows_and_leaders() {
+        let text = text_of(&render_variant(&variant("zoom-stats"), 0).unwrap());
+        assert!(text.contains("STATS"), "zoom tab bar with STATS missing:\n{text}");
+        assert!(text.contains("Total Yards"), "fixture stat row missing:\n{text}");
+        assert!(text.contains("LEADERS"), "leaders block missing:\n{text}");
+    }
+
+    #[test]
+    fn plays_feed_variant_renders_the_global_feed() {
+        let text = text_of(&render_variant(&variant("plays-feed"), 0).unwrap());
+        assert!(text.contains("PLAYS"), "feed header missing:\n{text}");
+        // Scoring plays from more than one demo league land in the feed.
+        assert!(text.contains("TOUCHDOWN"), "NFL scoring play missing:\n{text}");
+        assert!(text.contains("GOAL"), "NHL/EPL scoring play missing:\n{text}");
+    }
+
+    #[test]
+    fn standings_variant_renders_the_fixture_table() {
+        let text = text_of(&render_variant(&variant("standings"), 0).unwrap());
+        assert!(text.contains("STANDINGS"), "standings header missing:\n{text}");
+        assert!(
+            text.contains("AMERICAN FOOTBALL CONFERENCE"),
+            "fixture group name missing:\n{text}"
+        );
+        assert!(text.contains("BUF"), "fixture team row missing:\n{text}");
+    }
+
+    #[test]
+    fn config_variant_renders_every_section() {
+        let text = text_of(&render_variant(&variant("config"), 0).unwrap());
+        for needle in ["CONFIG", "TABS", "FAVORITES", "THEME", "SCORE", "LAYOUT"] {
+            assert!(text.contains(needle), "missing {needle:?} in config capture:\n{text}");
+        }
+    }
+
+    #[test]
+    fn filter_variant_narrows_the_nfl_tab_and_shows_the_pattern() {
+        let text = text_of(&render_variant(&variant("filter"), 0).unwrap());
+        assert!(text.contains("/kc"), "committed filter missing from footer:\n{text}");
+        assert!(text.contains("CHIEFS"), "the matching game must stay:\n{text}");
+        assert!(
+            !text.contains("SEAHAWKS") && !text.contains("COWBOYS"),
+            "non-matching slate games must be filtered out:\n{text}"
         );
     }
 

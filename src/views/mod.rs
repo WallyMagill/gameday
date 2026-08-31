@@ -3,21 +3,17 @@
 //! `app.rs` — they are shared chrome, identical across views.
 
 pub mod board;
+pub mod config_view;
 pub mod plays_feed;
 pub mod standings;
 pub mod zoom;
 
 use crate::app::App;
 use crate::domain::League;
-use crate::theme;
-use ratatui::layout::{Alignment, Rect};
-use ratatui::style::Style;
-use ratatui::widgets::Paragraph;
+use ratatui::layout::Rect;
 use ratatui::Frame;
 
-/// Which surface fills the body. ConfigView renders a placeholder until its
-/// task in this plan lands — it exists now so `command::Cmd` routing compiles
-/// and `:config` navigates somewhere honest instead of erroring.
+/// Which surface fills the body.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum View {
     #[default]
@@ -69,19 +65,8 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
         View::Zoom { game_id, tab } => zoom::draw(app, frame, area, &game_id, tab),
         View::PlaysFeed => plays_feed::draw(app, frame, area),
         View::Standings(league) => standings::draw(app, frame, area, league),
-        View::ConfigView => placeholder(frame, area, "CONFIG"),
+        View::ConfigView => config_view::draw(app, frame, area),
     }
-}
-
-/// Honest stub for views whose tasks land later in this plan.
-fn placeholder(frame: &mut Frame, area: Rect, label: &str) {
-    let th = theme::current();
-    frame.render_widget(
-        Paragraph::new(format!("{label} — coming in this plan · esc back"))
-            .style(Style::default().fg(th.muted).bg(th.bg))
-            .alignment(Alignment::Center),
-        area,
-    );
 }
 
 #[cfg(test)]

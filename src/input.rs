@@ -37,6 +37,14 @@ pub fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         app.should_quit = true;
         return;
     }
+    // Ctrl+J is Enter (its terminal meaning: LF). Piped input relies on it:
+    // bytes queued before raw mode go through the pty's ICRNL (\r -> \n), and
+    // crossterm in raw mode parses \n as Ctrl+J rather than Enter.
+    let code = if mods.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('j') {
+        KeyCode::Enter
+    } else {
+        code
+    };
     match &mut app.mode {
         InputMode::Normal => {
             // The help overlay is modal: while it's open, ':' and '/' are as
@@ -142,8 +150,7 @@ fn cycle_completion(app: &mut App) {
     app.completion = Some(CompletionState { stem, idx });
 }
 
-/// Apply a parsed command to the app. ConfigView renders a placeholder until
-/// its task in this plan lands.
+/// Apply a parsed command to the app.
 fn apply(app: &mut App, cmd: Cmd) {
     match cmd {
         Cmd::GoLeague(league) => go_league(app, league),
@@ -163,7 +170,11 @@ fn apply(app: &mut App, cmd: Cmd) {
             app.view = View::Standings(league);
             app.standings_scroll = 0;
         }
-        Cmd::ConfigView => app.view = View::ConfigView,
+        Cmd::ConfigView => {
+            app.view = View::ConfigView;
+            app.config_cursor = 0;
+            app.config_edit = None;
+        }
         Cmd::Theme(name) => {
             theme::set_current(name);
             app.config.theme = name.as_str().to_string();
@@ -459,6 +470,18 @@ mod tests {
         handle_key(&mut app, KeyCode::Char('/'), KeyModifiers::NONE);
         assert_eq!(app.mode, InputMode::Normal);
         assert!(app.help_open);
+    }
+
+    #[test]
+    fn ctrl_j_acts_as_enter_in_a_prompt() {
+        // Piped input: the pty turns \r into \n before raw mode, and \n in
+        // raw mode reaches us as Ctrl+J. It must still run the command.
+        let mut app = mk();
+        handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
+        type_line(&mut app, "nfl");
+        handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::CONTROL);
+        assert_eq!(app.mode, InputMode::Normal);
+        assert_eq!(app.tab, Tab::League(League::Nfl));
     }
 
     #[test]

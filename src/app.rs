@@ -107,6 +107,12 @@ pub struct App {
     /// is read-only); reset when the view opens. The renderer re-clamps
     /// against the real pane height.
     pub standings_scroll: usize,
+    /// Selected row in the Config view, an index into
+    /// `views::config_view::rows`; reset when the view opens.
+    pub config_cursor: usize,
+    /// The favorite-abbr editor the ADD FAVORITE row opens: Some while
+    /// typing (keys go to the buffer, Enter commits, Esc cancels).
+    pub config_edit: Option<String>,
     /// Which input mode keys route through; Command/Filter carry the prompt
     /// buffer the footer renders. See `input::handle_key`.
     pub mode: InputMode,
@@ -175,6 +181,8 @@ impl App {
             zoom_scroll: 0,
             feed_scroll: 0,
             standings_scroll: 0,
+            config_cursor: 0,
+            config_edit: None,
             mode: InputMode::Normal,
             status_line: None,
             filter: None,
@@ -232,7 +240,7 @@ impl App {
                     View::Zoom { .. } => self.move_zoom_scroll(delta),
                     View::PlaysFeed => self.move_feed_scroll(delta),
                     View::Standings(_) => self.move_standings_scroll(delta),
-                    View::ConfigView => {}
+                    View::ConfigView => self.move_config_cursor(delta),
                 }
             }
         }
@@ -407,14 +415,200 @@ impl App {
             View::Zoom { .. } => self.on_key_zoom(code),
             View::PlaysFeed => self.on_key_plays_feed(code),
             View::Standings(_) => self.on_key_standings(code),
-            // Placeholder view (its task lands later in this plan): only the
-            // ways out are wired.
-            View::ConfigView => match code {
-                KeyCode::Esc | KeyCode::Char('q') => self.view = View::Board,
-                KeyCode::Char('?') => self.help_open = true,
-                _ => {}
-            },
+            View::ConfigView => self.on_key_config(code),
         }
+    }
+
+    /// Keys in the Config view: j/k move the row cursor, space/enter activate
+    /// (toggle a tab, remove a favorite, open the abbr editor), h/l cycle the
+    /// display rows, Esc/q pop to the board. An open abbr editor captures
+    /// everything first (Enter commits, Esc cancels).
+    fn on_key_config(&mut self, code: KeyCode) {
+        use crate::views::config_view::{rows, ConfigRow};
+        if self.config_edit.is_some() {
+            self.on_key_config_edit(code);
+            return;
+        }
+        match code {
+            KeyCode::Char('j') | KeyCode::Down => self.move_config_cursor(1),
+            KeyCode::Char('k') | KeyCode::Up => self.move_config_cursor(-1),
+            KeyCode::Char(' ') | KeyCode::Enter => {
+                let rows = rows(self);
+                match rows[self.config_cursor.min(rows.len() - 1)] {
+                    ConfigRow::Tab(league) => self.config_toggle_tab(league),
+                    ConfigRow::Favorite(i) => self.config_remove_favorite(i),
+                    ConfigRow::AddFavorite => self.config_edit = Some(String::new()),
+                    // Enter on a cycler steps it forward, same as l.
+                    ConfigRow::Theme | ConfigRow::Score | ConfigRow::Layout => {
+                        self.config_cycle(1)
+                    }
+                }
+            }
+            KeyCode::Char('h') | KeyCode::Left => self.config_cycle(-1),
+            KeyCode::Char('l') | KeyCode::Right => self.config_cycle(1),
+            KeyCode::Esc | KeyCode::Char('q') => self.view = View::Board,
+            KeyCode::Tab => self.cycle_tab(1),
+            KeyCode::BackTab => self.cycle_tab(-1),
+            KeyCode::Char('?') => self.help_open = true,
+            _ => {}
+        }
+    }
+
+    /// Keys while the favorite-abbr editor is open.
+    fn on_key_config_edit(&mut self, code: KeyCode) {
+        let Some(buf) = &mut self.config_edit else {
+            return;
+        };
+        match code {
+            KeyCode::Esc => self.config_edit = None,
+            KeyCode::Enter => {
+                let text = self.config_edit.take().unwrap_or_default();
+                let text = text.trim().to_string();
+                if !text.is_empty() {
+                    self.config_add_favorite(&text);
+                }
+            }
+            // Backspacing past the start closes the editor (prompt habit).
+            KeyCode::Backspace => {
+                if buf.pop().is_none() {
+                    self.config_edit = None;
+                }
+            }
+            KeyCode::Char(c) => buf.push(c),
+            _ => {}
+        }
+    }
+
+    fn move_config_cursor(&mut self, delta: isize) {
+        let n = crate::views::config_view::rows(self).len();
+        let next = self.config_cursor as isize + delta;
+        self.config_cursor = next.clamp(0, n as isize - 1) as usize;
+    }
+
+    /// Space on a TABS row: toggle the league in `enabled_tabs` (appended at
+    /// the end when re-enabled — the list's order is the tab order). If the
+    /// current tab was just disabled, fall back to Home.
+    fn config_toggle_tab(&mut self, league: League) {
+        if let Some(i) = self.config.enabled_tabs.iter().position(|l| *l == league) {
+            self.config.enabled_tabs.remove(i);
+            if self.tab == Tab::League(league) {
+                self.tab = Tab::Home;
+            }
+        } else {
+            self.config.enabled_tabs.push(league);
+        }
+        let _ = self.config.save_to(&self.config_dir);
+    }
+
+    fn config_remove_favorite(&mut self, i: usize) {
+        if i < self.config.favorites.len() {
+            self.config.favorites.remove(i);
+            let _ = self.config.save_to(&self.config_dir);
+        }
+        self.move_config_cursor(0); // re-clamp against the shrunk row list
+    }
+
+    /// Commit the typed favorite. `kc` resolves its league from the enabled
+    /// boards (like `:pin`); `nhl edm` names it directly for teams not
+    /// currently playing.
+    fn config_add_favorite(&mut self, text: &str) {
+        let parts: Vec<&str> = text.split_whitespace().collect();
+        let (league, abbr) = match parts.as_slice() {
+            [abbr] => {
+                let found = self.config.enabled_tabs.iter().find_map(|lg| {
+                    self.boards.get(lg).into_iter().flatten().find_map(|g| {
+                        [&g.away, &g.home]
+                            .into_iter()
+                            .find(|t| t.abbr.eq_ignore_ascii_case(abbr))
+                            .map(|t| (g.league, t.abbr.clone()))
+                    })
+                });
+                match found {
+                    Some(hit) => hit,
+                    None => {
+                        self.status_line = Some(format!(
+                            "no team {abbr:?} on enabled boards; use \"<league> <abbr>\" like \"nfl kc\""
+                        ));
+                        return;
+                    }
+                }
+            }
+            [slug, abbr] => match League::from_slug(&slug.to_lowercase()) {
+                Some(league) => (league, abbr.to_string()),
+                None => {
+                    self.status_line = Some(format!(
+                        "unknown league {slug:?}, valid: {}",
+                        League::ALL.map(League::slug).join("|")
+                    ));
+                    return;
+                }
+            },
+            _ => {
+                self.status_line = Some(format!(
+                    "expected \"<abbr>\" or \"<league> <abbr>\", got {text:?}"
+                ));
+                return;
+            }
+        };
+        let abbr = abbr.to_uppercase();
+        if self
+            .config
+            .favorites
+            .iter()
+            .any(|f| f.league == league && f.team_abbr.eq_ignore_ascii_case(&abbr))
+        {
+            self.status_line = Some(format!(
+                "{} {} is already a favorite",
+                league.slug().to_uppercase(),
+                abbr
+            ));
+            return;
+        }
+        self.status_line = Some(format!(
+            "favorited {} {}",
+            league.slug().to_uppercase(),
+            abbr
+        ));
+        self.config.favorites.push(Favorite {
+            league,
+            team_abbr: abbr,
+        });
+        let _ = self.config.save_to(&self.config_dir);
+    }
+
+    /// h/l on a display row: cycle its value and persist. No-op on rows that
+    /// don't cycle.
+    fn config_cycle(&mut self, delta: isize) {
+        use crate::views::config_view::{rows, ConfigRow, LAYOUTS};
+        let rows = rows(self);
+        match rows[self.config_cursor.min(rows.len() - 1)] {
+            ConfigRow::Theme => {
+                let all = theme::ThemeName::ALL;
+                let i = all
+                    .iter()
+                    .position(|t| *t == theme::current_name())
+                    .unwrap_or(0) as isize;
+                let next = all[(i + delta).rem_euclid(all.len() as isize) as usize];
+                theme::set_current(next);
+                self.config.theme = next.as_str().to_string();
+            }
+            ConfigRow::Score => {
+                self.config.score_style = match self.config.score_style {
+                    crate::tiles::ScoreStyle::Big => crate::tiles::ScoreStyle::Compact,
+                    crate::tiles::ScoreStyle::Compact => crate::tiles::ScoreStyle::Big,
+                };
+            }
+            ConfigRow::Layout => {
+                let i = LAYOUTS
+                    .iter()
+                    .position(|l| *l == self.config.layout)
+                    .unwrap_or(0) as isize;
+                self.config.layout =
+                    LAYOUTS[(i + delta).rem_euclid(LAYOUTS.len() as isize) as usize];
+            }
+            ConfigRow::Tab(_) | ConfigRow::Favorite(_) | ConfigRow::AddFavorite => return,
+        }
+        let _ = self.config.save_to(&self.config_dir);
     }
 
     /// Keys in the Standings view: j/k scroll the table one line, PgUp/PgDn
@@ -1143,11 +1337,17 @@ impl App {
             return;
         }
         // Footer chords follow the view: the board advertises zoom + quit,
-        // every other view advertises the way back (and zoom its tab cycle).
+        // every other view advertises the way back (zoom its tab cycle, the
+        // config editor its toggle/edit/cycle verbs).
         let zoomed = self.view != View::Board;
+        let ctx = match self.view {
+            View::Board => keymap::FooterCtx::Board,
+            View::ConfigView => keymap::FooterCtx::Config,
+            _ => keymap::FooterCtx::Zoomed,
+        };
         // Narrow terminals can't hold every chord: shed the low-value ones in
         // keymap's declared order so HELP and QUIT are never the ones clipped.
-        let mut chords = keymap::footer_chords(zoomed);
+        let mut chords = keymap::footer_chords(ctx);
         // " /kc" steals footer columns, so it counts toward the shed budget.
         let filter_width = self.filter.as_ref().map_or(0, |f| f.chars().count() + 2);
         let chords_width = |cs: &[(&str, &str)]| -> usize {

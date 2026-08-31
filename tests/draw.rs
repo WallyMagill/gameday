@@ -1018,3 +1018,164 @@ fn wheel_on_the_board_moves_the_selection() {
     wheel(&mut app, true);
     assert_eq!(app.selected, 0);
 }
+
+// ---- Config view (Task 10) ----
+
+/// A fresh, empty config dir per test so round-trip assertions can't see
+/// another test's config.toml.
+fn config_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("gd-cfgview-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn key(app: &mut App, code: crossterm::event::KeyCode) {
+    gameday::input::handle_key(app, code, crossterm::event::KeyModifiers::NONE);
+}
+
+fn type_text(app: &mut App, text: &str) {
+    for c in text.chars() {
+        key(app, crossterm::event::KeyCode::Char(c));
+    }
+}
+
+#[test]
+fn config_view_renders_every_section() {
+    use gameday::views::View;
+    let mut app = App::new(Config::default_all(), vec![], config_dir("sections"));
+    app.config.favorites.push(gameday::config::Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    });
+    app.view = View::ConfigView;
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    for needle in [
+        "CONFIG", "TABS", "[x] NFL", "FAVORITES", "★ NFL KC", "ADD FAVORITE", "THEME", "SCORE",
+        "LAYOUT",
+    ] {
+        assert!(s.contains(needle), "missing {needle:?} in config view:\n{s}");
+    }
+}
+
+#[test]
+fn config_space_toggles_a_tab_and_round_trips_config_toml() {
+    use crossterm::event::KeyCode;
+    use gameday::views::View;
+    let dir = config_dir("toggle");
+    let mut app = App::new(Config::default_all(), vec![], dir.clone());
+    app.view = View::ConfigView;
+    // Cursor starts on the first row: the NFL tab toggle.
+    key(&mut app, KeyCode::Char(' '));
+    assert!(!app.config.enabled_tabs.contains(&League::Nfl), "space disables NFL");
+    let saved = Config::load_from(&dir).unwrap();
+    assert!(!saved.enabled_tabs.contains(&League::Nfl), "written through immediately");
+    key(&mut app, KeyCode::Char(' '));
+    assert!(app.config.enabled_tabs.contains(&League::Nfl), "space re-enables");
+    let saved = Config::load_from(&dir).unwrap();
+    assert!(saved.enabled_tabs.contains(&League::Nfl));
+}
+
+#[test]
+fn config_enter_adds_a_typed_favorite_and_enter_removes_it() {
+    use crossterm::event::KeyCode;
+    use gameday::views::View;
+    let dir = config_dir("fav");
+    let mut app = App::new(Config::default_all(), vec![], dir.clone());
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.view = View::ConfigView;
+    // 9 league rows (League::ALL), then the ADD FAVORITE row.
+    for _ in 0..League::ALL.len() {
+        key(&mut app, KeyCode::Char('j'));
+    }
+    key(&mut app, KeyCode::Enter);
+    type_text(&mut app, "kc");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.config.favorites,
+        vec![gameday::config::Favorite { league: League::Nfl, team_abbr: "KC".into() }],
+        "abbr resolves its league from the boards"
+    );
+    let saved = Config::load_from(&dir).unwrap();
+    assert_eq!(saved.favorites, app.config.favorites, "written through immediately");
+    // The new favorite row took this index; Enter on it removes the favorite.
+    key(&mut app, KeyCode::Enter);
+    assert!(app.config.favorites.is_empty(), "enter on a favorite row removes it");
+    let saved = Config::load_from(&dir).unwrap();
+    assert!(saved.favorites.is_empty());
+}
+
+#[test]
+fn config_favorite_miss_names_the_abbr_and_the_league_form() {
+    use crossterm::event::KeyCode;
+    use gameday::views::View;
+    let mut app = App::new(Config::default_all(), vec![], config_dir("favmiss"));
+    app.view = View::ConfigView;
+    for _ in 0..League::ALL.len() {
+        key(&mut app, KeyCode::Char('j'));
+    }
+    key(&mut app, KeyCode::Enter);
+    type_text(&mut app, "zzz");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.config.favorites.is_empty());
+    let status = app.status_line.clone().expect("miss status");
+    assert!(status.contains("\"zzz\""), "{status}");
+    // The two-token form works without the team being on a board.
+    key(&mut app, KeyCode::Enter);
+    type_text(&mut app, "nhl edm");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.config.favorites,
+        vec![gameday::config::Favorite { league: League::Nhl, team_abbr: "EDM".into() }]
+    );
+}
+
+#[test]
+fn config_h_l_cycle_score_and_layout_and_persist() {
+    use crossterm::event::KeyCode;
+    use gameday::tiles::packer::LayoutPref;
+    use gameday::tiles::ScoreStyle;
+    use gameday::views::View;
+    let dir = config_dir("cycle");
+    let mut app = App::new(Config::default_all(), vec![], dir.clone());
+    app.view = View::ConfigView;
+    // Rows: 9 tabs, ADD FAVORITE, THEME, SCORE, LAYOUT.
+    for _ in 0..League::ALL.len() + 2 {
+        key(&mut app, KeyCode::Char('j'));
+    }
+    key(&mut app, KeyCode::Char('l'));
+    assert_eq!(app.config.score_style, ScoreStyle::Compact, "l cycles score style");
+    key(&mut app, KeyCode::Char('j'));
+    key(&mut app, KeyCode::Char('l'));
+    assert_eq!(app.config.layout, LayoutPref::One, "l cycles layout forward");
+    key(&mut app, KeyCode::Char('h'));
+    assert_eq!(app.config.layout, LayoutPref::Auto, "h cycles layout back");
+    let saved = Config::load_from(&dir).unwrap();
+    assert_eq!(saved.score_style, ScoreStyle::Compact);
+    assert_eq!(saved.layout, LayoutPref::Auto);
+}
+
+#[test]
+fn config_esc_pops_but_cancels_an_open_edit_first() {
+    use crossterm::event::KeyCode;
+    use gameday::views::View;
+    let mut app = App::new(Config::default_all(), vec![], config_dir("escpop"));
+    app.view = View::ConfigView;
+    for _ in 0..League::ALL.len() {
+        key(&mut app, KeyCode::Char('j'));
+    }
+    key(&mut app, KeyCode::Enter);
+    type_text(&mut app, "kc");
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.view, View::ConfigView, "esc cancels the edit, not the view");
+    assert!(app.config.favorites.is_empty(), "cancelled edit commits nothing");
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.view, View::Board, "second esc pops to the board");
+    // q pops too (it quits only from the Board).
+    app.view = View::ConfigView;
+    key(&mut app, KeyCode::Char('q'));
+    assert_eq!(app.view, View::Board);
+    assert!(!app.should_quit);
+}
