@@ -18,6 +18,9 @@
 //!
 //! Every capture is the sim state at a fixed tick (`--tick N`, default 0), so
 //! repeated runs are pixel-deterministic. No timestamps in file names.
+//!
+//! `dump --style-lab` renders the throwaway style-variant set instead — see
+//! `crate::style_lab`, which shares this module's page pipeline.
 
 use crate::app::{App, Tab};
 use crate::demo;
@@ -200,52 +203,38 @@ pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
     result
 }
 
+/// One rendered page ready for the shared write/screenshot/verify pipeline —
+/// the gallery and the style lab (`--style-lab`) both feed through this shape.
+pub struct Page {
+    pub stem: &'static str,
+    pub cols: u16,
+    pub rows: u16,
+    pub theme: ThemeName,
+    pub buf: Buffer,
+}
+
 pub fn run(out_dir: &Path, tick: u64) -> std::io::Result<()> {
     let start = Instant::now();
     std::fs::create_dir_all(out_dir)?;
     let variants = gallery();
-    // Phase 1 (one process, cheap): render every buffer and write HTML + ANSI.
-    for v in &variants {
-        // buffer_to_html reads theme::current() for the page bg/fg, so the
-        // serialization happens under the variant's theme too.
-        let prev = theme::current_name();
-        theme::set_current(v.theme);
-        let buf = render_variant(v, tick)?;
-        let html_path = out_dir.join(format!("{}.html", v.stem));
-        std::fs::write(&html_path, buffer_to_html(&buf))?;
-        std::fs::write(out_dir.join(format!("{}.ansi", v.stem)), buffer_to_ansi(&buf))?;
-        theme::set_current(prev);
-        eprintln!("wrote {}", html_path.display());
-    }
+    let pages = variants
+        .iter()
+        .map(|v| {
+            Ok(Page {
+                stem: v.stem,
+                cols: v.cols,
+                rows: v.rows,
+                theme: v.theme,
+                buf: render_variant(v, tick)?,
+            })
+        })
+        .collect::<std::io::Result<Vec<Page>>>()?;
+    write_pages(out_dir, &pages)?;
     let render_done = start.elapsed();
-    // Phase 2: one headless-Chrome instance per PNG, all spawned in parallel —
-    // Chrome startup dominates the runtime, so serial capture would blow the
-    // budget at 8 images while parallel stays well inside it.
-    let chrome = Path::new(CHROME).exists();
-    if chrome {
-        let mut shots: Vec<Shot> = variants
-            .iter()
-            .map(|v| Shot::spawn(out_dir, v))
-            .collect();
-        wait_for_screenshots(&mut shots);
-        for shot in shots {
-            if shot.png_done {
-                eprintln!("wrote {}", shot.png.display());
-            } else {
-                eprintln!(
-                    "png skipped for {}: chrome produced no stable PNG within {}s (open {stem}.html instead)",
-                    shot.stem,
-                    SHOT_DEADLINE.as_secs(),
-                    stem = shot.stem
-                );
-            }
-        }
-    } else {
-        eprintln!("png skipped: Chrome not found at {CHROME} (open the .html files instead)");
-    }
+    let chrome = screenshot_pages(out_dir, &pages);
     // The gallery is a verification artifact for other tasks: fail loudly if
     // any promised file is missing or empty instead of exiting green.
-    verify_gallery(out_dir, &variants, chrome)?;
+    verify_pages(out_dir, &pages, chrome)?;
     let elapsed = start.elapsed();
     if elapsed > BUDGET {
         eprintln!(
@@ -261,16 +250,61 @@ pub fn run(out_dir: &Path, tick: u64) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Every promised gallery file must exist and be non-empty (PNGs only when
-/// Chrome is available to produce them). Errors name the offending path.
-fn verify_gallery(out_dir: &Path, variants: &[Variant], expect_png: bool) -> std::io::Result<()> {
-    for v in variants {
+/// Phase 1 (one process, cheap): write HTML + ANSI for every page.
+pub fn write_pages(out_dir: &Path, pages: &[Page]) -> std::io::Result<()> {
+    for p in pages {
+        // buffer_to_html reads theme::current() for the page bg/fg, so the
+        // serialization happens under the page's theme.
+        let prev = theme::current_name();
+        theme::set_current(p.theme);
+        let html_path = out_dir.join(format!("{}.html", p.stem));
+        let result = std::fs::write(&html_path, buffer_to_html(&p.buf)).and_then(|()| {
+            std::fs::write(out_dir.join(format!("{}.ansi", p.stem)), buffer_to_ansi(&p.buf))
+        });
+        theme::set_current(prev);
+        result?;
+        eprintln!("wrote {}", html_path.display());
+    }
+    Ok(())
+}
+
+/// Phase 2: one headless-Chrome instance per PNG, all spawned in parallel —
+/// Chrome startup dominates the runtime, so serial capture would blow the
+/// budget at 8+ images while parallel stays well inside it. Returns whether
+/// Chrome was available (and thus whether PNGs should be expected).
+pub fn screenshot_pages(out_dir: &Path, pages: &[Page]) -> bool {
+    let chrome = Path::new(CHROME).exists();
+    if !chrome {
+        eprintln!("png skipped: Chrome not found at {CHROME} (open the .html files instead)");
+        return false;
+    }
+    let mut shots: Vec<Shot> = pages.iter().map(|p| Shot::spawn(out_dir, p)).collect();
+    wait_for_screenshots(&mut shots);
+    for shot in shots {
+        if shot.png_done {
+            eprintln!("wrote {}", shot.png.display());
+        } else {
+            eprintln!(
+                "png skipped for {}: chrome produced no stable PNG within {}s (open {stem}.html instead)",
+                shot.stem,
+                SHOT_DEADLINE.as_secs(),
+                stem = shot.stem
+            );
+        }
+    }
+    true
+}
+
+/// Every promised file must exist and be non-empty (PNGs only when Chrome is
+/// available to produce them). Errors name the offending path.
+pub fn verify_pages(out_dir: &Path, pages: &[Page], expect_png: bool) -> std::io::Result<()> {
+    for p in pages {
         let mut exts = vec!["html", "ansi"];
         if expect_png {
             exts.push("png");
         }
         for ext in exts {
-            let path = out_dir.join(format!("{}.{ext}", v.stem));
+            let path = out_dir.join(format!("{}.{ext}", p.stem));
             let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             if len == 0 {
                 return Err(std::io::Error::other(format!(
@@ -303,7 +337,7 @@ struct Shot {
 }
 
 impl Shot {
-    fn spawn(out_dir: &Path, v: &Variant) -> Shot {
+    fn spawn(out_dir: &Path, v: &Page) -> Shot {
         let png = out_dir.join(format!("{}.png", v.stem));
         let _ = std::fs::remove_file(&png); // never judge a stale PNG "done"
         // Parallel instances need distinct profiles or Chrome serializes on
@@ -575,19 +609,21 @@ mod tests {
         // scratch dir and hold run()'s own completeness check against it.
         let dir = std::env::temp_dir().join(format!("gameday-gallery-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let variants = gallery();
-        for v in &variants {
-            let prev = theme::current_name();
-            theme::set_current(v.theme);
-            let buf = render_variant(v, 0).unwrap();
-            std::fs::write(dir.join(format!("{}.html", v.stem)), buffer_to_html(&buf)).unwrap();
-            std::fs::write(dir.join(format!("{}.ansi", v.stem)), buffer_to_ansi(&buf)).unwrap();
-            theme::set_current(prev);
-        }
-        verify_gallery(&dir, &variants, false).unwrap();
+        let pages: Vec<Page> = gallery()
+            .iter()
+            .map(|v| Page {
+                stem: v.stem,
+                cols: v.cols,
+                rows: v.rows,
+                theme: v.theme,
+                buf: render_variant(v, 0).unwrap(),
+            })
+            .collect();
+        write_pages(&dir, &pages).unwrap();
+        verify_pages(&dir, &pages, false).unwrap();
         // The check actually bites: truncate one file and it names the path.
         std::fs::write(dir.join("help.ansi"), "").unwrap();
-        let err = verify_gallery(&dir, &variants, false).unwrap_err().to_string();
+        let err = verify_pages(&dir, &pages, false).unwrap_err().to_string();
         assert!(err.contains("help.ansi"), "error must name the empty file: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
     }

@@ -25,6 +25,9 @@ struct Args {
     dump: bool,
     /// `dump --tick N`: capture the demo simulation at tick N (default 0).
     tick: u64,
+    /// `dump --style-lab`: render the nine throwaway style variants
+    /// (calm-1/2/3, meter-a/b/c, ticker-a/b/c) instead of the gallery.
+    style_lab: bool,
     /// `probe <league>`: fetch + map one real scoreboard and print it. Dev-only.
     probe: Option<String>,
 }
@@ -46,6 +49,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         demo: args.iter().any(|a| a == "--demo"),
         dump: args.iter().any(|a| a == "dump" || a == "--dump"),
         tick,
+        style_lab: args.iter().any(|a| a == "--style-lab"),
         probe,
     })
 }
@@ -99,7 +103,11 @@ fn main() -> std::io::Result<()> {
     };
 
     if args.dump {
-        return gameday::dump::run(std::path::Path::new("out"), args.tick);
+        let out = std::path::Path::new("out");
+        if args.style_lab {
+            return gameday::style_lab::run(out, args.tick);
+        }
+        return gameday::dump::run(out, args.tick);
     }
 
     if let Some(slug) = args.probe {
