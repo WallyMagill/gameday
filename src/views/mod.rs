@@ -4,6 +4,7 @@
 
 pub mod board;
 pub mod plays_feed;
+pub mod standings;
 pub mod zoom;
 
 use crate::app::App;
@@ -14,10 +15,9 @@ use ratatui::style::Style;
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-/// Which surface fills the body. Standings/ConfigView render placeholders
-/// until their tasks in this plan land — they exist now so `command::Cmd`
-/// routing compiles and `:standings`/`:config` navigate somewhere honest
-/// instead of erroring.
+/// Which surface fills the body. ConfigView renders a placeholder until its
+/// task in this plan lands — it exists now so `command::Cmd` routing compiles
+/// and `:config` navigates somewhere honest instead of erroring.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum View {
     #[default]
@@ -65,9 +65,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         View::Board => board::draw(app, frame, area),
         View::Zoom { game_id, tab } => zoom::draw(app, frame, area, game_id, *tab),
         View::PlaysFeed => plays_feed::draw(app, frame, area),
-        View::Standings(league) => {
-            placeholder(frame, area, &format!("{} STANDINGS", league.slug().to_uppercase()))
-        }
+        View::Standings(league) => standings::draw(app, frame, area, *league),
         View::ConfigView => placeholder(frame, area, "CONFIG"),
     }
 }

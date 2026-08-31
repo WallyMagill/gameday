@@ -635,6 +635,121 @@ fn plays_feed_j_and_k_move_the_marker_and_clamp() {
     assert_eq!(app.view, View::Board);
 }
 
+/// A tiny two-group standings table for view tests: enough rows to check
+/// group headers, column alignment, and team-color lookup.
+fn standings_table() -> gameday::domain::StandingsTable {
+    use gameday::domain::{StandingRow, StandingsGroup, StandingsTable};
+    let row = |abbr: &str, name: &str, w: u32, l: u32, t: u32| StandingRow {
+        abbr: abbr.into(),
+        name: name.into(),
+        wins: w,
+        losses: l,
+        third: Some(t),
+        third_label: "T",
+    };
+    StandingsTable {
+        league: League::Nfl,
+        groups: vec![
+            StandingsGroup {
+                name: "American Football Conference".into(),
+                rows: vec![row("KC", "Chiefs", 11, 6, 0), row("BUF", "Bills", 10, 7, 1)],
+            },
+            StandingsGroup {
+                name: "National Football Conference".into(),
+                rows: vec![row("PHI", "Eagles", 12, 5, 0), row("DAL", "Cowboys", 9, 8, 0)],
+            },
+        ],
+    }
+}
+
+#[test]
+fn standings_view_renders_groups_and_columns() {
+    use gameday::views::View;
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.view = View::Standings(League::Nfl);
+    app.merge_standings(standings_table());
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("STANDINGS"), "{s}");
+    assert!(s.contains("AMERICAN FOOTBALL CONFERENCE"), "{s}");
+    assert!(s.contains("NATIONAL FOOTBALL CONFERENCE"), "{s}");
+    // Every row renders abbr + name, and the W/L/T values line up under the
+    // column headers.
+    for needle in ["KC", "BILLS", "EAGLES", "COWBOYS"] {
+        assert!(s.contains(needle), "missing {needle}:\n{s}");
+    }
+    let header = s
+        .lines()
+        .find(|l| l.contains("W") && l.contains("L") && l.contains("T") && l.contains("TEAM"))
+        .unwrap_or_else(|| panic!("no W/L/T column header:\n{s}"));
+    let kc_row = s.lines().find(|l| l.contains("CHIEFS")).unwrap();
+    // "11" (wins) ends in the same column the header's "W" occupies.
+    let w_col = header.find(" W").expect("W header") + 1;
+    let wins_end = kc_row.find("11").expect("KC wins") + 1;
+    assert_eq!(wins_end, w_col, "wins not aligned under W:\nheader: {header:?}\nrow:    {kc_row:?}");
+}
+
+#[test]
+fn standings_view_without_data_says_so_and_esc_pops() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Nba);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("no standings yet"), "{s}");
+    gameday::input::handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+    assert_eq!(app.view, View::Board);
+    assert!(!app.should_quit);
+}
+
+#[test]
+fn standings_view_scrolls_with_j_and_clamps() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Nfl);
+    app.merge_standings(standings_table());
+    assert_eq!(app.standings_scroll, 0);
+    gameday::input::handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(app.standings_scroll, 1, "j scrolls down");
+    // Small terminal: the second group starts below the fold until scrolled.
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    for _ in 0..50 {
+        gameday::input::handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+    }
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(
+        s.contains("NATIONAL FOOTBALL CONFERENCE"),
+        "scrolled view must reach the last group:\n{s}"
+    );
+    gameday::input::handle_key(&mut app, KeyCode::PageUp, KeyModifiers::NONE);
+    gameday::input::handle_key(&mut app, KeyCode::PageUp, KeyModifiers::NONE);
+    assert_eq!(app.standings_scroll, 0, "PgUp clamps at the top");
+    // q pops instead of quitting (q quits only on the Board).
+    gameday::input::handle_key(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
+    assert_eq!(app.view, View::Board);
+    assert!(!app.should_quit);
+}
+
+#[test]
+fn standings_command_opens_the_view_and_sets_the_poll_target() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    let mut app = mk();
+    assert_eq!(app.standings_target(), None);
+    for c in ":standings nba".chars() {
+        gameday::input::handle_key(&mut app, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    gameday::input::handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(app.view, View::Standings(League::Nba));
+    assert_eq!(app.standings_target(), Some(League::Nba));
+}
+
 #[test]
 fn plays_feed_without_scoring_plays_says_so() {
     use gameday::views::View;

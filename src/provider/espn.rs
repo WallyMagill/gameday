@@ -1,9 +1,15 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use crate::domain::League;
-use crate::provider::map::{map_scoreboard, map_stats, map_summary};
+use crate::domain::{League, StandingsTable};
+use crate::provider::map::{map_scoreboard, map_standings, map_stats, map_summary};
 use crate::provider::{ProviderError, SportsProvider};
 use crate::{Game, GameStats, Summary};
+
+/// Standings freshness window: a cache younger than this is served without
+/// touching the network. 10 minutes per the v2 spec ("on demand, cache 10
+/// min") — standings move at game granularity, not play granularity.
+pub const STANDINGS_TTL: Duration = Duration::from_secs(10 * 60);
 
 pub struct EspnProvider {
     pub cache_dir: PathBuf,
@@ -47,6 +53,14 @@ pub fn summary_url(league: League, event_id: &str) -> String {
     )
 }
 
+/// The `apis/v2` path (NOT `apis/site/v2` like scoreboard/summary) is the one
+/// that answers — verified live for NFL and NHL on 2026-08-30; the plan's
+/// site/v2 fallback was never needed.
+pub fn standings_url(league: League) -> String {
+    let (sport, slug) = league.espn_path();
+    format!("https://site.web.api.espn.com/apis/v2/sports/{sport}/{slug}/standings")
+}
+
 pub fn cache_write(dir: &Path, key: &str, body: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     std::fs::write(dir.join(key), body)
@@ -54,6 +68,15 @@ pub fn cache_write(dir: &Path, key: &str, body: &str) -> std::io::Result<()> {
 
 pub fn cache_read(dir: &Path, key: &str) -> std::io::Result<String> {
     std::fs::read_to_string(dir.join(key))
+}
+
+/// Age of a cache entry (time since last write), None when it doesn't exist
+/// or the filesystem can't say.
+pub fn cache_age(dir: &Path, key: &str) -> Option<Duration> {
+    std::fs::metadata(dir.join(key))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
 }
 
 /// Guess: unofficial ESPN API has no Retry-After; poll loop uses 5 * 2^attempt, attempt capped at 4.
@@ -117,6 +140,22 @@ impl SportsProvider for EspnProvider {
         let key = format!("{}-{game_id}-stats", league.slug());
         self.fetch(&url, &key, |body| map_stats(body).map_err(Into::into))
     }
+
+    fn standings(&self, league: League) -> Result<(StandingsTable, bool), ProviderError> {
+        let key = format!("{}-standings", league.slug());
+        // A fresh-enough cache short-circuits HTTP entirely (fresh, not
+        // stale): the view refetches every time it opens, and standings only
+        // move when games end.
+        if cache_age(&self.cache_dir, &key).is_some_and(|age| age < STANDINGS_TTL) {
+            if let Ok(body) = cache_read(&self.cache_dir, &key) {
+                return Ok((map_standings(league, &body)?, false));
+            }
+        }
+        let url = standings_url(league);
+        self.fetch(&url, &key, |body| {
+            map_standings(league, body).map_err(Into::into)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -151,6 +190,38 @@ mod tests {
     fn never_uses_site_api_host() {
         assert!(!scoreboard_url(League::Nfl).contains("site.api.espn.com"));
         assert!(!summary_url(League::Nba, "1").contains("site.api.espn.com"));
+        assert!(!standings_url(League::Nhl).contains("site.api.espn.com"));
+    }
+
+    #[test]
+    fn standings_url_uses_the_apis_v2_path() {
+        assert_eq!(
+            standings_url(League::Nfl),
+            "https://site.web.api.espn.com/apis/v2/sports/football/nfl/standings"
+        );
+        assert_eq!(
+            standings_url(League::Nhl),
+            "https://site.web.api.espn.com/apis/v2/sports/hockey/nhl/standings"
+        );
+    }
+
+    #[test]
+    fn fresh_standings_cache_is_served_without_the_network() {
+        // A just-written cache entry is inside STANDINGS_TTL, so the provider
+        // must answer from disk, fresh (stale=false proves no fetch was
+        // attempted — the offline fallback path would mark it stale).
+        let dir = std::env::temp_dir().join(format!("gd-standings-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fixture = include_str!("../../fixtures/nfl_standings.json");
+        cache_write(&dir, "nfl-standings", fixture).unwrap();
+        let provider = EspnProvider::new(dir.clone());
+        let (table, stale) = provider.standings(League::Nfl).unwrap();
+        assert!(!stale, "fresh cache must not be marked stale");
+        assert_eq!(table.groups.len(), 2);
+        assert!(cache_age(&dir, "nfl-standings").unwrap() < STANDINGS_TTL);
+        assert_eq!(cache_age(&dir, "missing-key"), None);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

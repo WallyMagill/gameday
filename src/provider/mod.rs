@@ -2,6 +2,7 @@ pub mod espn;
 pub mod map;
 pub mod memory;
 
+use crate::domain::StandingsTable;
 use crate::{Game, GameStats, League, Summary};
 
 #[derive(Debug, thiserror::Error)]
@@ -20,4 +21,7 @@ pub trait SportsProvider {
     /// Box score for one game — same summary payload as `summary`, different
     /// mapping. Polled only for the zoomed game (see `poll::plan`).
     fn stats(&self, league: League, game_id: &str) -> Result<(GameStats, bool), ProviderError>;
+    /// League standings — fetched on demand when the Standings view opens,
+    /// never polled continuously (see `espn::STANDINGS_TTL`).
+    fn standings(&self, league: League) -> Result<(StandingsTable, bool), ProviderError>;
 }

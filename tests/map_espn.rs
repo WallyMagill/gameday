@@ -254,3 +254,34 @@ fn maps_nfl_boxscore_stats_and_leaders() {
         .expect("TEN passing leader");
     assert_eq!(ward.team, "TEN");
 }
+
+#[test]
+fn maps_nfl_standings_conferences_and_rows() {
+    // Fixture: real 2026-08-30 NFL standings capture (preseason, 3 games in),
+    // trimmed to children[].standings.entries[].{team,stats}. Values asserted
+    // are from that capture.
+    let json = include_str!("../fixtures/nfl_standings.json");
+    let t = gameday::provider::map::map_standings(gameday::domain::League::Nfl, json).unwrap();
+    assert_eq!(t.league, gameday::domain::League::Nfl);
+    assert!(t.groups.len() >= 2, "groups={}", t.groups.len());
+    assert_eq!(t.groups[0].name, "American Football Conference");
+    assert_eq!(t.groups[1].name, "National Football Conference");
+    for g in &t.groups {
+        assert!(g.rows.len() >= 4, "group {:?} rows={}", g.name, g.rows.len());
+    }
+    let buf = t.groups[0]
+        .rows
+        .iter()
+        .find(|r| r.abbr == "BUF")
+        .expect("BUF in the AFC group");
+    assert_eq!(buf.name, "Bills");
+    assert_eq!((buf.wins, buf.losses), (3, 0));
+    assert_eq!(buf.third, Some(0), "NFL carries ties");
+    assert_eq!(buf.third_label, "T");
+    let lar = t.groups[1]
+        .rows
+        .iter()
+        .find(|r| r.abbr == "LAR")
+        .expect("LAR in the NFC group");
+    assert_eq!((lar.wins, lar.losses), (3, 0));
+}

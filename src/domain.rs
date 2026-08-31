@@ -156,6 +156,35 @@ pub struct GameStats {
     pub leaders: Vec<Leader>,
 }
 
+/// One team's line in a standings group: "BUF  Bills  3  0  0".
+/// `third` is the sport's third record column — ties for football, overtime
+/// losses for hockey — labeled by `third_label` ("T"/"OTL"); None when the
+/// feed carries neither (basketball, baseball).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct StandingRow {
+    pub abbr: String,
+    pub name: String,
+    pub wins: u32,
+    pub losses: u32,
+    pub third: Option<u32>,
+    pub third_label: &'static str,
+}
+
+/// One conference/division block of a standings table.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct StandingsGroup {
+    pub name: String,
+    pub rows: Vec<StandingRow>,
+}
+
+/// One league's standings, mapped from ESPN's standings endpoint. Groups are
+/// whatever the feed sends (conferences for NFL/NHL/NBA).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StandingsTable {
+    pub league: League,
+    pub groups: Vec<StandingsGroup>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

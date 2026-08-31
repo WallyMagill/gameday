@@ -443,3 +443,73 @@ pub fn map_stats(json: &str) -> Result<GameStats, MapError> {
     }
     Ok(GameStats { rows, leaders })
 }
+
+/// One standings entry -> row. Wins/losses come from the `stats[]` entries
+/// with `type: "wins"`/`"losses"` (numeric `value`); the third column is
+/// `"ties"` (football, label "T") or `"otlosses"` (hockey, label "OTL") —
+/// both type names verified against the real NFL and NHL payloads 2026-08-30.
+fn standing_row_from(entry: &Value) -> Option<StandingRow> {
+    let team = &entry["team"];
+    let abbr = team["abbreviation"].as_str()?.to_string();
+    let stats = entry["stats"].as_array()?;
+    let stat = |ty: &str| -> Option<u32> {
+        stats
+            .iter()
+            .find(|s| s["type"].as_str() == Some(ty))
+            .and_then(|s| s["value"].as_f64())
+            .map(|v| v as u32)
+    };
+    let (third, third_label) = match stat("ties") {
+        Some(t) => (Some(t), "T"),
+        None => match stat("otlosses") {
+            Some(otl) => (Some(otl), "OTL"),
+            None => (None, ""),
+        },
+    };
+    Some(StandingRow {
+        name: team["name"]
+            .as_str()
+            .or_else(|| team["displayName"].as_str())
+            .unwrap_or(&abbr)
+            .to_string(),
+        abbr,
+        wins: stat("wins")?,
+        losses: stat("losses")?,
+        third,
+        third_label,
+    })
+}
+
+/// Standings from `…/apis/v2/sports/{sport}/{slug}/standings` — that path
+/// worked directly (NFL + NHL, checked 2026-08-30); the plan's
+/// `apis/site/v2` fallback was never needed. Shape: `children[]` (one per
+/// conference) each carrying `standings.entries[]`; a league that sends no
+/// children gets its root `standings` mapped as a single group.
+pub fn map_standings(league: League, json: &str) -> Result<StandingsTable, MapError> {
+    let v: Value = serde_json::from_str(json)?;
+    let group_from = |name: &Value, standings: &Value| -> Option<StandingsGroup> {
+        let rows: Vec<StandingRow> = standings["entries"]
+            .as_array()?
+            .iter()
+            .filter_map(standing_row_from)
+            .collect();
+        if rows.is_empty() {
+            return None; // a group with no mappable rows is noise, not data
+        }
+        Some(StandingsGroup {
+            name: name.as_str().unwrap_or("").to_string(),
+            rows,
+        })
+    };
+    let mut groups = Vec::new();
+    for c in v["children"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+        groups.extend(group_from(&c["name"], &c["standings"]));
+    }
+    if groups.is_empty() {
+        groups.extend(group_from(&v["name"], &v["standings"]));
+    }
+    if groups.is_empty() {
+        return Err(MapError::Missing("children[].standings.entries"));
+    }
+    Ok(StandingsTable { league, groups })
+}

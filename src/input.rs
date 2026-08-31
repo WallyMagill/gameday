@@ -142,8 +142,8 @@ fn cycle_completion(app: &mut App) {
     app.completion = Some(CompletionState { stem, idx });
 }
 
-/// Apply a parsed command to the app. Standings/ConfigView render
-/// placeholders until their tasks in this plan land.
+/// Apply a parsed command to the app. ConfigView renders a placeholder until
+/// its task in this plan lands.
 fn apply(app: &mut App, cmd: Cmd) {
     match cmd {
         Cmd::GoLeague(league) => go_league(app, league),
@@ -153,13 +153,15 @@ fn apply(app: &mut App, cmd: Cmd) {
             app.feed_scroll = 0;
         }
         // `:standings` with no league: the current tab's league, or NFL from
-        // Home (the plan's Task 6 contract).
+        // Home (the plan's Task 6 contract). The poll loop watches
+        // `app.standings_target()` and fetches when this view opens.
         Cmd::Standings(league) => {
             let league = league.unwrap_or(match app.tab {
                 Tab::League(l) => l,
                 Tab::Home => League::Nfl,
             });
             app.view = View::Standings(league);
+            app.standings_scroll = 0;
         }
         Cmd::ConfigView => app.view = View::ConfigView,
         Cmd::Theme(name) => {

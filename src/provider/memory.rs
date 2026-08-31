@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
-use crate::domain::{Game, GameStats, League, Summary};
+use crate::domain::{Game, GameStats, League, StandingsTable, Summary};
 use crate::provider::{ProviderError, SportsProvider};
 
 pub struct MemoryProvider {
     pub boards: HashMap<League, Vec<Game>>,
     pub summaries: HashMap<String, Summary>,
     pub stats: HashMap<String, GameStats>,
+    pub standings: HashMap<League, StandingsTable>,
 }
 
 impl MemoryProvider {
@@ -15,6 +16,7 @@ impl MemoryProvider {
             boards: HashMap::new(),
             summaries: HashMap::new(),
             stats: HashMap::new(),
+            standings: HashMap::new(),
         }
     }
 
@@ -45,6 +47,20 @@ impl SportsProvider for MemoryProvider {
                 ProviderError::Http(format!(
                     "no stats seeded for game_id={game_id:?}, have: {:?}",
                     self.stats.keys().collect::<Vec<_>>()
+                ))
+            })
+    }
+
+    fn standings(&self, league: League) -> Result<(StandingsTable, bool), ProviderError> {
+        self.standings
+            .get(&league)
+            .cloned()
+            .map(|t| (t, false))
+            .ok_or_else(|| {
+                ProviderError::Http(format!(
+                    "no standings seeded for league={:?}, have: {:?}",
+                    league.slug(),
+                    self.standings.keys().map(|l| l.slug()).collect::<Vec<_>>()
                 ))
             })
     }

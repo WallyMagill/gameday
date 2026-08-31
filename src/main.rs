@@ -64,11 +64,17 @@ enum Msg {
         id: String,
         stats: GameStats,
     },
+    Standings(StandingsTable),
 }
 
 /// The zoomed game the UI wants box-score polling for, shared with the poll
 /// thread the same way the refresh flag is. None whenever no Zoom is open.
 type StatsTarget = Arc<Mutex<Option<(League, String)>>>;
+
+/// The league the Standings view wants a table for, shared like StatsTarget.
+/// None whenever the view is closed; the fetch fires when it changes (the
+/// provider's 10-min cache absorbs repeated opens).
+type StandingsTarget = Arc<Mutex<Option<League>>>;
 
 fn main() -> std::io::Result<()> {
     let args = match parse_args(&std::env::args().collect::<Vec<_>>()) {
@@ -96,13 +102,14 @@ fn main() -> std::io::Result<()> {
         let app = gameday::dump::demo_app(dir, 0);
         let (tx, rx) = mpsc::channel::<Msg>();
         thread::spawn(move || sim_loop(tx));
-        // The simulator ignores refresh requests and the stats target; both
-        // are just unread.
+        // The simulator ignores refresh requests and the stats/standings
+        // targets; all three are just unread.
         return run_ui(
             app,
             Some(rx),
             Arc::new(AtomicBool::new(false)),
             StatsTarget::default(),
+            StandingsTarget::default(),
         );
     }
 
@@ -126,10 +133,20 @@ fn main() -> std::io::Result<()> {
     // Zoomed-game id for the box-score poll, written by the UI loop.
     let stats_target = StatsTarget::default();
     let stats_target_poll = stats_target.clone();
+    // League for the on-demand standings fetch, same arrangement.
+    let standings_target = StandingsTarget::default();
+    let standings_target_poll = standings_target.clone();
     thread::spawn(move || {
-        poll_loop(provider, tx_plan, enabled_tabs, refresh_poll, stats_target_poll)
+        poll_loop(
+            provider,
+            tx_plan,
+            enabled_tabs,
+            refresh_poll,
+            stats_target_poll,
+            standings_target_poll,
+        )
     });
-    run_ui(app, Some(rx), refresh, stats_target)
+    run_ui(app, Some(rx), refresh, stats_target, standings_target)
 }
 
 /// Dev verification: fetch and map one league's real scoreboard, print one
@@ -219,11 +236,14 @@ fn poll_loop(
     leagues: Vec<League>,
     refresh: Arc<AtomicBool>,
     stats_target: StatsTarget,
+    standings_target: StandingsTarget,
 ) {
     let mut last_board = Instant::now() - Duration::from_secs(999);
     let mut last_sum = Instant::now() - Duration::from_secs(999);
     let mut last_stats = Instant::now() - Duration::from_secs(999);
     let mut stats_last_target: Option<(League, String)> = None;
+    let mut last_standings = Instant::now() - Duration::from_secs(999);
+    let mut standings_last_target: Option<League> = None;
     let mut attempt = 0u32;
     // Scoreboard every enabled tab (Nfl default). Summaries stay live-only.
     let mut live: Vec<(League, String)> = vec![];
@@ -291,6 +311,20 @@ fn poll_loop(
             stats_last_target = target;
             last_stats = Instant::now();
         }
+        // Standings: on demand when the view opens (target change), then at
+        // the provider's own 10-min freshness window while it stays open —
+        // the fetch is served from disk whenever the cache is younger.
+        let target = standings_target.lock().ok().and_then(|t| *t);
+        let target_changed = target != standings_last_target;
+        if target_changed || last_standings.elapsed() >= gameday::provider::espn::STANDINGS_TTL {
+            if let Some(league) = target {
+                if let Ok((table, _)) = provider.standings(league) {
+                    let _ = tx.send(Msg::Standings(table));
+                }
+            }
+            standings_last_target = target;
+            last_standings = Instant::now();
+        }
         thread::sleep(Duration::from_millis(200));
     }
 }
@@ -322,8 +356,10 @@ fn run_ui(
     rx: Option<mpsc::Receiver<Msg>>,
     refresh: Arc<AtomicBool>,
     stats_target: StatsTarget,
+    standings_target: StandingsTarget,
 ) -> std::io::Result<()> {
     let mut last_stats_target: Option<(League, String)> = None;
+    let mut last_standings_target: Option<League> = None;
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
     execute!(stdout(), EnterAlternateScreen)?;
@@ -342,6 +378,7 @@ fn run_ui(
                     } => app.apply_boards(league, games, stale),
                     Msg::Summary { id, summary } => app.merge_summary(&id, summary),
                     Msg::Stats { id, stats } => app.merge_stats(&id, stats),
+                    Msg::Standings(table) => app.merge_standings(table),
                 }
                 needs_draw = true;
             }
@@ -382,6 +419,14 @@ fn run_ui(
                 *t = target.clone();
             }
             last_stats_target = target;
+        }
+        // Same handshake for the standings league the view wants (if any).
+        let target = app.standings_target();
+        if target != last_standings_target {
+            if let Ok(mut t) = standings_target.lock() {
+                *t = target;
+            }
+            last_standings_target = target;
         }
         if app.should_quit {
             break 'ui;

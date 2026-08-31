@@ -1,5 +1,5 @@
 use crate::config::{prune_pins, save_pins, Config, Favorite, Pin};
-use crate::domain::{Game, GameStats, League, Status, Summary};
+use crate::domain::{Game, GameStats, League, StandingsTable, Status, Summary};
 use crate::home::home_games;
 use crate::input::{CompletionState, InputMode};
 use crate::keymap;
@@ -60,6 +60,10 @@ pub struct App {
     /// Box scores by game id, filled by the ~30s stats poll while that game
     /// is zoomed. Pruned with `last_scores` when a game leaves every board.
     pub stats: HashMap<String, GameStats>,
+    /// League standings, fetched on demand when `:standings` opens (10-min
+    /// cache in the provider). At most one small table per league — no
+    /// pruning needed.
+    pub standings: HashMap<League, StandingsTable>,
     pub stale: bool,
     pub should_quit: bool,
     pub refresh_now: bool,
@@ -73,6 +77,10 @@ pub struct App {
     /// Highlighted row in the global PlaysFeed (`:plays`); reset when the
     /// view opens.
     pub feed_scroll: usize,
+    /// Top-line offset in the Standings view (j/k, no highlight — the table
+    /// is read-only); reset when the view opens. The renderer re-clamps
+    /// against the real pane height.
+    pub standings_scroll: usize,
     /// Which input mode keys route through; Command/Filter carry the prompt
     /// buffer the footer renders. See `input::handle_key`.
     pub mode: InputMode,
@@ -112,12 +120,14 @@ impl App {
             config,
             boards: HashMap::new(),
             stats: HashMap::new(),
+            standings: HashMap::new(),
             stale: false,
             should_quit: false,
             refresh_now: false,
             view: View::Board,
             zoom_scroll: 0,
             feed_scroll: 0,
+            standings_scroll: 0,
             mode: InputMode::Normal,
             status_line: None,
             filter: None,
@@ -241,14 +251,47 @@ impl App {
             View::Board => self.on_key_board(code),
             View::Zoom { .. } => self.on_key_zoom(code),
             View::PlaysFeed => self.on_key_plays_feed(code),
-            // Placeholder views (their tasks land later in this plan): only
-            // the ways out are wired.
-            View::Standings(_) | View::ConfigView => match code {
+            View::Standings(_) => self.on_key_standings(code),
+            // Placeholder view (its task lands later in this plan): only the
+            // ways out are wired.
+            View::ConfigView => match code {
                 KeyCode::Esc | KeyCode::Char('q') => self.view = View::Board,
                 KeyCode::Char('?') => self.help_open = true,
                 _ => {}
             },
         }
+    }
+
+    /// Keys in the Standings view: j/k scroll the table one line, PgUp/PgDn
+    /// jump, Esc/q pop back to the board (q quits ONLY there).
+    fn on_key_standings(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('j') | KeyCode::Down => self.move_standings_scroll(1),
+            KeyCode::Char('k') | KeyCode::Up => self.move_standings_scroll(-1),
+            KeyCode::PageDown => self.move_standings_scroll(FEED_PAGE_JUMP),
+            KeyCode::PageUp => self.move_standings_scroll(-FEED_PAGE_JUMP),
+            KeyCode::Esc | KeyCode::Char('q') => self.view = View::Board,
+            KeyCode::Char('?') => self.help_open = true,
+            KeyCode::Char('r') => self.refresh_now = true,
+            _ => {}
+        }
+    }
+
+    /// Scroll the Standings table, clamped to its composed line count (the
+    /// renderer re-clamps against the pane height so the last page can't
+    /// scroll into blank space).
+    fn move_standings_scroll(&mut self, delta: isize) {
+        let lines = self
+            .standings_target()
+            .and_then(|l| self.standings.get(&l))
+            .map(crate::views::standings::line_count)
+            .unwrap_or(0);
+        if lines == 0 {
+            self.standings_scroll = 0;
+            return;
+        }
+        let next = self.standings_scroll as isize + delta;
+        self.standings_scroll = next.clamp(0, lines as isize - 1) as usize;
     }
 
     /// Keys inside the global PlaysFeed: j/k move the highlight one row,
@@ -444,6 +487,21 @@ impl App {
     /// tests/dump). Replaces wholesale — rows are a snapshot, not a delta.
     pub fn merge_stats(&mut self, game_id: &str, stats: GameStats) {
         self.stats.insert(game_id.to_string(), stats);
+    }
+
+    /// The league the Standings view wants a table for — the on-demand
+    /// standings fetch's only target. None unless the view is open.
+    pub fn standings_target(&self) -> Option<League> {
+        match self.view {
+            View::Standings(league) => Some(league),
+            _ => None,
+        }
+    }
+
+    /// Latest standings for one league, from the on-demand fetch (or a
+    /// fixture in tests/dump). Replaces wholesale — a table is a snapshot.
+    pub fn merge_standings(&mut self, table: StandingsTable) {
+        self.standings.insert(table.league, table);
     }
 
     pub fn effective_layout(&self) -> LayoutPref {
