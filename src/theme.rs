@@ -71,7 +71,7 @@ impl SidebarHeaders {
 /// more specific knob); `section_labels` owns every other section caption
 /// (LAST PLAYS, meter labels, LEADERS).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Discipline {
     /// League accent on the `[NFL]` chips (false: chips in `fg`).
     pub chips: bool,
@@ -205,8 +205,12 @@ fn league_index(league: League) -> usize {
 // ------------------------------------------------------------------ TOML
 
 /// On-disk shape. Colors stay strings here so a bad one can be reported by
-/// key ("palette.live") instead of as an anonymous serde error.
+/// key ("palette.live") instead of as an anonymous serde error. Unknown
+/// keys are errors at every level (`deny_unknown_fields`): a typo'd
+/// discipline knob that silently took its default was the one theme-file
+/// mistake the author could never see.
 #[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ThemeFile {
     name: String,
     palette: PaletteFile,
@@ -215,6 +219,7 @@ struct ThemeFile {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PaletteFile {
     bg: String,
     fg: String,
@@ -564,6 +569,82 @@ mod tests {
         for bad in ["#fff", "ffffff", "#gggggg", "", "#12345678"] {
             let err = parse_hex("palette.k", bad).unwrap_err();
             assert!(err.contains("palette.k") && err.contains("#rrggbb"), "{err}");
+        }
+    }
+
+    #[test]
+    fn unknown_keys_are_errors_that_name_the_key() {
+        // A typo'd knob must not silently take its default.
+        let base = to_toml("x", &builtin("nord"));
+        for (typo, at) in [
+            ("play_abbr = true", "[discipline]"),
+            ("section_label = false", "[discipline]"),
+            ("brite = \"#ffffff\"", "[palette]"),
+            ("nmae = \"x\"", ""),
+        ] {
+            let text = if at.is_empty() {
+                format!("{typo}\n{base}")
+            } else {
+                base.replacen(at, &format!("{at}\n{typo}"), 1)
+            };
+            let key = typo.split(' ').next().unwrap();
+            let err = parse_theme(&text).unwrap_err();
+            assert!(err.contains(key), "error for {typo:?} must name {key:?}: {err}");
+        }
+        // The valid file still parses, so the check is not just "fails".
+        assert!(parse_theme(&base).is_ok());
+    }
+
+    #[test]
+    fn every_builtin_live_role_is_red() {
+        // The identity floor: LIVE, the scoring words, the ticker frame and
+        // the RED ZONE gauge all render in `live`, and every theme must read
+        // them as red. "Red" = the red channel leads green and blue by at
+        // least 64/255 — a guess wide enough for nord's rose and rose-pine's
+        // pink, tight enough to reject phosphor's old cream (#fff0be).
+        const LEAD: i32 = 64;
+        for name in BUILTIN_NAMES {
+            let Color::Rgb(r, g, b) = builtin(name).live else {
+                panic!("{name}: live is not truecolor");
+            };
+            let (r, g, b) = (r as i32, g as i32, b as i32);
+            assert!(
+                r - g >= LEAD && r - b >= LEAD,
+                "{name}: live #{r:02x}{g:02x}{b:02x} is not red (red must lead g and b by >= {LEAD})"
+            );
+        }
+    }
+
+    /// WCAG 2 relative luminance of a truecolor.
+    fn rel_luma(c: Color) -> f64 {
+        let Color::Rgb(r, g, b) = c else { panic!("not truecolor") };
+        let lin = |v: u8| {
+            let s = v as f64 / 255.0;
+            if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    }
+
+    fn contrast(a: Color, b: Color) -> f64 {
+        let (la, lb) = (rel_luma(a), rel_luma(b));
+        (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+    }
+
+    #[test]
+    fn every_builtin_muted_text_clears_3_to_1_on_its_ground() {
+        // `muted` carries data (play timestamps, the nav bar, table headers),
+        // not decoration, so it must clear the WCAG large-text floor of 3:1
+        // against `bg`. tokyo-night's upstream comment gray (#565f89) sat at
+        // 2.76 and was stepped up one shade.
+        for name in BUILTIN_NAMES {
+            let th = builtin(name);
+            let ratio = contrast(th.muted, th.bg);
+            assert!(
+                ratio >= 3.0,
+                "{name}: muted {} on bg {} is {ratio:.2}:1, expected >= 3.0:1",
+                hex_of(th.muted),
+                hex_of(th.bg)
+            );
         }
     }
 

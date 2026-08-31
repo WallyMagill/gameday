@@ -45,8 +45,8 @@ pub struct LabCapture {
 
 /// The seven captures, in write order. Stems are the file names the task
 /// contract fixes. `ticker-f-flip` is always the [`KC_TD_TICK`] frame — the
-/// one tick where a new event lands and every cell flips — regardless of
-/// `tick`, so the decision always gets a mid-flip frame.
+/// tick where a new event lands and its cell flips — regardless of `tick`,
+/// so the decision always gets a mid-flip frame.
 pub fn captures(tick: u64) -> Vec<LabCapture> {
     let prev = theme::current_name();
     let mut caps = Vec::new();
@@ -253,19 +253,27 @@ pub fn ticker_d(tick: u64) -> Buffer {
     let ground = Style::default().bg(th.bg);
     let sep = Style::default().fg(th.dim);
 
-    let mut lane1: Cells = Vec::new();
-    for g in &feed.live {
-        if !lane1.is_empty() {
-            push(&mut lane1, " │ ", sep);
-        }
-        push(&mut lane1, g.league.slug().to_uppercase().as_str(), Style::default().fg(th.chip(g.league)).add_modifier(Modifier::BOLD));
-        push(&mut lane1, &format!(" {} ", g.away.abbr), Style::default().fg(th.fg));
-        push(&mut lane1, &g.away_score.to_string(), Style::default().fg(th.bright).add_modifier(Modifier::BOLD));
-        push(&mut lane1, &format!(" {} ", g.home.abbr), Style::default().fg(th.fg));
-        push(&mut lane1, &g.home_score.to_string(), Style::default().fg(th.bright).add_modifier(Modifier::BOLD));
-        let when = format!("{} {}", g.period, g.clock);
-        push(&mut lane1, &format!(" {}", when.trim()), Style::default().fg(th.clock()));
-    }
+    // Lane 1 is a list of whole games, never a character crawl: a league
+    // chip cut off from its score at the right edge read as a missing game
+    // (ticker-d.png ended "… │ EPL"). Games that don't fit rotate in.
+    let segments: Vec<Cells> = feed
+        .live
+        .iter()
+        .map(|g| {
+            let mut seg: Cells = Vec::new();
+            push(&mut seg, g.league.slug().to_uppercase().as_str(), Style::default().fg(th.chip(g.league)).add_modifier(Modifier::BOLD));
+            push(&mut seg, &format!(" {} ", g.away.abbr), Style::default().fg(th.fg));
+            push(&mut seg, &g.away_score.to_string(), Style::default().fg(th.bright).add_modifier(Modifier::BOLD));
+            push(&mut seg, &format!(" {} ", g.home.abbr), Style::default().fg(th.fg));
+            push(&mut seg, &g.home_score.to_string(), Style::default().fg(th.bright).add_modifier(Modifier::BOLD));
+            let when = format!("{} {}", g.period, g.clock);
+            push(&mut seg, &format!(" {}", when.trim()), Style::default().fg(th.clock()));
+            seg
+        })
+        .collect();
+    let gutter = LANE_LABELS[0].chars().count() as u16;
+    let content_w = (STRIP_W - gutter - 1) as usize;
+    let lane1 = whole_segments(&segments, content_w, tick / SCORES_DWELL_TICKS, sep);
 
     let mut lane2: Cells = Vec::new();
     for e in &feed.events {
@@ -283,8 +291,6 @@ pub fn ticker_d(tick: u64) -> Buffer {
     let mut rule: Cells = Vec::new();
     push(&mut rule, &"─".repeat(STRIP_W as usize), sep);
     blit_cells(&mut buf, 0, 1, &rule, ground);
-    let gutter = LANE_LABELS[0].chars().count() as u16;
-    let content_w = (STRIP_W - gutter - 1) as usize;
     for (i, (label, lane)) in LANE_LABELS.iter().zip([&lane1, &lane2]).enumerate() {
         let y = 2 + i as u16;
         let mut cells: Cells = Vec::new();
@@ -293,6 +299,37 @@ pub fn ticker_d(tick: u64) -> Buffer {
         blit_cells(&mut buf, gutter, y, &window(lane, content_w, tick, ground), ground);
     }
     buf
+}
+
+/// Ticks each rotation of the scores lane holds before the next game steps
+/// in. A guess: 30 ticks is ~3 s at the live loop's ~10 fps, long enough to
+/// read a score strip; nothing measured yet.
+const SCORES_DWELL_TICKS: u64 = 30;
+
+/// As many whole `segments` as fit in `width`, `│`-separated, starting from
+/// segment `step % n` and wrapping — so the visible lane is always complete
+/// games. Fits-all case: every segment, from the first, at every step.
+fn whole_segments(segments: &[Cells], width: usize, step: u64, sep: Style) -> Cells {
+    let n = segments.len();
+    let mut out: Cells = Vec::new();
+    if n == 0 {
+        return out;
+    }
+    let sep_cells: Cells = " │ ".chars().map(|c| (c, sep)).collect();
+    let total: usize = segments.iter().map(Vec::len).sum::<usize>() + sep_cells.len() * (n - 1);
+    let start = if total <= width { 0 } else { (step as usize) % n };
+    for k in 0..n {
+        let seg = &segments[(start + k) % n];
+        let need = seg.len() + if out.is_empty() { 0 } else { sep_cells.len() };
+        if out.len() + need > width {
+            break;
+        }
+        if !out.is_empty() {
+            out.extend(sep_cells.iter().copied());
+        }
+        out.extend(seg.iter().copied());
+    }
+    out
 }
 
 // -------------------------------------------------------- e — LED ribbon
@@ -385,9 +422,22 @@ fn flap_cells(e: Option<&Event>) -> Cells {
     cells
 }
 
-/// One board = FLAP_ROWS × FLAP_COLS flaps for the newest events.
+/// One board = FLAP_ROWS × FLAP_COLS flaps. Events take slots in arrival
+/// order (left to right, top row first); once the board is full the newest
+/// event replaces the OLDEST slot — a ring, like a departure board where one
+/// row updates while the rest hold. So one event landing flips one module.
+/// (Shifting every cell down a slot flipped all eight at once and the
+/// landing frame read as corruption: ticker-f-flip.png.)
 fn board_cells(events: &[Event]) -> Vec<Cells> {
-    (0..FLAP_ROWS * FLAP_COLS).map(|i| flap_cells(events.get(i))).collect()
+    let n = FLAP_ROWS * FLAP_COLS;
+    // Oldest first; the stable sort keeps same-tick arrivals in league order.
+    let mut chrono: Vec<&Event> = events.iter().collect();
+    chrono.sort_by_key(|e| e.arrived);
+    let mut slots: Vec<Option<&Event>> = vec![None; n];
+    for (k, e) in chrono.iter().enumerate() {
+        slots[k % n] = Some(e);
+    }
+    slots.into_iter().map(flap_cells).collect()
 }
 
 /// A module `progress` ticks into a flip from `old` to `new`: glyphs that
@@ -417,8 +467,9 @@ fn roll(old: &[(char, Style)], new: &[(char, Style)], progress: u64) -> Cells {
 }
 
 /// (f) A departure-board of flap cells: `│ 3:21  KC   TD    27-24 KC  `.
-/// When an event lands every module flips; the frame at the landing tick
-/// (progress 1) is mid-roll, and by `FLIP_TICKS` later it has settled.
+/// When an event lands, the module it takes flips (the others hold); the
+/// frame at the landing tick (progress 1) is mid-roll, and by `FLIP_TICKS`
+/// later it has settled.
 pub fn ticker_f(tick: u64) -> Buffer {
     let th = theme::current();
     let feed = feed_at(tick);
@@ -427,10 +478,13 @@ pub fn ticker_f(tick: u64) -> Buffer {
     let last_change = feed.events.iter().map(|e| e.arrived).max().unwrap_or(0);
     let progress = tick - last_change + 1;
     let shown: Vec<Cells> = if last_change > 0 && progress <= FLIP_TICKS {
-        let old_events: Vec<&Event> = feed.events.iter().filter(|e| e.arrived < last_change).collect();
-        let old: Vec<Cells> = (0..FLAP_ROWS * FLAP_COLS)
-            .map(|i| flap_cells(old_events.get(i).copied()))
+        let old_events: Vec<Event> = feed
+            .events
+            .iter()
+            .filter(|e| e.arrived < last_change)
+            .map(|e| Event { game: e.game.clone(), play: e.play.clone(), arrived: e.arrived })
             .collect();
+        let old = board_cells(&old_events);
         new.iter().zip(&old).map(|(n, o)| roll(o, n, progress)).collect()
     } else {
         new

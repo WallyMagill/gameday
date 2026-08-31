@@ -120,6 +120,36 @@ fn ticker_d_is_two_lanes_under_a_thin_rule_with_no_box() {
 }
 
 #[test]
+fn ticker_d_scores_lane_shows_whole_games_and_rotates_the_rest_in() {
+    // ticker-d.png ended "… │ EPL" with its score off the edge: a dangling
+    // league tag reads as a missing game. Lane 1 is whole segments only, and
+    // the games that don't fit rotate in over time instead of crawling.
+    let slugs: Vec<String> = League::ALL.iter().map(|l| l.slug().to_uppercase()).collect();
+    let mut seen_first: std::collections::BTreeSet<String> = Default::default();
+    for tick in (0..300).step_by(30) {
+        let buf = ticker_d(tick);
+        let y = text_rows(&buf)[0];
+        let lane1 = row(&buf, y);
+        let trimmed = lane1.trim_end();
+        for s in &slugs {
+            assert!(!trimmed.ends_with(s.as_str()), "tick {tick}: lane 1 ends on a bare {s} chip: {lane1:?}");
+            assert!(!trimmed.ends_with(&format!("{s} ")), "tick {tick}: {lane1:?}");
+        }
+        assert!(!trimmed.ends_with('│'), "tick {tick}: no trailing separator: {lane1:?}");
+        // Every visible segment is complete: a league tag is always followed
+        // by two abbr/score pairs and a clock before the next separator/end.
+        for seg in trimmed.trim_start_matches(" SCORES ").split(" │ ") {
+            let words: Vec<&str> = seg.split_whitespace().collect();
+            assert!(words.len() >= 6, "tick {tick}: partial segment {seg:?} in {lane1:?}");
+            assert!(slugs.iter().any(|s| s == words[0]), "tick {tick}: segment {seg:?} starts with a league tag");
+        }
+        let first = trimmed.trim_start_matches(" SCORES ").split_whitespace().next().unwrap().to_string();
+        seen_first.insert(first);
+    }
+    assert!(seen_first.len() > 1, "the lane must rotate when not every game fits: only saw {seen_first:?}");
+}
+
+#[test]
 fn ticker_e_is_one_band_of_team_and_league_chips() {
     let th = theme::builtin("broadcast");
     let buf = capture("ticker-e").buf;
@@ -170,23 +200,41 @@ fn ticker_f_flip_is_a_real_animation_between_old_and_settled() {
     let before = ticker_f(KC_TD_TICK - 1);
     let mid = ticker_f(KC_TD_TICK);
     let after = ticker_f(KC_TD_TICK + FLIP_TICKS);
-    let y = text_rows(&after)[0];
-    let (b, m, a) = (row(&before, y), row(&mid, y), row(&after, y));
-    // Settled: the KC TD landed in cell 0 with the score it produced.
-    let cell0: String = a.chars().take(30).collect();
-    for needle in ["1:12", "KC", "TD", "33-24"] {
-        assert!(cell0.contains(needle), "settled cell 0 is the KC TD, missing {needle:?}:\n{a}");
-    }
-    // Mid-flip: not the old board, not the new one, and some glyphs are
+    // The board as a list of 30-wide cells (both rows).
+    let cells = |buf: &Buffer| -> Vec<String> {
+        text_rows(buf)
+            .iter()
+            .flat_map(|&y| {
+                let r = row(buf, y);
+                (0..4).map(move |i| r.chars().skip(i * 30).take(30).collect::<String>())
+            })
+            .collect()
+    };
+    let (b, m, a) = (cells(&before), cells(&mid), cells(&after));
+    assert_eq!(b.len(), 8, "eight cells");
+    // Settled: the KC TD took one module, with the score it produced.
+    let landed = a
+        .iter()
+        .position(|c| ["1:12", "KC", "TD", "33-24"].iter().all(|n| c.contains(n)))
+        .unwrap_or_else(|| panic!("settled board has no KC TD cell:\n{a:#?}"));
+    // One event landing flips ONE module; every other cell holds still in
+    // both the mid-flip and the settled frame (ticker-f-flip.png had all
+    // eight scrambled at once and read as corruption).
+    let changed: Vec<usize> = (0..8).filter(|&i| b[i] != a[i]).collect();
+    assert_eq!(changed, vec![landed], "exactly the landing cell changes between before and settled:\n{b:#?}\n{a:#?}");
+    let mid_changed: Vec<usize> = (0..8).filter(|&i| b[i] != m[i]).collect();
+    assert_eq!(mid_changed, vec![landed], "mid-flip touches only the landing cell:\n{m:#?}");
+    // Mid-flip: not the old cell, not the new one, and some glyphs are
     // still rolling (drawn muted).
-    assert_ne!(m, b, "mid-flip must differ from the pre-event board");
-    assert_ne!(m, a, "mid-flip must differ from the settled board");
+    assert_ne!(m[landed], b[landed], "mid-flip must differ from the pre-event cell");
+    assert_ne!(m[landed], a[landed], "mid-flip must differ from the settled cell");
+    let y = text_rows(&mid)[landed / 4];
     let rolling_mid = count_cells(&mid, y, |c| c.fg == th.muted && c.symbol() != " ");
     let rolling_after = count_cells(&after, y, |c| c.fg == th.muted && c.symbol() != " ");
-    assert!(rolling_mid > rolling_after, "mid-flip shows rolling glyphs ({rolling_mid} vs {rolling_after}):\n{m}");
+    assert!(rolling_mid > rolling_after, "mid-flip shows rolling glyphs ({rolling_mid} vs {rolling_after}):\n{}", m[landed]);
     // Every rolling glyph is a single-width printable — terminal-legal.
-    for ch in m.chars() {
-        assert!(!ch.is_control() && ch != '\t', "illegal glyph {ch:?} in flip row:\n{m}");
+    for ch in m[landed].chars() {
+        assert!(!ch.is_control() && ch != '\t', "illegal glyph {ch:?} in flip cell:\n{}", m[landed]);
     }
     // The capture the dump writes is that mid-flip frame, whatever --tick was.
     assert_eq!(text_of(&capture("ticker-f-flip").buf), text_of(&mid));

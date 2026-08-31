@@ -1,6 +1,8 @@
 # phosphor — amber CRT lamp on a warm near-black tube. Deliberately
-# near-monochrome: green/cyan/magenta roles are amber steps, "live" is the
-# hot pale flare of the phosphor, NHL keeps the single cold accent for ice.
+# near-monochrome: green/cyan/magenta roles are amber steps, NHL keeps the
+# single cold accent for ice. "live" honors the identity floor (LIVE, scoring
+# words, RED ZONE read red on every theme) as a hot red-orange that sits
+# inside the amber family rather than the old cream flare.
 name = "phosphor"
 
 [palette]
@@ -10,7 +12,7 @@ bright = "#ffd060"
 muted = "#a06a14"
 dim = "#4a300a"
 border = "#6e4a14"
-live = "#fff0be"
+live = "#ff4620"
 green = "#ffdc8c"
 cyan = "#d09030"
 magenta = "#e6aa3c"

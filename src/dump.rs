@@ -814,9 +814,11 @@ mod tests {
             text.push('\n');
         }
         // Big style: sextant digits, so the single-row score text is gone but
-        // the name+record rows appear under the digits.
+        // the name rows appear under the digits (records are a pair decision
+        // and the 4-up NFL tile can't fit "BUCCANEERS 11-6", so none here).
         assert!(!text.contains("27 - 24"), "default is big, not the text score row:\n{text}");
-        assert!(text.contains("CHIEFS 11-6"), "big identity row missing:\n{text}");
+        assert!(text.contains("CHIEFS") && text.contains("BUCCANEERS"), "big identity row missing:\n{text}");
+        assert!(!text.contains("CHIEFS 11-6"), "no one-sided record:\n{text}");
         // NBA demo tile carries a shot clock => the boxed amber chip renders
         // (star-background cells beyond the [ALL] header tab).
         assert!(text.contains(" 24 "), "shot clock chip text missing");

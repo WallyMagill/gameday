@@ -64,7 +64,7 @@ block, before the momentum row; plays get the full tile width.
 | Meter | Row |
 |---|---|
 | RedZone | `RED ZONE  ━━━━━━━●────  G   3 TO GOAL` — track 20→G, marker in `live` |
-| Lead | `LEAD  -15 ───────▮────── +15   DEN +7` — marker in the leading team's color |
+| Lead | `LEAD  DEN ───────▮──┼─── BOS   DEN +7` — ends labeled with the abbrs (away left, home right); marker in the leading team's color. (Was `-15 … +15`: a signed scale plotted "DEN +7" on the minus half whenever the away team led.) |
 | Diamond | `BASES  ◆◇◇   OUTS ●●○   COUNT 1-2` — occupied bases in `star` |
 | Penalty | `PENALTY  DAL ▮▮▮▮▮▮░░░░ 0:42` — countdown bar of the 2:00 minor |
 | none (soccer / no data) | row omitted; plays gain the line |

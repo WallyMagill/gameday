@@ -198,6 +198,29 @@ fn draw_reads_the_current_theme() {
 }
 
 #[test]
+fn footer_status_takes_the_clocks_discipline() {
+    // "GAME 1/4  UPD 3s" is status, clock-shaped: cyan where the theme grants
+    // clocks (broadcast), muted where it doesn't (studio) — never raw cyan.
+    use gameday::theme;
+    let fg_of_upd = |name: &str| {
+        theme::set_current(name).unwrap();
+        let mut app = mk();
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        app.last_update = Some(std::time::Instant::now());
+        let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        t.draw(|f| app.draw(f)).unwrap();
+        let b = t.backend().buffer();
+        let y = b.area().height - 1;
+        let row: String = (0..b.area().width).map(|x| b[(x, y)].symbol().to_string()).collect();
+        let x = row.find("UPD").unwrap_or_else(|| panic!("no UPD in footer: {row:?}")) as u16;
+        b[(x, y)].fg
+    };
+    assert_eq!(fg_of_upd("broadcast"), theme::builtin("broadcast").cyan);
+    assert_eq!(fg_of_upd("studio"), theme::builtin("studio").muted);
+    theme::set_current("broadcast").unwrap();
+}
+
+#[test]
 fn theme_picker_renders_every_loaded_name_over_the_board() {
     use gameday::theme;
     use gameday::views::View;

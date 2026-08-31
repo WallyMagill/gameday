@@ -47,14 +47,17 @@ pub fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
     };
     match &mut app.mode {
         InputMode::Normal => {
-            // The help overlay is modal: while it's open, ':' and '/' are as
-            // inert as every other non-help key, so let on_key swallow them.
+            // The help overlay and the theme picker are modal: while either
+            // is open, ':' and '/' are as inert as every other non-overlay
+            // key, so let on_key swallow them. (A command run from inside
+            // the picker could pop it without reverting the preview.)
+            let modal = app.help_open || app.view == View::ThemePicker;
             match code {
-                KeyCode::Char(':') if !app.help_open => {
+                KeyCode::Char(':') if !modal => {
                     app.status_line = None;
                     app.mode = InputMode::Command { buf: String::new() };
                 }
-                KeyCode::Char('/') if !app.help_open => {
+                KeyCode::Char('/') if !modal => {
                     app.status_line = None;
                     app.mode = InputMode::Filter { buf: String::new() };
                 }
@@ -436,6 +439,37 @@ mod tests {
         handle_key(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
         assert_eq!(theme::current_name(), "dracula");
         assert!(!app.should_quit);
+        theme::set_current("broadcast").unwrap();
+    }
+
+    #[test]
+    fn picker_is_modal_colon_and_slash_cannot_leak_a_preview() {
+        // Regression: `:nfl` / `:plays` / `/` from inside the picker popped it
+        // without reverting, leaving the previewed theme live but unsaved.
+        // Esc and Enter (and Tab, which reverts) are the only exits, so the
+        // prompts are inert while the picker is up — like the help overlay.
+        theme::set_current("broadcast").unwrap();
+        let dir = std::env::temp_dir().join(format!("gd-input-modal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let mut app = App::new(Config::default_all(), vec![], dir);
+        handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
+        type_line(&mut app, "theme");
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(theme::current_name(), "studio", "j previews");
+        for key in [':', '/'] {
+            handle_key(&mut app, KeyCode::Char(key), KeyModifiers::NONE);
+            assert_eq!(app.mode, InputMode::Normal, "{key:?} opens no prompt over the picker");
+            assert_eq!(app.view, View::ThemePicker, "{key:?} does not pop the picker");
+            assert_eq!(theme::current_name(), "studio", "{key:?} leaves the preview alone");
+        }
+        // Esc still reverts; nothing was persisted along the way.
+        handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.view, View::Board);
+        assert_eq!(theme::current_name(), "broadcast");
+        assert_eq!(app.config.theme, "broadcast");
+        assert!(!app.config_dir.join("config.toml").exists(), "nothing saved");
         theme::set_current("broadcast").unwrap();
     }
 

@@ -239,7 +239,14 @@ impl App {
                 self.selected = self.live_games().len() + i;
                 self.clamp_selected();
             }
-            Hit::TabChip(tab) => self.set_tab(tab),
+            // A header click pops the picker like the Tab key: the preview
+            // must not leak out as the live theme, so it reverts first.
+            Hit::TabChip(tab) => {
+                if self.view == View::ThemePicker {
+                    self.revert_theme_preview();
+                }
+                self.set_tab(tab);
+            }
             Hit::ZoomTab(t) => {
                 if let View::Zoom { tab, .. } = &mut self.view {
                     *tab = t;
@@ -437,6 +444,10 @@ impl App {
     /// `:theme` with no argument: remember the current theme (Esc's target),
     /// land the cursor on it, and show the picker over the board.
     pub fn open_theme_picker(&mut self) {
+        // Already open: the current theme is a preview, not the prior.
+        if self.view == View::ThemePicker {
+            return;
+        }
         self.theme_prior = theme::current_name();
         self.theme_cursor = theme::names()
             .iter()
@@ -448,7 +459,9 @@ impl App {
     /// Keys in the theme picker: j/k move the cursor and apply that theme at
     /// once (the board underneath is the preview), Enter keeps it and
     /// persists, Esc/q put the prior theme back. Tab still switches league
-    /// tabs — that pops the picker, so it reverts first.
+    /// tabs — that pops the picker, so it reverts first. The picker is modal
+    /// otherwise: `input.rs` keeps ':' and '/' inert while it is up, so no
+    /// command can pop it with the preview still live.
     fn on_key_theme_picker(&mut self, code: KeyCode) {
         match code {
             KeyCode::Char('j') | KeyCode::Down => self.move_theme_cursor(1),
@@ -1494,7 +1507,9 @@ impl App {
             let text = right.join("  ");
             let spacer = width.saturating_sub(left_len + text.chars().count() + 1);
             spans.push(Span::raw(" ".repeat(spacer)));
-            spans.push(Span::styled(text, Style::default().fg(th.cyan)));
+            // GAME/PAGE/UPD is status, clock-shaped: it takes the clocks
+            // discipline (cyan on broadcast, muted on studio), never raw cyan.
+            spans.push(Span::styled(text, Style::default().fg(th.clock())));
         }
         frame.render_widget(
             Paragraph::new(Line::from(spans)).style(Style::default().bg(th.bg)),
@@ -1903,6 +1918,27 @@ mod tests {
         assert_eq!(app.view, View::Board, "Tab pops the picker onto the board");
         assert_eq!(app.tab, Tab::League(League::Nfl));
         assert_eq!(theme::current_name(), "broadcast", "a tab switch never commits a preview");
+    }
+
+    #[test]
+    fn theme_picker_tab_chip_click_reverts_and_reopen_keeps_the_prior() {
+        use crate::theme;
+        theme::set_current("broadcast").unwrap();
+        let mut app = app_with(vec![], vec![]);
+        app.config.enabled_tabs = vec![League::Nfl];
+        app.open_theme_picker();
+        app.on_hit(keymap::Hit::ScrollDown);
+        assert_eq!(theme::current_name(), "studio");
+        // Opening again while open must not adopt the preview as "prior".
+        app.open_theme_picker();
+        assert_eq!(app.theme_prior, "broadcast", "reopen keeps the real prior theme");
+        assert_eq!(theme::current_name(), "studio", "reopen leaves the preview in place");
+        // A header tab click pops the picker like the Tab key: revert first.
+        app.on_hit(keymap::Hit::TabChip(Tab::League(League::Nfl)));
+        assert_eq!(app.view, View::Board);
+        assert_eq!(app.tab, Tab::League(League::Nfl));
+        assert_eq!(theme::current_name(), "broadcast", "a tab click never commits a preview");
+        assert_eq!(app.config.theme, "broadcast");
     }
 
     #[test]

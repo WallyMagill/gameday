@@ -234,7 +234,11 @@ fn render_identity(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
         ])
         .split(area);
     logo::draw_logo(frame, cols[0], &game.away);
-    render_team_id(frame, cols[1], &game.away);
+    // The city line is a pair decision: both sides or neither, so one card
+    // never reads "CHIEFS / 11-6" beside "TAMPA BAY / TB / 11-6".
+    let city_fits = |t: &Team, col: Rect| t.location.chars().count() <= col.width as usize;
+    let with_city = city_fits(&game.away, cols[1]) && city_fits(&game.home, cols[5]);
+    render_team_id(frame, cols[1], &game.away, with_city);
     let score_rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(2), Constraint::Length(1), Constraint::Min(0)])
@@ -243,7 +247,7 @@ fn render_identity(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
         Paragraph::new(score_line(game, flash)).alignment(Alignment::Center),
         score_rows[1],
     );
-    render_team_id(frame, cols[5], &game.home);
+    render_team_id(frame, cols[5], &game.home, with_city);
     logo::draw_logo(frame, cols[6], &game.home);
 }
 
@@ -303,14 +307,22 @@ fn render_digits(frame: &mut Frame, center: Rect, game: &Game, flash: bool, full
 }
 
 /// One-row team labels under the digits: away left, home right, in `area`.
-/// The record rides along only when the whole "NAME 11-6" fits its half —
-/// a record cut mid-number reads as a wrong record, so it drops wholesale.
+/// Records ride along only when BOTH "NAME 11-6" pairs fit their halves — a
+/// record cut mid-number reads as a wrong record, and one side wearing a
+/// record while the other doesn't reads as a missing one, so the pair
+/// decides together (board-*.png showed "CHIEFS 11-6" beside a bare
+/// "BUCCANEERS").
 fn render_name_row(frame: &mut Frame, area: Rect, game: &Game) {
     let th = theme::current();
     let half = (area.width as usize).saturating_sub(2) / 2;
+    let fits_with_record = |t: &Team| {
+        !t.record.is_empty()
+            && t.name.chars().count() + 1 + t.record.chars().count() <= half
+    };
+    let with_records = fits_with_record(&game.away) && fits_with_record(&game.home);
     let label = |t: &Team| {
         let name = t.name.to_uppercase();
-        if !t.record.is_empty() && name.chars().count() + 1 + t.record.chars().count() <= half {
+        if with_records {
             format!("{name} {}", t.record)
         } else {
             truncate(&name, half)
@@ -435,15 +447,14 @@ fn score_line(game: &Game, flash: bool) -> Line<'static> {
 }
 
 /// Compact identity column: city / NAME / record. Identity strings are never
-/// ellipsized ("KANSAS C…", "BUCCANEE…" read as typos): a city that doesn't
-/// fit is dropped (it's the secondary line) and a name that doesn't fit falls
-/// back to the abbr, which always does.
-fn render_team_id(frame: &mut Frame, area: Rect, team: &Team) {
+/// ellipsized ("KANSAS C…", "BUCCANEE…" read as typos): the city line is
+/// shown only when the caller says both sides' cities fit (`with_city`), and
+/// a name that doesn't fit falls back to the abbr, which always does.
+fn render_team_id(frame: &mut Frame, area: Rect, team: &Team, with_city: bool) {
     let th = theme::current();
     let w = area.width as usize;
     let fits = |s: &str| s.chars().count() <= w;
-    let city = team.location.to_uppercase();
-    let city = if fits(&city) { city } else { String::new() };
+    let city = if with_city { team.location.to_uppercase() } else { String::new() };
     let name = team.name.to_uppercase();
     let name = if fits(&name) { name } else { team.abbr.to_uppercase() };
     let record = if team.record.is_empty() { "--".into() } else { team.record.clone() };
@@ -591,12 +602,19 @@ fn render_focus_body(frame: &mut Frame, area: Rect, game: &Game) {
         ])
         .split(area);
     frame.render_widget(momentum_line(game).alignment(Alignment::Center), rows[0]);
-    let divider = field_line(game, area.width as usize).unwrap_or_else(|| {
-        Line::from(Span::styled(
-            "─".repeat(area.width.saturating_sub(2) as usize),
-            Style::default().fg(th.dim),
-        ))
-    });
+    // Inside the red zone the inline RED ZONE gauge already plots the ball;
+    // a second dot on a 100-yard scale directly under it read as two
+    // different spots, so the field bar yields to a plain rule there.
+    let in_red_zone = matches!(game.meter, Some(Meter::RedZone { .. }));
+    let divider = (!in_red_zone)
+        .then(|| field_line(game, area.width as usize))
+        .flatten()
+        .unwrap_or_else(|| {
+            Line::from(Span::styled(
+                "─".repeat(area.width.saturating_sub(2) as usize),
+                Style::default().fg(th.dim),
+            ))
+        });
     frame.render_widget(Paragraph::new(divider).alignment(Alignment::Center), rows[1]);
     frame.render_widget(
         Paragraph::new(Span::styled(
@@ -723,9 +741,12 @@ fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
             ]
         }
         Meter::Lead { plus_minus } => {
-            // plus_minus is home − away: away on the −15 end (left, like the
-            // identity block), home on +15. Marker and tag wear the leader's
-            // color — the identity floor, not a discipline grant.
+            // plus_minus is home − away: away on the left end (like the
+            // identity block), home on the right. The ends are labeled with
+            // the abbrs, not ±15: a signed scale put "DEN +7" on the minus
+            // half whenever the away team led, which read as a bug. Marker
+            // and tag wear the leader's color — the identity floor, not a
+            // discipline grant.
             let pm = i32::from(*plus_minus);
             let (tag, tag_style) = match pm.signum() {
                 0 => ("TIED".to_string(), bright),
@@ -738,11 +759,13 @@ fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
                 }
             };
             let marker_style = if pm == 0 { muted } else { tag_style };
-            let full = width >= " LEAD  -15 ".len() + " +15   ".len() + tag.len() + METER_MIN_BAR;
+            let (end_lo, end_hi) = (format!("{} ", game.away.abbr), format!(" {}", game.home.abbr));
+            let full = width
+                >= " LEAD  ".len() + end_lo.len() + end_hi.len() + "   ".len() + tag.len() + METER_MIN_BAR;
             let (head, scale_lo, scale_hi, gap) = if full {
-                (" LEAD  ", "-15 ", " +15", "   ")
+                (" LEAD  ", end_lo, end_hi, "   ")
             } else {
-                (" LEAD ", "", "", "  ")
+                (" LEAD ", String::new(), String::new(), "  ")
             };
             let bar_w = width
                 .saturating_sub(head.len() + scale_lo.len() + scale_hi.len() + gap.len() + tag.len())
@@ -826,6 +849,10 @@ fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
     Some(Line::from(spans))
 }
 
+/// Compact tile: `[NFL] KC 27 - 24 TB  Q4 1:27 LIVE`. The abbrs here ARE the
+/// identity block (there is no name row or logo), so they keep raw team
+/// color on every theme like the score digits do — the identity floor, not
+/// the `play_abbrs` grant. Same rule for the zoom stats headers.
 fn render_compact(frame: &mut Frame, area: Rect, game: &Game, fx: TileFx) {
     let th = theme::current();
     let accent = th.chip(game.league);
@@ -1030,7 +1057,7 @@ mod tests {
         );
         assert!(compact.contains("27 - 24"), "compact = single-row score:\n{compact}");
         assert!(!big.contains("27 - 24"), "big renders sextant digits, not a text row:\n{big}");
-        assert!(big.contains("CHIEFS 11-6"), "big shows name+record under the digits:\n{big}");
+        assert!(big.contains("CHIEFS"), "big shows the names under the digits:\n{big}");
     }
 
     fn nba_game(shot_clock: Option<u8>) -> Game {
@@ -1228,9 +1255,14 @@ mod tests {
         let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Compact);
         let rows = inner_rows(&buf, 49, 15);
         let (y, row) = row_with(&rows, "LEAD").expect("LEAD row");
-        assert!(row.contains("-15") && row.contains("+15"), "scale ends: {row:?}");
+        // The ends name the teams (away left, home right), not ±15: a signed
+        // scale plotted "KC +7" on the minus half, which read as a bug.
+        assert!(row.starts_with(" LEAD  KC ─"), "away abbr labels the left end: {row:?}");
+        assert!(!row.contains("-15") && !row.contains("+15"), "no signed scale: {row:?}");
         assert!(row.trim_end().ends_with("KC +7"), "tag names the leader: {row:?}");
         let mx = row.chars().position(|c| c == '▮').expect("marker") as u16;
+        let home_end = row.find(" TB ").expect("home abbr labels the right end");
+        assert!((mx as usize) < home_end, "marker sits inside the track: {row:?}");
         let marker_fg = buf[(mx + 1, y as u16 + 1)].fg;
         assert_eq!(marker_fg, theme::rgb(g.away.color), "marker in the leading (away) team's color");
         // Marker sits left of center when the away team leads.
@@ -1373,8 +1405,21 @@ mod tests {
         assert!(text.contains("LAST PLAYS"), "plays feed missing:\n{text}");
         assert!(text.contains("SCORING"), "scoring timeline missing:\n{text}");
         assert!(text.contains("TOUCHDOWN!"), "scoring word missing:\n{text}");
-        assert!(text.contains(" G "), "field bar goal tag missing:\n{text}");
         assert!(text.contains("RED ZONE") && text.contains("3 TO GOAL"), "inline meter row missing:\n{text}");
+        // In the red zone the gauge is the only ball plot: one marker, and
+        // the row under MOMENTUM is a plain rule (focus.png had two dots for
+        // one spot on two unlabeled scales).
+        assert_eq!(text.matches('●').count(), 1, "one ball marker in the red zone:\n{text}");
+        let mom = text.lines().position(|l| l.contains("MOMENTUM")).unwrap();
+        let under = text.lines().nth(mom + 1).unwrap().trim_matches(|c| c == '│' || c == ' ');
+        assert!(under.chars().all(|c| c == '─'), "plain rule under momentum, not a field bar: {under:?}");
+        // Outside the red zone (no meter) the 100-yard field bar carries the drive.
+        let mut mid = g.clone();
+        mid.meter = None;
+        mid.situation.as_mut().unwrap().ball_on = Some("KC 35".into());
+        let text = buffer_text(&render_buffer(&mid, Density::Full, 118, 30, TileFx::default(), ScoreStyle::Big), 118, 30);
+        assert!(text.contains(" G "), "field bar goal tag missing:\n{text}");
+        assert_eq!(text.matches('●').count(), 1, "field bar marker:\n{text}");
         // The LED digits actually doubled: sextant "27" fits in 3 rows, the
         // full-size glyphs span 8 — count rows containing digit strokes.
         let stroke_rows = (0..30u16)
@@ -1384,17 +1429,38 @@ mod tests {
     }
 
     #[test]
-    fn name_row_drops_the_record_rather_than_truncating_it() {
-        // "BUCCANEERS 11-6" cut to "BUCCANEERS 1…" reads as a wrong record:
-        // when the pair doesn't fit, the record must vanish wholesale.
+    fn name_row_records_are_a_pair_decision_and_never_truncate() {
+        // 49 wide: "BUCCANEERS 11-6" (15) does not fit its 12-cell half.
+        // "BUCCANEERS 1…" would read as a wrong record, and "CHIEFS 11-6"
+        // beside a bare "BUCCANEERS" (board-broadcast.png) read as a missing
+        // one — so both records drop together.
         let g = demo_game();
         let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Big);
         let text = buffer_text(&buf, 49, 15);
-        assert!(text.contains("CHIEFS 11-6"), "fitting record kept:\n{text}");
-        assert!(text.contains("BUCCANEERS"), "name kept:\n{text}");
-        assert!(!text.contains("BUCCANEERS 1"), "no half-record:\n{text}");
-        let home_row = text.lines().find(|l| l.contains("BUCCANEERS")).unwrap();
-        assert!(!home_row.contains('…'), "record dropped, not ellipsized: {home_row:?}");
+        let names = text.lines().find(|l| l.contains("CHIEFS")).expect("name row");
+        assert!(names.contains("BUCCANEERS"), "both names on one row: {names:?}");
+        assert!(!names.contains("11-6"), "neither record when one can't fit: {names:?}");
+        assert!(!names.contains('…'), "record dropped, not ellipsized: {names:?}");
+        // 60 wide: both pairs fit their 18-cell halves, both records show.
+        let buf = render_buffer(&g, Density::Standard, 60, 15, TileFx::default(), ScoreStyle::Big);
+        let text = buffer_text(&buf, 60, 15);
+        let names = text.lines().find(|l| l.contains("CHIEFS")).expect("name row");
+        assert!(names.contains("CHIEFS 11-6") && names.contains("BUCCANEERS 11-6"), "{names:?}");
+    }
+
+    #[test]
+    fn compact_identity_city_line_is_a_pair_decision() {
+        // 49 wide: each identity column is 9 cells — "TAMPA BAY" fits,
+        // "KANSAS CITY" doesn't. board-compact.png showed "CHIEFS / 11-6"
+        // over a blank city row beside "TAMPA BAY / TB / 11-6": the city
+        // line must be both sides or neither.
+        let g = demo_game();
+        let text = render_to_text(&g, Density::Standard, 49, 15);
+        assert!(!text.contains("TAMPA BAY") && !text.contains("KANSAS CITY"), "no city on either side:\n{text}");
+        assert!(text.contains("CHIEFS") && text.contains("TB"), "name / abbr fallback still per side:\n{text}");
+        // 62 wide: 15-cell columns — both cities fit, both show.
+        let text = render_to_text(&g, Density::Standard, 62, 15);
+        assert!(text.contains("TAMPA BAY") && text.contains("KANSAS CITY"), "both cities:\n{text}");
     }
 
     #[test]
