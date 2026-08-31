@@ -163,6 +163,49 @@ impl Theme {
         }
     }
 
+    /// Art (logo) color on this theme's ground: unchanged when it reads,
+    /// blended toward `fg` just far enough to read when it sinks. Luma
+    /// contrast can't make this call — Oilers navy is 1.29:1 on broadcast
+    /// black (reads fine, hue carries it) and 1.30:1 on nord (vanishes) —
+    /// so the knob is redmean color distance. See ART_FLOOR.
+    pub fn art_color(&self, c: [u8; 3]) -> Color {
+        let Color::Rgb(br, bg_, bb) = self.bg else { return rgb(c) };
+        let bg = [br, bg_, bb];
+        if redmean(c, bg) >= ART_FLOOR {
+            return rgb(c);
+        }
+        let Color::Rgb(fr, fg_, fb) = self.fg else { return rgb(c) };
+        let toward = [fr, fg_, fb];
+        for step in 1..=20u32 {
+            let t = step as f64 / 20.0;
+            let mixed = [
+                blend(c[0], toward[0], t),
+                blend(c[1], toward[1], t),
+                blend(c[2], toward[2], t),
+            ];
+            if redmean(mixed, bg) >= ART_FLOOR {
+                return rgb(mixed);
+            }
+        }
+        self.fg
+    }
+
+    /// Team color for a drawn mark (the abbr fallback when a logo is
+    /// missing): primary if it reads on this ground, else the team's
+    /// alternate (the brand-correct dark-ground swap), else primary lifted.
+    pub fn team_mark_color(&self, primary: [u8; 3], alt: [u8; 3]) -> Color {
+        if let Color::Rgb(br, bg_, bb) = self.bg {
+            let bg = [br, bg_, bb];
+            if redmean(primary, bg) >= ART_FLOOR {
+                return rgb(primary);
+            }
+            if redmean(alt, bg) >= ART_FLOOR {
+                return rgb(alt);
+            }
+        }
+        self.art_color(primary)
+    }
+
     /// League accent on play-row text (the sidebar's TOP PLAYS lines): the
     /// same knob as team color on abbrs — both are "color on play text".
     pub fn league_text(&self, league: League) -> Color {
@@ -533,6 +576,28 @@ pub fn scoring_word(league: League) -> &'static str {
     }
 }
 
+/// Floor for `art_color`, in redmean distance. Measured on the demo slate:
+/// the pairs that vanish (Yankees navy 0,43,109 on nord 103 / dracula 110 /
+/// gruvbox 131; Oilers navy on the same, 92-109) sit below it, the approved
+/// broadcast pairs (same navies on black, 165-207) above it.
+const ART_FLOOR: f64 = 150.0;
+
+/// Redmean color distance — cheap perceptual distance that keeps hue and
+/// chroma in play where WCAG luma contrast sees nothing.
+fn redmean(a: [u8; 3], b: [u8; 3]) -> f64 {
+    let rm = (a[0] as f64 + b[0] as f64) / 2.0;
+    let (dr, dg, db) = (
+        a[0] as f64 - b[0] as f64,
+        a[1] as f64 - b[1] as f64,
+        a[2] as f64 - b[2] as f64,
+    );
+    ((2.0 + rm / 256.0) * dr * dr + 4.0 * dg * dg + (2.0 + (255.0 - rm) / 256.0) * db * db).sqrt()
+}
+
+fn blend(a: u8, b: u8, t: f64) -> u8 {
+    (a as f64 + (b as f64 - a as f64) * t).round().clamp(0.0, 255.0) as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,6 +678,36 @@ mod tests {
                 "{name}: live #{r:02x}{g:02x}{b:02x} is not red (red must lead g and b by >= {LEAD})"
             );
         }
+    }
+
+    #[test]
+    fn art_color_lifts_only_what_sinks_into_the_ground() {
+        // The measured pairs behind ART_FLOOR: Yankees art navy (0,43,109)
+        // reads on broadcast black (redmean 207) but vanishes on nord
+        // (103) / dracula (110) / gruvbox (131).
+        set_current("nord").unwrap();
+        let navy = [0u8, 43, 109];
+        let lifted = current().art_color(navy);
+        assert_ne!(lifted, rgb(navy), "sunk color must be remapped");
+        let white = current().art_color([237, 237, 237]);
+        assert_eq!(white, rgb([237, 237, 237]), "contrasting art is untouched");
+        set_current("broadcast").unwrap();
+        assert_eq!(current().art_color(navy), rgb(navy), "navy reads on black");
+    }
+
+    #[test]
+    fn team_mark_color_cascades_primary_alt_lift() {
+        set_current("nord").unwrap();
+        let th = current();
+        // Primary clears the floor: used as-is.
+        assert_eq!(th.team_mark_color([237, 237, 237], [0, 43, 109]), rgb([237, 237, 237]));
+        // Primary sinks, alt clears: brand-correct fallback.
+        assert_eq!(th.team_mark_color([0, 43, 109], [237, 237, 237]), rgb([237, 237, 237]));
+        // Both sink: lift rather than vanish.
+        let both = th.team_mark_color([0, 43, 109], [10, 50, 100]);
+        assert_ne!(both, rgb([0, 43, 109]));
+        assert_ne!(both, rgb([10, 50, 100]));
+        set_current("broadcast").unwrap();
     }
 
     /// WCAG 2 relative luminance of a truecolor.

@@ -1,7 +1,7 @@
 use crate::domain::Team;
 use crate::theme;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
@@ -176,14 +176,15 @@ pub fn draw_logo(frame: &mut Frame, area: Rect, team: &Team) {
             }
             let cell = &mut buf[(x0 + x as u16, y0 + y as u16)];
             cell.set_char(art_cell.ch);
-            cell.set_fg(art_cell.fg.map_or(th.fg, |(r, g, b)| Color::Rgb(r, g, b)));
-            cell.set_bg(art_cell.bg.map_or(th.bg, |(r, g, b)| Color::Rgb(r, g, b)));
+            cell.set_fg(art_cell.fg.map_or(th.fg, |(r, g, b)| th.art_color([r, g, b])));
+            cell.set_bg(art_cell.bg.map_or(th.bg, |(r, g, b)| th.art_color([r, g, b])));
         }
     }
 }
 
 /// Missing mark: team abbreviation in team color, never a hole.
 fn draw_abbr_mark(frame: &mut Frame, area: Rect, team: &Team) {
+    let th = theme::current();
     let w = (team.abbr.chars().count() as u16 + 2).min(area.width);
     let slot = Rect {
         x: area.x + area.width.saturating_sub(w) / 2,
@@ -195,7 +196,7 @@ fn draw_abbr_mark(frame: &mut Frame, area: Rect, team: &Team) {
         Paragraph::new(format!("⟨{}⟩", team.abbr))
             .style(
                 Style::default()
-                    .fg(theme::rgb(team.color))
+                    .fg(th.team_mark_color(team.color, team.alt_color))
                     .add_modifier(Modifier::BOLD),
             ),
         slot,
