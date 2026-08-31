@@ -4,7 +4,7 @@
 
 use crate::app::{App, Tab};
 use crate::domain::Game;
-use crate::text::truncate;
+use crate::text::{leading_surname, truncate};
 use crate::theme::{self, SidebarHeader};
 use crate::tiles::packer::pack;
 use crate::tiles::render_tile;
@@ -90,14 +90,24 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
             .add_modifier(Modifier::BOLD),
     )));
     for (game, play) in events.iter().take(5) {
-        // Right-aligned clock column per row (reference board), the play
-        // text ellipsis-truncated so it never hard-clips against it.
+        // A leaderboard line, not a play feed: abbr + surname + clock, the
+        // clock right-aligned (reference board). The full sentence already
+        // lives in the tile's LAST PLAYS and the ticker's ALERTS lane.
         let clock = play.clock.as_str();
-        let text = truncate(&play.text, w.saturating_sub(2 + clock.chars().count() + 1));
-        let pad = w.saturating_sub(2 + text.chars().count() + clock.chars().count());
+        let who = truncate(
+            &leading_surname(&play.text),
+            w.saturating_sub(2 + 4 + clock.chars().count() + 1),
+        );
+        let pad = w.saturating_sub(2 + 4 + who.chars().count() + clock.chars().count());
         lines.push(Line::from(vec![
             Span::styled("★ ", Style::default().fg(th.star)),
-            Span::styled(text, Style::default().fg(th.league_text(game.league))),
+            Span::styled(
+                format!("{:<4}", play.team),
+                Style::default()
+                    .fg(App::team_color(game, &play.team))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(who, Style::default().fg(th.league_text(game.league))),
             Span::raw(" ".repeat(pad)),
             Span::styled(clock.to_string(), Style::default().fg(th.clock())),
         ]));

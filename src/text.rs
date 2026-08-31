@@ -16,6 +16,25 @@ pub fn truncate(s: &str, width: usize) -> String {
     }
 }
 
+/// Last word of the leading capitalized-name run ("Patrick Mahomes pass to
+/// T. Kelce" -> "Mahomes"), keeping generational suffixes ("Jazz Chisholm
+/// Jr. walks" -> "Chisholm Jr."). Play text leads with the player's name in
+/// every feed we map; when it doesn't, the first word is the honest fallback.
+pub fn leading_surname(text: &str) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let is_name = |w: &str| w.chars().next().is_some_and(char::is_uppercase);
+    let run = words.iter().take_while(|w| is_name(w)).count();
+    if run == 0 {
+        return words.first().copied().unwrap_or_default().to_string();
+    }
+    let last = words[run - 1];
+    if run >= 2 && matches!(last, "Jr." | "Sr." | "II" | "III" | "IV") {
+        format!("{} {last}", words[run - 2])
+    } else {
+        last.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -43,5 +62,30 @@ mod tests {
         assert_eq!(truncate("héllo wörld", 7).chars().count(), 7);
         assert_eq!(truncate("◆◇◆◇", 4), "◆◇◆◇");
         assert_eq!(truncate("◆◇◆◇", 3), "◆◇…");
+    }
+}
+
+#[cfg(test)]
+mod surname_tests {
+    use super::*;
+
+    #[test]
+    fn leading_surname_takes_the_last_word_of_the_leading_name_run() {
+        assert_eq!(leading_surname("Patrick Mahomes pass to T. Kelce"), "Mahomes");
+        assert_eq!(leading_surname("Mahomes pass to Kelce for 3 yards"), "Mahomes");
+        assert_eq!(leading_surname("Nikola Jokic makes layup (28 PTS)"), "Jokic");
+        assert_eq!(leading_surname("Leon Draisaitl snap shot GOAL (32)"), "Draisaitl");
+    }
+
+    #[test]
+    fn leading_surname_keeps_generational_suffixes() {
+        assert_eq!(leading_surname("Jazz Chisholm Jr. walks"), "Chisholm Jr.");
+        assert_eq!(leading_surname("Vladimir Guerrero Jr. single to right"), "Guerrero Jr.");
+    }
+
+    #[test]
+    fn leading_surname_falls_back_to_the_first_word() {
+        assert_eq!(leading_surname("TOUCHDOWN"), "TOUCHDOWN");
+        assert_eq!(leading_surname(""), "");
     }
 }

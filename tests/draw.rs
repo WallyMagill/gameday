@@ -289,7 +289,7 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
 }
 
 #[test]
-fn sidebar_top_plays_right_align_the_clock() {
+fn sidebar_top_plays_are_abbr_surname_clock() {
     let mut app = mk();
     let mut game = g("1", "KC", "TB", true);
     game.last_plays = vec![Play {
@@ -307,10 +307,11 @@ fn sidebar_top_plays_right_align_the_clock() {
         .lines()
         .find(|l| l.contains("★"))
         .expect("TOP PLAYS row with a starred play");
-    // The clock hugs the sidebar's right border; the long play text is
-    // ellipsis-truncated, never hard-cut into it.
+    // A leaderboard line — abbr + surname, never the truncated sentence —
+    // with the clock hugging the sidebar's right border.
+    assert!(row.contains("★ KC  Mahomes"), "abbr + surname: {row:?}");
+    assert!(!row.contains("pass"), "the sentence stays out of the rail: {row:?}");
     assert!(row.trim_end().ends_with("1:27│"), "clock not right-aligned: {row:?}");
-    assert!(row.contains("…"), "long play text should truncate with ellipsis: {row:?}");
 }
 
 #[test]
