@@ -77,6 +77,29 @@ fn header_and_tabs_render() {
 }
 
 #[test]
+fn active_alert_banner_renders_in_header_in_live_color() {
+    let mut app = mk();
+    app.active_alert = Some(gameday::alerts::Alert {
+        text: "★ KC SCORES  27-24".into(),
+        until_tick: 999,
+    });
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("★ KC SCORES  27-24"), "{s}");
+    // The star sits on the header row (row 0) styled in the theme's live role.
+    let b = t.backend().buffer();
+    let star_x = (0..b.area().width)
+        .find(|&x| b[(x, 0)].symbol() == "★")
+        .expect("banner star on the header row");
+    assert_eq!(
+        b[(star_x, 0)].style().fg,
+        Some(gameday::theme::current().live),
+        "banner must use the live color role"
+    );
+}
+
+#[test]
 fn footer_shows_chords() {
     let mut app = mk();
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();

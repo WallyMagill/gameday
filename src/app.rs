@@ -24,9 +24,13 @@ pub enum Tab {
     League(League),
 }
 
-/// Render ticks a score flash stays lit: 10 ticks ≈ 1s at the live cadence
-/// (10 render ticks per second while anything is live).
-pub const FLASH_TICKS: u64 = 10;
+/// Render ticks per second while anything is live (main's `LIVE_TICK` is
+/// 100ms). Every seconds→ticks conversion (score flash, alert cooldown and
+/// banner) derives from this one number.
+pub const LIVE_TICKS_PER_SEC: u64 = 10;
+
+/// Render ticks a score flash stays lit: ≈1s at the live cadence.
+pub const FLASH_TICKS: u64 = LIVE_TICKS_PER_SEC;
 
 /// PgUp/PgDn jump in the PlaysFeed, in rows. A guess at "most of a screen":
 /// the feed body is ~30 rows at the default 120x36 capture size, and key
@@ -138,6 +142,14 @@ pub struct App {
     last_scores: HashMap<String, (u16, u16)>,
     /// game id -> tick when its score last changed; drives the one-shot flash.
     flashes: HashMap<String, u64>,
+    /// Favorite-score alert diff state (own score memory + per-game cooldown).
+    alerts: crate::alerts::AlertState,
+    /// The header banner currently showing, if any; expired by
+    /// `advance_tick` once its `until_tick` passes.
+    pub active_alert: Option<crate::alerts::Alert>,
+    /// Set when a banner starts; main consumes it to write the terminal
+    /// bell (`\x07`) — App never touches stdout itself.
+    pub bell_pending: bool,
 }
 
 impl App {
@@ -170,6 +182,9 @@ impl App {
             tick: 0,
             last_scores: HashMap::new(),
             flashes: HashMap::new(),
+            alerts: crate::alerts::AlertState::default(),
+            active_alert: None,
+            bell_pending: false,
         }
     }
 
@@ -180,6 +195,11 @@ impl App {
         let tick = self.tick;
         self.flashes
             .retain(|_, start| tick.saturating_sub(*start) < FLASH_TICKS);
+        // The alert banner is one-shot too: past its lifetime it vanishes
+        // and only a fresh score delta can bring one back.
+        if self.active_alert.as_ref().is_some_and(|a| tick >= a.until_tick) {
+            self.active_alert = None;
+        }
     }
 
     /// Is `game_id` inside its ~1s score-flash window? Pure in (tick, flashes).
@@ -520,6 +540,15 @@ impl App {
             }
         }
         self.boards.insert(league, games);
+        // Favorite-score alerts diff the freshly merged boards; a hit starts
+        // the header banner and queues the bell for main to ring.
+        if let Some(alert) =
+            self.alerts
+                .check(&self.config.favorites, &self.boards, self.tick)
+        {
+            self.active_alert = Some(alert);
+            self.bell_pending = true;
+        }
         // Drop score memory for games no board carries any more: unbounded
         // growth over a days-long session, and a recycled id would flash on
         // first sighting instead of seeding silently.
@@ -817,6 +846,15 @@ impl App {
         }
         if self.stale {
             spans.push(Span::styled(" STALE", Style::default().fg(th.star)));
+        }
+        // Favorite-score banner: earned red — the live role, spec's color
+        // discipline — for its short lifetime, then advance_tick drops it.
+        if let Some(alert) = &self.active_alert {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                alert.text.clone(),
+                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
+            ));
         }
         let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
         // While the current tab is date-traveled the viewed date replaces the

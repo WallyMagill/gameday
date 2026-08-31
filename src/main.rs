@@ -427,6 +427,15 @@ fn run_ui(
                 needs_draw = true;
             }
         }
+        // A banner that just started rings the terminal bell once. Raw byte
+        // to stdout — BEL never disturbs the alternate-screen buffer.
+        if app.bell_pending {
+            app.bell_pending = false;
+            use std::io::Write;
+            let mut out = stdout();
+            let _ = out.write_all(b"\x07");
+            let _ = out.flush();
+        }
         let tick_every = if app.any_live() { LIVE_TICK } else { IDLE_TICK };
         if last_tick.elapsed() >= tick_every {
             app.advance_tick();
