@@ -96,6 +96,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 meter: Some(Meter::RedZone { yards_to_goal: 3 }),
                 start_time: None,
                 broadcast: Some("CBS".into()),
+                odds: None,
             },
             Game {
                 id: "nfl-pre".into(),
@@ -112,6 +113,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 meter: None,
                 start_time: Some("8:20 PM".into()),
                 broadcast: Some("NBC".into()),
+                odds: Some("SF -2.5  O/U 44.5".into()),
             },
             Game {
                 id: "nfl-final".into(),
@@ -128,6 +130,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 meter: None,
                 start_time: None,
                 broadcast: Some("FOX".into()),
+                odds: None,
             },
         ],
     );
@@ -161,6 +164,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
             meter: Some(Meter::Lead { plus_minus: -7 }),
             start_time: None,
             broadcast: Some("TNT".into()),
+            odds: None,
         }],
     );
 
@@ -195,6 +199,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
             meter: Some(Meter::Diamond { occupied: [true, false, false] }),
             start_time: None,
             broadcast: Some("SN".into()),
+            odds: None,
         }],
     );
 
@@ -222,6 +227,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
             meter: Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 42 }),
             start_time: None,
             broadcast: Some("ESPN".into()),
+            odds: None,
         }],
     );
 
@@ -249,6 +255,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
             meter: None,
             start_time: None,
             broadcast: Some("NBC".into()),
+            odds: None,
         }],
     );
 

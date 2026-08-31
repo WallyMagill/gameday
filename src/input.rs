@@ -259,6 +259,7 @@ mod tests {
             meter: None,
             start_time: None,
             broadcast: None,
+            odds: None,
         }
     }
 

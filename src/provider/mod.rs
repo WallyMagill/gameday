@@ -17,6 +17,14 @@ pub enum ProviderError {
 
 pub trait SportsProvider {
     fn scoreboard(&self, league: League) -> Result<(Vec<Game>, bool), ProviderError>;
+    /// Scoreboard for a specific (non-today) date — the slate time-travel
+    /// path. Fetched once when the viewed date changes, cached per date,
+    /// never live-polled (past/future slates don't move play-by-play).
+    fn scoreboard_on(
+        &self,
+        league: League,
+        date: time::Date,
+    ) -> Result<(Vec<Game>, bool), ProviderError>;
     fn summary(&self, league: League, game_id: &str) -> Result<(Summary, bool), ProviderError>;
     /// Box score for one game — same summary payload as `summary`, different
     /// mapping. Polled only for the zoomed game (see `poll::plan`).

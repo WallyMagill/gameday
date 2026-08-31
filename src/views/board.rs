@@ -216,20 +216,31 @@ fn draw_slate(app: &App, frame: &mut Frame, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, g)| {
-            if Some(i) == sel {
-                Line::from(vec![
+            let mut spans = if Some(i) == sel {
+                vec![
                     Span::styled("▸ ", Style::default().fg(th.star)),
                     Span::styled(
                         slate_line(g),
                         Style::default().fg(th.star).add_modifier(Modifier::BOLD),
                     ),
-                ])
+                ]
             } else {
-                Line::from(Span::styled(
+                vec![Span::styled(
                     format!("  {}", slate_line(g)),
                     Style::default().fg(th.muted),
-                ))
+                )]
+            };
+            // Odds ride the pre-game row, dim so the slate stays a
+            // departure board, not a betting sheet.
+            if g.status == crate::domain::Status::Pre {
+                if let Some(odds) = &g.odds {
+                    spans.push(Span::styled(
+                        format!("  {odds}"),
+                        Style::default().fg(th.dim),
+                    ));
+                }
             }
+            Line::from(spans)
         })
         .collect();
     frame.render_widget(

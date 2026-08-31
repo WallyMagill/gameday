@@ -46,6 +46,7 @@ fn live_kc() -> Game {
         meter: Some(Meter::RedZone { yards_to_goal: 3 }),
         start_time: None,
         broadcast: Some("CBS".into()),
+        odds: None,
     }
 }
 

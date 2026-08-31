@@ -179,6 +179,22 @@ fn meter_from(
     }
 }
 
+/// Display odds from `competitions[].odds[0]`: `details` is ESPN's
+/// pre-formatted spread ("CIN -3.5"), `overUnder` the total. Whichever parts
+/// exist are joined ("CIN -3.5  O/U 51.5"); None when the array is absent or
+/// empty (finals — ESPN drops odds once a game completes).
+fn odds_from(odds: &Value) -> Option<String> {
+    let first = odds.as_array()?.first()?;
+    let details = first["details"].as_str().filter(|s| !s.is_empty());
+    let over_under = first["overUnder"].as_f64();
+    match (details, over_under) {
+        (Some(d), Some(ou)) => Some(format!("{d}  O/U {ou}")),
+        (Some(d), None) => Some(d.to_string()),
+        (None, Some(ou)) => Some(format!("O/U {ou}")),
+        (None, None) => None,
+    }
+}
+
 pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError> {
     let v: Value = serde_json::from_str(json)?;
     let events = v.get("events").and_then(|e| e.as_array()).ok_or(MapError::Missing("events"))?;
@@ -275,6 +291,7 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
                 scoring: false,
             });
         }
+        let odds = odds_from(&comp["odds"]);
         let broadcast = comp["broadcasts"].as_array()
             .and_then(|b| b.first())
             .and_then(|b| b["names"].as_array())
@@ -291,7 +308,7 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
         );
         out.push(Game {
             id, league, home, away, home_score, away_score, status, period, clock,
-            situation, last_plays, meter, start_time, broadcast,
+            situation, last_plays, meter, start_time, broadcast, odds,
         });
     }
     Ok(out)

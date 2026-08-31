@@ -285,3 +285,29 @@ fn maps_nfl_standings_conferences_and_rows() {
         .expect("LAR in the NFC group");
     assert_eq!((lar.wins, lar.losses), (3, 0));
 }
+
+#[test]
+fn maps_dated_scoreboard_odds() {
+    // Fixture: real dated capture `?dates=20260913` (2026-08-30; the plan's
+    // "yesterday" had only finals, which ESPN strips odds from — a future
+    // slate is the honest capture that actually carries odds). Values
+    // asserted are exact strings from that payload.
+    let json = include_str!("../fixtures/nfl_scoreboard_dated.json");
+    let games = map_scoreboard(League::Nfl, json).unwrap();
+    assert_eq!(games.len(), 3);
+    let cin = games
+        .iter()
+        .find(|g| g.away.abbr == "CIN" || g.home.abbr == "CIN")
+        .expect("CIN game");
+    assert_eq!(cin.odds.as_deref(), Some("CIN -3.5  O/U 51.5"));
+    let det = games
+        .iter()
+        .find(|g| g.away.abbr == "DET" || g.home.abbr == "DET")
+        .expect("DET game");
+    assert_eq!(det.odds.as_deref(), Some("DET -7  O/U 49.5"));
+    // The live scoreboard fixture carries no odds objects: mapped as None,
+    // never an empty string.
+    let live = map_scoreboard(League::Nfl, include_str!("../fixtures/nfl_scoreboard.json")).unwrap();
+    assert!(!live.is_empty());
+    assert!(live.iter().all(|g| g.odds.is_none()));
+}

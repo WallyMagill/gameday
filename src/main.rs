@@ -56,6 +56,13 @@ enum Msg {
         games: Vec<Game>,
         stale: bool,
     },
+    /// A non-today slate for the date-traveled board ([`Msg::Boards`] stays
+    /// the live path; dated slates never touch flash/score state).
+    DatedBoards {
+        league: League,
+        date: time::Date,
+        games: Vec<Game>,
+    },
     Summary {
         id: String,
         summary: Summary,
@@ -75,6 +82,12 @@ type StatsTarget = Arc<Mutex<Option<(League, String)>>>;
 /// None whenever the view is closed; the fetch fires when it changes (the
 /// provider's 10-min cache absorbs repeated opens).
 type StandingsTarget = Arc<Mutex<Option<League>>>;
+
+/// The (league, date) the date-traveled board wants a slate for, shared like
+/// the other targets. None when every tab views today or the slate is already
+/// loaded; the fetch fires only when it changes — dated slates are never
+/// live-polled (the provider caches them per date).
+type DatedTarget = Arc<Mutex<Option<(League, time::Date)>>>;
 
 fn main() -> std::io::Result<()> {
     let args = match parse_args(&std::env::args().collect::<Vec<_>>()) {
@@ -102,14 +115,15 @@ fn main() -> std::io::Result<()> {
         let app = gameday::dump::demo_app(dir, 0);
         let (tx, rx) = mpsc::channel::<Msg>();
         thread::spawn(move || sim_loop(tx));
-        // The simulator ignores refresh requests and the stats/standings
-        // targets; all three are just unread.
+        // The simulator ignores refresh requests and the stats/standings/
+        // dated targets; all four are just unread.
         return run_ui(
             app,
             Some(rx),
             Arc::new(AtomicBool::new(false)),
             StatsTarget::default(),
             StandingsTarget::default(),
+            DatedTarget::default(),
         );
     }
 
@@ -136,6 +150,9 @@ fn main() -> std::io::Result<()> {
     // League for the on-demand standings fetch, same arrangement.
     let standings_target = StandingsTarget::default();
     let standings_target_poll = standings_target.clone();
+    // (league, date) for the date-traveled slate fetch, same arrangement.
+    let dated_target = DatedTarget::default();
+    let dated_target_poll = dated_target.clone();
     thread::spawn(move || {
         poll_loop(
             provider,
@@ -144,9 +161,10 @@ fn main() -> std::io::Result<()> {
             refresh_poll,
             stats_target_poll,
             standings_target_poll,
+            dated_target_poll,
         )
     });
-    run_ui(app, Some(rx), refresh, stats_target, standings_target)
+    run_ui(app, Some(rx), refresh, stats_target, standings_target, dated_target)
 }
 
 /// Dev verification: fetch and map one league's real scoreboard, print one
@@ -237,7 +255,9 @@ fn poll_loop(
     refresh: Arc<AtomicBool>,
     stats_target: StatsTarget,
     standings_target: StandingsTarget,
+    dated_target: DatedTarget,
 ) {
+    let mut dated_last_target: Option<(League, time::Date)> = None;
     let mut last_board = Instant::now() - Duration::from_secs(999);
     let mut last_sum = Instant::now() - Duration::from_secs(999);
     let mut last_stats = Instant::now() - Duration::from_secs(999);
@@ -311,6 +331,23 @@ fn poll_loop(
             stats_last_target = target;
             last_stats = Instant::now();
         }
+        // Dated slates: fetched only when the traveled (league, date) target
+        // changes — never re-polled, past/future boards don't move live. The
+        // UI clears the target once the slate is merged, so a fetch failure
+        // simply retries on the next travel step.
+        let target = dated_target.lock().ok().and_then(|t| *t);
+        if target != dated_last_target {
+            if let Some((league, date)) = target {
+                if let Ok((games, _)) = provider.scoreboard_on(league, date) {
+                    let _ = tx.send(Msg::DatedBoards {
+                        league,
+                        date,
+                        games,
+                    });
+                }
+            }
+            dated_last_target = target;
+        }
         // Standings: on demand when the view opens (target change), then at
         // the provider's own 10-min freshness window while it stays open —
         // the fetch is served from disk whenever the cache is younger.
@@ -357,9 +394,11 @@ fn run_ui(
     refresh: Arc<AtomicBool>,
     stats_target: StatsTarget,
     standings_target: StandingsTarget,
+    dated_target: DatedTarget,
 ) -> std::io::Result<()> {
     let mut last_stats_target: Option<(League, String)> = None;
     let mut last_standings_target: Option<League> = None;
+    let mut last_dated_target: Option<(League, time::Date)> = None;
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
     execute!(stdout(), EnterAlternateScreen)?;
@@ -376,6 +415,11 @@ fn run_ui(
                         games,
                         stale,
                     } => app.apply_boards(league, games, stale),
+                    Msg::DatedBoards {
+                        league,
+                        date,
+                        games,
+                    } => app.merge_dated_board(league, date, games),
                     Msg::Summary { id, summary } => app.merge_summary(&id, summary),
                     Msg::Stats { id, stats } => app.merge_stats(&id, stats),
                     Msg::Standings(table) => app.merge_standings(table),
@@ -428,6 +472,14 @@ fn run_ui(
             }
             last_standings_target = target;
         }
+        // And for the traveled (league, date) the board wants a slate for.
+        let target = app.dated_target();
+        if target != last_dated_target {
+            if let Ok(mut t) = dated_target.lock() {
+                *t = target;
+            }
+            last_dated_target = target;
+        }
         if app.should_quit {
             break 'ui;
         }
@@ -473,6 +525,7 @@ mod tests {
             meter: None,
             start_time: None,
             broadcast: None,
+            odds: None,
         }
     }
 

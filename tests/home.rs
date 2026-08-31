@@ -28,6 +28,7 @@ fn game(id: &str, abbr: &str, status: Status) -> Game {
         meter: None,
         start_time: None,
         broadcast: None,
+        odds: None,
     }
 }
 

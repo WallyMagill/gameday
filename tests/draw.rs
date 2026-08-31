@@ -41,6 +41,7 @@ fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
         meter: None,
         start_time: Some("8:20 PM".into()),
         broadcast: Some("CBS".into()),
+        odds: None,
     }
 }
 
@@ -558,6 +559,7 @@ fn nba_game(id: &str, away: &str, home: &str) -> Game {
         meter: None,
         start_time: None,
         broadcast: None,
+        odds: None,
     }
 }
 
@@ -760,4 +762,70 @@ fn plays_feed_without_scoring_plays_says_so() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("no scoring plays yet"), "{s}");
+}
+
+#[test]
+fn brackets_step_the_viewed_date_and_header_marks_it() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    // The pure label first: known date, known weekday.
+    let d = time::Date::from_calendar_date(2000, time::Month::January, 1).unwrap();
+    assert_eq!(gameday::app::date_label(d), "SAT JAN 1");
+
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    assert!(!buf_text(&t).contains('‹'), "no travel marker on today");
+
+    app.on_key(KeyCode::Char('['), KeyModifiers::NONE);
+    assert_eq!(app.viewed_date_offset.get(&League::Nfl), Some(&-1));
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains('‹') && s.contains('›'), "header shows the viewed date:\n{s}");
+
+    // A merged dated board replaces the league's visible games.
+    let date = time::OffsetDateTime::now_local()
+        .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
+        .date()
+        .previous_day()
+        .unwrap();
+    let mut final_game = g("d1", "DAL", "PHI", false);
+    final_game.status = Status::Final;
+    app.merge_dated_board(League::Nfl, date, vec![final_game]);
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("DAL") && s.contains("PHI"), "{s}");
+    assert!(!s.contains("KC"), "today's board is hidden while traveling:\n{s}");
+
+    // Clamped at ±7.
+    for _ in 0..20 {
+        app.on_key(KeyCode::Char('['), KeyModifiers::NONE);
+    }
+    assert_eq!(app.viewed_date_offset.get(&League::Nfl), Some(&-7));
+    // ']' steps forward; back at 0 the marker (and dated board) go away.
+    for _ in 0..7 {
+        app.on_key(KeyCode::Char(']'), KeyModifiers::NONE);
+    }
+    assert_eq!(app.viewed_date_offset.get(&League::Nfl).copied().unwrap_or(0), 0);
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(!s.contains('‹'), "{s}");
+    assert!(s.contains("KC"), "live board is back:\n{s}");
+}
+
+#[test]
+fn pre_tile_and_slate_show_odds() {
+    let mut app = mk();
+    let mut game = g("1", "KC", "TB", false); // Pre
+    game.last_plays.clear(); // a pre-game has no plays
+    game.situation = None;
+    game.odds = Some("KC -3.5  O/U 47.5".into());
+    app.apply_boards(League::Nfl, vec![game], false);
+    app.tab = Tab::League(League::Nfl);
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    // Once on the mosaic tile, once on the slate row.
+    assert!(s.matches("O/U 47.5").count() >= 2, "{s}");
 }

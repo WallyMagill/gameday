@@ -13,7 +13,7 @@ fn g(id: &str, league: League, live: bool) -> Game {
         away_score: 0, home_score: 0,
         status: if live { Status::Live } else { Status::Final },
         period: "".into(), clock: "".into(), situation: None,
-        last_plays: vec![], meter: None, start_time: None, broadcast: None,
+        last_plays: vec![], meter: None, start_time: None, broadcast: None, odds: None,
     }
 }
 

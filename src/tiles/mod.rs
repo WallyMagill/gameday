@@ -497,10 +497,13 @@ fn render_play_lines(frame: &mut Frame, area: Rect, game: &Game) {
         .map(|p| play_line(game, p, area.width as usize))
         .collect();
     if lines.is_empty() {
-        lines.push(Line::from(Span::styled(
-            " no plays yet",
-            Style::default().fg(th.dim),
-        )));
+        // A pre-game tile has no plays; its line is the betting line (dim —
+        // odds are context, never chrome-loud).
+        let empty = match (&game.status, &game.odds) {
+            (Status::Pre, Some(odds)) => format!(" {odds}"),
+            _ => " no plays yet".to_string(),
+        };
+        lines.push(Line::from(Span::styled(empty, Style::default().fg(th.dim))));
     }
     frame.render_widget(Paragraph::new(lines), area);
 }
@@ -861,6 +864,7 @@ mod tests {
             meter: Some(Meter::RedZone { yards_to_goal: 3 }),
             start_time: None,
             broadcast: Some("CBS".into()),
+            odds: None,
         }
     }
 

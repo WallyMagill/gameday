@@ -28,6 +28,7 @@ fn g(id: &str, live: bool) -> Game {
         meter: None,
         start_time: None,
         broadcast: None,
+        odds: None,
     }
 }
 

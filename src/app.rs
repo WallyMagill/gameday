@@ -39,6 +39,28 @@ pub fn live_pulse_bright(tick: u64) -> bool {
     (tick / 10) % 2 == 0
 }
 
+/// How far `[`/`]` can step the viewed slate from today, in days (the spec's
+/// "yesterday ↔ today ↔ tomorrow, ±7 max").
+pub const DATE_TRAVEL_MAX_DAYS: i8 = 7;
+
+/// Header label for a traveled date: "FRI AUG 29" (weekday + month + day, no
+/// year — the ±7-day window never crosses far enough to need one).
+pub fn date_label(d: time::Date) -> String {
+    format!(
+        "{} {} {}",
+        &format!("{:?}", d.weekday()).to_uppercase()[..3],
+        &format!("{:?}", d.month()).to_uppercase()[..3],
+        d.day()
+    )
+}
+
+/// Local calendar date, the anchor date travel steps from.
+fn today_local() -> time::Date {
+    OffsetDateTime::now_local()
+        .unwrap_or_else(|_| OffsetDateTime::now_utc())
+        .date()
+}
+
 /// Does either team match the `/` filter? Case-insensitive substring on
 /// abbr ("KC"), location ("KANSAS CITY"), and name ("Chiefs").
 fn game_matches(game: &Game, needle: &str) -> bool {
@@ -91,6 +113,14 @@ pub struct App {
     /// abbr/location/name of either team. Applied inside `visible_games`, so
     /// every derived list (mosaic, slate, selection) narrows together.
     pub filter: Option<String>,
+    /// Slate time-travel: days from today each league tab is viewing
+    /// (`[`/`]` on the board, clamped to ±[`DATE_TRAVEL_MAX_DAYS`]). Missing
+    /// or 0 = live today. Per league so travel on NFL never moves NBA.
+    pub viewed_date_offset: HashMap<League, i8>,
+    /// Fetched non-today slates, keyed by (league, date). Filled by
+    /// `merge_dated_board` when the on-demand dated fetch answers; bounded by
+    /// the ±7-day travel window per league.
+    dated_boards: HashMap<(League, time::Date), Vec<Game>>,
     /// Command-mode Tab-completion cursor; owned by `input::cycle_completion`.
     pub completion: Option<CompletionState>,
     /// '?' overlay. Modal: Esc closes it before Esc touches focus.
@@ -131,6 +161,8 @@ impl App {
             mode: InputMode::Normal,
             status_line: None,
             filter: None,
+            viewed_date_offset: HashMap::new(),
+            dated_boards: HashMap::new(),
             completion: None,
             help_open: false,
             last_update: None,
@@ -193,7 +225,7 @@ impl App {
                 .cloned()
                 .collect()
             }
-            Tab::League(league) => self.boards.get(&league).cloned().unwrap_or_default(),
+            Tab::League(league) => self.league_games(league),
         };
         match self.active_filter() {
             Some(needle) => games
@@ -202,6 +234,59 @@ impl App {
                 .collect(),
             None => games,
         }
+    }
+
+    /// One league's board as the tab shows it: today's live board, or — while
+    /// date-traveled — the fetched slate for the viewed date (empty until the
+    /// on-demand fetch answers).
+    fn league_games(&self, league: League) -> Vec<Game> {
+        match self.viewed_date(league) {
+            Some(date) => self
+                .dated_boards
+                .get(&(league, date))
+                .cloned()
+                .unwrap_or_default(),
+            None => self.boards.get(&league).cloned().unwrap_or_default(),
+        }
+    }
+
+    /// The date `league`'s tab is viewing, None when it's live today.
+    pub fn viewed_date(&self, league: League) -> Option<time::Date> {
+        let off = self.viewed_date_offset.get(&league).copied().unwrap_or(0);
+        if off == 0 {
+            return None;
+        }
+        today_local().checked_add(time::Duration::days(off as i64))
+    }
+
+    /// `[`/`]` on the board: step the current league tab's viewed date,
+    /// clamped to ±[`DATE_TRAVEL_MAX_DAYS`]. No-op on Home (no league).
+    fn step_viewed_date(&mut self, delta: i8) {
+        let Tab::League(league) = self.tab else {
+            return;
+        };
+        let off = self.viewed_date_offset.entry(league).or_insert(0);
+        *off = (*off + delta).clamp(-DATE_TRAVEL_MAX_DAYS, DATE_TRAVEL_MAX_DAYS);
+        self.clamp_selected();
+    }
+
+    /// The (league, date) the on-demand dated fetch should answer for — the
+    /// current tab while it's date-traveled and that slate isn't loaded yet.
+    /// Same handshake shape as `stats_target`/`standings_target`.
+    pub fn dated_target(&self) -> Option<(League, time::Date)> {
+        let Tab::League(league) = self.tab else {
+            return None;
+        };
+        let date = self.viewed_date(league)?;
+        (!self.dated_boards.contains_key(&(league, date))).then_some((league, date))
+    }
+
+    /// A fetched non-today slate. Replaces wholesale (a dated board is a
+    /// snapshot) and never touches flash/score state — traveled slates are
+    /// read-only history/preview, not live data.
+    pub fn merge_dated_board(&mut self, league: League, date: time::Date, games: Vec<Game>) {
+        self.dated_boards.insert((league, date), games);
+        self.clamp_selected();
     }
 
     /// The filter the board is narrowed by right now: the open `/` prompt's
@@ -338,6 +423,8 @@ impl App {
                 }
             }
             KeyCode::Char('t') => self.toggle_favorite(),
+            KeyCode::Char('[') => self.step_viewed_date(-1),
+            KeyCode::Char(']') => self.step_viewed_date(1),
             KeyCode::Char('n') | KeyCode::PageDown => self.change_page(1),
             KeyCode::Char('p') | KeyCode::PageUp => self.change_page(-1),
             KeyCode::Char('?') => self.help_open = true,
@@ -732,13 +819,22 @@ impl App {
             spans.push(Span::styled(" STALE", Style::default().fg(th.star)));
         }
         let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
-        let date = format!(
-            "{} {} {} {}",
-            &format!("{:?}", now.weekday()).to_uppercase()[..3],
-            &format!("{:?}", now.month()).to_uppercase()[..3],
-            now.day(),
-            now.year()
-        );
+        // While the current tab is date-traveled the viewed date replaces the
+        // live one, marked ‹ › so a past/future slate can't pass for today.
+        let traveled = match self.tab {
+            Tab::League(league) => self.viewed_date(league),
+            Tab::Home => None,
+        };
+        let (date, date_style) = match traveled {
+            Some(d) => (
+                format!("‹ {} ›", date_label(d)),
+                Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+            ),
+            None => (
+                format!("{} {}", date_label(now.date()), now.year()),
+                Style::default().fg(th.green).add_modifier(Modifier::BOLD),
+            ),
+        };
         let (h12, ampm) = match now.hour() {
             0 => (12, "AM"),
             h if h < 12 => (h, "AM"),
@@ -747,10 +843,10 @@ impl App {
         };
         let clock = format!("{}:{:02}:{:02} {}", h12, now.minute(), now.second(), ampm);
         let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-        let right_len = date.len() + 2 + clock.len() + 1;
+        let right_len = date.chars().count() + 2 + clock.len() + 1;
         let spacer = (area.width as usize).saturating_sub(left_len + right_len);
         spans.push(Span::raw(" ".repeat(spacer)));
-        spans.push(Span::styled(date, Style::default().fg(th.green).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(date, date_style));
         spans.push(Span::raw("  "));
         spans.push(Span::styled(clock, Style::default().fg(th.cyan).add_modifier(Modifier::BOLD)));
         spans.push(Span::raw(" "));
@@ -818,7 +914,13 @@ impl App {
     }
 
     pub(crate) fn game_by_id(&self, id: &str) -> Option<Game> {
-        self.boards.values().flatten().find(|g| g.id == id).cloned()
+        // Dated slates included so zooming a traveled game isn't a dead view.
+        self.boards
+            .values()
+            .flatten()
+            .chain(self.dated_boards.values().flatten())
+            .find(|g| g.id == id)
+            .cloned()
     }
 
     /// Per-tile animation state: pure in (tick, flash table) so a dump at a
@@ -1151,6 +1253,7 @@ mod tests {
             meter: None,
             start_time: None,
             broadcast: None,
+            odds: None,
         }
     }
 

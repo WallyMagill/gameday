@@ -121,6 +121,10 @@ pub struct Game {
     pub meter: Option<Meter>,
     pub start_time: Option<String>,
     pub broadcast: Option<String>,
+    /// Pre-game betting line, already formatted for display
+    /// ("KC -3.5  O/U 47.5"). None when the feed carries no odds — ESPN
+    /// strips them once a game goes final.
+    pub odds: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -285,6 +289,7 @@ mod tests {
             meter: Some(Meter::RedZone { yards_to_goal: 3 }),
             start_time: None,
             broadcast: Some("CBS".into()),
+            odds: None,
         };
         assert_eq!(g.status, Status::Live);
         assert_eq!(g.meter, Some(Meter::RedZone { yards_to_goal: 3 }));

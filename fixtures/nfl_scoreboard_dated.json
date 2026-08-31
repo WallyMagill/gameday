@@ -1,0 +1,292 @@
+{
+ "events": [
+  {
+   "id": "401872925",
+   "date": "2026-09-13T17:00Z",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "state": "pre",
+       "shortDetail": "9/13 - 1:00 PM EDT"
+      },
+      "period": 0,
+      "displayClock": "0:00"
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "0",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Any",
+         "type": "total",
+         "summary": "0-0"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "0-0"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-0"
+        }
+       ],
+       "team": {
+        "id": "4",
+        "abbreviation": "CIN",
+        "name": "Bengals",
+        "location": "Cincinnati",
+        "color": "fb4f14",
+        "alternateColor": "000000"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "0",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Any",
+         "type": "total",
+         "summary": "0-0"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "0-0"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-0"
+        }
+       ],
+       "team": {
+        "id": "27",
+        "abbreviation": "TB",
+        "name": "Buccaneers",
+        "location": "Tampa Bay",
+        "color": "bd1c36",
+        "alternateColor": "3e3a35"
+       }
+      }
+     ],
+     "odds": [
+      {
+       "provider": {
+        "displayName": "DraftKings"
+       },
+       "details": "CIN -3.5",
+       "overUnder": 51.5,
+       "spread": -3.5
+      }
+     ],
+     "broadcasts": [
+      {
+       "market": "national",
+       "names": [
+        "FOX"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401872923",
+   "date": "2026-09-13T17:00Z",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "state": "pre",
+       "shortDetail": "9/13 - 1:00 PM EDT"
+      },
+      "period": 0,
+      "displayClock": "0:00"
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "0",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Any",
+         "type": "total",
+         "summary": "0-0"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "0-0"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-0"
+        }
+       ],
+       "team": {
+        "id": "8",
+        "abbreviation": "DET",
+        "name": "Lions",
+        "location": "Detroit",
+        "color": "0076b6",
+        "alternateColor": "bbbbbb"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "0",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Any",
+         "type": "total",
+         "summary": "0-0"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "0-0"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-0"
+        }
+       ],
+       "team": {
+        "id": "18",
+        "abbreviation": "NO",
+        "name": "Saints",
+        "location": "New Orleans",
+        "color": "d3bc8d",
+        "alternateColor": "000000"
+       }
+      }
+     ],
+     "odds": [
+      {
+       "provider": {
+        "displayName": "DraftKings"
+       },
+       "details": "DET -7",
+       "overUnder": 49.5,
+       "spread": -7.0
+      }
+     ],
+     "broadcasts": [
+      {
+       "market": "national",
+       "names": [
+        "FOX"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401872924",
+   "date": "2026-09-13T17:00Z",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "state": "pre",
+       "shortDetail": "9/13 - 1:00 PM EDT"
+      },
+      "period": 0,
+      "displayClock": "0:00"
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "0",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Any",
+         "type": "total",
+         "summary": "0-0"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "0-0"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-0"
+        }
+       ],
+       "team": {
+        "id": "10",
+        "abbreviation": "TEN",
+        "name": "Titans",
+        "location": "Tennessee",
+        "color": "4495d2",
+        "alternateColor": "001532"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "0",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Any",
+         "type": "total",
+         "summary": "0-0"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "0-0"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-0"
+        }
+       ],
+       "team": {
+        "id": "20",
+        "abbreviation": "NYJ",
+        "name": "Jets",
+        "location": "New York",
+        "color": "115740",
+        "alternateColor": "ffffff"
+       }
+      }
+     ],
+     "odds": [
+      {
+       "provider": {
+        "displayName": "DraftKings"
+       },
+       "details": "TEN -3",
+       "overUnder": 38.5,
+       "spread": -3.0
+      }
+     ],
+     "broadcasts": [
+      {
+       "market": "national",
+       "names": [
+        "CBS"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

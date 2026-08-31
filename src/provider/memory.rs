@@ -5,6 +5,7 @@ use crate::provider::{ProviderError, SportsProvider};
 
 pub struct MemoryProvider {
     pub boards: HashMap<League, Vec<Game>>,
+    pub dated_boards: HashMap<(League, time::Date), Vec<Game>>,
     pub summaries: HashMap<String, Summary>,
     pub stats: HashMap<String, GameStats>,
     pub standings: HashMap<League, StandingsTable>,
@@ -14,6 +15,7 @@ impl MemoryProvider {
     pub fn new() -> Self {
         Self {
             boards: HashMap::new(),
+            dated_boards: HashMap::new(),
             summaries: HashMap::new(),
             stats: HashMap::new(),
             standings: HashMap::new(),
@@ -28,6 +30,24 @@ impl MemoryProvider {
 impl SportsProvider for MemoryProvider {
     fn scoreboard(&self, league: League) -> Result<(Vec<Game>, bool), ProviderError> {
         Ok((self.boards.get(&league).cloned().unwrap_or_default(), false))
+    }
+
+    fn scoreboard_on(
+        &self,
+        league: League,
+        date: time::Date,
+    ) -> Result<(Vec<Game>, bool), ProviderError> {
+        self.dated_boards
+            .get(&(league, date))
+            .cloned()
+            .map(|g| (g, false))
+            .ok_or_else(|| {
+                ProviderError::Http(format!(
+                    "no dated board seeded for league={:?} date={date}, have: {:?}",
+                    league.slug(),
+                    self.dated_boards.keys().collect::<Vec<_>>()
+                ))
+            })
     }
 
     fn summary(&self, _league: League, game_id: &str) -> Result<(Summary, bool), ProviderError> {
@@ -95,6 +115,7 @@ mod tests {
             meter: None,
             start_time: None,
             broadcast: None,
+            odds: None,
         }
     }
 

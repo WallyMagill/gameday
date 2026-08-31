@@ -46,6 +46,20 @@ pub fn scoreboard_url(league: League) -> String {
     u
 }
 
+/// Dated scoreboard: the same endpoint with `?dates=YYYYMMDD` (`&` when the
+/// base URL already carries a query, i.e. CFB's `?groups=80`).
+pub fn scoreboard_on_url(league: League, date: time::Date) -> String {
+    let mut u = scoreboard_url(league);
+    u.push(if u.contains('?') { '&' } else { '?' });
+    u.push_str(&format!(
+        "dates={:04}{:02}{:02}",
+        date.year(),
+        date.month() as u8,
+        date.day()
+    ));
+    u
+}
+
 pub fn summary_url(league: League, event_id: &str) -> String {
     let (sport, slug) = league.espn_path();
     format!(
@@ -127,6 +141,24 @@ impl SportsProvider for EspnProvider {
         })
     }
 
+    fn scoreboard_on(
+        &self,
+        league: League,
+        date: time::Date,
+    ) -> Result<(Vec<Game>, bool), ProviderError> {
+        let url = scoreboard_on_url(league, date);
+        let key = format!(
+            "{}-scoreboard-{:04}{:02}{:02}",
+            league.slug(),
+            date.year(),
+            date.month() as u8,
+            date.day()
+        );
+        self.fetch(&url, &key, |body| {
+            map_scoreboard(league, body).map_err(Into::into)
+        })
+    }
+
     fn summary(&self, league: League, game_id: &str) -> Result<(Summary, bool), ProviderError> {
         let url = summary_url(league, game_id);
         let key = format!("{}-{game_id}-summary", league.slug());
@@ -179,6 +211,21 @@ mod tests {
     }
 
     #[test]
+    fn dated_scoreboard_url_appends_dates() {
+        let d = time::Date::from_calendar_date(2026, time::Month::September, 13).unwrap();
+        assert_eq!(
+            scoreboard_on_url(League::Nfl, d),
+            "https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=20260913"
+        );
+        // CFB already carries ?groups=80 — dates joins with '&', not a second '?'.
+        let u = scoreboard_on_url(League::Cfb, d);
+        assert!(u.contains("?groups=80&dates=20260913"), "{u}");
+        // Single-digit month/day zero-pad.
+        let d2 = time::Date::from_calendar_date(2026, time::Month::January, 5).unwrap();
+        assert!(scoreboard_on_url(League::Nba, d2).ends_with("?dates=20260105"));
+    }
+
+    #[test]
     fn summary_url_nfl() {
         assert_eq!(
             summary_url(League::Nfl, "401"),
@@ -189,6 +236,8 @@ mod tests {
     #[test]
     fn never_uses_site_api_host() {
         assert!(!scoreboard_url(League::Nfl).contains("site.api.espn.com"));
+        let d = time::Date::from_calendar_date(2026, time::Month::September, 13).unwrap();
+        assert!(!scoreboard_on_url(League::Nfl, d).contains("site.api.espn.com"));
         assert!(!summary_url(League::Nba, "1").contains("site.api.espn.com"));
         assert!(!standings_url(League::Nhl).contains("site.api.espn.com"));
     }
