@@ -4,6 +4,7 @@ use crate::home::home_games;
 use crate::input::{CompletionState, InputMode};
 use crate::keymap;
 use crate::theme;
+use crate::ticker;
 use crate::tiles::packer::{page_size, LayoutPref};
 use crate::tiles::TileFx;
 use crate::views::{self, View, ZoomTab};
@@ -1133,7 +1134,7 @@ impl App {
             );
             return;
         }
-        let ticker_h = if area.height >= 24 { 4 } else { 0 };
+        let ticker_h = if area.height >= 24 { ticker::HEIGHT } else { 0 };
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -1325,73 +1326,29 @@ impl App {
         }
     }
 
-    /// Ticker content, alternated into two rows. No cap: overflow scrolls
-    /// (marquee), so every event eventually comes into view.
-    fn ticker_rows(&self) -> [Vec<(char, Style)>; 2] {
-        let th = theme::current();
-        let events = self.scoring_events();
-        let mut rows: [Vec<(char, Style)>; 2] = [Vec::new(), Vec::new()];
-        if events.is_empty() {
-            push_cells(
-                &mut rows[0],
-                "no scoring plays yet",
-                Style::default().fg(th.dim),
-            );
-        }
-        for (i, (game, play)) in events.iter().enumerate() {
-            let row = &mut rows[i % 2];
-            if !row.is_empty() {
-                push_cells(row, "  |  ", Style::default().fg(th.dim));
-            }
-            push_cells(
-                row,
-                &format!("{} ", play.clock),
-                Style::default().fg(th.clock()),
-            );
-            push_cells(
-                row,
-                &format!("{} ", play.team),
-                Style::default()
-                    .fg(Self::team_color(game, &play.team))
-                    .add_modifier(Modifier::BOLD),
-            );
-            push_cells(
-                row,
-                &format!("{} ", theme::scoring_word(game.league)),
-                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
-            );
-            push_cells(row, &play.text, Style::default().fg(th.fg));
-            let leader = if game.away_score >= game.home_score {
-                format!(" {}-{} {}", game.away_score, game.home_score, game.away.abbr)
-            } else {
-                format!(" {}-{} {}", game.home_score, game.away_score, game.home.abbr)
-            };
-            push_cells(row, &leader, Style::default().fg(th.bright));
-        }
-        rows
+    /// Every live game across the enabled boards, league order — the ticker
+    /// covers what the visible tab (or a traveled date) does not. A typed
+    /// filter is explicit intent, so it narrows the ticker too.
+    fn ticker_live(&self) -> Vec<Game> {
+        let needle = self.active_filter();
+        self.concat_boards()
+            .into_iter()
+            .filter(|g| g.status == Status::Live)
+            .filter(|g| needle.is_none_or(|n| game_matches(g, n)))
+            .collect()
+    }
+
+    /// Scoring plays of the ticker's live games, board order.
+    fn ticker_events(&self) -> Vec<(Game, crate::domain::Play)> {
+        let live = self.ticker_live();
+        self.scoring_events()
+            .into_iter()
+            .filter(|(g, _)| live.iter().any(|l| l.id == g.id))
+            .collect()
     }
 
     fn draw_ticker(&self, frame: &mut Frame, area: Rect) {
-        let th = theme::current();
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(th.live));
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        if inner.height == 0 {
-            return;
-        }
-        let labels = [" GAMEDAY  ", " TICKER   "];
-        let label_style = Style::default().fg(th.live).add_modifier(Modifier::BOLD);
-        let content_w = (inner.width as usize).saturating_sub(labels[0].chars().count());
-        let rows = self.ticker_rows();
-        let mut lines = Vec::new();
-        for (label, row) in labels.iter().zip(rows.iter()).take(inner.height as usize) {
-            let mut spans = vec![Span::styled(*label, label_style)];
-            spans.extend(marquee_spans(row, content_w, self.tick));
-            lines.push(Line::from(spans));
-        }
-        frame.render_widget(Paragraph::new(lines), inner);
+        ticker::draw(frame, area, &self.ticker_live(), &self.ticker_events(), self.tick);
     }
 
     /// Context-aware footer: the TOP chords from the keymap table (the full
@@ -1582,43 +1539,6 @@ fn age_label(secs: u64) -> String {
     } else {
         format!("UPD {}m", secs / 60)
     }
-}
-
-/// Blank cells between the tail and the wrapped head of a scrolling ticker
-/// row — enough of a gap to read as "the reel restarted".
-const MARQUEE_GAP: usize = 10;
-
-fn push_cells(row: &mut Vec<(char, Style)>, text: &str, style: Style) {
-    row.extend(text.chars().map(|c| (c, style)));
-}
-
-/// A `width`-cell window into `cells`, scrolled one cell per render tick with
-/// wraparound. Content that fits renders unshifted — no motion. Pure in
-/// (cells, width, tick).
-fn marquee_spans(cells: &[(char, Style)], width: usize, tick: u64) -> Vec<Span<'static>> {
-    if cells.len() <= width {
-        return group_spans(cells.iter().copied());
-    }
-    let total = cells.len() + MARQUEE_GAP;
-    let offset = (tick as usize) % total;
-    group_spans((0..width).map(|i| {
-        let idx = (offset + i) % total;
-        cells.get(idx).copied().unwrap_or((' ', Style::default()))
-    }))
-}
-
-/// Merge runs of identically-styled cells back into spans.
-fn group_spans(cells: impl Iterator<Item = (char, Style)>) -> Vec<Span<'static>> {
-    let mut out: Vec<(String, Style)> = Vec::new();
-    for (ch, style) in cells {
-        match out.last_mut() {
-            Some((text, last)) if *last == style => text.push(ch),
-            _ => out.push((ch.to_string(), style)),
-        }
-    }
-    out.into_iter()
-        .map(|(text, style)| Span::styled(text, style))
-        .collect()
 }
 
 #[cfg(test)]
@@ -2052,57 +1972,15 @@ mod tests {
         assert!(app.any_live(), "a live game on any board counts");
     }
 
-    fn cells(s: &str) -> Vec<(char, Style)> {
-        s.chars().map(|c| (c, Style::default())).collect()
-    }
-
-    fn window_text(cells: &[(char, Style)], width: usize, tick: u64) -> String {
-        marquee_spans(cells, width, tick)
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect()
-    }
-
     #[test]
-    fn marquee_is_static_when_content_fits() {
-        let c = cells("SHORT");
-        assert_eq!(window_text(&c, 10, 0), "SHORT");
-        assert_eq!(window_text(&c, 10, 7), "SHORT", "no motion when it fits");
-    }
-
-    #[test]
-    fn marquee_scrolls_one_cell_per_tick_and_wraps() {
-        let c = cells("ABCDEFGHIJ"); // 10 cells, window 6, cycle 10+GAP=20
-        assert_eq!(window_text(&c, 6, 0), "ABCDEF");
-        assert_eq!(window_text(&c, 6, 1), "BCDEFG");
-        assert_eq!(window_text(&c, 6, 4), "EFGHIJ", "tail scrolls into view");
-        assert_eq!(window_text(&c, 6, 15), "     A", "gap, then the head wraps");
-        assert_eq!(window_text(&c, 6, 20), "ABCDEF", "full cycle");
-    }
-
-    #[test]
-    fn ticker_includes_every_scoring_event() {
-        // 8 scoring plays: more than the old take(6) cap — all must be present
-        // in the ticker content so the marquee can bring each into view.
-        let mut game = g("1", "KC", "TB", true);
-        game.last_plays = (0..8)
-            .map(|i| Play {
-                clock: format!("{i}:00"),
-                team: "KC".into(),
-                text: format!("score number {i}"),
-                scoring: true,
-            })
-            .collect();
-        let app = app_with(vec![game], vec![]);
-        let rows = app.ticker_rows();
-        let all: String = rows
-            .iter()
-            .flat_map(|r| r.iter().map(|(c, _)| *c))
-            .collect();
-        for i in 0..8 {
-            let needle = format!("score number {i}");
-            assert!(all.contains(&needle), "missing {needle:?} in ticker");
-        }
+    fn ticker_scores_lane_is_every_board_but_honors_the_filter() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.apply_boards(League::Nba, vec![g("2", "DEN", "BOS", true)], false);
+        app.tab = Tab::League(League::Nfl);
+        let ids = |app: &App| -> Vec<String> { app.ticker_live().into_iter().map(|x| x.id).collect() };
+        assert_eq!(ids(&app), vec!["1", "2"], "the ticker ignores the tab");
+        app.filter = Some("den".into());
+        assert_eq!(ids(&app), vec!["2"], "a typed filter narrows the ticker too");
     }
 
     #[test]

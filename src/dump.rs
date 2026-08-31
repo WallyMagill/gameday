@@ -19,9 +19,6 @@
 //!
 //! Every capture is the sim state at a fixed tick (`--tick N`, default 0), so
 //! repeated runs are pixel-deterministic. No timestamps in file names.
-//!
-//! `dump --style-lab` renders the throwaway style-variant set instead — see
-//! `crate::style_lab`, which shares this module's page pipeline.
 
 use crate::app::{App, Tab};
 use crate::demo;
@@ -234,8 +231,7 @@ pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
     })
 }
 
-/// One rendered page ready for the shared write/screenshot/verify pipeline —
-/// the gallery and the style lab (`--style-lab`) both feed through this shape.
+/// One rendered page ready for the shared write/screenshot/verify pipeline.
 pub struct Page {
     pub stem: &'static str,
     pub cols: u16,
@@ -763,7 +759,7 @@ mod tests {
         }
         for needle in [
             "GAMEDAY", "FILTER:", "[NFL]", "[NBA]", "[MLB]", "[NHL]", "27 - 24", "88 - 81",
-            "5 - 3", "3 - 2", "LAST PLAYS", "MOMENTUM", "RED ZONE", "TICKER", "GLOBAL ALERTS",
+            "5 - 3", "3 - 2", "LAST PLAYS", "MOMENTUM", "RED ZONE", "SCORES", "ALERTS", "GLOBAL ALERTS",
             "NAV:",
         ] {
             assert!(text.contains(needle), "missing {needle:?} in board:\n{text}");

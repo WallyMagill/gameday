@@ -11,9 +11,9 @@ pub mod keymap;
 pub mod poll;
 pub mod provider;
 pub mod sim;
-pub mod style_lab;
 pub mod text;
 pub mod theme;
+pub mod ticker;
 pub mod tiles;
 pub mod views;
 

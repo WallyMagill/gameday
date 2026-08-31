@@ -84,6 +84,11 @@ discipline (section_labels) for their color.
   when a new event arrives; the sim drives the flip, the dump captures one
   mid-flip frame plus a settled frame.
 
-The style lab drops the calm-* and meter-* variants (decided) and renders
-ticker-d/e/f. The winner is implemented in a later pass; the lab is deleted
-then.
+Direction: **d — BottomLine two-lane** (decided 2026-08-31 by eye from the
+round-2 deck) — reasoning: the tiles already show the games you pinned, so
+the ticker's job is the games you are *not* looking at, and only d keeps
+every live score on screen; reopens if the two lanes prove too tall on
+24-row terminals. Implemented in `src/ticker.rs`: 3 rows (rule + lanes, one
+fewer than the old boxed ticker), SCORES is every live game across the
+enabled boards regardless of tab or traveled date, a typed filter narrows
+both lanes. The style lab is deleted.

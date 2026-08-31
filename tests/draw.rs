@@ -1071,7 +1071,11 @@ fn brackets_step_the_viewed_date_and_header_marks_it() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("DAL") && s.contains("PHI"), "{s}");
-    assert!(!s.contains("KC"), "today's board is hidden while traveling:\n{s}");
+    // The ticker keeps running today's live scores while you travel (its
+    // SCORES lane is every live game), so only the board must hide KC.
+    let (board, ticker) = s.split_once(" SCORES ").expect("ticker lane below the board");
+    assert!(!board.contains("KC"), "today's board is hidden while traveling:\n{s}");
+    assert!(ticker.contains("NFL KC 27 TB 24"), "live score still in the ticker:\n{s}");
 
     // Clamped at ±7.
     for _ in 0..20 {
