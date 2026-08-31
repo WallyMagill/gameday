@@ -18,8 +18,8 @@ Addendum to `2026-08-30-gameday-v2-design.md` §4. Supersedes the style-lab
   the default identity remains broadcast.
 - Meter: **variant B** (inline gauge row under the identity block) for all
   four meters. Variant A is retired.
-- Ticker: **no pick yet.** Three fresh directions get rendered; none may be a
-  refinement of the boxed a/b/c.
+- Ticker: **direction d (BottomLine two-lane)** — see the Ticker section; the
+  lab that rendered d/e/f is deleted.
 
 ## Theme = palette + discipline
 
