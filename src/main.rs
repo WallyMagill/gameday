@@ -222,7 +222,9 @@ fn main() -> std::io::Result<()> {
     // The app and the mapper share this one value.
     let offset = gameday::text::startup_offset();
     let mut app = App::new(config, pins, dir.clone(), offset);
-    app.config_error = config_error;
+    // Also lands in the footer: the alternate screen swallows the stderr note
+    // the moment the UI starts.
+    app.set_config_error(config_error);
 
     let provider = EspnProvider::new(dir.join("cache"), offset);
     let (tx, rx) = mpsc::channel::<Msg>();

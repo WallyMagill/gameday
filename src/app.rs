@@ -241,15 +241,37 @@ impl App {
         }
     }
 
-    /// The only place pins.json is written; same refusal as `persist_config`.
+    /// The only place pins.json is written from a key the user pressed; same
+    /// refusal as `persist_config`, and it says so.
     pub fn persist_pins(&mut self) {
         if let Some(err) = &self.config_error {
             self.status_line = Some(format!("not saving: {err}"));
             return;
         }
+        self.persist_pins_quiet();
+    }
+
+    /// The same write from a background path (the prune inside `apply_boards`,
+    /// which runs on every poll). A broken config skips it in silence: the
+    /// startup status line already says saving is off, and re-toasting it
+    /// every merge would stomp whatever the user's last key said.
+    pub fn persist_pins_quiet(&mut self) {
+        if self.config_error.is_some() {
+            return;
+        }
         if let Err(e) = save_pins(&self.config_dir, &self.pins) {
             self.status_line = Some(format!("pins save failed: {e}"));
         }
+    }
+
+    /// Record a config/pins parse failure: it blocks every save and takes the
+    /// footer once, at startup, so the reason is on screen and not only on the
+    /// stderr that the alternate screen swallowed.
+    pub fn set_config_error(&mut self, err: Option<String>) {
+        self.status_line = err
+            .as_ref()
+            .map(|e| format!("config error: {e} — not saving until fixed"));
+        self.config_error = err;
     }
 
     /// Now, in the user's local offset — or the frozen clock when one is set.
@@ -975,7 +997,7 @@ impl App {
         self.stats = stats;
         self.net.ok(Instant::now(), stale);
         self.pins = prune_pins(std::mem::take(&mut self.pins), now);
-        self.persist_pins();
+        self.persist_pins_quiet();
         self.clamp_selected();
     }
 
@@ -1841,6 +1863,60 @@ mod tests {
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(app.filter, None);
         assert_eq!(app.live_games().len(), 2);
+    }
+
+    /// A broken config turns saving off, but the poll loop must not keep
+    /// saying so: the prune inside `apply_boards` runs every merge and would
+    /// stomp whatever the user's last key put in the footer. Only a key the
+    /// user pressed re-arms the message.
+    #[test]
+    fn a_broken_config_silences_the_prune_but_still_answers_a_keypress() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.tab = Tab::League(League::Nfl);
+        app.set_config_error(Some("config.toml:1: unknown variant `NFLL`".into()));
+        app.status_line = Some("filter cleared".into());
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        assert_eq!(
+            app.status_line.as_deref(),
+            Some("filter cleared"),
+            "the background prune must not toast"
+        );
+        // Space is the user asking for a save; that one has to answer.
+        app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert!(
+            app.status_line.as_deref().unwrap_or("").contains("not saving"),
+            "{:?}",
+            app.status_line
+        );
+    }
+
+    /// The stderr note is gone the instant the alternate screen opens, so the
+    /// parse error has to be on the board itself.
+    #[test]
+    fn the_parse_error_is_in_the_footer_at_startup() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.set_config_error(Some("config.toml:7: unknown variant `NFLL`".into()));
+        assert_eq!(
+            app.config_error.as_deref(),
+            Some("config.toml:7: unknown variant `NFLL`")
+        );
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 30)).unwrap();
+        term.draw(|f| app.draw(f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let screen: String = (0..30)
+            .map(|y| {
+                (0..120)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            screen.contains("config.toml:7") && screen.contains("not saving until fixed"),
+            "{screen}"
+        );
     }
 
     #[test]

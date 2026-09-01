@@ -1,5 +1,6 @@
 use gameday::config::{
-    load_config, load_pins, prune_pins, resolve_dir, save_pins, Config, Favorite, Pin,
+    load_config, load_pins, load_pins_outcome, prune_pins, resolve_dir, save_pins, Config,
+    Favorite, Pin,
 };
 use gameday::domain::League;
 use gameday::tiles::packer::LayoutPref;
@@ -128,6 +129,67 @@ fn xdg_wins_then_dot_config_then_legacy_is_read_only() {
     assert_eq!(r.dir, home.join("custom"));
     assert!(r.legacy_read_from.is_none());
     fs::remove_dir_all(&home).ok();
+}
+
+/// On Linux `dirs::config_dir()` IS `~/.config`, so the "legacy" path handed
+/// in equals the resolved dir. A dir is never its own legacy — otherwise every
+/// Linux user would be told to move their folder into itself.
+#[test]
+fn a_dir_is_never_its_own_legacy() {
+    let home = tmp("self-legacy");
+    let xdg = home.join(".config");
+    let legacy = xdg.join("gameday");
+    fs::create_dir_all(&legacy).unwrap();
+    fs::write(
+        legacy.join("config.toml"),
+        "enabled_tabs = [\"Nfl\"]\nlayout = \"Auto\"\nfavorites = []\n",
+    )
+    .unwrap();
+    let r = resolve_dir(None, &home, Some(&xdg), Some(&legacy));
+    assert_eq!(r.dir, legacy);
+    assert!(r.legacy_read_from.is_none(), "{:?}", r.legacy_read_from);
+    fs::remove_dir_all(&home).ok();
+}
+
+/// pins.json gets the same treatment as config.toml: unreadable means empty in
+/// memory, an error naming the file, and no write that would eat the pins.
+#[test]
+fn broken_pins_report_the_file_and_block_the_next_pin_save() {
+    let dir = tmp("broken-pins");
+    fs::write(dir.join("pins.json"), "[{\"game_id\": ").unwrap();
+    let r = resolve_dir(Some(dir.clone()), &dir, None, None);
+    let out = load_pins_outcome(&r);
+    assert!(out.value.is_empty());
+    let err = out.error.clone().expect("error reported");
+    assert!(err.contains("pins.json"), "{err}");
+    let before = fs::read_to_string(dir.join("pins.json")).unwrap();
+    let mut app = gameday::app::App::new(
+        Config::default_all(),
+        vec![],
+        dir.clone(),
+        time::UtcOffset::UTC,
+    );
+    app.set_config_error(out.error);
+    app.pins.push(Pin {
+        game_id: "1".into(),
+        league: League::Nfl,
+        final_at: None,
+    });
+    app.persist_pins();
+    assert_eq!(
+        fs::read_to_string(dir.join("pins.json")).unwrap(),
+        before,
+        "file untouched"
+    );
+    assert!(
+        app.status_line
+            .as_deref()
+            .unwrap_or("")
+            .contains("not saving"),
+        "{:?}",
+        app.status_line
+    );
+    fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
