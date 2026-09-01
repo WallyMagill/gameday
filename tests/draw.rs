@@ -221,7 +221,6 @@ fn footer_status_takes_the_clocks_discipline() {
         theme::set_current(name).unwrap();
         let mut app = mk();
         app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
-        app.last_update = Some(std::time::Instant::now());
         let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
         let b = t.backend().buffer();
@@ -334,6 +333,9 @@ fn sidebar_top_plays_are_abbr_surname_clock() {
 #[test]
 fn empty_home_with_no_boards_points_at_config() {
     let mut app = mk();
+    // A board actually arrived and carried nothing — before the first fetch
+    // lands the board says NO DATA YET instead, which is a different claim.
+    app.apply_boards(League::Nfl, vec![], false);
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t).to_lowercase();
@@ -1619,5 +1621,45 @@ fn zoom_overview_carries_the_linescore_with_hits_and_errors() {
     assert!(
         !buf_text(&short).contains("  1  2  3"),
         "linescore should be skipped under 20 rows"
+    );
+}
+
+#[test]
+fn header_chip_is_its_own_cell_and_offline_names_the_error() {
+    let mut app = mk();
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("NO DATA YET"), "{text}");
+    app.note_failure(
+        League::Nfl,
+        "ESPN 403 nfl scoreboard".into(),
+        Some(std::time::Duration::from_secs(40)),
+    );
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("OFFLINE"), "{text}");
+    assert!(
+        text.contains("ESPN 403 nfl scoreboard"),
+        "board area names the error: {text}"
+    );
+    assert!(text.contains("retry 40s"), "{text}");
+    assert!(
+        !text.contains("OFFLINEMON") && !text.contains("STALEMON"),
+        "chip glued to the date: {text}"
+    );
+    // Wide enough for the whole header: chip, date and clock all fit, and
+    // the chip's padding keeps it off the date.
+    let mut wide = Terminal::new(TestBackend::new(180, 40)).unwrap();
+    wide.draw(|f| app.draw(f)).unwrap();
+    let row: String = {
+        let b = wide.backend().buffer();
+        (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect()
+    };
+    assert!(row.contains("OFFLINE · retry 40s  "), "chip padded: {row:?}");
+    let chip_end = row.find("retry 40s").unwrap() + "retry 40s".len();
+    assert!(
+        row[chip_end..].trim_start().len() > 8,
+        "date and clock still render after the chip: {row:?}"
     );
 }

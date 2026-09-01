@@ -4,6 +4,7 @@
 
 use crate::app::{App, Tab};
 use crate::domain::Game;
+use crate::net::NetChip;
 use crate::text::{leading_surname, truncate};
 use crate::theme::{self, SidebarHeader};
 use crate::tiles::packer::pack;
@@ -164,9 +165,21 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
+/// A two-line block sitting on the vertical middle of `area` — the empty
+/// board's message reads as a centered statement, not a top-left log line.
+fn center_two_lines(area: Rect) -> Rect {
+    let h = 2u16.min(area.height);
+    Rect {
+        y: area.y + (area.height.saturating_sub(h)) / 2,
+        height: h,
+        ..area
+    }
+}
+
 fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
     let th = theme::current();
     let games = app.mosaic_games();
+    let net = app.net.chip(std::time::Instant::now());
     match app.tab {
         // An active filter that matches nothing names the pattern instead
         // of pretending the board is empty.
@@ -177,6 +190,35 @@ fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
                     .style(Style::default().fg(th.muted).bg(th.bg))
                     .alignment(Alignment::Center),
                 area,
+            );
+            return;
+        }
+        // An empty board during an outage must never read as "no games
+        // tonight": name the outage and the error that caused it.
+        _ if games.is_empty()
+            && matches!(net, NetChip::Offline { .. } | NetChip::NoDataYet) =>
+        {
+            let detail = match &net {
+                NetChip::Offline { error, .. } => format!("last error: {error}"),
+                _ => "waiting for the first scoreboard…".to_string(),
+            };
+            let headline = net.label().unwrap_or_default();
+            let color = if matches!(net, NetChip::Offline { .. }) {
+                th.live
+            } else {
+                th.muted
+            };
+            frame.render_widget(
+                Paragraph::new(vec![
+                    Line::from(Span::styled(
+                        headline,
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(Span::styled(detail, Style::default().fg(th.muted))),
+                ])
+                .style(Style::default().bg(th.bg))
+                .alignment(Alignment::Center),
+                center_two_lines(area),
             );
             return;
         }

@@ -3,6 +3,7 @@ use crate::domain::{Game, GameStats, League, StandingsTable, Status, Summary};
 use crate::home::home_games;
 use crate::input::{CompletionState, InputMode};
 use crate::keymap;
+use crate::net::{NetChip, NetStatus};
 use crate::theme;
 use crate::ticker;
 use crate::tiles::packer::{page_size, LayoutPref};
@@ -84,13 +85,11 @@ pub struct App {
     /// cache in the provider). At most one small table per league — no
     /// pruning needed.
     pub standings: HashMap<League, StandingsTable>,
-    pub stale: bool,
+    /// Connection truth: what the header chip, the footer's UPD age and the
+    /// board's offline message all read, so they can never disagree.
+    pub net: NetStatus,
     pub should_quit: bool,
     pub refresh_now: bool,
-    /// The last scoreboard fetch that failed: (league, short error, retry
-    /// delay). Stored only — the status line that reads it arrives with the
-    /// real status machine.
-    pub last_failure: Option<(League, String, Option<Duration>)>,
     /// Which full-screen surface the body renders; Board is the mosaic.
     /// Replaces the old `focused_id` mechanism — the zoomed game id lives
     /// inside `View::Zoom`.
@@ -143,9 +142,6 @@ pub struct App {
     pub completion: Option<CompletionState>,
     /// '?' overlay. Modal: Esc closes it before Esc touches focus.
     pub help_open: bool,
-    /// Wall-clock moment of the last successful `apply_boards` — drives the
-    /// footer's "UPD 12s" freshness age.
-    pub last_update: Option<Instant>,
     pub config_dir: PathBuf,
     /// Monotonic render tick (~10/s while live, ~1/s idle). Every animation
     /// is a pure function of this counter plus app state — keyboard input
@@ -195,10 +191,9 @@ impl App {
             boards: HashMap::new(),
             stats: HashMap::new(),
             standings: HashMap::new(),
-            stale: false,
+            net: NetStatus::default(),
             should_quit: false,
             refresh_now: false,
-            last_failure: None,
             view: View::Board,
             zoom_scroll: 0,
             feed_scroll: 0,
@@ -215,7 +210,6 @@ impl App {
             dated_boards: HashMap::new(),
             completion: None,
             help_open: false,
-            last_update: None,
             config_dir,
             tick: 0,
             last_scores: HashMap::new(),
@@ -891,6 +885,14 @@ impl App {
                     g.scoring_plays = prev.scoring_plays.clone();
                 }
             }
+            // A cached payload is an OLDER snapshot, not news: its diff
+            // against the last fresh scores is backwards and its lastPlay is
+            // whatever was on screen then. Capturing that would write a bogus
+            // scoring play that outlives the outage, so a stale apply is
+            // scores-only — no flash, no capture, no last_scores rewrite.
+            if stale {
+                continue;
+            }
             let score = (g.away_score, g.home_score);
             if let Some(prev) = self.last_scores.get(&g.id) {
                 if *prev != score {
@@ -936,8 +938,7 @@ impl App {
         let mut stats = std::mem::take(&mut self.stats);
         stats.retain(|id, _| self.boards.values().flatten().any(|g| g.id == *id));
         self.stats = stats;
-        self.stale = stale;
-        self.last_update = Some(Instant::now());
+        self.net.ok(Instant::now(), stale);
         self.pins = prune_pins(std::mem::take(&mut self.pins), now);
         let _ = save_pins(&self.config_dir, &self.pins);
         self.clamp_selected();
@@ -1000,10 +1001,18 @@ impl App {
 
     /// Record a failed scoreboard fetch: which league, the provider's short
     /// error (`ESPN 403 nfl scoreboard`), and how long until the scheduler
-    /// retries. Stored only for now — the status machine that surfaces it
-    /// lands with the connection banner.
+    /// retries. The chip and the board message read it through `net`.
     pub fn note_failure(&mut self, league: League, error: String, retry_in: Option<Duration>) {
-        self.last_failure = Some((league, error, retry_in));
+        self.net.failed(Instant::now(), error.clone(), retry_in);
+        // A populated board keeps its scores and the header chip says the
+        // rest — a toast on top would nag. With nothing on the board, the
+        // failure IS the news, so it also gets the footer line.
+        if !self.boards.values().any(|b| !b.is_empty()) {
+            self.status_line = Some(match retry_in {
+                Some(d) => format!("{} · {} · retry in {}s", league.slug(), error, d.as_secs()),
+                None => format!("{} · {error}", league.slug()),
+            });
+        }
     }
 
     /// The league the Standings view wants a table for — the on-demand
@@ -1263,9 +1272,6 @@ impl App {
             spans.push(chip);
             spans.push(Span::raw(" "));
         }
-        if self.stale {
-            spans.push(Span::styled(" STALE", Style::default().fg(th.star)));
-        }
         // Favorite-score banner: earned red — the live role, spec's color
         // discipline — for its short lifetime, then advance_tick drops it.
         if let Some(alert) = &self.active_alert {
@@ -1293,14 +1299,58 @@ impl App {
             ),
         };
         let clock = crate::text::fmt_clock12(now);
+        // The connection chip is its own cell, padded on both sides so it can
+        // never read as a suffix of the date ("OFFLINEMON SEP 1").
+        let chip = self.net.chip(Instant::now());
+        let chip_span = chip.label().map(|label| {
+            let color = match chip {
+                NetChip::NoDataYet => th.muted,
+                NetChip::Stale { .. } => th.star,
+                // Offline is the one failure the board can have; it earns the
+                // live role's red for as long as it lasts.
+                NetChip::Offline { .. } => th.live,
+                NetChip::Live => th.muted,
+            };
+            Span::styled(
+                format!("  {label}  "),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            )
+        });
         let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-        let right_len = date.chars().count() + 2 + clock.len() + 1;
-        let spacer = (area.width as usize).saturating_sub(left_len + right_len);
+        let chip_len = chip_span
+            .as_ref()
+            .map(|s| s.content.chars().count())
+            .unwrap_or(0);
+        // A full tab bar can leave no room for all three. The date is what
+        // goes: an outage chip and the clock both say something the rest of
+        // the screen doesn't.
+        let width = area.width as usize;
+        let date_len = date.chars().count() + 2;
+        let clock_len = clock.len() + 1;
+        // Dropped in priority order rather than truncated mid-word: the chip
+        // outranks the date (a traveled date is a claim about what you are
+        // looking at), which outranks the clock.
+        let show_clock = left_len + chip_len + date_len + clock_len <= width;
+        let show_date = left_len + chip_len + date_len <= width;
+        let right_len = chip_len
+            + if show_date { date_len } else { 0 }
+            + if show_clock { clock_len } else { 0 };
+        let spacer = width.saturating_sub(left_len + right_len);
         spans.push(Span::raw(" ".repeat(spacer)));
-        spans.push(Span::styled(date, date_style));
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(clock, Style::default().fg(th.clock()).add_modifier(Modifier::BOLD)));
-        spans.push(Span::raw(" "));
+        if let Some(s) = chip_span {
+            spans.push(s);
+        }
+        if show_date {
+            spans.push(Span::styled(date, date_style));
+            spans.push(Span::raw("  "));
+        }
+        if show_clock {
+            spans.push(Span::styled(
+                clock,
+                Style::default().fg(th.clock()).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::raw(" "));
+        }
         frame.render_widget(
             Paragraph::new(Line::from(spans)).style(Style::default().bg(th.bg)),
             area,
@@ -1516,7 +1566,10 @@ impl App {
         if pages > 1 && !zoomed {
             right.push(format!("PAGE {}/{}", self.page.min(pages - 1) + 1, pages));
         }
-        if let Some(upd) = self.last_update.map(|t| age_label(t.elapsed().as_secs())) {
+        // The UPD age freezes and dims the moment the data stops arriving —
+        // `net` marks the frozen label with a trailing "·" so a stale number
+        // can't pass for a live one.
+        if let Some(upd) = self.net.upd_label(Instant::now()) {
             right.push(upd);
         }
         let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
@@ -1525,12 +1578,19 @@ impl App {
             right.remove(0);
         }
         if !right.is_empty() {
-            let text = right.join("  ");
-            let spacer = width.saturating_sub(left_len + text.chars().count() + 1);
+            let text_len = right.join("  ").chars().count();
+            let spacer = width.saturating_sub(left_len + text_len + 1);
             spans.push(Span::raw(" ".repeat(spacer)));
-            // GAME/PAGE/UPD is status, clock-shaped: it takes the clocks
-            // discipline (cyan on broadcast, muted on studio), never raw cyan.
-            spans.push(Span::styled(text, Style::default().fg(th.clock())));
+            for (i, part) in right.iter().enumerate() {
+                if i > 0 {
+                    spans.push(Span::raw("  "));
+                }
+                // GAME/PAGE/UPD is status, clock-shaped: it takes the clocks
+                // discipline (cyan on broadcast, muted on studio), never raw
+                // cyan — except a frozen UPD, which drops to dim.
+                let color = if part.ends_with('·') { th.dim } else { th.clock() };
+                spans.push(Span::styled(part.clone(), Style::default().fg(color)));
+            }
         }
         frame.render_widget(
             Paragraph::new(Line::from(spans)).style(Style::default().bg(th.bg)),
@@ -1593,15 +1653,6 @@ impl App {
                 .style(Style::default().bg(th.bg).fg(th.fg)),
             panel,
         );
-    }
-}
-
-/// "UPD 12s" freshness age for the footer; minutes past 60s.
-fn age_label(secs: u64) -> String {
-    if secs < 60 {
-        format!("UPD {secs}s")
-    } else {
-        format!("UPD {}m", secs / 60)
     }
 }
 
@@ -2304,24 +2355,80 @@ mod tests {
     }
 
     #[test]
-    fn r_requests_refresh_and_upd_age_formats() {
+    fn r_requests_refresh() {
         let mut app = app_with(vec![], vec![]);
         app.on_key(KeyCode::Char('r'), KeyModifiers::NONE);
         assert!(app.refresh_now);
-        assert_eq!(age_label(0), "UPD 0s");
-        assert_eq!(age_label(12), "UPD 12s");
-        assert_eq!(age_label(59), "UPD 59s");
-        assert_eq!(age_label(60), "UPD 1m");
-        assert_eq!(age_label(150), "UPD 2m");
     }
 
     #[test]
-    fn apply_boards_stamps_last_update() {
+    fn apply_boards_marks_the_connection_live() {
         let mut app = app_with(vec![], vec![]);
-        assert!(app.last_update.is_some(), "app_with applies a board");
-        app.last_update = None;
-        app.apply_boards(League::Nba, vec![], false);
-        assert!(app.last_update.is_some());
+        let now = std::time::Instant::now();
+        assert!(matches!(app.net.chip(now), crate::net::NetChip::Live));
+        assert!(app.net.upd_label(now).is_some(), "app_with applies a board");
+        app.apply_boards(League::Nba, vec![], true);
+        assert!(
+            matches!(app.net.chip(now), crate::net::NetChip::Stale { .. }),
+            "a cached apply is stale on arrival"
+        );
+    }
+
+    #[test]
+    fn a_cached_board_never_writes_a_scoring_play() {
+        // A stale payload is an OLDER snapshot: its "delta" against the last
+        // fresh scores is backwards, and the lastPlay it carries is not a
+        // scoring play. Capturing it would put a bogus TD in the rail
+        // forever, so the whole delta block is skipped when stale.
+        let mut scored = g("1", "KC", "TB", true);
+        scored.away_score = 14;
+        scored.home_score = 10;
+        scored.last_plays = vec![Play {
+            clock: "5:00".into(),
+            team: "KC".into(),
+            text: "Mahomes 20 yd TD pass".into(),
+            scoring: false,
+            ..Default::default()
+        }];
+        let mut app = app_with(vec![scored.clone()], vec![]);
+        app.advance_tick();
+        assert_eq!(app.boards[&League::Nfl][0].scoring_plays.len(), 0);
+
+        let mut cached = scored.clone();
+        cached.away_score = 7; // an older, cached snapshot
+        cached.last_plays = vec![Play {
+            clock: "9:00".into(),
+            team: "KC".into(),
+            text: "Pacheco run for 3 yards".into(),
+            scoring: false,
+            ..Default::default()
+        }];
+        app.apply_boards(League::Nfl, vec![cached], true);
+        assert!(!app.flash_active("1"), "a cached payload must not flash");
+        assert_eq!(
+            app.boards[&League::Nfl][0].scoring_plays.len(),
+            0,
+            "no scoring play from a cached payload"
+        );
+        assert_eq!(
+            app.last_scores.get("1"),
+            Some(&(14, 10)),
+            "the fresh scores survive a cached apply"
+        );
+
+        let mut next = scored.clone();
+        next.away_score = 21;
+        next.last_plays = vec![Play {
+            clock: "1:00".into(),
+            team: "KC".into(),
+            text: "Kelce 8 yd TD pass".into(),
+            scoring: false,
+            ..Default::default()
+        }];
+        app.apply_boards(League::Nfl, vec![next], false);
+        let plays = &app.boards[&League::Nfl][0].scoring_plays;
+        assert_eq!(plays.len(), 1, "exactly one scoring play: {plays:?}");
+        assert!(plays[0].text.contains("Kelce"));
     }
 
     #[test]
