@@ -162,7 +162,11 @@ pub fn render_tile(
 fn situation_summary(game: &Game) -> String {
     match game.status {
         Status::Pre => {
-            let mut s = game.start_time.clone().unwrap_or_default();
+            // Task 9: use App::now()
+            let mut s = game
+                .start
+                .map(|t| crate::text::fmt_start(t, time::OffsetDateTime::now_utc().to_offset(t.offset())))
+                .unwrap_or_default();
             if let Some(b) = &game.broadcast {
                 if !s.is_empty() {
                     s.push(' ');
@@ -889,8 +893,10 @@ fn render_compact(frame: &mut Frame, area: Rect, game: &Game, fx: TileFx) {
         }
         Status::Final => spans.push(Span::styled(" FINAL", Style::default().fg(th.muted))),
         Status::Pre => {
-            if let Some(t) = &game.start_time {
-                spans.push(Span::styled(format!(" {t}"), Style::default().fg(th.muted)));
+            // Task 9: use App::now()
+            if let Some(t) = game.start {
+                let s = crate::text::fmt_start(t, time::OffsetDateTime::now_utc().to_offset(t.offset()));
+                spans.push(Span::styled(format!(" {s}"), Style::default().fg(th.muted)));
             }
         }
     }
@@ -917,6 +923,7 @@ mod tests {
                 color: [227, 24, 55],
                 alt_color: [230, 230, 230],
                 logo_key: "nfl/kc".into(),
+                ..Default::default()
             },
             home: Team {
                 id: "27".into(),
@@ -927,6 +934,7 @@ mod tests {
                 color: [213, 10, 10],
                 alt_color: [230, 230, 230],
                 logo_key: "nfl/tb".into(),
+                ..Default::default()
             },
             away_score: 27,
             home_score: 24,
@@ -943,12 +951,11 @@ mod tests {
                 clock: "1:27".into(),
                 team: "KC".into(),
                 text: "Mahomes pass to Kelce for 3 yards".into(),
-                scoring: false,
+                ..Default::default()
             }],
             meter: Some(Meter::RedZone { yards_to_goal: 3 }),
-            start_time: None,
             broadcast: Some("CBS".into()),
-            odds: None,
+            ..Game::default()
         }
     }
 
@@ -1294,7 +1301,7 @@ mod tests {
                 clock: format!("{i}:00"),
                 team: "TB".into(),
                 text: format!("play number {i}"),
-                scoring: false,
+                ..Default::default()
             });
         }
         let mut without = with.clone();
@@ -1399,6 +1406,7 @@ mod tests {
             team: "KC".into(),
             text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
             scoring: true,
+            ..Default::default()
         });
         let buf = render_buffer(&g, Density::Full, 118, 30, TileFx::default(), ScoreStyle::Big);
         let text = buffer_text(&buf, 118, 30);

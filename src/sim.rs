@@ -105,6 +105,7 @@ fn push_play(g: &mut Game, team: &str, text: &str, scoring: bool) {
         0,
         Play {
             clock,
+            period: String::new(),
             team: team.into(),
             text: text.into(),
             scoring,

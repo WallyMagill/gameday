@@ -26,9 +26,7 @@ fn game(id: &str, abbr: &str, status: Status) -> Game {
         situation: None,
         last_plays: vec![],
         meter: None,
-        start_time: None,
-        broadcast: None,
-        odds: None,
+        ..Game::default()
     }
 }
 

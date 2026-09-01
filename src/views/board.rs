@@ -309,7 +309,10 @@ fn slate_line(game: &Game) -> String {
     match game.status {
         crate::domain::Status::Pre => format!(
             "{:<9} {:>4} @ {:<4} {}",
-            game.start_time.as_deref().unwrap_or("--:--"),
+            // Task 9: use App::now()
+            game.start
+                .map(|t| crate::text::fmt_start(t, time::OffsetDateTime::now_utc().to_offset(t.offset())))
+                .unwrap_or_else(|| "--:--".into()),
             game.away.abbr,
             game.home.abbr,
             game.broadcast.as_deref().unwrap_or(""),

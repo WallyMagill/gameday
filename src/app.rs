@@ -1574,9 +1574,7 @@ mod tests {
             situation: None,
             last_plays: vec![],
             meter: None,
-            start_time: None,
-            broadcast: None,
-            odds: None,
+            ..Game::default()
         }
     }
 
@@ -1669,7 +1667,7 @@ mod tests {
             clock: "1:27".into(),
             team: "KC".into(),
             text: "from scoreboard".into(),
-            scoring: false,
+            ..Default::default()
         }];
         let mut app = app_with(vec![game], vec![]);
         // MLB/NBA summaries have no drives => zero mapped plays; don't blank the tile.
@@ -1682,7 +1680,7 @@ mod tests {
             clock: "0:55".into(),
             team: "TB".into(),
             text: "from summary".into(),
-            scoring: false,
+            ..Default::default()
         }];
         app.merge_summary("1", s);
         assert_eq!(app.boards[&League::Nfl][0].last_plays[0].text, "from summary");
@@ -1760,8 +1758,8 @@ mod tests {
     fn zoom_tabs_cycle_with_hl_and_brackets_and_jk_clamp() {
         let mut game = g("1", "KC", "TB", true);
         game.last_plays = vec![
-            Play { clock: "1:00".into(), team: "KC".into(), text: "a".into(), scoring: false },
-            Play { clock: "2:00".into(), team: "TB".into(), text: "b".into(), scoring: false },
+            Play { clock: "1:00".into(), team: "KC".into(), text: "a".into(), ..Default::default() },
+            Play { clock: "2:00".into(), team: "TB".into(), text: "b".into(), ..Default::default() },
         ];
         let mut app = app_with(vec![game], vec![]);
         app.tab = Tab::League(League::Nfl);

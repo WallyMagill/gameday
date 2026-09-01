@@ -57,11 +57,17 @@ pub struct Team {
     pub color: [u8; 3],
     pub alt_color: [u8; 3],
     pub logo_key: String,
+    /// AP/coaches rank for college sports (`competitors[].curatedRank.current`,
+    /// verified `14` for USC 2026-08-31). None for pro leagues and unranked teams.
+    pub rank: Option<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Play {
     pub clock: String,
+    /// Period label for sports without a play clock: baseball `B9`/`T7`;
+    /// empty when the clock carries the moment. Renders where `[-:--]` did.
+    pub period: String,
     /// Abbr of the team credited with the play. Empty when unknown.
     pub team: String,
     pub text: String,
@@ -80,6 +86,11 @@ pub struct Situation {
     pub outs: Option<u8>,
     /// Base runners as [first, second, third].
     pub on_base: Option<[bool; 3]>,
+    /// Baseball matchup from `situation.pitcher/.batter` (athlete shortName).
+    pub pitcher: Option<String>,
+    pub batter: Option<String>,
+    /// Baseball `situation.dueUp[]` as "A. Riley (2-3, HR)" strings, in order.
+    pub due_up: Vec<String>,
     /// Basketball shot clock in seconds. ESPN's public scoreboard doesn't
     /// carry one (checked 2026-08-29: wnba fixture + live NBA/WNBA feeds), so
     /// on real data this stays None and the chip simply doesn't render;
@@ -105,6 +116,31 @@ pub enum Meter {
     Penalty { team_abbr: String, seconds: u16 },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventKind { Goal, OwnGoal, Penalty, Yellow, Red, Sub }
+
+/// One soccer match event from the scoreboard's `competition.details[]`
+/// (goals, cards, substitutions), verified in fixtures/epl_scoreboard.json.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MatchEvent {
+    pub minute: String,
+    pub kind: EventKind,
+    pub team: String,
+    pub player: String,
+}
+
+/// Per-sport facts that don't fit the shared fields. One variant per sport
+/// family; `None` for sports with nothing extra yet.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum Extras {
+    #[default]
+    None,
+    Football { drive: Option<String> },
+    Baseball { hits: Option<(u16, u16)>, errors: Option<(u16, u16)> },
+    Hockey { shots: Option<(u16, u16)> },
+    Soccer { events: Vec<MatchEvent> },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Game {
     pub id: String,
@@ -119,12 +155,49 @@ pub struct Game {
     pub situation: Option<Situation>,
     pub last_plays: Vec<Play>,
     pub meter: Option<Meter>,
-    pub start_time: Option<String>,
+    /// Scheduled start, already in the user's local offset (mapper applies
+    /// `text::local_time`). Rendered through `text::fmt_start` — never raw.
+    pub start: Option<time::OffsetDateTime>,
+    /// Scoring plays, oldest first. Filled two ways: a score delta between
+    /// scoreboard polls captures that poll's `lastPlay` (every game); the
+    /// summary's full list replaces it for the zoomed game.
+    pub scoring_plays: Vec<Play>,
+    /// Per period/inning (away, home) from `competitors[].linescores[]`.
+    pub linescore: Vec<(u16, u16)>,
+    /// (away, home) timeouts remaining, football/basketball only.
+    pub timeouts: Option<(u8, u8)>,
+    pub extras: Extras,
     pub broadcast: Option<String>,
     /// Pre-game betting line, already formatted for display
     /// ("KC -3.5  O/U 47.5"). None when the feed carries no odds — ESPN
     /// strips them once a game goes final.
     pub odds: Option<String>,
+}
+
+impl Default for Game {
+    fn default() -> Self {
+        Game {
+            id: String::new(),
+            league: League::Nfl,
+            home: Team::default(),
+            away: Team::default(),
+            home_score: 0,
+            away_score: 0,
+            status: Status::Pre,
+            period: String::new(),
+            clock: String::new(),
+            situation: None,
+            last_plays: vec![],
+            meter: None,
+            start: None,
+            broadcast: None,
+            odds: None,
+            scoring_plays: vec![],
+            linescore: vec![],
+            timeouts: None,
+            extras: Extras::None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -203,6 +276,7 @@ mod tests {
             color: [227, 24, 55],
             alt_color: [255, 184, 28],
             logo_key: "nfl/kc".into(),
+            ..Default::default()
         }
     }
 
@@ -254,6 +328,21 @@ mod tests {
     }
 
     #[test]
+    fn game_default_is_an_empty_pregame() {
+        let g = Game::default();
+        assert_eq!(g.status, Status::Pre);
+        assert_eq!(g.league, League::Nfl);
+        assert!(g.scoring_plays.is_empty() && g.linescore.is_empty() && g.last_plays.is_empty());
+        assert_eq!(g.start, None);
+        assert_eq!(g.timeouts, None);
+        assert_eq!(g.extras, Extras::None);
+        assert_eq!(g.away.rank, None);
+        // Literal sites use `..Game::default()`; a play carries its period.
+        let p = Play { period: "B9".into(), ..Default::default() };
+        assert_eq!(p.period, "B9");
+    }
+
+    #[test]
     fn live_game_holds_situation_and_plays() {
         let g = Game {
             id: "401".into(),
@@ -268,6 +357,7 @@ mod tests {
                 color: [213, 10, 10],
                 alt_color: [52, 48, 43],
                 logo_key: "nfl/tb".into(),
+                ..Default::default()
             },
             away_score: 27,
             home_score: 24,
@@ -284,12 +374,11 @@ mod tests {
                 clock: "1:27".into(),
                 team: "KC".into(),
                 text: "Mahomes pass to Kelce for 3 yards".into(),
-                scoring: false,
+                ..Default::default()
             }],
             meter: Some(Meter::RedZone { yards_to_goal: 3 }),
-            start_time: None,
             broadcast: Some("CBS".into()),
-            odds: None,
+            ..Game::default()
         };
         assert_eq!(g.status, Status::Live);
         assert_eq!(g.meter, Some(Meter::RedZone { yards_to_goal: 3 }));

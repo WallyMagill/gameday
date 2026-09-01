@@ -37,11 +37,12 @@ fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
             team: away.into(),
             text: "Mahomes pass to Kelce for 3 yards".into(),
             scoring: false,
+            ..Default::default()
         }],
         meter: None,
-        start_time: Some("8:20 PM".into()),
+        start: Some(time::macros::datetime!(2026-09-13 20:20 -4)),
         broadcast: Some("CBS".into()),
-        odds: None,
+        ..Game::default()
     }
 }
 
@@ -256,6 +257,7 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
         team: "KC".into(),
         text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
         scoring: true,
+        ..Default::default()
     }];
     app.config.score_style = gameday::tiles::ScoreStyle::Compact;
     app.apply_boards(League::Nfl, vec![game], false);
@@ -297,6 +299,7 @@ fn sidebar_top_plays_are_abbr_surname_clock() {
         team: "KC".into(),
         text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
         scoring: true,
+        ..Default::default()
     }];
     app.apply_boards(League::Nfl, vec![game], false);
     app.tab = Tab::League(League::Nfl);
@@ -512,12 +515,14 @@ fn l_cycles_to_the_plays_tab_and_jk_move_the_highlight() {
             team: "KC".into(),
             text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
             scoring: true,
+            ..Default::default()
         },
         Play {
             clock: "2:05".into(),
             team: "TB".into(),
             text: "Evans 8 yard reception".into(),
             scoring: false,
+            ..Default::default()
         },
     ];
     app.apply_boards(League::Nfl, vec![game], false);
@@ -671,11 +676,10 @@ fn nba_game(id: &str, away: &str, home: &str) -> Game {
             team: away.into(),
             text: "Tatum pull-up three".into(),
             scoring: true,
+            ..Default::default()
         }],
         meter: None,
-        start_time: None,
-        broadcast: None,
-        odds: None,
+        ..Game::default()
     }
 }
 
@@ -689,6 +693,7 @@ fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
         team: "KC".into(),
         text: "Mahomes to Kelce, 12 yd".into(),
         scoring: true,
+        ..Default::default()
     }];
     app.apply_boards(League::Nfl, vec![nfl], false);
     app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
@@ -726,6 +731,7 @@ fn plays_feed_j_and_k_move_the_marker_and_clamp() {
         team: "KC".into(),
         text: "Mahomes to Kelce, 12 yd".into(),
         scoring: true,
+        ..Default::default()
     }];
     app.apply_boards(League::Nfl, vec![nfl], false);
     app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
@@ -976,6 +982,7 @@ fn plays_feed_marks_its_end_when_the_pane_has_room() {
         team: "KC".into(),
         text: "Mahomes to Kelce, 12 yd".into(),
         scoring: true,
+        ..Default::default()
     }];
     app.apply_boards(League::Nfl, vec![nfl], false);
     app.view = View::PlaysFeed;
@@ -1246,6 +1253,7 @@ fn wheel_scrolls_the_plays_feed_and_clamps() {
         team: "KC".into(),
         text: "Mahomes to Kelce, 12 yd".into(),
         scoring: true,
+        ..Default::default()
     }];
     app.apply_boards(League::Nfl, vec![nfl], false);
     app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);

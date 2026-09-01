@@ -15,6 +15,7 @@ fn live_kc() -> Game {
             color: [227, 24, 55],
             alt_color: [255, 184, 28],
             logo_key: "nfl/kc".into(),
+            ..Default::default()
         },
         home: Team {
             id: "27".into(),
@@ -25,6 +26,7 @@ fn live_kc() -> Game {
             color: [213, 10, 10],
             alt_color: [52, 48, 43],
             logo_key: "nfl/tb".into(),
+            ..Default::default()
         },
         away_score: 27,
         home_score: 24,
@@ -42,11 +44,11 @@ fn live_kc() -> Game {
             team: "KC".into(),
             text: "Mahomes pass to Kelce for 3 yards".into(),
             scoring: false,
+            ..Default::default()
         }],
         meter: Some(Meter::RedZone { yards_to_goal: 3 }),
-        start_time: None,
         broadcast: Some("CBS".into()),
-        odds: None,
+        ..Game::default()
     }
 }
 

@@ -25,12 +25,14 @@ fn team(
         color,
         alt_color: alt,
         logo_key: format!("{}/{}", league.slug(), abbr.to_lowercase()),
+        rank: None,
     }
 }
 
 fn play(clock: &str, team: &str, text: &str, scoring: bool) -> Play {
     Play {
         clock: clock.into(),
+        period: String::new(),
         team: team.into(),
         text: text.into(),
         scoring,
@@ -151,9 +153,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                     play("3:21", "KC", "Mahomes pass to Kelce, 12 yd TOUCHDOWN", true),
                 ],
                 meter: Some(Meter::RedZone { yards_to_goal: 3 }),
-                start_time: None,
                 broadcast: Some("CBS".into()),
-                odds: None,
+                ..Game::default()
             },
             Game {
                 id: "nfl-pre".into(),
@@ -168,9 +169,10 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 situation: None,
                 last_plays: vec![],
                 meter: None,
-                start_time: Some("8:20 PM".into()),
+                start: Some(time::macros::datetime!(2026-09-13 20:20 -4)),
                 broadcast: Some("NBC".into()),
                 odds: Some("SF -2.5  O/U 44.5".into()),
+                ..Game::default()
             },
             Game {
                 id: "nfl-final".into(),
@@ -185,9 +187,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 situation: None,
                 last_plays: vec![],
                 meter: None,
-                start_time: None,
                 broadcast: Some("FOX".into()),
-                odds: None,
+                ..Game::default()
             },
         ],
     );
@@ -219,9 +220,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 play("5:45", "BOS", "Jrue Holiday steal", false),
             ],
             meter: Some(Meter::Lead { plus_minus: -7 }),
-            start_time: None,
             broadcast: Some("TNT".into()),
-            odds: None,
+            ..Game::default()
         }],
     );
 
@@ -254,9 +254,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 play("2:21", "TOR", "Bo Bichette strikes out", false),
             ],
             meter: Some(Meter::Diamond { occupied: [true, false, false] }),
-            start_time: None,
             broadcast: Some("SN".into()),
-            odds: None,
+            ..Game::default()
         }],
     );
 
@@ -282,9 +281,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 play("5:09", "DAL", "Jamie Benn hit", false),
             ],
             meter: Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 42 }),
-            start_time: None,
             broadcast: Some("ESPN".into()),
-            odds: None,
+            ..Game::default()
         }],
     );
 
@@ -310,9 +308,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 play("51'", "ARS", "Declan Rice booked for a late challenge", false),
             ],
             meter: None,
-            start_time: None,
             broadcast: Some("NBC".into()),
-            odds: None,
+            ..Game::default()
         }],
     );
 

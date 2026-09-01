@@ -111,6 +111,7 @@ fn team_from(league: League, v: &Value) -> Option<Team> {
         color: hex_color(v.get("color").and_then(|x| x.as_str()).unwrap_or("")),
         alt_color: hex_color(v.get("alternateColor").and_then(|x| x.as_str()).unwrap_or("")),
         abbr,
+        rank: None,
     })
 }
 
@@ -201,7 +202,6 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
     let mut out = Vec::new();
     for ev in events {
         let id = ev.get("id").and_then(|x| x.as_str()).ok_or(MapError::Missing("id"))?.to_string();
-        let start_time = ev.get("date").and_then(|x| x.as_str()).map(|s| s.to_string());
         let comp = ev.get("competitions").and_then(|c| c.as_array()).and_then(|a| a.first())
             .ok_or(MapError::Missing("competitions"))?;
         let st = &comp["status"];
@@ -290,6 +290,7 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
                 .unwrap_or_default();
             last_plays.push(Play {
                 clock: sit_v["lastPlay"]["clock"]["displayValue"].as_str().unwrap_or(&clock).to_string(),
+                period: String::new(),
                 team,
                 text: text.to_string(),
                 scoring: false,
@@ -312,7 +313,9 @@ pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError>
         );
         out.push(Game {
             id, league, home, away, home_score, away_score, status, period, clock,
-            situation, last_plays, meter, start_time, broadcast, odds,
+            situation, last_plays, meter, broadcast, odds,
+            start: None, scoring_plays: vec![], linescore: vec![], timeouts: None,
+            extras: Extras::None,
         });
     }
     Ok(out)
@@ -344,6 +347,7 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
         .filter_map(|p| {
             Some(Play {
                 clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+                period: String::new(),
                 team: team_of(p),
                 text: p["text"].as_str()?.to_string(),
                 scoring: true,
@@ -360,6 +364,7 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                     if let Some(text) = p["text"].as_str() {
                         plays.push(Play {
                             clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+                            period: String::new(),
                             team: drive_team.to_string(),
                             text: text.to_string(),
                             scoring: p["scoringPlay"].as_bool().unwrap_or(false),
@@ -382,6 +387,7 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                 };
                 plays.push(Play {
                     clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+                    period: String::new(),
                     team: team_of(p),
                     text: text.to_string(),
                     scoring: p["scoringPlay"].as_bool().unwrap_or(false),
