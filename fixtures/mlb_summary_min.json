@@ -1,0 +1,16 @@
+{"header":{"competitions":[{"competitors":[
+  {"homeAway":"away","team":{"id":"12","abbreviation":"SEA"}},
+  {"homeAway":"home","team":{"id":"2","abbreviation":"BOS"}}]}]},
+ "plays":[
+  {"text":"Devers homered to right (24)","summaryType":"S","scoringPlay":true,"team":{"id":"2"},"period":{"type":"Bottom","number":3}},
+  {"text":"Pitch 1 : Ball 1","summaryType":"P","scoringPlay":false,"team":{"id":"12"},"period":{"type":"Top","number":4}},
+  {"text":"Pitch 2 : Strike 1 Looking","summaryType":"P","scoringPlay":false,"team":{"id":"12"},"period":{"type":"Top","number":4}},
+  {"text":"Raleigh struck out swinging.","summaryType":"N","scoringPlay":false,"team":{"id":"12"},"period":{"type":"Top","number":4}},
+  {"text":"Top of the 5th inning","summaryType":"I","scoringPlay":false,"period":{"type":"Top","number":5}},
+  {"text":"Rodríguez singles to right, Crawford to third","summaryType":"N","scoringPlay":false,"team":{"id":"12"},"period":{"type":"Top","number":9}},
+  {"text":"Pitch 1 : Strike 1 Foul","summaryType":"P","scoringPlay":false,"team":{"id":"12"},"period":{"type":"Top","number":9}}
+ ],
+ "boxscore":{"teams":[
+  {"homeAway":"away","team":{"abbreviation":"SEA"},"statistics":[{"name":"batting","stats":[{"name":"hits","label":"H","displayValue":"11"},{"name":"runs","label":"R","displayValue":"8"}]}]},
+  {"homeAway":"home","team":{"abbreviation":"BOS"},"statistics":[{"name":"batting","stats":[{"name":"hits","label":"H","displayValue":"9"},{"name":"runs","label":"R","displayValue":"7"}]}]}
+ ]}}

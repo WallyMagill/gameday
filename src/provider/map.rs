@@ -435,6 +435,16 @@ fn mlb_inning_tag(period: &str) -> String {
     }
 }
 
+/// A play's own `period` object — `{"type":"Top","number":9}` -> "T9".
+/// Empty when the play carries no period (football drives, soccer keyEvents).
+fn inning_tag(period: &Value) -> String {
+    // First char, not a byte slice: a non-ASCII type would panic on `&t[..1]`.
+    match (period["type"].as_str().and_then(|t| t.chars().next()), period["number"].as_u64()) {
+        (Some(c), Some(n)) => format!("{}{n}", c.to_uppercase()),
+        _ => String::new(),
+    }
+}
+
 /// `lastPlay.type.alternativeText` ("Walk", "Strikeout") + the batter — the
 /// `text` field is the pitch ("Pitch 6 : Ball 3"), which nobody wants.
 fn mlb_last_play_text(lp: &Value) -> Option<String> {
@@ -560,12 +570,28 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                 let Some(text) = p["text"].as_str().filter(|t| !t.is_empty()) else {
                     continue; // delay/period markers carry no text
                 };
+                // MLB tags rows: P pitch, N at-bat narrative, S scoring, I
+                // inning marker, A batter/pitcher start, C substitution. Only
+                // N and S are the feed a fan reads (verified 2026-08-31 on a
+                // live MLB summary: 285 P vs 74 N + 11 S).
+                if matches!(p["summaryType"].as_str(), Some("P") | Some("I") | Some("A") | Some("C"))
+                {
+                    continue;
+                }
+                let scoring = p["scoringPlay"].as_bool().unwrap_or(false);
+                // NHL power-play goal: strength id "702" (verified on live NHL
+                // goals 2026-08-31). No other NHL strength field is trusted.
+                let text = if scoring && p["strength"]["id"].as_str() == Some("702") {
+                    format!("PP · {text}")
+                } else {
+                    text.to_string()
+                };
                 plays.push(Play {
                     clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
-                    period: String::new(),
+                    period: inning_tag(&p["period"]),
                     team: team_of(p),
-                    text: text.to_string(),
-                    scoring: p["scoringPlay"].as_bool().unwrap_or(false),
+                    text,
+                    scoring,
                 });
             }
             if !plays.is_empty() {
@@ -578,14 +604,40 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
             scoring_plays = plays.iter().filter(|p| p.scoring).rev().cloned().collect();
         }
     }
-    if plays.len() > 8 {
-        plays = plays.split_off(plays.len() - 8);
-    }
+    // No truncation here: the full list is newest-first and the display cap
+    // belongs to the tile that renders it.
     plays.reverse();
     // Meter stays None here on purpose: the scoreboard mapping owns meters and
     // App::merge_summary never reads a summary meter, so mapping one would be
     // dead data pretending to be live.
     Ok(Summary { last_plays: plays, scoring_plays, meter: None })
+}
+
+/// One box-score side's stats, flat (`[{name, displayValue}]`) or grouped
+/// (`[{name, stats:[{name, displayValue}]}]`, MLB) — both become
+/// (name, label, displayValue) triples.
+fn stat_rows(side: &Value) -> Vec<(String, String, String)> {
+    let mut out = Vec::new();
+    for s in side["statistics"].as_array().cloned().unwrap_or_default() {
+        if let Some(group) = s["stats"].as_array() {
+            for g in group {
+                if let (Some(n), Some(v)) = (g["name"].as_str(), g["displayValue"].as_str()) {
+                    out.push((
+                        n.to_string(),
+                        g["label"].as_str().unwrap_or(n).to_string(),
+                        v.to_string(),
+                    ));
+                }
+            }
+        } else if let (Some(n), Some(v)) = (s["name"].as_str(), s["displayValue"].as_str()) {
+            out.push((
+                n.to_string(),
+                s["label"].as_str().unwrap_or(n).to_string(),
+                v.to_string(),
+            ));
+        }
+    }
+    out
 }
 
 /// Box score from the same summary payload `map_summary` reads:
@@ -603,23 +655,17 @@ pub fn map_stats(json: &str) -> Result<GameStats, MapError> {
     };
     let away = side("away").ok_or(MapError::Missing("boxscore.teams[homeAway=away]"))?;
     let home = side("home").ok_or(MapError::Missing("boxscore.teams[homeAway=home]"))?;
-    let home_stats = home["statistics"].as_array().cloned().unwrap_or_default();
+    let home_stats = stat_rows(home);
     let mut rows = Vec::new();
-    for s in away["statistics"].as_array().cloned().unwrap_or_default() {
-        let Some(name) = s["name"].as_str() else { continue };
-        let Some(away_val) = s["displayValue"].as_str() else { continue };
+    for (name, label, away_val) in stat_rows(away) {
         // Pair by stat name, not position — order is a payload accident.
-        let Some(home_val) = home_stats
-            .iter()
-            .find(|h| h["name"].as_str() == Some(name))
-            .and_then(|h| h["displayValue"].as_str())
-        else {
+        let Some((_, _, home_val)) = home_stats.iter().find(|(n, _, _)| *n == name) else {
             continue; // one-sided stat: skip rather than render a blank cell
         };
         rows.push(StatRow {
-            label: s["label"].as_str().unwrap_or(name).to_string(),
-            away: away_val.to_string(),
-            home: home_val.to_string(),
+            label,
+            away: away_val,
+            home: home_val.clone(),
         });
     }
     let mut leaders = Vec::new();

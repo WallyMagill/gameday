@@ -222,7 +222,8 @@ fn maps_basketball_summary_flat_plays_array() {
     // (fixture: tail of the real 2026-08-29 CHI@NY WNBA payload).
     let json = include_str!("../fixtures/wnba_summary.json");
     let s = map_summary(json).unwrap();
-    assert_eq!(s.last_plays.len(), 8, "capped at 8, like drives");
+    // Every play in the fixture, uncapped — the display cap is the tile's job.
+    assert_eq!(s.last_plays.len(), 10, "the whole fixture list, not a cap");
     // Newest first.
     assert_eq!(s.last_plays[0].text, "End of Game");
     // Team ids resolve to abbrs through the header (9 = NY, 19 = CHI).
@@ -425,4 +426,62 @@ fn football_timeouts_map_from_situation() {
       "competitors":[{"homeAway":"away","score":"27","team":{"id":"1","abbreviation":"KC"}},{"homeAway":"home","score":"24","team":{"id":"2","abbreviation":"TB"}}]}]}]}"#;
     let g = &map_scoreboard(League::Nfl, json, et()).unwrap()[0];
     assert_eq!(g.timeouts, Some((1, 3)));
+}
+
+use gameday::provider::map::map_stats;
+
+#[test]
+fn mlb_summary_keeps_only_at_bat_results_and_scoring_and_tags_the_inning() {
+    let s = map_summary(include_str!("../fixtures/mlb_summary_min.json")).unwrap();
+    let texts: Vec<&str> = s.last_plays.iter().map(|p| p.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        vec![
+            "Rodríguez singles to right, Crawford to third",
+            "Raleigh struck out swinging.",
+            "Devers homered to right (24)",
+        ],
+        "pitches (P) and inning markers (I) are dropped; newest first"
+    );
+    assert_eq!(s.last_plays[0].period, "T9");
+    assert_eq!(s.last_plays[2].period, "B3");
+    assert_eq!(s.scoring_plays.len(), 1);
+    assert_eq!(s.scoring_plays[0].team, "BOS");
+}
+
+#[test]
+fn summary_is_not_truncated_to_eight() {
+    // 20 flat plays with the scoring play at index 3 — the old split_off(len-8)
+    // dropped it and every scoring surface went blank (review finding #2).
+    let mut plays = String::new();
+    for i in 0..20 {
+        if i > 0 {
+            plays.push(',');
+        }
+        let scoring = i == 3;
+        plays.push_str(&format!(
+            r#"{{"text":"play {i}","scoringPlay":{scoring},"team":{{"id":"1"}},"clock":{{"displayValue":"{}:00"}}}}"#,
+            12 - (i % 12)
+        ));
+    }
+    let json = format!(
+        r#"{{"header":{{"competitions":[{{"competitors":[{{"team":{{"id":"1","abbreviation":"DEN"}}}}]}}]}},"plays":[{plays}]}}"#
+    );
+    let s = map_summary(&json).unwrap();
+    assert_eq!(s.last_plays.len(), 20);
+    assert_eq!(s.scoring_plays.len(), 1);
+    assert_eq!(s.scoring_plays[0].text, "play 3");
+    assert!(s.last_plays.iter().any(|p| p.scoring && p.text == "play 3"));
+}
+
+#[test]
+fn grouped_box_score_maps_and_missing_leaders_is_empty_not_error() {
+    let stats = map_stats(include_str!("../fixtures/mlb_summary_min.json")).unwrap();
+    let hits = stats
+        .rows
+        .iter()
+        .find(|r| r.label == "H")
+        .expect("grouped stats flattened");
+    assert_eq!((hits.away.as_str(), hits.home.as_str()), ("11", "9"));
+    assert!(stats.leaders.is_empty());
 }
