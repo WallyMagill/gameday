@@ -278,3 +278,145 @@ Tile shape, color budget, digits, logos, themes, sidebar, ranking, `:tv`
   the documented budget.
 - The implementer looks at their own PNGs (dump gallery + one live capture)
   before each commit — same gate as v1/v2.
+
+## Verification (2026-09-01)
+
+Run on 2026-09-01, 13:15–13:31 EDT, from the `v3-1-truth` worktree at
+7ac096b + the env-gated request log added by this task. Every live run used
+`--config-dir /tmp/gd-dod` (scratch config; the real config was untouched)
+and was driven inside tmux at 120×40.
+
+### Tests and lint
+
+```
+$ cargo test 2>&1 | grep -E '^test result'
+test result: ok. 199 passed; 0 failed; ...   (lib)
+test result: ok. 71 passed; ...              (integration)
+test result: ok. 31 / 11 / 10 / 8 / 7 / 7 / 5 / 5 / 3 / 0 passed  (remaining suites)
+```
+
+357 tests, 0 failed, 0 ignored across 12 suites.
+
+```
+$ cargo clippy --all-targets 2>&1 | grep -c '^warning'
+7
+```
+
+7 = 5 distinct warnings + 2 per-crate summary lines. Not clean, but not this
+branch's: `git blame` dates every one to 2026-08-29/30 (pre-v3.1 commits
+72c417f, 02a833b, 59a3cf7, 09b6fc8, 27dc942) — `src/app/mod.rs:53`
+(`% 2 == 0` → `is_multiple_of`), `src/app/mod.rs:1490` (field assignment
+after `Default::default()`), `src/provider/memory.rs:15` (missing `Default`),
+`src/views/board.rs:142` (`sort_by` → `sort_by_key`),
+`src/dump.rs:683` (`trim_start` before `split_whitespace`). The count is
+unchanged by v3.1 and by the request-log lines added here. §10's "clippy
+clean" is therefore not met at the letter; no v3.1 code contributes.
+
+### Live capture (Home)
+
+```
+$ tmux new-session -d -s dod -x 120 -y 40 './target/release/gameday --config-dir /tmp/gd-dod'
+$ tmux capture-pane -t dod -p > /tmp/gd-dod/home-live.txt
+ GAMEDAY [ALL] [ NFL ] [ CFB ] [ CBB ] [ NBA ] [ WNBA ] [ NHL ] [ MLB ] [ EPL ] [ MLS ]   TUE SEP 1 2026  1:17:50 PM
+                               nothing live · next: NYM @ TB 6:40 PM
+                                                                    │⚑ GLOBAL ALERTS     │
+                                                                    │no alerts           │
+                                                                    │TOP PLAYS           │
+                                                                    │no scoring yet      │
+
+$ grep -c 'AM\|PM' home-live.txt   → 3   (local clock + next-up time)
+$ grep -c '2026-'   home-live.txt  → 0   (no ISO timestamps)
+$ grep -c -- '-:--' home-live.txt  → 0   (no placeholder clocks)
+```
+
+Honest gap: nothing was live anywhere at 13:15–13:31 EDT on a Tuesday
+afternoon — the first MLB first pitch was 6:40 PM. Home drew the
+`nothing live · next: NYM @ TB 6:40 PM` line (the §10 alternative), and the
+ALERTS / TOP PLAYS lanes read `no alerts` / `no scoring yet` for the whole
+window. The "at least one scoring entry within ten minutes of a live game
+scoring" clause could not be exercised in this window; the scoring path's
+receipts remain the simulator gallery (`out/home-live.png`, which shows
+GLOBAL ALERTS and TOP PLAYS populated) plus the Task 9 delta tests.
+
+League tab (`:mlb`, 5 s later) — slate rows carry local times, not ISO:
+
+```
+┌[MLB] UPCOMING───────────────── 6:40 PM MLB.TV ┐┌[MLB] UPCOMING───────────────── 6:40 PM MLB.TV ┐
+│  ⟨NYM⟩ …  METS 62-76   RAYS 82-55             ││   ⟨SD⟩ …  PADRES 73-65  REDS 65-73            │
+```
+
+### Offline and stale
+
+```
+$ cargo run --release -- dump           # writes out/*.ansi + out/*.png
+
+out/offline.ansi (ANSI stripped):
+ GAMEDAY   FILTER: [ALL] [ NFL ] … [ EPL ]       OFFLINE · retry 40s  MON AUG 31 2026  9:30:01 PM
+                                        OFFLINE · retry 40s
+                            last error: ESPN unreachable nfl scoreboard
+
+out/stale.ansi (ANSI stripped):
+ GAMEDAY   FILTER: [ALL] [ NFL ] … [ EPL ]                  STALE 4m  MON AUG 31 2026  9:30:01 PM
+ NAV: … [Q] QUIT                                                  PAGE 1/2  UPD 4m ·
+```
+
+Chip, board line, and error string on offline; `STALE 4m` chip with the
+frozen `UPD 4m ·` footer on stale.
+
+### 10-minute request budget
+
+`poll_loop` gained a `GAMEDAY_LOG_REQUESTS=1` stderr line per request
+(seconds since loop start + the `Request`); nothing else changed.
+
+```
+$ tmux new-session -d -s dod -x 120 -y 40 \
+    'GAMEDAY_LOG_REQUESTS=1 ./target/release/gameday --config-dir /tmp/gd-dod 2>/tmp/gd-dod/reqs.log'
+# default config → all nine leagues; :mlb, then z on the first game (zoom at t=49.3s)
+
+$ awk '$1>=49.3 && $1<=649.3' /tmp/gd-dod/reqs.log | grep -c .
+149                      # budget ceiling 440
+scoreboard 89   summary 40   stats 20   standings 0   dated 0
+```
+
+Sample lines:
+
+```
+    0.205 Scoreboard(Nfl)
+   46.683 Scoreboard(Epl)
+   49.342 Summary(Mlb, "401816759")
+   49.425 Stats(Mlb, "401816759")
+   79.394 Stats(Mlb, "401816759")
+```
+
+What the cadence rules predict for the observed state (nothing live → 60 s
+scoreboard cadence, one zoom → 15 s summary / 30 s stats, standings TTL
+600 s and the RECORDS rail already warm): 9 × 10 = 90 scoreboards, 40
+summaries, 20 stats, 0–1 standings ≈ 150. Observed 149 (89/40/20/0/0) — one
+scoreboard slot fell just outside the window edge from ±20% jitter. 34% of
+the 440 ceiling.
+
+### CLI
+
+```
+$ ./target/release/gameday --help | head -3
+gameday — terminal sports board. Pin games, they tile.
+
+USAGE
+
+$ ./target/release/gameday --version
+gameday 0.1.0
+
+$ ./target/release/gameday --bogus; echo "exit=$?"
+gameday: unknown argument "--bogus", valid: --demo|--help|-h|--version|-V|--config-dir <path>|dump [--tick N]|probe <league>
+exit=2
+
+$ bash -c './target/release/gameday | cat; echo "exit=${PIPESTATUS[0]}"'
+gameday: gameday needs a terminal (stdout is not a tty); try --help
+exit=1
+```
+
+### PNG gate
+
+`out/` gallery regenerated by the `dump` run above and reviewed by eye,
+including `home-live.png` (live tiles, alerts, top plays), `offline.png`,
+`stale.png`, `config-error.png`.

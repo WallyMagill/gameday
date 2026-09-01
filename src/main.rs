@@ -309,6 +309,11 @@ fn poll_loop(
     // Seeded per process so two gameday instances on one machine don't line
     // their fetches up on the same instant.
     let mut sched = Scheduler::new(std::process::id() as u64);
+    // GAMEDAY_LOG_REQUESTS=1 prints one stderr line per outgoing request
+    // (seconds since loop start + the request), so a run can be measured
+    // against the documented budget without changing any behaviour.
+    let log_requests = std::env::var("GAMEDAY_LOG_REQUESTS").is_ok_and(|v| v == "1");
+    let started = Instant::now();
     loop {
         let w = wants.lock().map(|w| w.clone()).unwrap_or_default();
         // One R, one forced round: consumed here, so a second R that lands
@@ -316,6 +321,9 @@ fn poll_loop(
         let refresh_now = refresh.swap(false, Ordering::Relaxed);
         let now = Instant::now();
         for req in sched.due(&w, refresh_now, now) {
+            if log_requests {
+                eprintln!("{:9.3} {req:?}", started.elapsed().as_secs_f64());
+            }
             match &req {
                 // Reported before the message is sent: `retry_in` is the
                 // delay this failure just produced, which only exists once
