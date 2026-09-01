@@ -9,6 +9,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
+use time::OffsetDateTime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Density { Full, Standard, Compact }
@@ -33,11 +34,25 @@ pub struct TileFx {
     pub flash: bool,
     /// LIVE chip pulse phase: bright or the dimmed luminance step.
     pub live_bright: bool,
+    /// This game is pinned: the title wears a ⚑.
+    pub pinned: bool,
+    /// Either team is a favorite of this league: the title wears a ★.
+    pub favorite: bool,
+    /// The frame's clock, in the user's offset. Start times render relative
+    /// to this and nothing in here reads a wall clock, so a dump of a given
+    /// tick is the same pixels every run.
+    pub now: OffsetDateTime,
 }
 
 impl Default for TileFx {
     fn default() -> Self {
-        Self { flash: false, live_bright: true }
+        Self {
+            flash: false,
+            live_bright: true,
+            pinned: false,
+            favorite: false,
+            now: OffsetDateTime::UNIX_EPOCH,
+        }
     }
 }
 
@@ -85,6 +100,14 @@ pub fn render_tile(
         ),
         Span::raw(" "),
     ];
+    // Pin and favorite ride the title after the league chip: the two reasons
+    // this tile is on the board, before the status word.
+    if fx.pinned {
+        left_title.push(Span::styled("⚑ ", Style::default().fg(th.star)));
+    }
+    if fx.favorite {
+        left_title.push(Span::styled("★ ", Style::default().fg(th.star)));
+    }
     left_title.push(match game.status {
         Status::Live => Span::styled("LIVE", live_chip_style(fx)),
         Status::Final => Span::styled("FINAL", Style::default().fg(th.muted).add_modifier(Modifier::BOLD)),
@@ -92,7 +115,7 @@ pub fn render_tile(
     });
 
     let mut right_title = vec![Span::styled(
-        format!(" {} ", situation_summary(game)),
+        format!(" {} ", situation_summary(game, fx.now)),
         Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
     )];
     // Basketball shot-clock chip: boxed amber badge, distinct from the game
@@ -159,13 +182,12 @@ pub fn render_tile(
 }
 
 /// Situation string on the top border, right side.
-fn situation_summary(game: &Game) -> String {
+fn situation_summary(game: &Game, now: OffsetDateTime) -> String {
     match game.status {
         Status::Pre => {
-            // Task 9: use App::now()
             let mut s = game
                 .start
-                .map(|t| crate::text::fmt_start(t, time::OffsetDateTime::now_utc().to_offset(t.offset())))
+                .map(|t| crate::text::fmt_start(t, now))
                 .unwrap_or_default();
             if let Some(b) = &game.broadcast {
                 if !s.is_empty() {
@@ -311,34 +333,60 @@ fn render_digits(frame: &mut Frame, center: Rect, game: &Game, flash: bool, full
 }
 
 /// One-row team labels under the digits: away left, home right, in `area`.
-/// Records ride along only when BOTH "NAME 11-6" pairs fit their halves — a
-/// record cut mid-number reads as a wrong record, and one side wearing a
-/// record while the other doesn't reads as a missing one, so the pair
-/// decides together (board-*.png showed "CHIEFS 11-6" beside a bare
-/// "BUCCANEERS").
+/// A record is worth more than the long name that crowds it out, so a side
+/// whose "MARINERS 64-73" doesn't fit its half falls back to "SEA 64-73"
+/// before the record is dropped. Whether records show at all is still a pair
+/// decision — one side wearing a record while the other doesn't reads as a
+/// missing one (board-*.png showed "CHIEFS 11-6" beside a bare "BUCCANEERS")
+/// — but each side picks its own form.
+///
+/// The side with the ball wears a `▸`/`◂` pointing at the field, inside the
+/// same half-width budget as its label.
 fn render_name_row(frame: &mut Frame, area: Rect, game: &Game) {
     let th = theme::current();
     let half = (area.width as usize).saturating_sub(2) / 2;
-    let fits_with_record = |t: &Team| {
-        !t.record.is_empty()
-            && t.name.chars().count() + 1 + t.record.chars().count() <= half
-    };
-    let with_records = fits_with_record(&game.away) && fits_with_record(&game.home);
-    let label = |t: &Team| {
+    let possession = game
+        .situation
+        .as_ref()
+        .and_then(|s| s.possession.as_deref())
+        .filter(|p| !p.is_empty());
+    let has_ball = |t: &Team| possession.is_some_and(|p| p.eq_ignore_ascii_case(&t.abbr));
+    // "▸ " / " ◂" spend two of the side's cells.
+    let budget = |t: &Team| half.saturating_sub(if has_ball(t) { 2 } else { 0 });
+    // The longest form of "<label> <record>" that fits this side, if any.
+    let with_record = |t: &Team| {
+        if t.record.is_empty() {
+            return None;
+        }
+        let fits = |s: &str| s.chars().count() + 1 + t.record.chars().count() <= budget(t);
         let name = t.name.to_uppercase();
-        if with_records {
-            format!("{name} {}", t.record)
+        if fits(&name) {
+            Some(format!("{name} {}", t.record))
+        } else if fits(&t.abbr) {
+            Some(format!("{} {}", t.abbr, t.record))
         } else {
-            truncate(&name, half)
+            None
         }
     };
+    // Both sides or neither: zip drops a lone record.
+    let (away_form, home_form) = with_record(&game.away).zip(with_record(&game.home)).unzip();
+    let label = |t: &Team, form: Option<String>, away: bool| {
+        let body = form.unwrap_or_else(|| truncate(&t.name.to_uppercase(), budget(t)));
+        match (has_ball(t), away) {
+            (false, _) => body,
+            (true, true) => format!("▸ {body}"),
+            (true, false) => format!("{body} ◂"),
+        }
+    };
+    let away_label = label(&game.away, away_form, true);
+    let home_label = label(&game.home, home_form, false);
     let style = Style::default().fg(th.bright).add_modifier(Modifier::BOLD);
     frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(label(&game.away), style))),
+        Paragraph::new(Line::from(Span::styled(away_label, style))),
         area,
     );
     frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(label(&game.home), style)))
+        Paragraph::new(Line::from(Span::styled(home_label, style)))
             .alignment(Alignment::Right),
         area,
     );
@@ -507,6 +555,19 @@ fn render_lower_left(frame: &mut Frame, area: Rect, game: &Game) {
     render_play_lines(frame, rows[3], game);
 }
 
+/// The bracket stamp on a play row: the game clock when the sport has one,
+/// otherwise the play's period (baseball `B9`). `-:--` only when the feed
+/// gave us neither.
+fn play_stamp(p: &crate::domain::Play) -> &str {
+    if !p.clock.is_empty() {
+        &p.clock
+    } else if !p.period.is_empty() {
+        &p.period
+    } else {
+        "-:--"
+    }
+}
+
 /// `[clock] ABB text` row for one play, truncated to `width`.
 fn play_line(game: &Game, p: &crate::domain::Play, width: usize) -> Line<'static> {
     let th = theme::current();
@@ -518,7 +579,7 @@ fn play_line(game: &Game, p: &crate::domain::Play, width: usize) -> Line<'static
     } else {
         th.fg
     };
-    let clock = format!(" [{}]", if p.clock.is_empty() { "-:--" } else { &p.clock });
+    let clock = format!(" [{}]", play_stamp(p));
     let abbr = format!(" {:<3} ", p.team);
     let used = clock.chars().count() + abbr.chars().count();
     let text = truncate(&p.text, width.saturating_sub(used + 1));
@@ -651,7 +712,7 @@ fn render_focus_body(frame: &mut Frame, area: Rect, game: &Game) {
         } else {
             th.team_text(game.home.color)
         };
-        let head = format!(" [{}] {:<3} ", if p.clock.is_empty() { "-:--" } else { &p.clock }, p.team);
+        let head = format!(" [{}] {:<3} ", play_stamp(p), p.team);
         let used = head.chars().count() + word.chars().count() + 1;
         lines.push(Line::from(vec![
             Span::styled(head, Style::default().fg(team_color).add_modifier(Modifier::BOLD)),
@@ -893,9 +954,8 @@ fn render_compact(frame: &mut Frame, area: Rect, game: &Game, fx: TileFx) {
         }
         Status::Final => spans.push(Span::styled(" FINAL", Style::default().fg(th.muted))),
         Status::Pre => {
-            // Task 9: use App::now()
             if let Some(t) = game.start {
-                let s = crate::text::fmt_start(t, time::OffsetDateTime::now_utc().to_offset(t.offset()));
+                let s = crate::text::fmt_start(t, fx.now);
                 spans.push(Span::styled(format!(" {s}"), Style::default().fg(th.muted)));
             }
         }
@@ -1017,7 +1077,7 @@ mod tests {
             }
             n
         };
-        let flashed = count_live_bg(TileFx { flash: true, live_bright: true });
+        let flashed = count_live_bg(TileFx { flash: true, ..Default::default() });
         assert!(flashed >= 4, "score digits + dash should sit on the live bg, got {flashed}");
         let settled = count_live_bg(TileFx::default());
         assert_eq!(settled, 0, "no live bg once the flash settles");
@@ -1032,7 +1092,7 @@ mod tests {
                 Density::Standard,
                 49,
                 15,
-                TileFx { flash: false, live_bright: bright },
+                TileFx { live_bright: bright, ..Default::default() },
                 ScoreStyle::Compact,
             );
             // Find "LIVE" on the top border and return the L cell's fg.
@@ -1064,7 +1124,9 @@ mod tests {
         );
         assert!(compact.contains("27 - 24"), "compact = single-row score:\n{compact}");
         assert!(!big.contains("27 - 24"), "big renders sextant digits, not a text row:\n{big}");
-        assert!(big.contains("CHIEFS"), "big shows the names under the digits:\n{big}");
+        // 49 wide the identity row is the abbr form (see
+        // name_row_records_are_a_pair_decision_and_never_truncate).
+        assert!(big.contains("KC 11-6"), "big shows the identity row under the digits:\n{big}");
     }
 
     fn nba_game(shot_clock: Option<u8>) -> Game {
@@ -1123,7 +1185,7 @@ mod tests {
         g.period = "BOT 7TH".into();
         g.clock = String::new();
         g.situation = Some(Situation {
-            down_distance: "2 OUTS  1-2".into(),
+            down_distance: "2 OUT · 1-2".into(),
             balls: Some(1),
             strikes: Some(2),
             outs: Some(2),
@@ -1441,16 +1503,17 @@ mod tests {
     #[test]
     fn name_row_records_are_a_pair_decision_and_never_truncate() {
         // 49 wide: "BUCCANEERS 11-6" (15) does not fit its 12-cell half.
-        // "BUCCANEERS 1…" would read as a wrong record, and "CHIEFS 11-6"
-        // beside a bare "BUCCANEERS" (board-broadcast.png) read as a missing
-        // one — so both records drop together.
+        // "BUCCANEERS 1…" would read as a wrong record, so that side falls
+        // back to "TB 11-6" — the record is worth more than the long name.
+        // Whether records show at all is still a pair decision, so KC takes
+        // the abbr form with it ("CHIEFS 11-6" beside a bare "BUCCANEERS",
+        // board-broadcast.png, read as a missing record).
         let g = demo_game();
         let buf = render_buffer(&g, Density::Standard, 49, 15, TileFx::default(), ScoreStyle::Big);
         let text = buffer_text(&buf, 49, 15);
-        let names = text.lines().find(|l| l.contains("CHIEFS")).expect("name row");
-        assert!(names.contains("BUCCANEERS"), "both names on one row: {names:?}");
-        assert!(!names.contains("11-6"), "neither record when one can't fit: {names:?}");
-        assert!(!names.contains('…'), "record dropped, not ellipsized: {names:?}");
+        let names = text.lines().find(|l| l.contains("TB 11-6")).expect("name row");
+        assert!(names.contains("KC 11-6"), "both sides keep their record: {names:?}");
+        assert!(!names.contains('…'), "abbr form, not an ellipsized name: {names:?}");
         // 60 wide: both pairs fit their 18-cell halves, both records show.
         let buf = render_buffer(&g, Density::Standard, 60, 15, TileFx::default(), ScoreStyle::Big);
         let text = buffer_text(&buf, 60, 15);

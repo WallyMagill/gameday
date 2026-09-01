@@ -99,7 +99,7 @@ fn maps_live_mlb_inning_count_and_diamond() {
     assert_eq!(sit.strikes, Some(2));
     assert_eq!(sit.outs, Some(2));
     assert_eq!(sit.on_base, Some([true, false, true]));
-    assert_eq!(sit.down_distance, "2 OUTS  4-2");
+    assert_eq!(sit.down_distance, "2 OUT · 4-2");
     assert_eq!(g.meter, Some(Meter::Diamond { occupied: [true, false, true] }));
     // Play attributed to the team on the payload (id 27 = COL), not possession.
     assert_eq!(g.last_plays[0].team, "COL");

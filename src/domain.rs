@@ -76,7 +76,7 @@ pub struct Play {
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Situation {
-    /// Headline situation text: football "1st & Goal", baseball "2 OUTS  1-2".
+    /// Headline situation text: football "1st & Goal", baseball "2 OUT · 1-2".
     pub down_distance: String,
     pub possession: Option<String>,
     pub ball_on: Option<String>,
@@ -99,12 +99,13 @@ pub struct Situation {
 }
 
 impl Situation {
-    /// Baseball headline, reference-board style: "2 OUTS  1-2"
-    /// (outs first, then balls-strikes). None unless all three are known.
+    /// Baseball headline, reference-board style: "2 OUT · 1-2" (outs first,
+    /// then balls-strikes). `OUT` never pluralizes — the column stays the
+    /// same width at every out count — and the `·` is what keeps the count
+    /// from reading as a score. None unless all three are known.
     pub fn mlb_count_headline(&self) -> Option<String> {
         let (o, b, s) = (self.outs?, self.balls?, self.strikes?);
-        let plural = if o == 1 { "" } else { "S" };
-        Some(format!("{o} OUT{plural}  {b}-{s}"))
+        Some(format!("{o} OUT · {b}-{s}"))
     }
 }
 
@@ -318,9 +319,9 @@ mod tests {
             outs: Some(o),
             ..Default::default()
         };
-        assert_eq!(sit(1, 2, 2).mlb_count_headline().as_deref(), Some("2 OUTS  1-2"));
-        assert_eq!(sit(3, 2, 1).mlb_count_headline().as_deref(), Some("1 OUT  3-2"));
-        assert_eq!(sit(0, 0, 0).mlb_count_headline().as_deref(), Some("0 OUTS  0-0"));
+        assert_eq!(sit(1, 2, 2).mlb_count_headline().as_deref(), Some("2 OUT · 1-2"));
+        assert_eq!(sit(3, 2, 1).mlb_count_headline().as_deref(), Some("1 OUT · 3-2"));
+        assert_eq!(sit(0, 0, 0).mlb_count_headline().as_deref(), Some("0 OUT · 0-0"));
         // Any missing component: no headline rather than a half-made one.
         let partial = Situation { balls: Some(1), strikes: Some(2), ..Default::default() };
         assert_eq!(partial.mlb_count_headline(), None);

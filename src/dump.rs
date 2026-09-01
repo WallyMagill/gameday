@@ -194,6 +194,9 @@ pub fn demo_app(config_dir: PathBuf, tick: u64) -> App {
         config_dir,
         time::UtcOffset::from_hms(-4, 0, 0).expect("-04:00 is a valid offset"),
     );
+    // The captures' wall clock is frozen too: a dump names a fixed instant so
+    // "TODAY 8:20 PM" can't turn into "SEP 13 8:20 PM" between runs.
+    app.now_override = Some(time::macros::datetime!(2026-08-31 21:30:01 -4));
     if tick > 0 {
         for (league, games) in crate::sim::Simulator::boards_at(tick - 1) {
             app.apply_boards(league, games, false);
@@ -817,11 +820,11 @@ mod tests {
             text.push('\n');
         }
         // Big style: sextant digits, so the single-row score text is gone but
-        // the name rows appear under the digits (records are a pair decision
-        // and the 4-up NFL tile can't fit "BUCCANEERS 11-6", so none here).
+        // the identity rows appear under them. The 4-up NFL tile can't fit
+        // "BUCCANEERS 11-6", so both sides fall back to the abbr form rather
+        // than losing the records.
         assert!(!text.contains("27 - 24"), "default is big, not the text score row:\n{text}");
-        assert!(text.contains("CHIEFS") && text.contains("BUCCANEERS"), "big identity row missing:\n{text}");
-        assert!(!text.contains("CHIEFS 11-6"), "no one-sided record:\n{text}");
+        assert!(text.contains("KC 11-6") && text.contains("TB 11-6"), "big identity row missing:\n{text}");
         // NBA demo tile carries a shot clock => the boxed amber chip renders
         // (star-background cells beyond the [ALL] header tab).
         assert!(text.contains(" 24 "), "shot clock chip text missing");

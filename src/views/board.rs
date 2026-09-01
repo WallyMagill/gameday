@@ -256,6 +256,7 @@ fn draw_slate(app: &mut App, frame: &mut Frame, area: Rect) {
     // selected row gets the same star accent as a selected tile border.
     let live_len = app.live_games().len();
     let sel = app.selected.checked_sub(live_len);
+    let now = app.now();
     let lines: Vec<Line> = app
         .slate_games()
         .iter()
@@ -265,13 +266,13 @@ fn draw_slate(app: &mut App, frame: &mut Frame, area: Rect) {
                 vec![
                     Span::styled("▸ ", Style::default().fg(th.star)),
                     Span::styled(
-                        slate_line(g),
+                        slate_line(g, now),
                         Style::default().fg(th.star).add_modifier(Modifier::BOLD),
                     ),
                 ]
             } else {
                 vec![Span::styled(
-                    format!("  {}", slate_line(g)),
+                    format!("  {}", slate_line(g, now)),
                     Style::default().fg(th.muted),
                 )]
             };
@@ -319,13 +320,12 @@ fn rule(width: usize) -> Line<'static> {
 /// Departure-board slate row (gegen's status grammar): the status token —
 /// start time or FINAL — is a fixed-width first column, then the matchup in
 /// aligned columns, so rows stack like a split-flap board.
-fn slate_line(game: &Game) -> String {
+fn slate_line(game: &Game, now: time::OffsetDateTime) -> String {
     match game.status {
         crate::domain::Status::Pre => format!(
             "{:<9} {:>4} @ {:<4} {}",
-            // Task 9: use App::now()
             game.start
-                .map(|t| crate::text::fmt_start(t, time::OffsetDateTime::now_utc().to_offset(t.offset())))
+                .map(|t| crate::text::fmt_start(t, now))
                 .unwrap_or_else(|| "--:--".into()),
             game.away.abbr,
             game.home.abbr,

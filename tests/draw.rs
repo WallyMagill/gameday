@@ -1469,3 +1469,155 @@ fn config_esc_pops_but_cancels_an_open_edit_first() {
     assert_eq!(app.view, View::Board);
     assert!(!app.should_quit);
 }
+
+#[test]
+fn pregame_tile_and_slate_show_local_start_never_iso() {
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::from_hms(-4, 0, 0).unwrap(),
+    );
+    app.now_override = Some(time::macros::datetime!(2026-09-10 12:00 -4));
+    let mut pre = g("1", "NE", "SEA", false);
+    pre.start = Some(time::macros::datetime!(2026-09-10 20:20 -4));
+    app.apply_boards(League::Nfl, vec![pre], false);
+    app.tab = Tab::League(League::Nfl);
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("8:20 PM"), "{text}");
+    assert!(!text.contains("2026-"), "raw ISO leaked: {text}");
+}
+
+#[test]
+fn pinned_and_favorited_tiles_carry_a_glyph_in_the_title() {
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::UTC,
+    );
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.on_key(
+        crossterm::event::KeyCode::Char(' '),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("⚑"), "pin glyph missing: {text}");
+    assert!(text.contains("pinned KC@TB"), "toast missing: {text}");
+    app.on_key(
+        crossterm::event::KeyCode::Char('t'),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("★"), "favorite glyph missing: {text}");
+}
+
+#[test]
+fn baseball_play_rows_show_the_inning_not_a_dash_clock() {
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::UTC,
+    );
+    let mut mlb = g("1", "SEA", "BOS", true);
+    mlb.league = League::Mlb;
+    mlb.period = "BOT 9TH".into();
+    mlb.clock = String::new();
+    mlb.last_plays = vec![Play {
+        period: "B9".into(),
+        team: "SEA".into(),
+        text: "Rodríguez singles".into(),
+        ..Default::default()
+    }];
+    app.apply_boards(League::Mlb, vec![mlb], false);
+    app.tab = Tab::League(League::Mlb);
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("[B9]"), "{text}");
+    assert!(!text.contains("[-:--]"), "{text}");
+}
+
+#[test]
+fn long_names_keep_their_record_as_the_abbr_form() {
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::UTC,
+    );
+    let games: Vec<Game> = (0..4)
+        .map(|i| {
+            let mut game = g(&format!("{i}"), "SEA", "BOS", true);
+            game.away.name = "Mariners".into();
+            game.away.record = "64-73".into();
+            game.home.name = "Red Sox".into();
+            game.home.record = "74-63".into();
+            game
+        })
+        .collect();
+    app.apply_boards(League::Nfl, games, false); // 2x2 => narrow tiles
+    app.tab = Tab::League(League::Nfl);
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(
+        text.contains("64-73") && text.contains("74-63"),
+        "records dropped: {text}"
+    );
+}
+
+#[test]
+fn zoom_overview_carries_the_linescore_with_hits_and_errors() {
+    use gameday::views::{View, ZoomTab};
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::UTC,
+    );
+    let mut mlb = g("1", "SEA", "BOS", true);
+    mlb.league = League::Mlb;
+    mlb.away_score = 3;
+    mlb.home_score = 2;
+    mlb.linescore = vec![(1, 0), (0, 2), (2, 0)];
+    mlb.extras = Extras::Baseball {
+        hits: Some((8, 5)),
+        errors: Some((0, 1)),
+    };
+    app.apply_boards(League::Mlb, vec![mlb], false);
+    app.tab = Tab::League(League::Mlb);
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    let lines: Vec<&str> = text.lines().collect();
+    let i = lines
+        .iter()
+        .position(|l| l.contains("  1  2  3"))
+        .unwrap_or_else(|| panic!("period header missing:\n{text}"));
+    let head = lines[i];
+    assert!(head.contains('R') && head.contains('H') && head.contains('E'), "{head:?}");
+    // Away row: per-inning runs, then R H E — R is the game score, not a sum.
+    let away = lines[i + 1];
+    assert!(away.trim_start().starts_with("SEA"), "away row: {away:?}");
+    assert!(away.contains("  1  0  2   3  8  0"), "away R H E: {away:?}");
+    assert!(lines[i + 2].contains("  0  2  0   2  5  1"), "home R H E: {:?}", lines[i + 2]);
+    // A short pane keeps the tile whole instead of a headless strip.
+    let mut short = Terminal::new(TestBackend::new(120, 19)).unwrap();
+    short.draw(|f| app.draw(f)).unwrap();
+    assert!(
+        !buf_text(&short).contains("  1  2  3"),
+        "linescore should be skipped under 20 rows"
+    );
+}

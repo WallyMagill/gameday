@@ -59,13 +59,6 @@ pub fn date_label(d: time::Date) -> String {
     )
 }
 
-/// Local calendar date, the anchor date travel steps from.
-fn today_local() -> time::Date {
-    OffsetDateTime::now_local()
-        .unwrap_or_else(|_| OffsetDateTime::now_utc())
-        .date()
-}
-
 /// Does either team match the `/` filter? Case-insensitive substring on
 /// abbr ("KC"), location ("KANSAS CITY"), and name ("Chiefs").
 fn game_matches(game: &Game, needle: &str) -> bool {
@@ -180,6 +173,10 @@ pub struct App {
     /// (`text::startup_offset`). Every clock the app renders goes through
     /// [`App::now`] so nothing calls `now_local()` off the main thread.
     pub offset: time::UtcOffset,
+    /// Frozen clock: when set, [`App::now`] returns this instead of reading
+    /// the wall clock. Dumps and draw tests set it so a capture of the same
+    /// tick is the same pixels every run; the real app leaves it None.
+    pub now_override: Option<OffsetDateTime>,
 }
 
 impl App {
@@ -228,12 +225,15 @@ impl App {
             bell_pending: false,
             hit_zones: Vec::new(),
             offset,
+            now_override: None,
         }
     }
 
-    /// Now, in the user's local offset. The one clock the app reads.
+    /// Now, in the user's local offset — or the frozen clock when one is set.
+    /// The one clock the app reads.
     pub fn now(&self) -> OffsetDateTime {
-        OffsetDateTime::now_utc().to_offset(self.offset)
+        self.now_override
+            .unwrap_or_else(|| OffsetDateTime::now_utc().to_offset(self.offset))
     }
 
     /// The soonest scheduled start still ahead of us across the enabled
@@ -381,7 +381,7 @@ impl App {
         if off == 0 {
             return None;
         }
-        today_local().checked_add(time::Duration::days(off as i64))
+        self.now().date().checked_add(time::Duration::days(off as i64))
     }
 
     /// `[`/`]` on the board: step the current league tab's viewed date,
@@ -1124,14 +1124,17 @@ impl App {
         let Some(game) = self.selected_game() else {
             return;
         };
+        let matchup = format!("{}@{}", game.away.abbr, game.home.abbr);
         if let Some(idx) = self.pins.iter().position(|p| p.game_id == game.id) {
             self.pins.remove(idx);
+            self.status_line = Some(format!("unpinned {matchup}"));
         } else {
             self.pins.push(Pin {
                 game_id: game.id,
                 league: game.league,
                 final_at: None,
             });
+            self.status_line = Some(format!("pinned {matchup}"));
         }
         let _ = save_pins(&self.config_dir, &self.pins);
         self.clamp_selected();
@@ -1149,7 +1152,11 @@ impl App {
             .position(|f| f.league == game.league && f.team_abbr.eq_ignore_ascii_case(&abbr))
         {
             self.config.favorites.remove(idx);
+            self.status_line =
+                Some(format!("unfavorited {} {abbr}", game.league.slug().to_uppercase()));
         } else {
+            self.status_line =
+                Some(format!("favorited {} {abbr}", game.league.slug().to_uppercase()));
             self.config.favorites.push(Favorite {
                 league: game.league,
                 team_abbr: abbr,
@@ -1169,6 +1176,7 @@ impl App {
     fn cycle_theme(&mut self) {
         let next = theme::next_name(&theme::current_name(), 1);
         let _ = theme::set_current(&next);
+        self.status_line = Some(format!("theme {next}"));
         self.config.theme = next;
         let _ = self.config.save_to(&self.config_dir);
     }
@@ -1267,7 +1275,7 @@ impl App {
                 Style::default().fg(th.live).add_modifier(Modifier::BOLD),
             ));
         }
-        let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+        let now = self.now();
         // While the current tab is date-traveled the viewed date replaces the
         // live one, marked ‹ › so a past/future slate can't pass for today.
         let traveled = match self.tab {
@@ -1284,13 +1292,7 @@ impl App {
                 Style::default().fg(th.green).add_modifier(Modifier::BOLD),
             ),
         };
-        let (h12, ampm) = match now.hour() {
-            0 => (12, "AM"),
-            h if h < 12 => (h, "AM"),
-            12 => (12, "PM"),
-            h => (h - 12, "PM"),
-        };
-        let clock = format!("{}:{:02}:{:02} {}", h12, now.minute(), now.second(), ampm);
+        let clock = crate::text::fmt_clock12(now);
         let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
         let right_len = date.chars().count() + 2 + clock.len() + 1;
         let spacer = (area.width as usize).saturating_sub(left_len + right_len);
@@ -1378,6 +1380,13 @@ impl App {
         TileFx {
             flash: self.flash_active(&game.id),
             live_bright: live_pulse_bright(self.tick),
+            pinned: self.pins.iter().any(|p| p.game_id == game.id),
+            favorite: self.config.favorites.iter().any(|f| {
+                f.league == game.league
+                    && (f.team_abbr.eq_ignore_ascii_case(&game.away.abbr)
+                        || f.team_abbr.eq_ignore_ascii_case(&game.home.abbr))
+            }),
+            now: self.now(),
         }
     }
 

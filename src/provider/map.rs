@@ -343,7 +343,7 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
                 .as_array()
                 .map(|a| a.iter().filter_map(due_up_line).collect())
                 .unwrap_or_default();
-            // Compose the headline: "2 OUTS  1-2".
+            // Compose the headline: "2 OUT · 1-2".
             if let Some(headline) = sit.mlb_count_headline() {
                 sit.down_distance = headline;
             }

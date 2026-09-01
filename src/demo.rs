@@ -153,6 +153,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                     play("3:21", "KC", "Mahomes pass to Kelce, 12 yd TOUCHDOWN", true),
                 ],
                 meter: Some(Meter::RedZone { yards_to_goal: 3 }),
+                // Q1..Q4 (away, home) — the zoom overview's linescore row.
+                linescore: vec![(7, 3), (6, 14), (7, 0), (7, 7)],
                 broadcast: Some("CBS".into()),
                 ..Game::default()
             },
@@ -240,7 +242,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
             period: "BOT 7TH".into(),
             clock: String::new(),
             situation: Some(Situation {
-                down_distance: "2 OUTS  1-2".into(),
+                down_distance: "2 OUT · 1-2".into(),
                 balls: Some(1),
                 strikes: Some(2),
                 outs: Some(2),
@@ -254,6 +256,9 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 play("2:21", "TOR", "Bo Bichette strikes out", false),
             ],
             meter: Some(Meter::Diamond { occupied: [true, false, false] }),
+            // Seven innings played, plus the H/E the MLB linescore row adds.
+            linescore: vec![(0, 1), (2, 0), (0, 0), (1, 1), (0, 0), (2, 1), (0, 0)],
+            extras: Extras::Baseball { hits: Some((9, 7)), errors: Some((0, 1)) },
             broadcast: Some("SN".into()),
             ..Game::default()
         }],

@@ -87,8 +87,13 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: Rect, game: &Game, activ
 /// bar, plays, timeline all live inside the tile renderer).
 fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     let fx = app.tile_fx(game);
+    // A linescore is three rows or it is nothing (header + both sides), so a
+    // short pane keeps the tile whole instead of showing a headless strip.
+    let linescore = linescore_lines(game).filter(|_| area.height >= 20);
+    let strip = if linescore.is_some() { 3 } else { 0 };
+    let tile_area = Rect { height: area.height - strip, ..area };
     let one = [game.clone()];
-    for tile in pack(&one, area, LayoutPref::One, 0) {
+    for tile in pack(&one, tile_area, LayoutPref::One, 0) {
         render_tile(
             frame,
             tile.area,
@@ -99,6 +104,65 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
             app.config.score_style,
         );
     }
+    if let Some(lines) = linescore {
+        let rect = Rect {
+            y: area.y + area.height - strip,
+            height: strip,
+            ..area
+        };
+        frame.render_widget(
+            Paragraph::new(lines).style(Style::default().bg(theme::current().bg)),
+            rect,
+        );
+    }
+}
+
+/// Per-period line under the zoomed tile — the box-score row a scoreboard
+/// owes you: `   1  2  3 …  R`, then a row per side. Baseball adds `H E` from
+/// [`crate::domain::Extras::Baseball`]; every other sport stops at R.
+/// None when the feed carried no linescore.
+fn linescore_lines(game: &Game) -> Option<Vec<Line<'static>>> {
+    use crate::domain::Extras;
+    if game.linescore.is_empty() {
+        return None;
+    }
+    let th = theme::current();
+    // Baseball's hits/errors ride the same row as R; other sports have none.
+    let (hits, errors) = match &game.extras {
+        Extras::Baseball { hits, errors } => (*hits, *errors),
+        _ => (None, None),
+    };
+    let cell = |s: String| format!("{s:>3}");
+    let mut head = format!("{:<5}", "");
+    let mut away = format!("{:<5}", game.away.abbr);
+    let mut home = format!("{:<5}", game.home.abbr);
+    for (i, (a, h)) in game.linescore.iter().enumerate() {
+        head.push_str(&cell((i + 1).to_string()));
+        away.push_str(&cell(a.to_string()));
+        home.push_str(&cell(h.to_string()));
+    }
+    // Totals are the game's own score, not a sum of the periods: a feed can
+    // hand us a partial linescore and the score is still the truth.
+    head.push_str(&format!("{:>4}", "R"));
+    away.push_str(&format!("{:>4}", game.away_score));
+    home.push_str(&format!("{:>4}", game.home_score));
+    for (label, pair) in [("H", hits), ("E", errors)] {
+        let Some((a, h)) = pair else { continue };
+        head.push_str(&cell(label.to_string()));
+        away.push_str(&cell(a.to_string()));
+        home.push_str(&cell(h.to_string()));
+    }
+    let team_row = |text: String, color: [u8; 3]| {
+        Line::from(Span::styled(
+            text,
+            Style::default().fg(th.team_text(color)).add_modifier(Modifier::BOLD),
+        ))
+    };
+    Some(vec![
+        Line::from(Span::styled(head, Style::default().fg(th.muted))),
+        team_row(away, game.away.color),
+        team_row(home, game.home.color),
+    ])
 }
 
 /// Full play feed for this game (its `last_plays`, newest first as mapped);
