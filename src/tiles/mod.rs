@@ -645,7 +645,7 @@ fn render_focus_body(frame: &mut Frame, area: Rect, game: &Game) {
         Style::default().fg(th.live).add_modifier(Modifier::BOLD),
     ))];
     let word = theme::scoring_word(game.league);
-    for p in game.last_plays.iter().filter(|p| p.scoring) {
+    for p in game.scoring_plays.iter().rev() {
         let team_color = if p.team.eq_ignore_ascii_case(&game.away.abbr) {
             th.team_text(game.away.color)
         } else {
@@ -1401,13 +1401,15 @@ mod tests {
     #[test]
     fn focus_tile_body_shows_scoring_timeline_and_field_bar() {
         let mut g = demo_game();
-        g.last_plays.push(crate::domain::Play {
+        let td = crate::domain::Play {
             clock: "3:21".into(),
             team: "KC".into(),
             text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
             scoring: true,
             ..Default::default()
-        });
+        };
+        g.last_plays.push(td.clone());
+        g.scoring_plays.push(td);
         let buf = render_buffer(&g, Density::Full, 118, 30, TileFx::default(), ScoreStyle::Big);
         let text = buffer_text(&buf, 118, 30);
         assert!(text.contains("LAST PLAYS"), "plays feed missing:\n{text}");

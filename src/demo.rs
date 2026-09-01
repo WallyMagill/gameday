@@ -313,6 +313,18 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
         }],
     );
 
+    // The scoring feed (alerts, top plays, ticker, zoom SCORING) reads
+    // `Game.scoring_plays`, oldest-first. The demo authors its plays
+    // newest-first, so mirror the scoring rows into it.
+    for game in boards.values_mut().flatten() {
+        game.scoring_plays = game
+            .last_plays
+            .iter()
+            .filter(|p| p.scoring)
+            .rev()
+            .cloned()
+            .collect();
+    }
     boards
 }
 

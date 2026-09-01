@@ -879,15 +879,31 @@ impl App {
         self.zoom_scroll = next.clamp(0, len as isize - 1) as usize;
     }
 
-    pub fn apply_boards(&mut self, league: League, games: Vec<Game>, stale: bool) {
+    pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
         let now = OffsetDateTime::now_utc();
+        let prev_board = self.boards.get(&league).cloned().unwrap_or_default();
         // Score-change flash fires ONLY here — from data. A first sighting
         // (startup, new game) seeds last_scores without flashing.
-        for g in &games {
+        for g in &mut games {
+            // Carry the accumulated scoring plays across the wholesale replace.
+            if g.scoring_plays.is_empty() {
+                if let Some(prev) = prev_board.iter().find(|p| p.id == g.id) {
+                    g.scoring_plays = prev.scoring_plays.clone();
+                }
+            }
             let score = (g.away_score, g.home_score);
             if let Some(prev) = self.last_scores.get(&g.id) {
                 if *prev != score {
                     self.flashes.insert(g.id.clone(), self.tick);
+                    // The scoreboard's lastPlay at the moment the score moved
+                    // IS the scoring play (spec §1); dedupe on text.
+                    if let Some(p) = g.last_plays.first() {
+                        if !g.scoring_plays.iter().any(|s| s.text == p.text) {
+                            let mut p = p.clone();
+                            p.scoring = true;
+                            g.scoring_plays.push(p);
+                        }
+                    }
                 }
             }
             self.last_scores.insert(g.id.clone(), score);
@@ -928,20 +944,43 @@ impl App {
     }
 
     pub fn merge_summary(&mut self, game_id: &str, summary: Summary) {
-        // Non-football summaries carry no "drives", so they map to zero plays;
-        // keep the scoreboard's lastPlay instead of blanking the tile.
-        if summary.last_plays.is_empty() {
+        // Non-football summaries carry no "drives", so they can map to zero
+        // plays; keep the scoreboard's lastPlay instead of blanking the tile.
+        if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
             return;
         }
         for board in self.boards.values_mut() {
             if let Some(game) = board.iter_mut().find(|g| g.id == game_id) {
-                let mut last_plays = summary.last_plays;
-                for play in &mut last_plays {
-                    if summary.scoring_plays.iter().any(|s| s.text == play.text) {
-                        play.scoring = true;
+                if !summary.scoring_plays.is_empty() {
+                    // Summary order differs by source: football's
+                    // `scoringPlays` is oldest-first, a list derived from the
+                    // play-by-play is newest-first. Normalize to oldest-first
+                    // by asking `last_plays` (newest-first) where the ends of
+                    // the list sit — a smaller index means newer.
+                    let mut sp = summary.scoring_plays.clone();
+                    let newest_first = sp.len() > 1 && {
+                        let pos = |t: &str| summary.last_plays.iter().position(|p| p.text == t);
+                        match (pos(&sp[0].text), pos(&sp[sp.len() - 1].text)) {
+                            (Some(a), Some(b)) => a < b,
+                            // Nothing to compare against: ESPN's own
+                            // `scoringPlays` is oldest-first already.
+                            _ => false,
+                        }
+                    };
+                    if newest_first {
+                        sp.reverse();
                     }
+                    game.scoring_plays = sp;
                 }
-                game.last_plays = last_plays;
+                if !summary.last_plays.is_empty() {
+                    let mut last_plays = summary.last_plays;
+                    for play in &mut last_plays {
+                        if summary.scoring_plays.iter().any(|s| s.text == play.text) {
+                            play.scoring = true;
+                        }
+                    }
+                    game.last_plays = last_plays;
+                }
                 return;
             }
         }
@@ -1266,14 +1305,12 @@ impl App {
         );
     }
 
-    /// Scoring plays across every visible board, newest-ish first: (game, play).
+    /// Scoring plays across every enabled board, newest first per game,
+    /// games in board order. Finals keep theirs until they leave the board.
     pub(crate) fn scoring_events(&self) -> Vec<(Game, crate::domain::Play)> {
         let mut out = Vec::new();
         for game in self.concat_boards() {
-            if game.status != Status::Live {
-                continue;
-            }
-            for play in game.last_plays.iter().filter(|p| p.scoring) {
+            for play in game.scoring_plays.iter().rev() {
                 out.push((game.clone(), play.clone()));
             }
         }
@@ -1946,6 +1983,93 @@ mod tests {
         app.apply_boards(League::Nfl, vec![scored], false);
         app.advance_tick();
         assert!(!app.flash_active("1"));
+    }
+
+    #[test]
+    fn a_score_delta_captures_the_scoreboard_last_play_as_a_scoring_play() {
+        let mut app = app_with(vec![], vec![]);
+        let mut g1 = g("1", "SEA", "BOS", true);
+        g1.away_score = 7;
+        g1.home_score = 7;
+        g1.last_plays = vec![Play {
+            text: "Raleigh flies out".into(),
+            team: "SEA".into(),
+            ..Default::default()
+        }];
+        app.apply_boards(League::Nfl, vec![g1.clone()], false);
+        assert!(app.scoring_events().is_empty(), "first sighting seeds silently");
+        let mut g2 = g1.clone();
+        g2.away_score = 8;
+        g2.last_plays = vec![Play {
+            text: "Rodríguez homers to left (18)".into(),
+            team: "SEA".into(),
+            ..Default::default()
+        }];
+        app.apply_boards(League::Nfl, vec![g2], false);
+        let ev = app.scoring_events();
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].1.text, "Rodríguez homers to left (18)");
+        assert!(ev[0].1.scoring);
+        // The next poll (no delta) keeps it — boards are replaced wholesale.
+        let mut g3 = g1.clone();
+        g3.away_score = 8;
+        app.apply_boards(League::Nfl, vec![g3], false);
+        assert_eq!(
+            app.scoring_events().len(),
+            1,
+            "carried across the board replacement"
+        );
+    }
+
+    #[test]
+    fn summary_scoring_plays_replace_the_delta_derived_list_and_survive_truncation() {
+        let mut app = app_with(vec![g("1", "SEA", "BOS", true)], vec![]);
+        let plays: Vec<Play> = (0..20)
+            .map(|i| Play {
+                text: format!("play {i}"),
+                team: "SEA".into(),
+                scoring: i == 3,
+                ..Default::default()
+            })
+            .collect();
+        let summary = Summary {
+            last_plays: plays.clone(),
+            scoring_plays: vec![plays[3].clone()],
+            meter: None,
+        };
+        app.merge_summary("1", summary);
+        let ev = app.scoring_events();
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].1.text, "play 3");
+        assert_eq!(
+            app.game_by_id("1").unwrap().last_plays.len(),
+            20,
+            "no 8-row truncation in the model"
+        );
+    }
+
+    #[test]
+    fn final_games_keep_their_scoring_plays_on_the_board() {
+        let mut app = app_with(vec![], vec![]);
+        let mut g1 = g("1", "SEA", "BOS", true);
+        g1.away_score = 0;
+        app.apply_boards(League::Nfl, vec![g1.clone()], false);
+        let mut g2 = g1.clone();
+        g2.away_score = 7;
+        g2.last_plays = vec![Play {
+            text: "TD".into(),
+            team: "SEA".into(),
+            ..Default::default()
+        }];
+        app.apply_boards(League::Nfl, vec![g2.clone()], false);
+        let mut g3 = g2.clone();
+        g3.status = Status::Final;
+        app.apply_boards(League::Nfl, vec![g3], false);
+        assert_eq!(
+            app.scoring_events().len(),
+            1,
+            "a final's TD is still on the ticker"
+        );
     }
 
     #[test]

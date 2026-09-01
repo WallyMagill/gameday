@@ -46,6 +46,20 @@ fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
     }
 }
 
+/// Mirror a fixture's scoring rows into the model's scoring feed
+/// (`Game.scoring_plays`, oldest-first) — what the app itself does from a
+/// score delta or a summary. Fixtures author plays newest-first.
+fn with_scoring(mut game: Game) -> Game {
+    game.scoring_plays = game
+        .last_plays
+        .iter()
+        .filter(|p| p.scoring)
+        .rev()
+        .cloned()
+        .collect();
+    game
+}
+
 fn buf_text(term: &Terminal<TestBackend>) -> String {
     let b = term.backend().buffer();
     let area = b.area();
@@ -260,7 +274,7 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
         ..Default::default()
     }];
     app.config.score_style = gameday::tiles::ScoreStyle::Compact;
-    app.apply_boards(League::Nfl, vec![game], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -301,7 +315,7 @@ fn sidebar_top_plays_are_abbr_surname_clock() {
         scoring: true,
         ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![game], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -536,7 +550,7 @@ fn l_cycles_to_the_plays_tab_and_jk_move_the_highlight() {
             ..Default::default()
         },
     ];
-    app.apply_boards(League::Nfl, vec![game], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     gameday::input::handle_key(&mut app, KeyCode::Char('z'), KeyModifiers::NONE);
     gameday::input::handle_key(&mut app, KeyCode::Char('l'), KeyModifiers::NONE);
@@ -671,7 +685,7 @@ fn nba_game(id: &str, away: &str, home: &str) -> Game {
         logo_key: format!("nba/{}", abbr.to_lowercase()),
         ..Default::default()
     };
-    Game {
+    with_scoring(Game {
         id: id.into(),
         league: League::Nba,
         away: t(away),
@@ -691,7 +705,7 @@ fn nba_game(id: &str, away: &str, home: &str) -> Game {
         }],
         meter: None,
         ..Game::default()
-    }
+    })
 }
 
 #[test]
@@ -706,7 +720,7 @@ fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
         scoring: true,
         ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
     app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
     app.view = View::PlaysFeed;
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
@@ -744,7 +758,7 @@ fn plays_feed_j_and_k_move_the_marker_and_clamp() {
         scoring: true,
         ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
     app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
     app.view = View::PlaysFeed;
     assert_eq!(app.feed_scroll, 0);
@@ -995,7 +1009,7 @@ fn plays_feed_marks_its_end_when_the_pane_has_room() {
         scoring: true,
         ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
     app.view = View::PlaysFeed;
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -1018,7 +1032,7 @@ fn records_rail_shows_the_abbr_instead_of_a_clipped_name() {
     game.away.record = "11-6".into();
     game.home.name = "Buccaneers".into();
     game.home.record = "11-6".into();
-    app.apply_boards(League::Nfl, vec![game], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -1119,7 +1133,7 @@ fn pre_tile_and_slate_show_odds() {
     game.last_plays.clear(); // a pre-game has no plays
     game.situation = None;
     game.odds = Some("KC -3.5  O/U 47.5".into());
-    app.apply_boards(League::Nfl, vec![game], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -1266,7 +1280,7 @@ fn wheel_scrolls_the_plays_feed_and_clamps() {
         scoring: true,
         ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
     app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
     app.view = View::PlaysFeed;
     assert_eq!(app.feed_scroll, 0);
