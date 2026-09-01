@@ -179,7 +179,7 @@ fn center_two_lines(area: Rect) -> Rect {
 fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
     let th = theme::current();
     let games = &app.derived().mosaic;
-    let net = app.net.chip(std::time::Instant::now());
+    let net = app.net.chip(std::time::Instant::now(), app.stale_after());
     match app.tab {
         // An active filter that matches nothing names the pattern, the scope
         // it searched and where the pattern IS live, instead of pretending

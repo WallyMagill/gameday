@@ -44,7 +44,7 @@ USAGE
   gameday -V, --version   version
 
 KEYS  space pin · enter/z zoom · j/k move · tab league · [ ] date · / filter · : command · ? all keys · q quit
-CONFIG  ~/.config/gameday/config.toml (or $XDG_CONFIG_HOME/gameday); pins.json, cache/ and themes/ beside it
+CONFIG  ~/.config/gameday/config.toml (or $XDG_CONFIG_HOME/gameday); pins.json, gameday.log, cache/ and themes/ beside it
 DATA  unofficial ESPN JSON, polled; the last good payload is kept on disk and shown as STALE when the network fails
 
 dev:
@@ -112,6 +112,15 @@ enum Msg {
         stats: GameStats,
     },
     Standings(StandingsTable),
+    /// An on-demand fetch that failed (standings, a dated slate, the zoomed
+    /// game's summary/stats). Unlike a scoreboard failure these have no
+    /// header chip, so the view that asked for the data shows the error.
+    /// `what` is the request kind, matching `App::aux_errors`' key.
+    AuxFailed {
+        league: League,
+        what: &'static str,
+        error: String,
+    },
     /// A scoreboard fetch that failed: the provider's short error and how
     /// long the scheduler will wait before retrying that league.
     Failed {
@@ -171,6 +180,9 @@ fn main() -> std::io::Result<()> {
             std::env::temp_dir().join(format!("gameday-demo-{}", std::process::id()))
         });
         std::fs::create_dir_all(&dir)?;
+        // Past this point the alternate screen owns the terminal, so notes go
+        // to a file instead of over the board.
+        gameday::log::set_file(dir.join("gameday.log"));
         // Seed at tick 0, then the simulator drives the board over the same
         // Msg channel the live provider uses — the UI path is identical.
         let app = gameday::dump::demo_app(dir, 0);
@@ -225,6 +237,10 @@ fn main() -> std::io::Result<()> {
     // Also lands in the footer: the alternate screen swallows the stderr note
     // the moment the UI starts.
     app.set_config_error(config_error);
+
+    // Last stderr note before the alternate screen: from here on, the mapper's
+    // skip lines go to gameday.log rather than over the board.
+    gameday::log::set_file(dir.join("gameday.log"));
 
     let provider = EspnProvider::new(dir.join("cache"), offset);
     let (tx, rx) = mpsc::channel::<Msg>();
@@ -349,40 +365,66 @@ fn poll_loop(
                 },
                 // Only scoreboards carry per-league backoff, so the rest
                 // report nothing — the freshness windows in `due` pace them.
-                Request::Summary(league, id) => {
-                    if let Ok((summary, _)) = provider.summary(*league, id) {
+                // The rest carry no per-league backoff — the freshness
+                // windows in `due` pace them — but a failure still has to be
+                // both visible and retried soon, which is `report_aux`.
+                Request::Summary(league, id) => match provider.summary(*league, id) {
+                    Ok((summary, _)) => {
                         let _ = tx.send(Msg::Summary {
                             id: id.clone(),
                             summary,
                         });
                     }
-                }
-                Request::Stats(league, id) => {
-                    if let Ok((stats, _)) = provider.stats(*league, id) {
+                    Err(e) => aux_failed(&mut sched, &tx, &req, *league, "summary", e),
+                },
+                Request::Stats(league, id) => match provider.stats(*league, id) {
+                    Ok((stats, _)) => {
                         let _ = tx.send(Msg::Stats {
                             id: id.clone(),
                             stats,
                         });
                     }
-                }
-                Request::Dated(league, date) => {
-                    if let Ok((games, _)) = provider.scoreboard_on(*league, *date) {
+                    Err(e) => aux_failed(&mut sched, &tx, &req, *league, "stats", e),
+                },
+                Request::Dated(league, date) => match provider.scoreboard_on(*league, *date) {
+                    Ok((games, _)) => {
                         let _ = tx.send(Msg::DatedBoards {
                             league: *league,
                             date: *date,
                             games,
                         });
                     }
-                }
-                Request::Standings(league) => {
-                    if let Ok((table, _)) = provider.standings(*league) {
+                    Err(e) => aux_failed(&mut sched, &tx, &req, *league, "dated", e),
+                },
+                Request::Standings(league) => match provider.standings(*league) {
+                    Ok((table, _)) => {
                         let _ = tx.send(Msg::Standings(table));
                     }
-                }
+                    Err(e) => aux_failed(&mut sched, &tx, &req, *league, "standings", e),
+                },
             }
         }
         thread::sleep(gameday::poll::TICK);
     }
+}
+
+/// One failed on-demand fetch: rewind the scheduler's freshness stamp so the
+/// next pass past `AUX_RETRY` asks again (without it, a failed standings fetch
+/// would sit behind the 10-minute TTL), and tell the UI which fetch is missing.
+fn aux_failed(
+    sched: &mut gameday::poll::Scheduler,
+    tx: &mpsc::Sender<Msg>,
+    req: &gameday::poll::Request,
+    league: League,
+    what: &'static str,
+    error: gameday::provider::ProviderError,
+) {
+    sched.report_aux(req, false, Instant::now());
+    let _ = tx.send(Msg::AuxFailed {
+        league,
+        what,
+        error: error.short(),
+    });
 }
 
 /// Live and `--demo` need a real terminal; `dump`, `probe`, `--help`, and
@@ -395,14 +437,40 @@ fn require_tty() -> Result<(), String> {
     }
 }
 
-/// Installed at the top of `run_ui`: on panic, restore the terminal (leave
-/// the alternate screen, disable raw mode) before the default hook prints,
-/// so the backtrace lands on a normal scrollback instead of a wrecked TUI.
+/// Leave the alternate screen and raw mode. The one place that does it, so
+/// the panic hook and the RAII guard can never drift apart.
+fn restore_terminal() {
+    #[cfg(test)]
+    RESTORE_CALLS.fetch_add(1, Ordering::Relaxed);
+    let _ = execute!(stdout(), DisableMouseCapture, LeaveAlternateScreen);
+    let _ = disable_raw_mode();
+}
+
+/// How many times [`restore_terminal`] ran — the only thing a test can
+/// observe about a hook that otherwise just talks to the terminal.
+#[cfg(test)]
+static RESTORE_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Does a panic on `panicking` justify tearing the terminal down? Only when
+/// it is the thread that owns the screen. The poll thread panicking is bad,
+/// but it does not end the process — dropping the UI out of the alternate
+/// screen underneath a still-running board would turn a background failure
+/// into a wrecked display.
+fn should_restore(panicking: std::thread::ThreadId, ui: std::thread::ThreadId) -> bool {
+    panicking == ui
+}
+
+/// Installed at the top of `run_ui`: on a panic *on this thread*, restore the
+/// terminal (leave the alternate screen, disable raw mode) before the default
+/// hook prints, so the backtrace lands on a normal scrollback instead of a
+/// wrecked TUI. A panic on any other thread only prints.
 fn install_panic_hook() {
     let default = std::panic::take_hook();
+    let ui_thread = std::thread::current().id();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = execute!(stdout(), DisableMouseCapture, LeaveAlternateScreen);
-        let _ = disable_raw_mode();
+        if should_restore(std::thread::current().id(), ui_thread) {
+            restore_terminal();
+        }
         eprintln!(
             "\ngameday {} crashed — please file this with the lines below:",
             env!("CARGO_PKG_VERSION")
@@ -415,8 +483,7 @@ struct RestoreTerminal;
 
 impl Drop for RestoreTerminal {
     fn drop(&mut self) {
-        let _ = execute!(stdout(), DisableMouseCapture, LeaveAlternateScreen);
-        let _ = disable_raw_mode();
+        restore_terminal();
     }
 }
 
@@ -470,6 +537,11 @@ fn run_ui(
                         error,
                         retry_in,
                     } => app.note_failure(league, error, retry_in),
+                    Msg::AuxFailed {
+                        league,
+                        what,
+                        error,
+                    } => app.note_aux_failure(league, what, error),
                 }
                 needs_draw = true;
             }
@@ -544,6 +616,31 @@ fn run_ui(
 #[cfg(test)]
 mod tests {
     use super::parse_args;
+    use std::sync::atomic::Ordering;
+
+    /// A panic on the poll thread must not drag the UI out of the alternate
+    /// screen: the process is still running, and the board is still on screen.
+    #[test]
+    fn a_panic_off_the_ui_thread_does_not_restore_the_terminal() {
+        super::install_panic_hook();
+        let ui = std::thread::current().id();
+        let before = super::RESTORE_CALLS.load(Ordering::Relaxed);
+        let other = std::thread::spawn(move || {
+            assert!(
+                !super::should_restore(std::thread::current().id(), ui),
+                "a background thread must not own the restore"
+            );
+            let _ = std::panic::catch_unwind(|| panic!("poll thread died"));
+        });
+        other.join().expect("the spawned thread caught its own panic");
+        assert_eq!(
+            super::RESTORE_CALLS.load(Ordering::Relaxed),
+            before,
+            "the hook touched the terminal from a non-UI thread"
+        );
+        // The UI thread's own panic is the case that does restore.
+        assert!(super::should_restore(ui, ui));
+    }
 
     fn parsed(args: &[&str]) -> super::Args {
         let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();

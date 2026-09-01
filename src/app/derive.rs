@@ -291,6 +291,63 @@ mod tests {
         );
     }
 
+    /// `Derived` builds its lists out of each other; the fns each walk the
+    /// boards. That is the whole optimization, and also the whole risk — one
+    /// of them drifting means a widget renders a list the key handlers don't
+    /// agree with (j/k landing on a tile that isn't there). So: four app
+    /// states, both paths, same ids.
+    #[test]
+    fn derived_lists_agree_with_the_fns() {
+        use crate::app::tests::{app_with, g};
+        use crate::domain::{League, Status};
+
+        let ids = |games: &[Game]| -> Vec<String> { games.iter().map(|g| g.id.clone()).collect() };
+        let mut mixed = vec![
+            g("live1", "KC", "TB", true),
+            g("live2", "DAL", "PHI", true),
+            g("pre1", "NE", "SEA", false),
+        ];
+        mixed[2].status = Status::Pre;
+        let mut finals = vec![g("pre2", "NYG", "WAS", false), g("fin1", "GB", "CHI", false)];
+        finals[1].status = Status::Final;
+
+        let mut cases: Vec<(&str, App)> = Vec::new();
+        // Home with live + pre.
+        cases.push(("home", app_with(mixed.clone(), vec![])));
+        // A league tab with live games.
+        let mut a = app_with(mixed.clone(), vec![]);
+        a.tab = Tab::League(League::Nfl);
+        cases.push(("league live", a));
+        // A league tab with nothing live: the slate fills the mosaic.
+        let mut a = app_with(finals.clone(), vec![]);
+        a.tab = Tab::League(League::Nfl);
+        cases.push(("league slate only", a));
+        // A league tab with `/` narrowing the board.
+        let mut a = app_with(mixed.clone(), vec![]);
+        a.tab = Tab::League(League::Nfl);
+        a.filter = Some("KC".into());
+        cases.push(("league filtered", a));
+
+        for (name, app) in &cases {
+            let d = app.derive();
+            assert_eq!(ids(&d.visible), ids(&app.visible_games()), "{name}: visible");
+            assert_eq!(ids(&d.live), ids(&app.live_games()), "{name}: live");
+            assert_eq!(ids(&d.slate), ids(&app.slate_games()), "{name}: slate");
+            assert_eq!(ids(&d.mosaic), ids(&app.mosaic_games()), "{name}: mosaic");
+            assert_eq!(
+                ids(&d.selection),
+                ids(&app.selection_list()),
+                "{name}: selection"
+            );
+        }
+        // And the states are actually distinct — a test where every list is
+        // empty would pass without proving anything.
+        let d = cases[1].1.derive();
+        assert_eq!(d.live.len(), 2, "league live: {:?}", ids(&d.live));
+        assert_eq!(cases[2].1.derive().mosaic.len(), 2, "slate fills the mosaic");
+        assert_eq!(cases[3].1.derive().visible.len(), 1, "the filter narrows to KC");
+    }
+
     /// `derived()` is a frame-scoped borrow, and saying so out loud beats a
     /// stale list: outside a draw it names the fix in the panic.
     #[test]

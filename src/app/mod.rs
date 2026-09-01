@@ -144,6 +144,13 @@ pub struct App {
     /// Some, every `persist_*` is a no-op that re-arms the status line — a
     /// typo is never silently overwritten with defaults.
     pub config_error: Option<String>,
+    /// The last error from an on-demand fetch, per (league, what) — `what` is
+    /// the request kind ("standings", "dated", "summary", "stats"). Scoreboard
+    /// failures live in `net`, which the header chip reads; these have no chip
+    /// of their own, so the view that asked for the fetch shows the error
+    /// instead of pretending the answer is still on its way. Cleared by the
+    /// next success for the same key.
+    pub aux_errors: HashMap<(League, &'static str), String>,
     /// Monotonic render tick (~10/s while live, ~1/s idle). Every animation
     /// is a pure function of this counter plus app state — keyboard input
     /// redraws but never advances it, so keys can't animate anything.
@@ -217,6 +224,7 @@ impl App {
             help_open: false,
             config_dir,
             config_error: None,
+            aux_errors: HashMap::new(),
             tick: 0,
             last_scores: HashMap::new(),
             flashes: HashMap::new(),
@@ -413,6 +421,7 @@ impl App {
     /// snapshot) and never touches flash/score state — traveled slates are
     /// read-only history/preview, not live data.
     pub fn merge_dated_board(&mut self, league: League, date: time::Date, games: Vec<Game>) {
+        self.clear_aux_error(league, "dated");
         self.dated_boards.insert((league, date), games);
         self.clamp_selected();
     }
@@ -949,6 +958,9 @@ impl App {
     }
 
     pub fn merge_summary(&mut self, game_id: &str, summary: Summary) {
+        if let Some(league) = self.league_of(game_id) {
+            self.clear_aux_error(league, "summary");
+        }
         // Non-football summaries carry no "drives", so they can map to zero
         // plays; keep the scoreboard's lastPlay instead of blanking the tile.
         if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
@@ -1000,6 +1012,9 @@ impl App {
     /// Latest box score for `game_id`, from the stats poll (or a fixture in
     /// tests/dump). Replaces wholesale — rows are a snapshot, not a delta.
     pub fn merge_stats(&mut self, game_id: &str, stats: GameStats) {
+        if let Some(league) = self.league_of(game_id) {
+            self.clear_aux_error(league, "stats");
+        }
         self.stats.insert(game_id.to_string(), stats);
     }
 
@@ -1033,9 +1048,49 @@ impl App {
     /// Stamped with the moment we took it: a table the feed doesn't label
     /// with a season is labeled with its own age instead, so it never reads
     /// as live when it isn't.
+    /// How old the last fresh board may get before the header stops claiming
+    /// the numbers are live — derived from the cadence actually in use, so
+    /// the chip can never contradict the scheduler. Live: 3 × the 15 s live
+    /// cadence (one missed poll is noise, three in a row is a problem). Idle:
+    /// one 60 s cadence plus one live window, because at a minute between
+    /// polls a 45 s cutoff would call every healthy board stale.
+    pub fn stale_after(&self) -> Duration {
+        if self.any_live() {
+            3 * crate::poll::SCOREBOARD_LIVE
+        } else {
+            crate::poll::SCOREBOARD_IDLE + crate::poll::SCOREBOARD_LIVE
+        }
+    }
+
     pub fn merge_standings(&mut self, mut table: StandingsTable) {
         table.fetched_at = Some(self.now());
+        self.clear_aux_error(table.league, "standings");
         self.standings.insert(table.league, table);
+    }
+
+    /// An on-demand fetch failed. `what` names the request kind, so the view
+    /// that asked can say which fetch is missing rather than showing an empty
+    /// pane that reads like "no data exists".
+    pub fn note_aux_failure(&mut self, league: League, what: &'static str, error: String) {
+        self.aux_errors.insert((league, what), error);
+    }
+
+    /// The matching success: the error stops being true the moment data lands.
+    pub fn clear_aux_error(&mut self, league: League, what: &'static str) {
+        self.aux_errors.remove(&(league, what));
+    }
+
+    pub fn aux_error(&self, league: League, what: &'static str) -> Option<&str> {
+        self.aux_errors.get(&(league, what)).map(|s| s.as_str())
+    }
+
+    /// Which board carries `game_id` — the zoom-driven fetches (summary,
+    /// stats) are addressed by game id, and `aux_errors` is keyed by league.
+    fn league_of(&self, game_id: &str) -> Option<League> {
+        self.boards
+            .iter()
+            .find(|(_, games)| games.iter().any(|g| g.id == game_id))
+            .map(|(league, _)| *league)
     }
 
     pub fn effective_layout(&self) -> LayoutPref {
@@ -1188,9 +1243,18 @@ impl App {
     fn cycle_theme(&mut self) {
         let next = theme::next_name(&theme::current_name(), 1);
         let _ = theme::set_current(&next);
-        self.status_line = Some(format!("theme {next}"));
-        self.config.theme = next;
+        self.config.theme = next.clone();
+        // One keypress, one line. `persist_config` writes its own refusal
+        // toast, and the old order let "theme X" overwrite it — so the toast
+        // is composed here, after the save, and says both halves.
+        self.status_line = None;
         self.persist_config();
+        let save_error = self.status_line.take();
+        self.status_line = Some(match (&self.config_error, save_error) {
+            (Some(_), _) => format!("theme {next} · not saving (config error)"),
+            (None, Some(err)) => err,
+            (None, None) => format!("theme {next}"),
+        });
     }
 
     /// One frame. The game lists are derived ONCE here and parked in
@@ -1430,6 +1494,63 @@ mod tests {
             app.status_line.as_deref().unwrap_or("").contains("not saving"),
             "{:?}",
             app.status_line
+        );
+    }
+
+    /// A failed standings fetch has no header chip of its own, so the view
+    /// that asked for it has to say so — an empty table otherwise reads as
+    /// "ESPN has no standings for this league".
+    #[test]
+    fn a_failed_standings_fetch_shows_the_error_where_the_table_would_be() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.view = View::Standings(League::Cfb);
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 30)).unwrap();
+        let screen = |t: &mut ratatui::Terminal<ratatui::backend::TestBackend>,
+                      app: &mut App| {
+            t.draw(|f| app.draw(f)).unwrap();
+            t.backend()
+                .buffer()
+                .content()
+                .iter()
+                .map(|c| c.symbol())
+                .collect::<String>()
+        };
+        assert!(
+            !screen(&mut term, &mut app).contains("standings unavailable"),
+            "nothing has failed yet"
+        );
+        app.note_aux_failure(League::Cfb, "standings", "ESPN 503 cfb standings".into());
+        let s = screen(&mut term, &mut app);
+        assert!(
+            s.contains("standings unavailable") && s.contains("503") && s.contains("retrying"),
+            "the empty state names the failure and promises the retry: {s:?}"
+        );
+        // The next success is the error's end.
+        app.merge_standings(crate::domain::StandingsTable {
+            league: League::Cfb,
+            season: None,
+            groups: vec![],
+            fetched_at: None,
+        });
+        assert_eq!(app.aux_error(League::Cfb, "standings"), None);
+    }
+
+    /// One keypress writes one status line: `t` under a broken config used to
+    /// toast "not saving: …" and then immediately overwrite it with "theme X",
+    /// so the refusal never reached the user's eye.
+    #[test]
+    fn cycling_the_theme_with_a_broken_config_says_both_halves_in_one_line() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
+        let healthy = app.status_line.clone().unwrap_or_default();
+        assert!(healthy.starts_with("theme ") && !healthy.contains("not saving"), "{healthy}");
+        app.set_config_error(Some("config.toml:7: unknown variant `NFLL`".into()));
+        app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
+        let line = app.status_line.clone().unwrap_or_default();
+        assert!(
+            line.starts_with("theme ") && line.ends_with("· not saving (config error)"),
+            "one line, both halves: {line:?}"
         );
     }
 
@@ -2136,11 +2257,11 @@ mod tests {
     fn apply_boards_marks_the_connection_live() {
         let mut app = app_with(vec![], vec![]);
         let now = std::time::Instant::now();
-        assert!(matches!(app.net.chip(now), crate::app::net::NetChip::Live));
-        assert!(app.net.upd_label(now).is_some(), "app_with applies a board");
+        assert!(matches!(app.net.chip(now, app.stale_after()), crate::app::net::NetChip::Live));
+        assert!(app.net.upd_label(now, app.stale_after()).is_some(), "app_with applies a board");
         app.apply_boards(League::Nba, vec![], true);
         assert!(
-            matches!(app.net.chip(now), crate::app::net::NetChip::Stale { .. }),
+            matches!(app.net.chip(now, app.stale_after()), crate::app::net::NetChip::Stale { .. }),
             "a cached apply is stale on arrival"
         );
     }

@@ -63,9 +63,15 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, league: League) {
         // The on-demand fetch is in flight (or failed upstream) — say so.
         // For college football, say the specific thing rather than implying
         // the table is a moment away.
-        let msg = match league {
-            League::Cfb => CFB_NO_TABLE,
-            _ => "no standings yet",
+        // A fetch that failed is not a fetch in flight: name the error and
+        // say a retry is coming, so an empty table never reads as "ESPN has
+        // no standings for this league".
+        let msg = match app.aux_error(league, "standings") {
+            Some(err) => format!("standings unavailable · {err} · retrying"),
+            None => match league {
+                League::Cfb => CFB_NO_TABLE.to_string(),
+                _ => "no standings yet".to_string(),
+            },
         };
         frame.render_widget(
             Paragraph::new(msg)

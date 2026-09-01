@@ -54,7 +54,7 @@ impl App {
         // never read as a suffix of the date ("OFFLINEMON SEP 1"). It is
         // never chopped mid-word — it degrades whole: padded label, bare
         // state word, then the word with no padding.
-        let net = self.net.chip(Instant::now());
+        let net = self.net.chip(Instant::now(), self.stale_after());
         let chip_forms: Vec<String> = match (net.label(), net.short_label()) {
             (Some(full), Some(bare)) => vec![format!("  {full}  "), format!(" {bare} "), bare],
             _ => Vec::new(),
@@ -406,7 +406,7 @@ impl App {
         // The UPD age freezes and dims the moment the data stops arriving —
         // `net` marks the frozen label with a trailing "·" so a stale number
         // can't pass for a live one.
-        if let Some(upd) = self.net.upd_label(Instant::now()) {
+        if let Some(upd) = self.net.upd_label(Instant::now(), self.stale_after()) {
             right.push(upd);
         }
         let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();

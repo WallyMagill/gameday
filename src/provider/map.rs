@@ -213,7 +213,12 @@ pub fn map_scoreboard(league: League, json: &str, offset: UtcOffset) -> Result<V
             Ok(g) => out.push(g),
             Err(e) => {
                 // One placeholder row must not erase the league (spec §2).
-                eprintln!("gameday: {} scoreboard: skipped {e}", league.slug());
+                // Once per (league, event): the same bad row is in every
+                // poll, so repeating it would be noise, not news.
+                crate::log::note_once(
+                    &format!("{}:{e}", league.slug()),
+                    &format!("gameday: {} scoreboard: skipped {e}", league.slug()),
+                );
             }
         }
     }
@@ -222,11 +227,13 @@ pub fn map_scoreboard(league: League, json: &str, offset: UtcOffset) -> Result<V
     // would let a drifted payload evict the last-good cache. A genuinely empty
     // `events: []` is still Ok — there just are no games.
     if out.is_empty() && !events.is_empty() {
-        eprintln!(
+        // Not deduped: a whole league going unmappable is a live incident,
+        // and each occurrence is a data point about when it started.
+        crate::log::note(&format!(
             "gameday: {} scoreboard: {} events, none mappable",
             league.slug(),
             events.len()
-        );
+        ));
         return Err(MapError::Missing("events[*] (no event mapped)"));
     }
     Ok(out)

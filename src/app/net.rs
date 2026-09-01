@@ -10,11 +10,6 @@
 
 use std::time::{Duration, Instant};
 
-/// How old the last fresh board may get before the header stops claiming the
-/// numbers are live. 3× the live scoreboard cadence (15 s, `poll::SCOREBOARD_LIVE`):
-/// one missed poll is noise, three in a row is a problem worth naming.
-pub const STALE_AFTER: Duration = Duration::from_secs(45);
-
 /// What the header chip says. `Live` is the silent state — the tiles already
 /// say LIVE, so a chip there would be noise.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,14 +77,18 @@ impl NetStatus {
         self.last_err = Some((now, error, retry_in));
     }
 
-    pub fn chip(&self, now: Instant) -> NetChip {
+    /// `stale_after` is the cadence-derived threshold from
+    /// [`crate::app::App::stale_after`] — it is a parameter, not a constant,
+    /// because the same 45 s that means "three missed polls" while live means
+    /// "less than one poll" on the 60 s idle cadence.
+    pub fn chip(&self, now: Instant, stale_after: Duration) -> NetChip {
         let age = self
             .last_ok
             .map(|t| now.saturating_duration_since(t))
             .unwrap_or_default();
         // "Live" is the narrow claim: the last event was a fresh board, and
-        // it is younger than STALE_AFTER.
-        let fresh = self.ever_ok && !self.last_ok_stale && age < STALE_AFTER;
+        // it is younger than the caller's staleness threshold.
+        let fresh = self.ever_ok && !self.last_ok_stale && age < stale_after;
         if let Some((at, error, retry_in)) = &self.last_err {
             // A failure outranks the board it followed unless a fresh board
             // is still standing behind it — one failed poll on top of a
@@ -115,11 +114,11 @@ impl NetStatus {
     /// The footer's freshness age: "UPD 12s" while live, and frozen with a
     /// trailing ` ·` while stale or offline — the number stops being a
     /// promise the moment the data stops arriving. None before first data.
-    pub fn upd_label(&self, now: Instant) -> Option<String> {
+    pub fn upd_label(&self, now: Instant, stale_after: Duration) -> Option<String> {
         let last_ok = self.last_ok?;
         let secs = now.saturating_duration_since(last_ok).as_secs();
         let label = format!("UPD {}", short_age(secs));
-        Some(match self.chip(now) {
+        Some(match self.chip(now, stale_after) {
             NetChip::Live => label,
             _ => format!("{label} ·"),
         })
@@ -141,22 +140,28 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
+    /// The live-cadence threshold `App::stale_after` hands in while something
+    /// is live: 3 × the 15 s live scoreboard cadence.
+    const LIVE: Duration = Duration::from_secs(45);
+    /// And the idle one: a 60 s cadence plus one live window of slack.
+    const IDLE: Duration = Duration::from_secs(75);
+
     #[test]
     fn chip_walks_no_data_live_stale_offline_and_back() {
         let t0 = Instant::now();
         let mut n = NetStatus::default();
-        assert!(matches!(n.chip(t0), NetChip::NoDataYet));
-        assert_eq!(n.upd_label(t0), None);
+        assert!(matches!(n.chip(t0, LIVE), NetChip::NoDataYet));
+        assert_eq!(n.upd_label(t0, LIVE), None);
         n.ok(t0, false);
-        assert!(matches!(n.chip(t0 + Duration::from_secs(10)), NetChip::Live));
+        assert!(matches!(n.chip(t0 + Duration::from_secs(10), LIVE), NetChip::Live));
         assert_eq!(
-            n.upd_label(t0 + Duration::from_secs(10)).as_deref(),
+            n.upd_label(t0 + Duration::from_secs(10), LIVE).as_deref(),
             Some("UPD 10s")
         );
-        let later = t0 + STALE_AFTER + Duration::from_secs(1);
-        assert!(matches!(n.chip(later), NetChip::Stale { .. }));
+        let later = t0 + LIVE + Duration::from_secs(1);
+        assert!(matches!(n.chip(later, LIVE), NetChip::Stale { .. }));
         assert_eq!(
-            n.upd_label(later).as_deref(),
+            n.upd_label(later, LIVE).as_deref(),
             Some("UPD 46s ·"),
             "frozen marker while stale"
         );
@@ -165,7 +170,7 @@ mod tests {
             "ESPN 403 nfl scoreboard".into(),
             Some(Duration::from_secs(40)),
         );
-        match n.chip(later) {
+        match n.chip(later, LIVE) {
             NetChip::Offline { retry_in, error } => {
                 assert_eq!(retry_in, Some(Duration::from_secs(40)));
                 assert!(error.contains("403"));
@@ -174,9 +179,24 @@ mod tests {
         }
         n.ok(later + Duration::from_secs(5), false);
         assert!(
-            matches!(n.chip(later + Duration::from_secs(6)), NetChip::Live),
+            matches!(n.chip(later + Duration::from_secs(6), LIVE), NetChip::Live),
             "recovery clears offline"
         );
+    }
+
+    /// The threshold has to follow the cadence in use, or the idle board
+    /// calls itself stale for three quarters of every healthy minute: at 60 s
+    /// between polls, a 45 s cutoff is less than one poll old.
+    #[test]
+    fn the_idle_cadence_does_not_call_a_healthy_board_stale() {
+        let t0 = Instant::now();
+        let mut n = NetStatus::default();
+        n.ok(t0, false);
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        assert!(matches!(n.chip(at(60), IDLE), NetChip::Live), "one idle poll");
+        assert!(matches!(n.chip(at(76), IDLE), NetChip::Stale { .. }), "a poll plus a cadence");
+        // The same 60 s while live is three missed polls, and does say so.
+        assert!(matches!(n.chip(at(60), LIVE), NetChip::Stale { .. }));
     }
 
     #[test]
@@ -184,18 +204,18 @@ mod tests {
         let t0 = Instant::now();
         let mut n = NetStatus::default();
         n.ok(t0, true);
-        assert!(matches!(n.chip(t0), NetChip::Stale { .. }));
+        assert!(matches!(n.chip(t0, LIVE), NetChip::Stale { .. }));
     }
 
     #[test]
     fn labels_read_like_the_header() {
         let t0 = Instant::now();
         let mut n = NetStatus::default();
-        assert_eq!(n.chip(t0).label().as_deref(), Some("NO DATA YET"));
+        assert_eq!(n.chip(t0, LIVE).label().as_deref(), Some("NO DATA YET"));
         n.ok(t0, false);
-        assert_eq!(n.chip(t0).label(), None, "the tiles already say LIVE");
+        assert_eq!(n.chip(t0, LIVE).label(), None, "the tiles already say LIVE");
         assert_eq!(
-            n.chip(t0 + Duration::from_secs(240)).label().as_deref(),
+            n.chip(t0 + Duration::from_secs(240), LIVE).label().as_deref(),
             Some("STALE 4m")
         );
         n.failed(
@@ -204,7 +224,7 @@ mod tests {
             Some(Duration::from_secs(40)),
         );
         assert_eq!(
-            n.chip(t0 + Duration::from_secs(240)).label().as_deref(),
+            n.chip(t0 + Duration::from_secs(240), LIVE).label().as_deref(),
             Some("OFFLINE · retry 40s")
         );
     }
