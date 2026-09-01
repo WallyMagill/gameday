@@ -1,6 +1,8 @@
 //! Shared chrome: the header row, the ticker strip, the footer row and the
 //! '?' overlay. Identical across every view — `views/` draws only the body
-//! between them. Extracted from `app.rs` verbatim (Task 16).
+//! between them. Lifted out of `app.rs` whole (Task 16); the only edits are
+//! the three reads that now come from the frame's `Derived` instead of
+//! re-deriving their own lists.
 
 use super::{date_label, App, Tab};
 use crate::app::net::NetChip;
@@ -277,7 +279,8 @@ impl App {
     }
 
     pub(super) fn draw_ticker(&self, frame: &mut Frame, area: Rect) {
-        ticker::draw(frame, area, &self.ticker_live(), &self.ticker_events(), self.tick);
+        let d = self.derived();
+        ticker::draw(frame, area, &d.ticker_live, &d.ticker_events, self.tick);
     }
 
     /// Context-aware footer: the TOP chords from the keymap table (the full
@@ -391,12 +394,12 @@ impl App {
                 right.push(format!("FOCUS {}@{}", g.away.abbr, g.home.abbr));
             }
         } else {
-            let sel_len = self.selection_list().len();
+            let sel_len = self.derived().selection.len();
             if sel_len > 1 {
                 right.push(format!("GAME {}/{}", self.selected + 1, sel_len));
             }
         }
-        let pages = self.page_count();
+        let pages = self.page_count_of(self.derived().mosaic.len());
         if pages > 1 && !zoomed {
             right.push(format!("PAGE {}/{}", self.page.min(pages - 1) + 1, pages));
         }

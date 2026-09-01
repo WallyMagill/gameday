@@ -6,6 +6,8 @@ mod chrome;
 mod derive;
 pub mod net;
 
+pub use derive::Derived;
+
 use crate::app::net::NetStatus;
 use crate::config::{prune_pins, save_pins, Config, Favorite, Pin};
 use crate::domain::{Game, GameStats, League, StandingsTable, Status, Summary};
@@ -172,6 +174,10 @@ pub struct App {
     /// the wall clock. Dumps and draw tests set it so a capture of the same
     /// tick is the same pixels every run; the real app leaves it None.
     pub now_override: Option<OffsetDateTime>,
+    /// This frame's derived lists — Some only between the first and last
+    /// lines of [`App::draw`]. Widgets read it through `derived()`; nothing
+    /// outside a draw may, which is why it is private and cleared.
+    frame_cache: Option<Derived>,
 }
 
 impl App {
@@ -220,6 +226,7 @@ impl App {
             hit_zones: Vec::new(),
             offset,
             now_override: None,
+            frame_cache: None,
         }
     }
 
@@ -1052,13 +1059,23 @@ impl App {
 
     /// Tiles per mosaic page under the current layout.
     fn page_len(&self) -> usize {
-        page_size(self.effective_layout(), self.mosaic_games().len().max(1))
+        self.page_len_of(self.mosaic_games().len())
     }
 
     /// Number of mosaic pages, always >= 1.
     pub fn page_count(&self) -> usize {
-        let n = self.mosaic_games().len();
-        n.max(1).div_ceil(self.page_len())
+        self.page_count_of(self.mosaic_games().len())
+    }
+
+    /// The same two numbers for a mosaic already in hand — what a draw uses,
+    /// so a frame that has derived its lists never re-derives them to count
+    /// its pages.
+    pub(crate) fn page_len_of(&self, mosaic_len: usize) -> usize {
+        page_size(self.effective_layout(), mosaic_len.max(1))
+    }
+
+    pub(crate) fn page_count_of(&self, mosaic_len: usize) -> usize {
+        mosaic_len.max(1).div_ceil(self.page_len_of(mosaic_len))
     }
 
     /// n/p and PgDn/PgUp: wrap around the known page count (never a blank
@@ -1176,7 +1193,18 @@ impl App {
         self.persist_config();
     }
 
+    /// One frame. The game lists are derived ONCE here and parked in
+    /// `frame_cache`; every widget below reads them through `derived()`
+    /// instead of re-walking the boards. The cache is dropped again on the
+    /// way out — a list read outside a draw is a stale list, so `derived()`
+    /// panics there rather than answering.
     pub fn draw(&mut self, frame: &mut Frame) {
+        self.frame_cache = Some(self.derive());
+        self.draw_frame(frame);
+        self.frame_cache = None;
+    }
+
+    fn draw_frame(&mut self, frame: &mut Frame) {
         // Mouse zones are rebuilt from scratch every frame: whatever this
         // draw doesn't register is not clickable.
         self.hit_zones.clear();
@@ -1290,7 +1318,7 @@ mod tests {
         }
     }
 
-    fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
+    pub(crate) fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
         Game {
             id: id.into(),
             league: League::Nfl,
@@ -1308,7 +1336,7 @@ mod tests {
         }
     }
 
-    fn app_with(games: Vec<Game>, pins: Vec<Pin>) -> App {
+    pub(crate) fn app_with(games: Vec<Game>, pins: Vec<Pin>) -> App {
         let dir = std::env::temp_dir().join(format!("gd-app-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let mut app = App::new(Config::default_all(), pins, dir, time::UtcOffset::UTC);
@@ -1945,7 +1973,7 @@ mod tests {
         );
     }
 
-    fn six_live() -> Vec<Game> {
+    pub(crate) fn six_live() -> Vec<Game> {
         (0..6)
             .map(|i| g(&format!("g{i}"), "KC", "TB", true))
             .collect()

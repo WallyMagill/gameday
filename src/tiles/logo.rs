@@ -4,6 +4,8 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// One cell of pregenerated logo art. `None` colors mean "terminal default":
 /// no bg = transparent over the board, no fg on a space = nothing to draw.
@@ -111,48 +113,62 @@ fn cell_visible(c: &ArtCell) -> bool {
     }
 }
 
-pub fn load_logo(key: &str) -> Option<AnsiArt> {
-    parse_ansi_art(match key {
-        "nfl/ari" => include_str!("../../assets/logos/nfl/ari.ans"),
-        "nfl/atl" => include_str!("../../assets/logos/nfl/atl.ans"),
-        "nfl/bal" => include_str!("../../assets/logos/nfl/bal.ans"),
-        "nfl/buf" => include_str!("../../assets/logos/nfl/buf.ans"),
-        "nfl/car" => include_str!("../../assets/logos/nfl/car.ans"),
-        "nfl/chi" => include_str!("../../assets/logos/nfl/chi.ans"),
-        "nfl/cin" => include_str!("../../assets/logos/nfl/cin.ans"),
-        "nfl/cle" => include_str!("../../assets/logos/nfl/cle.ans"),
-        "nfl/dal" => include_str!("../../assets/logos/nfl/dal.ans"),
-        "nfl/den" => include_str!("../../assets/logos/nfl/den.ans"),
-        "nfl/det" => include_str!("../../assets/logos/nfl/det.ans"),
-        "nfl/gb" => include_str!("../../assets/logos/nfl/gb.ans"),
-        "nfl/hou" => include_str!("../../assets/logos/nfl/hou.ans"),
-        "nfl/ind" => include_str!("../../assets/logos/nfl/ind.ans"),
-        "nfl/jax" => include_str!("../../assets/logos/nfl/jax.ans"),
-        "nfl/kc" => include_str!("../../assets/logos/nfl/kc.ans"),
-        "nfl/lv" => include_str!("../../assets/logos/nfl/lv.ans"),
-        "nfl/lac" => include_str!("../../assets/logos/nfl/lac.ans"),
-        "nfl/lar" => include_str!("../../assets/logos/nfl/lar.ans"),
-        "nfl/mia" => include_str!("../../assets/logos/nfl/mia.ans"),
-        "nfl/min" => include_str!("../../assets/logos/nfl/min.ans"),
-        "nfl/ne" => include_str!("../../assets/logos/nfl/ne.ans"),
-        "nfl/no" => include_str!("../../assets/logos/nfl/no.ans"),
-        "nfl/nyg" => include_str!("../../assets/logos/nfl/nyg.ans"),
-        "nfl/nyj" => include_str!("../../assets/logos/nfl/nyj.ans"),
-        "nfl/phi" => include_str!("../../assets/logos/nfl/phi.ans"),
-        "nfl/pit" => include_str!("../../assets/logos/nfl/pit.ans"),
-        "nfl/sea" => include_str!("../../assets/logos/nfl/sea.ans"),
-        "nfl/sf" => include_str!("../../assets/logos/nfl/sf.ans"),
-        "nfl/tb" => include_str!("../../assets/logos/nfl/tb.ans"),
-        "nfl/ten" => include_str!("../../assets/logos/nfl/ten.ans"),
-        "nfl/wsh" => include_str!("../../assets/logos/nfl/wsh.ans"),
-        "nba/den" => include_str!("../../assets/logos/nba/den.ans"),
-        "nba/bos" => include_str!("../../assets/logos/nba/bos.ans"),
-        "mlb/nyy" => include_str!("../../assets/logos/mlb/nyy.ans"),
-        "mlb/tor" => include_str!("../../assets/logos/mlb/tor.ans"),
-        "nhl/edm" => include_str!("../../assets/logos/nhl/edm.ans"),
-        "nhl/dal" => include_str!("../../assets/logos/nhl/dal.ans"),
-        _ => return None,
+/// Every bundled mark, key → raw chafa output. Compiled into the binary;
+/// parsed at most once each (see [`load_logo`]).
+const LOGO_SOURCES: &[(&str, &str)] = &[
+    ("nfl/ari", include_str!("../../assets/logos/nfl/ari.ans")),
+    ("nfl/atl", include_str!("../../assets/logos/nfl/atl.ans")),
+    ("nfl/bal", include_str!("../../assets/logos/nfl/bal.ans")),
+    ("nfl/buf", include_str!("../../assets/logos/nfl/buf.ans")),
+    ("nfl/car", include_str!("../../assets/logos/nfl/car.ans")),
+    ("nfl/chi", include_str!("../../assets/logos/nfl/chi.ans")),
+    ("nfl/cin", include_str!("../../assets/logos/nfl/cin.ans")),
+    ("nfl/cle", include_str!("../../assets/logos/nfl/cle.ans")),
+    ("nfl/dal", include_str!("../../assets/logos/nfl/dal.ans")),
+    ("nfl/den", include_str!("../../assets/logos/nfl/den.ans")),
+    ("nfl/det", include_str!("../../assets/logos/nfl/det.ans")),
+    ("nfl/gb", include_str!("../../assets/logos/nfl/gb.ans")),
+    ("nfl/hou", include_str!("../../assets/logos/nfl/hou.ans")),
+    ("nfl/ind", include_str!("../../assets/logos/nfl/ind.ans")),
+    ("nfl/jax", include_str!("../../assets/logos/nfl/jax.ans")),
+    ("nfl/kc", include_str!("../../assets/logos/nfl/kc.ans")),
+    ("nfl/lv", include_str!("../../assets/logos/nfl/lv.ans")),
+    ("nfl/lac", include_str!("../../assets/logos/nfl/lac.ans")),
+    ("nfl/lar", include_str!("../../assets/logos/nfl/lar.ans")),
+    ("nfl/mia", include_str!("../../assets/logos/nfl/mia.ans")),
+    ("nfl/min", include_str!("../../assets/logos/nfl/min.ans")),
+    ("nfl/ne", include_str!("../../assets/logos/nfl/ne.ans")),
+    ("nfl/no", include_str!("../../assets/logos/nfl/no.ans")),
+    ("nfl/nyg", include_str!("../../assets/logos/nfl/nyg.ans")),
+    ("nfl/nyj", include_str!("../../assets/logos/nfl/nyj.ans")),
+    ("nfl/phi", include_str!("../../assets/logos/nfl/phi.ans")),
+    ("nfl/pit", include_str!("../../assets/logos/nfl/pit.ans")),
+    ("nfl/sea", include_str!("../../assets/logos/nfl/sea.ans")),
+    ("nfl/sf", include_str!("../../assets/logos/nfl/sf.ans")),
+    ("nfl/tb", include_str!("../../assets/logos/nfl/tb.ans")),
+    ("nfl/ten", include_str!("../../assets/logos/nfl/ten.ans")),
+    ("nfl/wsh", include_str!("../../assets/logos/nfl/wsh.ans")),
+    ("nba/den", include_str!("../../assets/logos/nba/den.ans")),
+    ("nba/bos", include_str!("../../assets/logos/nba/bos.ans")),
+    ("mlb/nyy", include_str!("../../assets/logos/mlb/nyy.ans")),
+    ("mlb/tor", include_str!("../../assets/logos/mlb/tor.ans")),
+    ("nhl/edm", include_str!("../../assets/logos/nhl/edm.ans")),
+    ("nhl/dal", include_str!("../../assets/logos/nhl/dal.ans")),
+];
+
+/// The parsed marks, built on first use. `draw_logo` runs twice per tile at
+/// up to 10 frames a second, and re-running the SGR parser over every one of
+/// them each time was the mosaic's largest per-frame cost.
+static ART: OnceLock<HashMap<&'static str, AnsiArt>> = OnceLock::new();
+
+pub fn load_logo(key: &str) -> Option<&'static AnsiArt> {
+    ART.get_or_init(|| {
+        LOGO_SOURCES
+            .iter()
+            .filter_map(|(key, raw)| Some((*key, parse_ansi_art(raw)?)))
+            .collect()
     })
+    .get(key)
 }
 
 pub fn draw_logo(frame: &mut Frame, area: Rect, team: &Team) {

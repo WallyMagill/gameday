@@ -50,7 +50,7 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
         .border_style(Style::default().fg(th.border));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let events = app.scoring_events();
+    let events = &app.derived().scoring;
     let w = inner.width as usize;
     let mut lines: Vec<Line> = Vec::new();
 
@@ -125,8 +125,8 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
             .add_modifier(Modifier::BOLD),
     )));
     let mut teams: Vec<&crate::domain::Team> = Vec::new();
-    let games = app.visible_games();
-    for g in &games {
+    let games = &app.derived().visible;
+    for g in games {
         teams.push(&g.away);
         teams.push(&g.home);
     }
@@ -178,7 +178,7 @@ fn center_two_lines(area: Rect) -> Rect {
 
 fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
     let th = theme::current();
-    let games = app.mosaic_games();
+    let games = &app.derived().mosaic;
     let net = app.net.chip(std::time::Instant::now());
     match app.tab {
         // An active filter that matches nothing names the pattern, the scope
@@ -247,7 +247,7 @@ fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
             );
             return;
         }
-        Tab::League(_) if app.visible_games().is_empty() => {
+        Tab::League(_) if app.derived().visible.is_empty() => {
             frame.render_widget(
                 Paragraph::new("next kickoff")
                     .style(Style::default().fg(th.muted).bg(th.bg))
@@ -260,12 +260,15 @@ fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
     }
 
     // on_key wraps the page, but the board can shrink between keys.
-    let page = app.page.min(app.page_count() - 1);
-    let packed = pack(&games, area, app.effective_layout(), page);
+    let page = app.page.min(app.page_count_of(games.len()) - 1);
+    let packed = pack(games, area, app.effective_layout(), page);
     let start = packed
         .first()
         .and_then(|tile| games.iter().position(|g| g.id == tile.game.id))
         .unwrap_or(0);
+    // Zones are collected first: `games` borrows the frame cache off `app`,
+    // so `app.hit_zones` can only be touched once that borrow has ended.
+    let mut zones = Vec::with_capacity(packed.len());
     for (i, tile) in packed.iter().enumerate() {
         // Mosaic tiles are the head of selection_list, so the page-global
         // index start+i compares directly against app.selected.
@@ -280,9 +283,9 @@ fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
             app.config.score_style,
         );
         // A click anywhere on the tile selects it (same index space as j/k).
-        app.hit_zones
-            .push((tile.area, crate::keymap::Hit::Tile(start + i)));
+        zones.push((tile.area, crate::keymap::Hit::Tile(start + i)));
     }
+    app.hit_zones.extend(zones);
 }
 
 fn draw_slate(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -298,11 +301,12 @@ fn draw_slate(app: &mut App, frame: &mut Frame, area: Rect) {
     frame.render_widget(block, area);
     // Selection continues past the live tiles into these rows; the
     // selected row gets the same star accent as a selected tile border.
-    let live_len = app.live_games().len();
+    let d = app.derived();
+    let live_len = d.live.len();
     let sel = app.selected.checked_sub(live_len);
     let now = app.now();
-    let lines: Vec<Line> = app
-        .slate_games()
+    let lines: Vec<Line> = d
+        .slate
         .iter()
         .enumerate()
         .map(|(i, g)| {
@@ -335,18 +339,21 @@ fn draw_slate(app: &mut App, frame: &mut Frame, area: Rect) {
         .collect();
     // Each rendered slate row is a click zone; the row index is relative to
     // the slate (on_hit re-adds the live-tile prefix).
-    let visible_rows = app.slate_games().len().min(inner.height as usize);
-    for i in 0..visible_rows {
-        app.hit_zones.push((
-            Rect {
-                x: inner.x,
-                y: inner.y + i as u16,
-                width: inner.width,
-                height: 1,
-            },
-            crate::keymap::Hit::SlateRow(i),
-        ));
-    }
+    let visible_rows = d.slate.len().min(inner.height as usize);
+    let zones: Vec<_> = (0..visible_rows)
+        .map(|i| {
+            (
+                Rect {
+                    x: inner.x,
+                    y: inner.y + i as u16,
+                    width: inner.width,
+                    height: 1,
+                },
+                crate::keymap::Hit::SlateRow(i),
+            )
+        })
+        .collect();
+    app.hit_zones.extend(zones);
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().bg(th.bg).fg(th.muted)),
         inner,
