@@ -176,10 +176,19 @@ pub struct App {
     /// resolves against the LAST frame's zones — stale for at most one
     /// render tick.
     pub hit_zones: Vec<(Rect, keymap::Hit)>,
+    /// The local UTC offset, read once on the main thread at startup
+    /// (`text::startup_offset`). Every clock the app renders goes through
+    /// [`App::now`] so nothing calls `now_local()` off the main thread.
+    pub offset: time::UtcOffset,
 }
 
 impl App {
-    pub fn new(config: Config, pins: Vec<Pin>, config_dir: PathBuf) -> Self {
+    pub fn new(
+        config: Config,
+        pins: Vec<Pin>,
+        config_dir: PathBuf,
+        offset: time::UtcOffset,
+    ) -> Self {
         Self {
             tab: Tab::Home,
             page: 0,
@@ -218,7 +227,23 @@ impl App {
             active_alert: None,
             bell_pending: false,
             hit_zones: Vec::new(),
+            offset,
         }
+    }
+
+    /// Now, in the user's local offset. The one clock the app reads.
+    pub fn now(&self) -> OffsetDateTime {
+        OffsetDateTime::now_utc().to_offset(self.offset)
+    }
+
+    /// The soonest scheduled start still ahead of us across the enabled
+    /// boards — what empty Home names when nothing is live.
+    pub fn next_start(&self) -> Option<Game> {
+        let now = self.now();
+        self.concat_boards()
+            .into_iter()
+            .filter(|g| g.status == Status::Pre && g.start.is_some_and(|s| s > now))
+            .min_by_key(|g| g.start.expect("filtered to Some above"))
     }
 
     /// The registered hit under `pos`, last-drawn zone winning (later
@@ -320,12 +345,7 @@ impl App {
         let games = match self.tab {
             Tab::Home => {
                 let concat = self.concat_boards();
-                home_games(
-                    &self.pins,
-                    &self.config.favorites,
-                    &concat,
-                    OffsetDateTime::now_utc(),
-                )
+                home_games(&self.pins, &self.config.favorites, &concat, self.now())
                 .into_iter()
                 .cloned()
                 .collect()
@@ -1579,23 +1599,23 @@ mod tests {
     fn app_with(games: Vec<Game>, pins: Vec<Pin>) -> App {
         let dir = std::env::temp_dir().join(format!("gd-app-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), pins, dir);
+        let mut app = App::new(Config::default_all(), pins, dir, time::UtcOffset::UTC);
         app.apply_boards(League::Nfl, games, false);
         app
     }
 
     #[test]
-    fn home_shows_only_pinned() {
+    fn home_shows_pinned_first_then_live() {
         let app = app_with(
             vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
             vec![Pin {
-                game_id: "1".into(),
+                game_id: "2".into(),
                 league: League::Nfl,
                 final_at: None,
             }],
         );
         let ids: Vec<_> = app.visible_games().into_iter().map(|x| x.id).collect();
-        assert_eq!(ids, vec!["1"]);
+        assert_eq!(ids, vec!["2", "1"]);
     }
 
     #[test]
@@ -1739,7 +1759,7 @@ mod tests {
     }
 
     #[test]
-    fn tab_pops_zoom_and_home_hides_unpinned() {
+    fn tab_pops_zoom_and_home_carries_the_live_game() {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.config.enabled_tabs = vec![League::Nfl];
         app.tab = Tab::League(League::Nfl);
@@ -1749,7 +1769,8 @@ mod tests {
         assert_eq!(app.tab, Tab::Home);
         assert_eq!(app.view, View::Board);
         let ids: Vec<_> = app.visible_games().into_iter().map(|g| g.id).collect();
-        assert!(!ids.iter().any(|id| id == "1"));
+        // Home is every live game now, pinned or not.
+        assert_eq!(ids, vec!["1"]);
     }
 
     #[test]
@@ -1807,7 +1828,7 @@ mod tests {
         // Own dir: app_with's shared dir is also written by other tests' saves.
         let dir = std::env::temp_dir().join(format!("gd-theme-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), vec![], dir);
+        let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
         assert_eq!(theme::current_name(), "studio");
         assert_eq!(app.config.theme, "studio");
@@ -1893,7 +1914,7 @@ mod tests {
             theme: "broadcast".into(),
             score_style: Default::default(),
         };
-        let app = App::new(cfg, vec![], dir);
+        let app = App::new(cfg, vec![], dir, time::UtcOffset::UTC);
         assert_eq!(
             app.tab_list(),
             vec![
@@ -2184,6 +2205,7 @@ mod tests {
             },
             vec![],
             dir,
+            time::UtcOffset::UTC,
         );
         let mut game = g("c1", "ALA", "UGA", true);
         game.league = League::Cfb;

@@ -135,11 +135,13 @@ fn main() -> std::io::Result<()> {
     gameday::theme::install_user_themes(&dir);
     config.theme = gameday::theme::select_or_default(&config.theme);
     let pins = load_pins(&dir).unwrap_or_default();
-    let app = App::new(config, pins, dir.clone());
-
     // Read the local offset here, on the main thread, before the poll thread
     // exists — `time` refuses the TZ database once the process is threaded.
-    let provider = EspnProvider::new(dir.join("cache"), gameday::text::startup_offset());
+    // The app and the mapper share this one value.
+    let offset = gameday::text::startup_offset();
+    let app = App::new(config, pins, dir.clone(), offset);
+
+    let provider = EspnProvider::new(dir.join("cache"), offset);
     let (tx, rx) = mpsc::channel::<Msg>();
     // The single UI -> poll handshake: enabled leagues, liveness, the zoomed
     // game, the traveled slate, the standings league, and R. The UI

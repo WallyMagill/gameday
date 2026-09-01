@@ -62,7 +62,7 @@ fn buf_text(term: &Terminal<TestBackend>) -> String {
 fn mk() -> App {
     let dir = std::env::temp_dir().join(format!("gd-draw-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
-    App::new(Config::default_all(), vec![], dir)
+    App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC)
 }
 
 #[test]
@@ -318,12 +318,23 @@ fn sidebar_top_plays_are_abbr_surname_clock() {
 }
 
 #[test]
-fn empty_home_prompt() {
+fn empty_home_with_no_boards_points_at_config() {
     let mut app = mk();
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t).to_lowercase();
-    assert!(s.contains("pin a game"), "{s}");
+    assert!(s.contains("nothing live on the enabled boards"), "{s}");
+}
+
+#[test]
+fn empty_home_names_the_next_start() {
+    let mut app = mk();
+    // One scheduled game, nothing live: Home names when the slate opens.
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", false)], false);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t).to_lowercase();
+    assert!(s.contains("nothing live · next: kc @ tb"), "{s}");
 }
 
 #[test]
@@ -1308,7 +1319,7 @@ fn type_text(app: &mut App, text: &str) {
 #[test]
 fn config_view_renders_every_section() {
     use gameday::views::View;
-    let mut app = App::new(Config::default_all(), vec![], config_dir("sections"));
+    let mut app = App::new(Config::default_all(), vec![], config_dir("sections"), time::UtcOffset::UTC);
     app.config.favorites.push(gameday::config::Favorite {
         league: League::Nfl,
         team_abbr: "KC".into(),
@@ -1330,7 +1341,7 @@ fn config_space_toggles_a_tab_and_round_trips_config_toml() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
     let dir = config_dir("toggle");
-    let mut app = App::new(Config::default_all(), vec![], dir.clone());
+    let mut app = App::new(Config::default_all(), vec![], dir.clone(), time::UtcOffset::UTC);
     app.view = View::ConfigView;
     // Cursor starts on the first row: the NFL tab toggle.
     key(&mut app, KeyCode::Char(' '));
@@ -1348,7 +1359,7 @@ fn config_enter_adds_a_typed_favorite_and_enter_removes_it() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
     let dir = config_dir("fav");
-    let mut app = App::new(Config::default_all(), vec![], dir.clone());
+    let mut app = App::new(Config::default_all(), vec![], dir.clone(), time::UtcOffset::UTC);
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.view = View::ConfigView;
     // 9 league rows (League::ALL), then the ADD FAVORITE row.
@@ -1376,7 +1387,7 @@ fn config_enter_adds_a_typed_favorite_and_enter_removes_it() {
 fn config_favorite_miss_names_the_abbr_and_the_league_form() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
-    let mut app = App::new(Config::default_all(), vec![], config_dir("favmiss"));
+    let mut app = App::new(Config::default_all(), vec![], config_dir("favmiss"), time::UtcOffset::UTC);
     app.view = View::ConfigView;
     for _ in 0..League::ALL.len() {
         key(&mut app, KeyCode::Char('j'));
@@ -1404,7 +1415,7 @@ fn config_h_l_cycle_score_and_layout_and_persist() {
     use gameday::tiles::ScoreStyle;
     use gameday::views::View;
     let dir = config_dir("cycle");
-    let mut app = App::new(Config::default_all(), vec![], dir.clone());
+    let mut app = App::new(Config::default_all(), vec![], dir.clone(), time::UtcOffset::UTC);
     app.view = View::ConfigView;
     // Rows: 9 tabs, ADD FAVORITE, THEME, SCORE, LAYOUT.
     for _ in 0..League::ALL.len() + 2 {
@@ -1426,7 +1437,7 @@ fn config_h_l_cycle_score_and_layout_and_persist() {
 fn config_esc_pops_but_cancels_an_open_edit_first() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
-    let mut app = App::new(Config::default_all(), vec![], config_dir("escpop"));
+    let mut app = App::new(Config::default_all(), vec![], config_dir("escpop"), time::UtcOffset::UTC);
     app.view = View::ConfigView;
     for _ in 0..League::ALL.len() {
         key(&mut app, KeyCode::Char('j'));

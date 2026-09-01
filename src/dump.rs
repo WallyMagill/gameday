@@ -186,7 +186,14 @@ fn with_theme<T>(name: &str, f: impl FnOnce() -> T) -> T {
 /// score that changes AT `tick` is caught mid-flash, exactly like the live
 /// loop would show it (`--tick 15` captures the KC TD flash).
 pub fn demo_app(config_dir: PathBuf, tick: u64) -> App {
-    let mut app = App::new(demo::demo_config(), demo::demo_pins(), config_dir);
+    // The demo data is Eastern, so captures render its clocks in Eastern too —
+    // never the capturing machine's zone, which would make dumps unstable.
+    let mut app = App::new(
+        demo::demo_config(),
+        demo::demo_pins(),
+        config_dir,
+        time::UtcOffset::from_hms(-4, 0, 0).expect("-04:00 is a valid offset"),
+    );
     if tick > 0 {
         for (league, games) in crate::sim::Simulator::boards_at(tick - 1) {
             app.apply_boards(league, games, false);

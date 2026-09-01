@@ -284,7 +284,7 @@ mod tests {
     fn mk() -> App {
         let dir = std::env::temp_dir().join(format!("gd-input-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), vec![], dir);
+        let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         app.apply_boards(League::Nfl, vec![g("1", "KC", "TB")], false);
         app
     }
@@ -378,7 +378,7 @@ mod tests {
         theme::set_current("broadcast").unwrap();
         let dir = std::env::temp_dir().join(format!("gd-input-theme-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), vec![], dir);
+        let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "theme phosphor");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
@@ -401,7 +401,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("gd-input-picker-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), vec![], dir);
+        let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "theme");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
@@ -450,7 +450,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("gd-input-modal-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), vec![], dir);
+        let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "theme");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);

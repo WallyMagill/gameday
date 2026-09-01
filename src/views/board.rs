@@ -180,9 +180,23 @@ fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
             );
             return;
         }
+        // Home carries every live game now, so an empty Home means nothing is
+        // live anywhere — name the next start instead of asking for a pin.
         Tab::Home if games.is_empty() => {
+            let msg = match app.next_start() {
+                Some(g) => format!(
+                    "nothing live · next: {} @ {} {}",
+                    g.away.abbr,
+                    g.home.abbr,
+                    crate::text::fmt_start(
+                        g.start.expect("next_start only returns games with a start"),
+                        app.now()
+                    )
+                ),
+                None => "nothing live on the enabled boards · :config to add leagues".to_string(),
+            };
             frame.render_widget(
-                Paragraph::new("pin a game from nfl (space) · t fav home")
+                Paragraph::new(msg)
                     .style(Style::default().fg(th.muted).bg(th.bg))
                     .alignment(Alignment::Center),
                 area,
