@@ -921,13 +921,19 @@ impl App {
         }
         self.boards.insert(league, games);
         // Favorite-score alerts diff the freshly merged boards; a hit starts
-        // the header banner and queues the bell for main to ring.
-        if let Some(alert) =
-            self.alerts
-                .check(&self.config.favorites, &self.boards, self.tick)
-        {
-            self.active_alert = Some(alert);
-            self.bell_pending = true;
+        // the header banner and queues the bell for main to ring. A cached
+        // payload is skipped whole — not checked and discarded: AlertState
+        // diffs on inequality, so an older snapshot reads as a score change
+        // (a banner and a bell for a score going backwards), and consuming
+        // its delta would swallow the real one when the fresh board lands.
+        if !stale {
+            if let Some(alert) =
+                self.alerts
+                    .check(&self.config.favorites, &self.boards, self.tick)
+            {
+                self.active_alert = Some(alert);
+                self.bell_pending = true;
+            }
         }
         // Drop score memory for games no board carries any more: unbounded
         // growth over a days-long session, and a recycled id would flash on
@@ -1238,27 +1244,78 @@ impl App {
             ),
             Span::styled("  FILTER: ", Style::default().fg(th.muted)),
         ];
-        for tab in self.tab_list() {
-            let label = match tab {
-                Tab::Home => "ALL".to_string(),
-                Tab::League(league) => league.slug().to_uppercase(),
-            };
-            let chip = if tab == self.tab {
-                Span::styled(
-                    format!("[{label}]"),
-                    Style::default()
-                        .fg(th.bg)
-                        .bg(th.star)
-                        .add_modifier(Modifier::BOLD),
-                )
-            } else {
-                Span::styled(format!("[ {label} ]"), Style::default().fg(th.muted))
-            };
+        let prefix_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        let tabs: Vec<(Span, Tab)> = self
+            .tab_list()
+            .into_iter()
+            .map(|tab| {
+                let label = match tab {
+                    Tab::Home => "ALL".to_string(),
+                    Tab::League(league) => league.slug().to_uppercase(),
+                };
+                let chip = if tab == self.tab {
+                    Span::styled(
+                        format!("[{label}]"),
+                        Style::default()
+                            .fg(th.bg)
+                            .bg(th.star)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    Span::styled(format!("[ {label} ]"), Style::default().fg(th.muted))
+                };
+                (chip, tab)
+            })
+            .collect();
+        let alert_len = self
+            .active_alert
+            .as_ref()
+            .map(|a| a.text.chars().count() + 2)
+            .unwrap_or(0);
+        // The connection chip is its own cell, padded on both sides so it can
+        // never read as a suffix of the date ("OFFLINEMON SEP 1"). It is the
+        // one thing in the header that must never be chopped mid-word: it
+        // degrades — padded label, then the bare state word, then no padding
+        // — and only if none of those fit do trailing league chips give way
+        // (never past the selected tab; Task 13 makes shedding orderly).
+        let net = self.net.chip(Instant::now());
+        let chip_forms: Vec<String> = match (net.label(), net.short_label()) {
+            (Some(full), Some(bare)) => vec![format!("  {full}  "), format!(" {bare} "), bare],
+            _ => Vec::new(),
+        };
+        let tab_cells = |n: usize| -> usize {
+            tabs.iter()
+                .take(n)
+                .map(|(s, _)| s.content.chars().count() + 1)
+                .sum()
+        };
+        let selected_idx = tabs.iter().position(|(_, t)| *t == self.tab).unwrap_or(0);
+        let width = area.width as usize;
+        let mut kept = tabs.len();
+        let mut chip_text: Option<String> = None;
+        while !chip_forms.is_empty() {
+            let used = prefix_len + tab_cells(kept) + alert_len;
+            chip_text = chip_forms
+                .iter()
+                .find(|f| used + f.chars().count() <= width)
+                .cloned();
+            if chip_text.is_some() {
+                break;
+            }
+            if kept <= selected_idx + 1 {
+                // Nothing fits even with the bar cut back to the selected
+                // tab: keep the tabs, drop the chip. Never a half word.
+                kept = tabs.len();
+                break;
+            }
+            kept -= 1;
+        }
+        for (chip, tab) in tabs.into_iter().take(kept) {
             // Register the chip as a click zone at its rendered columns (the
             // header is all single-width chars, so chars == cells).
             let x: usize = spans.iter().map(|s| s.content.chars().count()).sum();
             let w = chip.content.chars().count();
-            if x + w <= area.width as usize {
+            if x + w <= width {
                 self.hit_zones.push((
                     Rect {
                         x: area.x + x as u16,
@@ -1299,11 +1356,8 @@ impl App {
             ),
         };
         let clock = crate::text::fmt_clock12(now);
-        // The connection chip is its own cell, padded on both sides so it can
-        // never read as a suffix of the date ("OFFLINEMON SEP 1").
-        let chip = self.net.chip(Instant::now());
-        let chip_span = chip.label().map(|label| {
-            let color = match chip {
+        let chip_span = chip_text.map(|text| {
+            let color = match net {
                 NetChip::NoDataYet => th.muted,
                 NetChip::Stale { .. } => th.star,
                 // Offline is the one failure the board can have; it earns the
@@ -1311,10 +1365,7 @@ impl App {
                 NetChip::Offline { .. } => th.live,
                 NetChip::Live => th.muted,
             };
-            Span::styled(
-                format!("  {label}  "),
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            )
+            Span::styled(text, Style::default().fg(color).add_modifier(Modifier::BOLD))
         });
         let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
         let chip_len = chip_span
@@ -1324,7 +1375,6 @@ impl App {
         // A full tab bar can leave no room for all three. The date is what
         // goes: an outage chip and the clock both say something the rest of
         // the screen doesn't.
-        let width = area.width as usize;
         let date_len = date.chars().count() + 2;
         let clock_len = clock.len() + 1;
         // Dropped in priority order rather than truncated mid-word: the chip
@@ -2359,6 +2409,39 @@ mod tests {
         let mut app = app_with(vec![], vec![]);
         app.on_key(KeyCode::Char('r'), KeyModifiers::NONE);
         assert!(app.refresh_now);
+    }
+
+    #[test]
+    fn a_cached_board_never_rings_the_bell() {
+        // A cached 14-10 -> 7-10 is a score going BACKWARDS. AlertState
+        // diffs on inequality, so without the guard it banners "KC SCORES
+        // 7-10" and rings — then rings again when the real board returns.
+        let mut app = app_with(vec![], vec![]);
+        app.config.favorites = vec![Favorite {
+            league: League::Nfl,
+            team_abbr: "KC".into(),
+        }];
+        let mut first = g("1", "KC", "TB", true);
+        first.away_score = 14;
+        first.home_score = 10;
+        app.apply_boards(League::Nfl, vec![first.clone()], false);
+        app.active_alert = None;
+        app.bell_pending = false;
+
+        let mut cached = first.clone();
+        cached.away_score = 7;
+        app.apply_boards(League::Nfl, vec![cached], true);
+        assert!(app.active_alert.is_none(), "no banner from a cached payload");
+        assert!(!app.bell_pending, "no bell from a cached payload");
+
+        let mut next = first.clone();
+        next.away_score = 21;
+        app.apply_boards(League::Nfl, vec![next], false);
+        assert!(
+            app.active_alert.is_some(),
+            "the real score change still alerts"
+        );
+        assert!(app.bell_pending);
     }
 
     #[test]

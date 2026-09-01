@@ -43,6 +43,16 @@ impl NetChip {
             }),
         }
     }
+
+    /// The shortest honest form of the chip, for a header with no room for
+    /// the full one. Only the retry detail is droppable — the state word and
+    /// the staleness age are the message.
+    pub fn short_label(&self) -> Option<String> {
+        match self {
+            NetChip::Offline { .. } => Some("OFFLINE".to_string()),
+            other => other.label(),
+        }
+    }
 }
 
 /// Every successful apply and every failed fetch, reduced to the four states

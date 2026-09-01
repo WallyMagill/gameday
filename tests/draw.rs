@@ -1663,3 +1663,22 @@ fn header_chip_is_its_own_cell_and_offline_names_the_error() {
         "date and clock still render after the chip: {row:?}"
     );
 }
+
+#[test]
+fn a_narrow_header_shortens_the_chip_instead_of_chopping_it() {
+    // Every league enabled at 100 cols: the padded "OFFLINE · retry 40s"
+    // cannot fit, so the chip degrades to its bare state word. A chopped
+    // "OFFLINE · retry 4" would be a lie about the retry.
+    let mut app = mk();
+    app.note_failure(
+        League::Nfl,
+        "ESPN 403 nfl scoreboard".into(),
+        Some(std::time::Duration::from_secs(40)),
+    );
+    let mut t = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let b = t.backend().buffer();
+    let row: String = (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect();
+    assert!(row.contains("OFFLINE"), "chip survives a narrow header: {row:?}");
+    assert!(!row.contains("retry 4"), "chopped retry tail: {row:?}");
+}
