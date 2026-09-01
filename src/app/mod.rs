@@ -1,9 +1,15 @@
+//! App state, the key handlers, and the shared chrome. `net` (connection
+//! truth), `chrome` (header/footer/help) and `derive` (the per-frame game
+//! lists) are children of this module — everything they touch lives on `App`.
+
+pub mod net;
+
 use crate::config::{prune_pins, save_pins, Config, Favorite, Pin};
 use crate::domain::{Game, GameStats, League, StandingsTable, Status, Summary};
 use crate::home::home_games;
 use crate::input::{CompletionState, InputMode};
 use crate::keymap;
-use crate::net::{NetChip, NetStatus};
+use crate::app::net::{NetChip, NetStatus};
 use crate::theme;
 use crate::ticker;
 use crate::tiles::packer::{page_size, LayoutPref};
@@ -2749,11 +2755,11 @@ mod tests {
     fn apply_boards_marks_the_connection_live() {
         let mut app = app_with(vec![], vec![]);
         let now = std::time::Instant::now();
-        assert!(matches!(app.net.chip(now), crate::net::NetChip::Live));
+        assert!(matches!(app.net.chip(now), crate::app::net::NetChip::Live));
         assert!(app.net.upd_label(now).is_some(), "app_with applies a board");
         app.apply_boards(League::Nba, vec![], true);
         assert!(
-            matches!(app.net.chip(now), crate::net::NetChip::Stale { .. }),
+            matches!(app.net.chip(now), crate::app::net::NetChip::Stale { .. }),
             "a cached apply is stale on arrival"
         );
     }

@@ -4,7 +4,7 @@
 
 use crate::app::{App, Tab};
 use crate::domain::Game;
-use crate::net::NetChip;
+use crate::app::net::NetChip;
 use crate::text::{leading_surname, truncate};
 use crate::theme::{self, SidebarHeader};
 use crate::tiles::packer::pack;
