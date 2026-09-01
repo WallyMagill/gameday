@@ -337,6 +337,20 @@ fn a_malformed_event_is_skipped_not_fatal() {
 }
 
 #[test]
+fn all_events_unmappable_is_an_error_not_an_empty_board() {
+    // Schema drift, not a quiet day: every event fails. The provider caches a
+    // body only after it maps, so Ok(empty) here would evict last-good cache.
+    let json = r#"{"events":[
+      {"id":"1","date":"2026-09-10T00:20Z","competitions":[{"status":{"type":{"state":"pre"}}}]},
+      {"id":"2","date":"2026-09-10T00:20Z","competitions":[{"status":{"type":{"state":"pre"}}}]}
+    ]}"#;
+    assert!(map_scoreboard(League::Nfl, json, et()).is_err());
+    // A genuinely empty slate is still a good map.
+    let empty = map_scoreboard(League::Nfl, r#"{"events":[]}"#, et()).unwrap();
+    assert!(empty.is_empty());
+}
+
+#[test]
 fn start_is_local_and_never_a_raw_string() {
     let games =
         map_scoreboard(League::Wnba, include_str!("../fixtures/wnba_scoreboard.json"), et())

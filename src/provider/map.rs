@@ -217,6 +217,18 @@ pub fn map_scoreboard(league: League, json: &str, offset: UtcOffset) -> Result<V
             }
         }
     }
+    // ...but a slate where NOTHING maps is schema drift, not a quiet day. The
+    // provider caches a body only after it maps (spec §3), so returning Ok here
+    // would let a drifted payload evict the last-good cache. A genuinely empty
+    // `events: []` is still Ok — there just are no games.
+    if out.is_empty() && !events.is_empty() {
+        eprintln!(
+            "gameday: {} scoreboard: {} events, none mappable",
+            league.slug(),
+            events.len()
+        );
+        return Err(MapError::Missing("events[*] (no event mapped)"));
+    }
     Ok(out)
 }
 
