@@ -1,5 +1,5 @@
 use gameday::domain::{League, Meter, Status};
-use gameday::provider::map::{map_scoreboard, map_summary};
+use gameday::provider::map::{map_scoreboard, map_standings, map_summary};
 use time::UtcOffset;
 
 /// Every mapper call in this file pins the same offset so `start` assertions
@@ -484,4 +484,77 @@ fn grouped_box_score_maps_and_missing_leaders_is_empty_not_error() {
         .expect("grouped stats flattened");
     assert_eq!((hits.away.as_str(), hits.home.as_str()), ("11", "9"));
     assert!(stats.leaders.is_empty());
+}
+
+#[test]
+fn standings_rows_are_sorted_by_win_pct_then_wins_then_name() {
+    let t = map_standings(League::Nfl, include_str!("../fixtures/nfl_standings.json")).unwrap();
+    for g in &t.groups {
+        let pct = |r: &gameday::domain::StandingRow| {
+            let gp = r.wins + r.losses + r.third.unwrap_or(0);
+            if gp == 0 {
+                0.0
+            } else {
+                (r.wins as f64 + 0.5 * r.third.unwrap_or(0) as f64) / gp as f64
+            }
+        };
+        for w in g.rows.windows(2) {
+            assert!(
+                pct(&w[0]) >= pct(&w[1]) - 1e-9,
+                "{} before {} in {}",
+                w[0].abbr,
+                w[1].abbr,
+                g.name
+            );
+        }
+    }
+}
+
+#[test]
+fn standings_label_is_the_season_when_present_else_none() {
+    let t = map_standings(League::Nfl, include_str!("../fixtures/nfl_standings.json")).unwrap();
+    assert_eq!(t.season, None, "this fixture carries no season key");
+    let json = r#"{"name":"X","season":{"displayName":"2025-26"},"children":[{"name":"East","standings":{"entries":[{"team":{"abbreviation":"BOS","name":"Celtics"},"stats":[{"type":"wins","value":58},{"type":"losses","value":24}]}]}}]}"#;
+    let t = map_standings(League::Nba, json).unwrap();
+    assert_eq!(t.season.as_deref(), Some("2025-26"));
+}
+
+#[test]
+fn ties_column_only_when_the_sport_has_one() {
+    let json = r#"{"name":"MLB","children":[{"name":"AL","standings":{"entries":[{"team":{"abbreviation":"TB","name":"Rays"},"stats":[{"type":"wins","value":82},{"type":"losses","value":55},{"type":"ties","value":0}]}]}}]}"#;
+    let t = map_standings(League::Mlb, json).unwrap();
+    assert_eq!(
+        t.groups[0].rows[0].third, None,
+        "MLB sends ties=0 for every team; drop the column"
+    );
+}
+
+/// The live FBS payload's two awkward shapes, both checked 2026-08-31 against
+/// `…/college-football/standings?group=80`: the Sun Belt nests its divisions
+/// as grandchildren, and a stat worth zero is simply absent — a 1-0 team
+/// carries `wins` and no `losses`. Requiring both dropped every undefeated
+/// team, which in preseason is the entire table.
+#[test]
+fn cfb_divisions_become_their_own_groups_and_an_absent_zero_stat_is_zero() {
+    let json = r#"{"id":"80","name":"FBS","season":{"displayName":"2026"},"children":[
+        {"name":"Big Ten Conference","standings":{"entries":[
+            {"team":{"abbreviation":"OSU","name":"Buckeyes"},"stats":[{"type":"wins","value":1}]},
+            {"team":{"abbreviation":"MICH","name":"Wolverines"},"stats":[{"type":"losses","value":1}]}]}},
+        {"name":"Sun Belt Conference","children":[
+            {"name":"Sun Belt - East","standings":{"entries":[
+                {"team":{"abbreviation":"APP","name":"Mountaineers"},"stats":[{"type":"wins","value":1}]}]}},
+            {"name":"Sun Belt - West","standings":{"entries":[
+                {"team":{"abbreviation":"TROY","name":"Trojans"},"stats":[{"type":"losses","value":1}]}]}}]}]}"#;
+    let t = map_standings(League::Cfb, json).unwrap();
+    assert_eq!(t.season.as_deref(), Some("2026"));
+    let names: Vec<&str> = t.groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["Big Ten Conference", "Sun Belt Conference · Sun Belt - East", "Sun Belt Conference · Sun Belt - West"]
+    );
+    let osu = &t.groups[0].rows[0];
+    assert_eq!((osu.abbr.as_str(), osu.wins, osu.losses), ("OSU", 1, 0), "1-0 sorts first");
+    let mich = &t.groups[0].rows[1];
+    assert_eq!((mich.abbr.as_str(), mich.wins, mich.losses), ("MICH", 0, 1));
+    assert_eq!(osu.third, None, "no ties stat, no ties column");
 }

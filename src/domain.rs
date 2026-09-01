@@ -256,11 +256,20 @@ pub struct StandingsGroup {
 }
 
 /// One league's standings, mapped from ESPN's standings endpoint. Groups are
-/// whatever the feed sends (conferences for NFL/NHL/NBA).
+/// whatever the feed sends (conferences for NFL/NHL/NBA, conference ·
+/// division when the feed nests divisions under them).
+///
+/// `season` is the feed's own season label ("2025-26") when it carries one —
+/// the view prints it so an out-of-season table never reads as this season's.
+/// `fetched_at` is when *we* took the snapshot, stamped in
+/// `App::merge_standings`; the view falls back to it ("updated 9:41 PM") when
+/// the feed gave no season.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StandingsTable {
     pub league: League,
+    pub season: Option<String>,
     pub groups: Vec<StandingsGroup>,
+    pub fetched_at: Option<time::OffsetDateTime>,
 }
 
 #[cfg(test)]

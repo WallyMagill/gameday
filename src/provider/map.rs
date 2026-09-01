@@ -693,10 +693,14 @@ pub fn map_stats(json: &str) -> Result<GameStats, MapError> {
 }
 
 /// One standings entry -> row. Wins/losses come from the `stats[]` entries
-/// with `type: "wins"`/`"losses"` (numeric `value`); the third column is
-/// `"ties"` (football, label "T") or `"otlosses"` (hockey, label "OTL") —
-/// both type names verified against the real NFL and NHL payloads 2026-08-30.
-fn standing_row_from(entry: &Value) -> Option<StandingRow> {
+/// with `type: "wins"`/`"losses"` (numeric `value`); the third column is the
+/// one the *sport* actually keeps — ties for football and soccer (label "T"),
+/// overtime losses for hockey ("OTL"), nothing for everyone else. ESPN sends
+/// `ties: 0` for all 30 MLB teams and all 30 NBA teams, so trusting the feed
+/// alone prints a column of zeroes for a record baseball hasn't kept since
+/// 2016; the league decides instead. Type names verified against the real NFL
+/// and NHL payloads 2026-08-30.
+fn standing_row_from(league: League, entry: &Value) -> Option<StandingRow> {
     let team = &entry["team"];
     let abbr = team["abbreviation"].as_str()?.to_string();
     let stats = entry["stats"].as_array()?;
@@ -707,13 +711,27 @@ fn standing_row_from(entry: &Value) -> Option<StandingRow> {
             .and_then(|s| s["value"].as_f64())
             .map(|v| v as u32)
     };
-    let (third, third_label) = match stat("ties") {
-        Some(t) => (Some(t), "T"),
-        None => match stat("otlosses") {
+    let (third, third_label) = match league {
+        League::Nfl | League::Cfb | League::Epl | League::Mls => match stat("ties") {
+            Some(t) => (Some(t), "T"),
+            None => (None, ""),
+        },
+        League::Nhl => match stat("otlosses") {
             Some(otl) => (Some(otl), "OTL"),
             None => (None, ""),
         },
+        _ => (None, ""),
     };
+    // The college-football feed omits a stat whose value is zero, so a 1-0
+    // team carries `wins` and no `losses` (verified against the live FBS
+    // payload 2026-08-31: 138 entries, zero of them with a `losses` stat).
+    // Requiring both dropped every undefeated team — and, in preseason, the
+    // whole table. One of the two is enough; the missing one is the zero the
+    // feed didn't bother to send. An entry with neither is still not a row.
+    let (wins, losses) = (stat("wins"), stat("losses"));
+    if wins.is_none() && losses.is_none() {
+        return None;
+    }
     Some(StandingRow {
         name: team["name"]
             .as_str()
@@ -721,8 +739,8 @@ fn standing_row_from(entry: &Value) -> Option<StandingRow> {
             .unwrap_or(&abbr)
             .to_string(),
         abbr,
-        wins: stat("wins")?,
-        losses: stat("losses")?,
+        wins: wins.unwrap_or(0),
+        losses: losses.unwrap_or(0),
         third,
         third_label,
     })
@@ -732,32 +750,79 @@ fn standing_row_from(entry: &Value) -> Option<StandingRow> {
 /// worked directly (NFL + NHL, checked 2026-08-30); the plan's
 /// `apis/site/v2` fallback was never needed. Shape: `children[]` (one per
 /// conference) each carrying `standings.entries[]`; a league that sends no
-/// children gets its root `standings` mapped as a single group.
+/// children gets its root `standings` mapped as a single group. A child that
+/// carries its own `children[]` (divisions under a conference) contributes one
+/// group per grandchild, named "conference · division".
+///
+/// Rows come out of the feed in ESPN's own order, which is not standings
+/// order; every group is sorted here — win pct desc, wins desc, name asc — so
+/// a table headed STANDINGS actually stands them.
 pub fn map_standings(league: League, json: &str) -> Result<StandingsTable, MapError> {
     let v: Value = serde_json::from_str(json)?;
-    let group_from = |name: &Value, standings: &Value| -> Option<StandingsGroup> {
-        let rows: Vec<StandingRow> = standings["entries"]
+    let group_from = |name: String, standings: &Value| -> Option<StandingsGroup> {
+        let mut rows: Vec<StandingRow> = standings["entries"]
             .as_array()?
             .iter()
-            .filter_map(standing_row_from)
+            .filter_map(|e| standing_row_from(league, e))
             .collect();
         if rows.is_empty() {
             return None; // a group with no mappable rows is noise, not data
         }
-        Some(StandingsGroup {
-            name: name.as_str().unwrap_or("").to_string(),
-            rows,
-        })
+        rows.sort_by(|a, b| {
+            win_pct(league, b)
+                .total_cmp(&win_pct(league, a))
+                .then(b.wins.cmp(&a.wins))
+                .then(a.name.cmp(&b.name))
+        });
+        Some(StandingsGroup { name, rows })
     };
+    let name_of = |v: &Value| v["name"].as_str().unwrap_or("").to_string();
     let mut groups = Vec::new();
     for c in v["children"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
-        groups.extend(group_from(&c["name"], &c["standings"]));
+        let conference = name_of(c);
+        let divisions = c["children"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        if divisions.is_empty() {
+            groups.extend(group_from(conference, &c["standings"]));
+        } else {
+            for d in divisions {
+                let name = format!("{conference} · {}", name_of(d));
+                groups.extend(group_from(name, &d["standings"]));
+            }
+        }
     }
     if groups.is_empty() {
-        groups.extend(group_from(&v["name"], &v["standings"]));
+        groups.extend(group_from(name_of(&v), &v["standings"]));
     }
     if groups.is_empty() {
         return Err(MapError::Missing("children[].standings.entries"));
     }
-    Ok(StandingsTable { league, groups })
+    // The season label the feed prints on itself ("2025-26"): NBA/NHL/CBB
+    // serve last season's table all summer, and an unlabeled one reads as
+    // today's.
+    let season = v["season"]["displayName"]
+        .as_str()
+        .or_else(|| v["seasonDisplayName"].as_str())
+        .map(str::to_string);
+    Ok(StandingsTable {
+        league,
+        season,
+        groups,
+        fetched_at: None,
+    })
+}
+
+/// Winning percentage, the sort key. Ties count half a win and one game
+/// played; hockey's overtime losses are losses that happen to be worth a
+/// point in the real standings — they add a game played and nothing else.
+fn win_pct(league: League, r: &StandingRow) -> f64 {
+    let third = r.third.unwrap_or(0);
+    let played = r.wins + r.losses + third;
+    if played == 0 {
+        return 0.0;
+    }
+    let credit = match league {
+        League::Nhl => r.wins as f64,
+        _ => r.wins as f64 + 0.5 * third as f64,
+    };
+    credit / played as f64
 }

@@ -1108,7 +1108,11 @@ impl App {
 
     /// Latest standings for one league, from the on-demand fetch (or a
     /// fixture in tests/dump). Replaces wholesale — a table is a snapshot.
-    pub fn merge_standings(&mut self, table: StandingsTable) {
+    /// Stamped with the moment we took it: a table the feed doesn't label
+    /// with a season is labeled with its own age instead, so it never reads
+    /// as live when it isn't.
+    pub fn merge_standings(&mut self, mut table: StandingsTable) {
+        table.fetched_at = Some(self.now());
         self.standings.insert(table.league, table);
     }
 

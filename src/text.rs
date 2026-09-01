@@ -61,7 +61,7 @@ pub fn local_time(iso: &str, offset: UtcOffset) -> Option<OffsetDateTime> {
 /// today → `9:38 PM`; within the next six days → `THU 8:20 PM`; otherwise
 /// `SEP 13 1:00 PM`. Six days keeps a bare weekday unambiguous.
 pub fn fmt_start(start: OffsetDateTime, now: OffsetDateTime) -> String {
-    let clock = hm12(start);
+    let clock = fmt_hm12(start);
     let days = (start.date() - now.date()).whole_days();
     if days == 0 {
         clock
@@ -82,7 +82,9 @@ pub fn fmt_clock12(t: OffsetDateTime) -> String {
     format!("{h}:{:02}:{:02} {ampm}", t.minute(), t.second())
 }
 
-fn hm12(t: OffsetDateTime) -> String {
+/// Clock without seconds: `9:41 PM`. The seconds in `fmt_clock12` are for a
+/// header that ticks; a timestamp that doesn't tick shouldn't carry them.
+pub fn fmt_hm12(t: OffsetDateTime) -> String {
     let (h, ampm) = h12(t.hour());
     format!("{h}:{:02} {ampm}", t.minute())
 }
@@ -203,5 +205,12 @@ mod time_tests {
     fn fmt_clock12_has_seconds_and_meridiem() {
         assert_eq!(fmt_clock12(datetime!(2026-08-31 21:30:01 -4)), "9:30:01 PM");
         assert_eq!(fmt_clock12(datetime!(2026-08-31 00:00:00 -4)), "12:00:00 AM");
+    }
+
+    #[test]
+    fn fmt_hm12_drops_the_seconds() {
+        assert_eq!(fmt_hm12(datetime!(2026-08-31 21:41:59 -4)), "9:41 PM");
+        assert_eq!(fmt_hm12(datetime!(2026-08-31 00:05:00 -4)), "12:05 AM");
+        assert_eq!(fmt_hm12(datetime!(2026-08-31 12:00:00 -4)), "12:00 PM");
     }
 }

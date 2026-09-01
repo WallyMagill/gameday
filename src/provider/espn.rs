@@ -200,7 +200,16 @@ pub fn summary_url(league: League, event_id: &str) -> String {
 /// site/v2 fallback was never needed.
 pub fn standings_url(league: League) -> String {
     let (sport, slug) = league.espn_path();
-    format!("https://site.web.api.espn.com/apis/v2/sports/{sport}/{slug}/standings")
+    let base = format!("https://site.web.api.espn.com/apis/v2/sports/{sport}/{slug}/standings");
+    match league {
+        // College football has no one league table — you stand teams inside
+        // a group. Checked 2026-08-31: `?group=80` returns FBS, 11
+        // conferences (Sun Belt nested as two divisions), 138 teams. The bare
+        // path happens to default to the same group today; pinning it means
+        // the CFB table stays FBS when that default moves.
+        League::Cfb => format!("{base}?group=80"),
+        _ => base,
+    }
 }
 
 pub fn cache_write(dir: &Path, key: &str, body: &str) -> std::io::Result<()> {
@@ -318,6 +327,16 @@ mod tests {
         let u = scoreboard_url(League::Cfb);
         assert!(u.contains("college-football/scoreboard"), "{u}");
         assert!(u.contains("groups=80"), "{u}");
+    }
+
+    #[test]
+    fn standings_url_pins_cfb_to_fbs_and_leaves_the_others_bare() {
+        let u = standings_url(League::Cfb);
+        assert!(u.ends_with("college-football/standings?group=80"), "{u}");
+        assert_eq!(
+            standings_url(League::Nfl),
+            "https://site.web.api.espn.com/apis/v2/sports/football/nfl/standings"
+        );
     }
 
     #[test]

@@ -812,6 +812,7 @@ fn standings_table() -> gameday::domain::StandingsTable {
     };
     StandingsTable {
         league: League::Nfl,
+        season: None,
         groups: vec![
             StandingsGroup {
                 name: "American Football Conference".into(),
@@ -822,6 +823,7 @@ fn standings_table() -> gameday::domain::StandingsTable {
                 rows: vec![row("PHI", "Eagles", 12, 5, 0), row("DAL", "Cowboys", 9, 8, 0)],
             },
         ],
+        fetched_at: None,
     }
 }
 
@@ -867,6 +869,46 @@ fn standings_view_without_data_says_so_and_esc_pops() {
     gameday::input::handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
     assert_eq!(app.view, View::Board);
     assert!(!app.should_quit);
+}
+
+/// College football has no one FBS table to stand — the view says that
+/// instead of "no standings yet", which reads as a fetch still in flight.
+#[test]
+fn standings_view_for_cfb_says_there_is_no_fbs_wide_table() {
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Cfb);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("no FBS-wide standings table"), "{s}");
+    assert!(s.contains(":standings <conf>"), "the workaround must be named:\n{s}");
+    assert!(!s.contains("no standings yet"), "{s}");
+}
+
+/// The header dates the table: the feed's own season when it sent one, and
+/// otherwise when we took the snapshot — never nothing, which reads as live.
+#[test]
+fn standings_header_carries_the_season_else_when_it_was_fetched() {
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Nfl);
+    app.merge_standings(standings_table());
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let header = s.lines().find(|l| l.contains("STANDINGS")).unwrap();
+    assert!(header.contains("·  updated "), "no updated label:\n{header:?}");
+    assert!(!header.contains("2025-26"), "{header:?}");
+
+    let mut table = standings_table();
+    table.season = Some("2025-26".into());
+    app.merge_standings(table);
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let header = s.lines().find(|l| l.contains("STANDINGS")).unwrap();
+    assert!(header.contains("·  2025-26"), "no season label:\n{header:?}");
+    assert!(!header.contains("updated"), "season wins over the age:\n{header:?}");
 }
 
 #[test]
@@ -918,7 +960,9 @@ fn tall_standings_table() -> gameday::domain::StandingsTable {
     };
     StandingsTable {
         league: League::Nfl,
+        season: None,
         groups: vec![group("American Football Conference", "A"), group("National Football Conference", "N")],
+        fetched_at: None,
     }
 }
 
