@@ -139,7 +139,7 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
             Some((t, win, loss))
         })
         .collect();
-    rows.sort_by(|a, b| b.1.cmp(&a.1));
+    rows.sort_by_key(|r| std::cmp::Reverse(r.1));
     lines.push(Line::from(Span::styled(
         format!("{:<12}{:>3}{:>3}", "TEAM", "W", "L"),
         Style::default().fg(th.muted),

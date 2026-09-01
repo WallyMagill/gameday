@@ -680,7 +680,7 @@ mod tests {
             .collect();
         assert!(!leaders.is_empty(), "no leader lines:\n{text}");
         for line in &leaders {
-            let team = line.trim_start().split_whitespace().next().unwrap_or("");
+            let team = line.split_whitespace().next().unwrap_or("");
             assert!(team == "KC" || team == "TB", "leader from another game: {line:?}");
         }
         assert!(text.contains("Mahomes"), "KC leader missing:\n{text}");

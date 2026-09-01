@@ -50,7 +50,7 @@ const FEED_PAGE_JUMP: isize = 10;
 /// LIVE chip pulse phase, pure in the tick: ~1s bright then ~1s dim at the
 /// 10 ticks/s live cadence. A luminance step, never a hue change.
 pub fn live_pulse_bright(tick: u64) -> bool {
-    (tick / 10) % 2 == 0
+    (tick / 10).is_multiple_of(2)
 }
 
 /// How far `[`/`]` can step the viewed slate from today, in days (the spec's
@@ -1608,13 +1608,15 @@ mod tests {
         let board = &app.boards[&League::Nfl];
         assert_eq!(board[0].last_plays[0].text, "from scoreboard");
         // A real summary still replaces them.
-        let mut s = crate::domain::Summary::default();
-        s.last_plays = vec![crate::domain::Play {
-            clock: "0:55".into(),
-            team: "TB".into(),
-            text: "from summary".into(),
+        let s = crate::domain::Summary {
+            last_plays: vec![crate::domain::Play {
+                clock: "0:55".into(),
+                team: "TB".into(),
+                text: "from summary".into(),
+                ..Default::default()
+            }],
             ..Default::default()
-        }];
+        };
         app.merge_summary("1", s);
         assert_eq!(app.boards[&League::Nfl][0].last_plays[0].text, "from summary");
     }

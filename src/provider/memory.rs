@@ -11,6 +11,12 @@ pub struct MemoryProvider {
     pub standings: HashMap<League, StandingsTable>,
 }
 
+impl Default for MemoryProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryProvider {
     pub fn new() -> Self {
         Self {
