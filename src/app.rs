@@ -16,7 +16,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +94,10 @@ pub struct App {
     pub stale: bool,
     pub should_quit: bool,
     pub refresh_now: bool,
+    /// The last scoreboard fetch that failed: (league, short error, retry
+    /// delay). Stored only — the status line that reads it arrives with the
+    /// real status machine.
+    pub last_failure: Option<(League, String, Option<Duration>)>,
     /// Which full-screen surface the body renders; Board is the mosaic.
     /// Replaces the old `focused_id` mechanism — the zoomed game id lives
     /// inside `View::Zoom`.
@@ -188,6 +192,7 @@ impl App {
             stale: false,
             should_quit: false,
             refresh_now: false,
+            last_failure: None,
             view: View::Board,
             zoom_scroll: 0,
             feed_scroll: 0,
@@ -928,18 +933,18 @@ impl App {
         self.zoomed_game().map(|g| (g.league, g.id))
     }
 
-    pub fn poll_plan(&self) -> crate::poll::PollPlan {
-        crate::poll::plan(
-            &self.visible_for_poll(),
-            &self.config.enabled_tabs,
-            self.stats_target(),
-        )
-    }
-
     /// Latest box score for `game_id`, from the stats poll (or a fixture in
     /// tests/dump). Replaces wholesale — rows are a snapshot, not a delta.
     pub fn merge_stats(&mut self, game_id: &str, stats: GameStats) {
         self.stats.insert(game_id.to_string(), stats);
+    }
+
+    /// Record a failed scoreboard fetch: which league, the provider's short
+    /// error (`ESPN 403 nfl scoreboard`), and how long until the scheduler
+    /// retries. Stored only for now — the status machine that surfaces it
+    /// lands with the connection banner.
+    pub fn note_failure(&mut self, league: League, error: String, retry_in: Option<Duration>) {
+        self.last_failure = Some((league, error, retry_in));
     }
 
     /// The league the Standings view wants a table for — the on-demand
@@ -973,13 +978,6 @@ impl App {
             }
         }
         out
-    }
-
-    fn visible_for_poll(&self) -> Vec<Game> {
-        match self.tab {
-            Tab::Home => self.visible_games(),
-            Tab::League(league) => self.boards.get(&league).cloned().unwrap_or_default(),
-        }
     }
 
     /// Everything j/k can land on. On a league tab the selection runs through

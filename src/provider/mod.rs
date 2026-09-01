@@ -68,9 +68,9 @@ pub trait SportsProvider {
     ) -> Result<(Vec<Game>, bool), ProviderError>;
     fn summary(&self, league: League, game_id: &str) -> Result<(Summary, bool), ProviderError>;
     /// Box score for one game — same summary payload as `summary`, different
-    /// mapping. Polled only for the zoomed game (see `poll::plan`).
+    /// mapping. Polled only for the zoomed game (see `crate::poll::Scheduler`).
     fn stats(&self, league: League, game_id: &str) -> Result<(GameStats, bool), ProviderError>;
     /// League standings — fetched on demand when the Standings view opens,
-    /// never polled continuously (see `espn::STANDINGS_TTL`).
+    /// never polled continuously (see `crate::poll::STANDINGS_TTL`).
     fn standings(&self, league: League) -> Result<(StandingsTable, bool), ProviderError>;
 }

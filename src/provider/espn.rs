@@ -3,13 +3,9 @@ use std::time::Duration;
 
 use crate::domain::{League, StandingsTable};
 use crate::provider::map::{map_scoreboard, map_standings, map_stats, map_summary};
+use crate::poll::STANDINGS_TTL;
 use crate::provider::{ProviderError, SportsProvider};
 use crate::{Game, GameStats, Summary};
-
-/// Standings freshness window: a cache younger than this is served without
-/// touching the network. 10 minutes per the v2 spec ("on demand, cache 10
-/// min") — standings move at game granularity, not play granularity.
-pub const STANDINGS_TTL: Duration = Duration::from_secs(10 * 60);
 
 /// Guess: ESPN answers in well under a second when it answers at all; 10s is
 /// "the socket is dead", not "slow" — long enough to survive a hiccup, short
@@ -225,11 +221,6 @@ pub fn cache_age(dir: &Path, key: &str) -> Option<Duration> {
         .and_then(|t| t.elapsed().ok())
 }
 
-/// Guess: unofficial ESPN API has no Retry-After; poll loop uses 5 * 2^attempt, attempt capped at 4.
-pub fn backoff_secs(attempt: u32) -> u64 {
-    5 * 2u64.pow(attempt.min(4))
-}
-
 impl SportsProvider for EspnProvider {
     fn scoreboard(&self, league: League) -> Result<(Vec<Game>, bool), ProviderError> {
         let url = scoreboard_url(league);
@@ -400,14 +391,6 @@ mod tests {
         cache_write(&dir, "nfl-scoreboard", "{\"ok\":1}").unwrap();
         assert!(cache_read(&dir, "nfl-scoreboard").unwrap().contains("ok"));
         std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn backoff_doubles_and_caps() {
-        assert_eq!(backoff_secs(0), 5);
-        assert_eq!(backoff_secs(1), 10);
-        assert_eq!(backoff_secs(4), 80);
-        assert_eq!(backoff_secs(9), 80);
     }
 
     fn tmp(name: &str) -> PathBuf {
