@@ -1,4 +1,5 @@
 use std::io::stdout;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -85,6 +86,13 @@ enum Msg {
 /// handshakes (zoom, standings, dated slate, league list, refresh flag).
 type WantsShared = Arc<Mutex<gameday::poll::Wants>>;
 
+/// R in the UI sets this; the poll thread swaps it false once per pass and
+/// treats every scoreboard as due. Its own one-shot atomic, not a field of
+/// [`WantsShared`]: a whole-struct republish (a game going live, a zoom
+/// opening) would otherwise overwrite a pending request before the poll
+/// thread ever saw it.
+type RefreshFlag = Arc<AtomicBool>;
+
 fn main() -> std::io::Result<()> {
     let args = match parse_args(&std::env::args().collect::<Vec<_>>()) {
         Ok(args) => args,
@@ -114,7 +122,7 @@ fn main() -> std::io::Result<()> {
         thread::spawn(move || sim_loop(tx));
         // The simulator ignores what the UI wants polled; the snapshot is
         // published and simply never read.
-        return run_ui(app, Some(rx), WantsShared::default());
+        return run_ui(app, Some(rx), WantsShared::default(), RefreshFlag::default());
     }
 
     let dir = dirs::config_dir()
@@ -138,8 +146,10 @@ fn main() -> std::io::Result<()> {
     // republishes it only when it changes.
     let wants = WantsShared::default();
     let wants_poll = wants.clone();
-    thread::spawn(move || poll_loop(provider, tx, wants_poll));
-    run_ui(app, Some(rx), wants)
+    let refresh = RefreshFlag::default();
+    let refresh_poll = refresh.clone();
+    thread::spawn(move || poll_loop(provider, tx, wants_poll, refresh_poll));
+    run_ui(app, Some(rx), wants, refresh)
 }
 
 /// Dev verification: fetch and map one league's real scoreboard, print one
@@ -202,82 +212,81 @@ fn sim_loop(tx: mpsc::Sender<Msg>) {
     }
 }
 
-fn poll_loop(provider: EspnProvider, tx: mpsc::Sender<Msg>, wants: WantsShared) {
+fn poll_loop(
+    provider: EspnProvider,
+    tx: mpsc::Sender<Msg>,
+    wants: WantsShared,
+    refresh: RefreshFlag,
+) {
     use gameday::poll::{Request, Scheduler};
     // Seeded per process so two gameday instances on one machine don't line
     // their fetches up on the same instant.
     let mut sched = Scheduler::new(std::process::id() as u64);
     loop {
         let w = wants.lock().map(|w| w.clone()).unwrap_or_default();
+        // One R, one forced round: consumed here, so a second R that lands
+        // mid-round is still honoured on the next pass.
+        let refresh_now = refresh.swap(false, Ordering::Relaxed);
         let now = Instant::now();
-        for req in sched.due(&w, now) {
-            let ok = match &req {
+        for req in sched.due(&w, refresh_now, now) {
+            match &req {
+                // Reported before the message is sent: `retry_in` is the
+                // delay this failure just produced, which only exists once
+                // report() has bumped the attempt count.
                 Request::Scoreboard(league) => match provider.scoreboard(*league) {
                     Ok((games, stale)) => {
+                        sched.report(&req, true, Instant::now());
                         let _ = tx.send(Msg::Boards {
                             league: *league,
                             games,
                             stale,
                         });
-                        true
                     }
                     Err(e) => {
+                        let done = Instant::now();
+                        sched.report(&req, false, done);
                         let _ = tx.send(Msg::Failed {
                             league: *league,
                             error: e.short(),
-                            retry_in: sched.next_retry(*league, now),
+                            retry_in: sched.next_retry(*league, done),
                         });
-                        false
                     }
                 },
-                Request::Summary(league, id) => match provider.summary(*league, id) {
-                    Ok((s, _)) => {
+                // Only scoreboards carry per-league backoff, so the rest
+                // report nothing — the freshness windows in `due` pace them.
+                Request::Summary(league, id) => {
+                    if let Ok((summary, _)) = provider.summary(*league, id) {
                         let _ = tx.send(Msg::Summary {
                             id: id.clone(),
-                            summary: s,
+                            summary,
                         });
-                        true
                     }
-                    Err(_) => false,
-                },
-                Request::Stats(league, id) => match provider.stats(*league, id) {
-                    Ok((s, _)) => {
+                }
+                Request::Stats(league, id) => {
+                    if let Ok((stats, _)) = provider.stats(*league, id) {
                         let _ = tx.send(Msg::Stats {
                             id: id.clone(),
-                            stats: s,
+                            stats,
                         });
-                        true
                     }
-                    Err(_) => false,
-                },
-                Request::Dated(league, date) => match provider.scoreboard_on(*league, *date) {
-                    Ok((games, _)) => {
+                }
+                Request::Dated(league, date) => {
+                    if let Ok((games, _)) = provider.scoreboard_on(*league, *date) {
                         let _ = tx.send(Msg::DatedBoards {
                             league: *league,
                             date: *date,
                             games,
                         });
-                        true
                     }
-                    Err(_) => false,
-                },
-                Request::Standings(league) => match provider.standings(*league) {
-                    Ok((t, _)) => {
-                        let _ = tx.send(Msg::Standings(t));
-                        true
+                }
+                Request::Standings(league) => {
+                    if let Ok((table, _)) = provider.standings(*league) {
+                        let _ = tx.send(Msg::Standings(table));
                     }
-                    Err(_) => false,
-                },
-            };
-            sched.report(&req, ok, Instant::now());
-        }
-        // One R, one forced round: consumed here so the next tick is normal.
-        if w.refresh_now {
-            if let Ok(mut w) = wants.lock() {
-                w.refresh_now = false;
+                }
             }
         }
-        thread::sleep(Duration::from_millis(200));
+        thread::sleep(gameday::poll::TICK);
     }
 }
 
@@ -307,6 +316,7 @@ fn run_ui(
     mut app: App,
     rx: Option<mpsc::Receiver<Msg>>,
     wants: WantsShared,
+    refresh: RefreshFlag,
 ) -> std::io::Result<()> {
     let mut published = gameday::poll::Wants::default();
     enable_raw_mode()?;
@@ -378,6 +388,11 @@ fn run_ui(
                 _ => {}
             }
         }
+        if app.refresh_now {
+            // Hand the request to poll_loop, which swaps it each ~200ms tick.
+            refresh.store(true, Ordering::Relaxed);
+            app.refresh_now = false;
+        }
         // One snapshot of what the poll thread should be fetching. Written
         // under the lock only when it differs from the last publish, so the
         // mutex isn't touched every 50ms input poll.
@@ -387,19 +402,12 @@ fn run_ui(
             zoomed: app.stats_target(),
             dated: app.dated_target(),
             standings: app.standings_target(),
-            refresh_now: app.refresh_now,
         };
         if next != published {
             if let Ok(mut w) = wants.lock() {
                 *w = next.clone();
+                published = next;
             }
-            published = next;
-            // R is handed off; the poll thread clears the shared flag once it
-            // has forced its round. Recording it as already-false here keeps
-            // the UI from republishing `false` over it 50ms later and
-            // swallowing the request.
-            published.refresh_now = false;
-            app.refresh_now = false;
         }
         if app.should_quit {
             break 'ui;

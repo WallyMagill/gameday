@@ -56,7 +56,6 @@ pub struct Wants {
     pub zoomed: Option<(League, String)>,
     pub dated: Option<(League, time::Date)>,
     pub standings: Option<League>,
-    pub refresh_now: bool,
 }
 
 #[derive(Default)]
@@ -71,6 +70,9 @@ pub struct Scheduler {
     last_stats: Option<(String, Instant)>,
     last_dated: Option<((League, time::Date), Instant)>,
     last_standings: Option<(League, Instant)>,
+    /// The scoreboard interval the last `due` pass used, so a cadence that
+    /// speeds up (idle -> live) can pull already-scheduled slots forward.
+    last_every: Option<Duration>,
     rng: u64,
 }
 
@@ -82,6 +84,7 @@ impl Scheduler {
             last_stats: None,
             last_dated: None,
             last_standings: None,
+            last_every: None,
             rng: seed.max(1),
         }
     }
@@ -97,13 +100,27 @@ impl Scheduler {
     }
 
     /// Requests due at `now`, staggered so N leagues never fire in one burst.
-    pub fn due(&mut self, wants: &Wants, now: Instant) -> Vec<Request> {
+    /// `refresh_now` is the UI's one-shot R: it makes every scoreboard due.
+    pub fn due(&mut self, wants: &Wants, refresh_now: bool, now: Instant) -> Vec<Request> {
         let mut out = Vec::new();
         let every = if wants.any_live {
             SCOREBOARD_LIVE
         } else {
             SCOREBOARD_IDLE
         };
+        // A cadence that just got faster (a game went live) pulls every
+        // pending slot forward, so a league parked an idle minute out isn't
+        // stuck at that minute while the board is live. Only on the change:
+        // clamping every pass would also cancel the upward half of the
+        // jitter and quietly raise the request budget.
+        if self.last_every.is_some_and(|last| every < last) {
+            for st in self.leagues.values_mut() {
+                if let Some(slot) = st.next_due {
+                    st.next_due = Some(slot.min(now + every));
+                }
+            }
+        }
+        self.last_every = Some(every);
         // Stagger: a league that has never been scheduled gets its first slot
         // i*every/n after `now`, so a cold start (or :config enabling nine
         // leagues) spreads across the window instead of firing nine at once.
@@ -111,7 +128,7 @@ impl Scheduler {
         for (i, league) in wants.leagues.iter().enumerate() {
             let st = self.leagues.entry(*league).or_default();
             let slot = *st.next_due.get_or_insert_with(|| now + every * i as u32 / n);
-            if wants.refresh_now || slot <= now + TICK {
+            if refresh_now || slot <= now + TICK {
                 out.push(Request::Scoreboard(*league));
                 st.next_due = Some(now + every); // provisional; report() re-jitters
             }
