@@ -43,6 +43,7 @@ impl SportsProvider for MemoryProvider {
             .map(|g| (g, false))
             .ok_or_else(|| ProviderError::Http {
                 status: 0,
+                key: format!("{}-scoreboard", league.slug()),
                 url: String::new(),
                 detail: format!(
                     "no dated board seeded for league={:?} date={date}, have: {:?}",
@@ -59,6 +60,7 @@ impl SportsProvider for MemoryProvider {
             .map(|s| (s, false))
             .ok_or_else(|| ProviderError::Http {
                 status: 0,
+                key: format!("{game_id}-summary"),
                 url: String::new(),
                 detail: format!("no summary seeded for game_id={game_id:?}"),
             })
@@ -71,6 +73,7 @@ impl SportsProvider for MemoryProvider {
             .map(|s| (s, false))
             .ok_or_else(|| ProviderError::Http {
                 status: 0,
+                key: format!("{game_id}-stats"),
                 url: String::new(),
                 detail: format!(
                     "no stats seeded for game_id={game_id:?}, have: {:?}",
@@ -86,6 +89,7 @@ impl SportsProvider for MemoryProvider {
             .map(|t| (t, false))
             .ok_or_else(|| ProviderError::Http {
                 status: 0,
+                key: format!("{}-standings", league.slug()),
                 url: String::new(),
                 detail: format!(
                     "no standings seeded for league={:?}, have: {:?}",

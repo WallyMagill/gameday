@@ -38,23 +38,20 @@ pub(crate) enum Fetched {
     NotModified,
 }
 
-/// The error a caller shows names the *resource* — a footer has room for
-/// "ESPN 403 nfl scoreboard", not for a signed query string. The URL survives
-/// in `detail` for the log.
+/// `http` knows the URL; only `fetch_with` knows which cache key that URL is
+/// serving, so it stamps the key on the way out. The URL is left alone.
 fn stamp(err: ProviderError, key: &str) -> ProviderError {
     match err {
         ProviderError::Http {
             status,
             url,
             detail,
+            ..
         } => ProviderError::Http {
             status,
-            url: key.to_string(),
-            detail: if detail.is_empty() {
-                url
-            } else {
-                format!("{url}: {detail}")
-            },
+            key: key.to_string(),
+            url,
+            detail,
         },
         other => other,
     }
@@ -84,10 +81,13 @@ impl EspnProvider {
             req = req.set("If-None-Match", tag);
         }
         match req.call() {
+            // `key` is left empty here and filled in by `stamp`: this layer
+            // only knows the URL it asked for.
             Ok(r) => {
                 let etag = r.header("etag").map(str::to_string);
                 let body = r.into_string().map_err(|e| ProviderError::Http {
                     status: 0,
+                    key: String::new(),
                     url: url.into(),
                     detail: format!("body read: {e}"),
                 })?;
@@ -96,11 +96,13 @@ impl EspnProvider {
             Err(ureq::Error::Status(304, _)) => Ok(Fetched::NotModified),
             Err(ureq::Error::Status(code, _)) => Err(ProviderError::Http {
                 status: code,
+                key: String::new(),
                 url: url.into(),
                 detail: String::new(),
             }),
             Err(e) => Err(ProviderError::Http {
                 status: 0,
+                key: String::new(),
                 url: url.into(),
                 detail: e.to_string(),
             }),
@@ -124,8 +126,13 @@ impl EspnProvider {
             Ok(Fetched::Body { body, etag }) => match map(&body) {
                 Ok(v) => {
                     cache_write(&self.cache_dir, key, &body)?;
+                    // The sidecar is an optimization, never a result: a write
+                    // that fails costs one unconditional refetch later, so it
+                    // must not turn a good payload into an error.
                     match etag {
-                        Some(t) => std::fs::write(self.etag_path(key), t)?,
+                        Some(t) => {
+                            let _ = std::fs::write(self.etag_path(key), t);
+                        }
                         None => {
                             let _ = std::fs::remove_file(self.etag_path(key));
                         }
@@ -138,7 +145,8 @@ impl EspnProvider {
                 Some(body) => return map(body).map(|v| (v, false)),
                 None => ProviderError::Http {
                     status: 304,
-                    url: key.into(),
+                    key: key.into(),
+                    url: String::new(),
                     detail: "304 with no cache".into(),
                 },
             },
@@ -510,6 +518,7 @@ mod tests {
                 |_| {
                     Err(ProviderError::Http {
                         status: 403,
+                        key: "k".into(),
                         url: "u".into(),
                         detail: String::new(),
                     })
@@ -519,6 +528,61 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, ProviderError::Http { status: 403, .. }));
         assert_eq!(err.short(), "ESPN 403 k");
+        // The key is what a reader sees; the URL still survives for the log.
+        assert!(
+            err.to_string().contains("url=u"),
+            "url must survive stamping: {err}"
+        );
+    }
+
+    #[test]
+    fn a_fresh_body_without_an_etag_removes_a_stale_sidecar() {
+        let dir = tmp("drop-etag");
+        let p = provider(&dir);
+        cache_write(&dir, "k", "{\"v\":1}").unwrap();
+        std::fs::write(dir.join("k.etag"), "\"old\"").unwrap();
+        let got = p
+            .fetch_with(
+                "k",
+                |_| {
+                    Ok(Fetched::Body {
+                        body: "{\"v\":2}".into(),
+                        etag: None,
+                    })
+                },
+                ok_map,
+            )
+            .unwrap();
+        assert_eq!(got, ("{\"v\":2}".to_string(), false));
+        assert!(
+            !dir.join("k.etag").exists(),
+            "an ETag that no longer describes the cached body must not survive"
+        );
+    }
+
+    #[test]
+    fn a_sidecar_without_a_cached_body_is_not_sent() {
+        // A 304 answered against a body we don't have would leave nothing to
+        // serve, so the orphaned ETag stays home.
+        let dir = tmp("orphan-etag");
+        let p = provider(&dir);
+        std::fs::write(dir.join("k.etag"), "\"abc\"").unwrap();
+        let mut seen = Some("sentinel".to_string());
+        let got = p
+            .fetch_with(
+                "k",
+                |etag| {
+                    seen = etag.map(str::to_string);
+                    Ok(Fetched::Body {
+                        body: "{\"v\":9}".into(),
+                        etag: None,
+                    })
+                },
+                ok_map,
+            )
+            .unwrap();
+        assert_eq!(seen, None, "no cached body means no If-None-Match");
+        assert_eq!(got, ("{\"v\":9}".to_string(), false));
     }
 
     #[test]

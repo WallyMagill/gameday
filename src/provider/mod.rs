@@ -8,11 +8,12 @@ use crate::{Game, GameStats, League, Summary};
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
     /// `status` 0 means the request never got a response (DNS, TCP, timeout).
-    /// `url` is what the message names — the provider stamps the cache key here
-    /// when it gives up, and keeps the raw URL in `detail`.
-    #[error("http status={status} url={url} {detail}")]
+    /// `key` is the resource that failed (the cache key, `nfl-scoreboard`) —
+    /// that is what a reader is shown; `url` is always the real URL, for logs.
+    #[error("http status={status} {key} url={url} {detail}")]
     Http {
         status: u16,
+        key: String,
         url: String,
         detail: String,
     },
@@ -33,33 +34,26 @@ impl ProviderError {
         match self {
             ProviderError::Http {
                 status: 0,
-                url,
+                key,
                 detail,
+                ..
             } if detail.contains("timed out") || detail.contains("timeout") => {
-                format!("ESPN timeout {}", key_of(url))
+                format!("ESPN timeout {}", key_of(key))
             }
-            ProviderError::Http { status: 0, url, .. } => {
-                format!("ESPN unreachable {}", key_of(url))
+            ProviderError::Http { status: 0, key, .. } => {
+                format!("ESPN unreachable {}", key_of(key))
             }
-            ProviderError::Http { status, url, .. } => format!("ESPN {status} {}", key_of(url)),
+            ProviderError::Http { status, key, .. } => format!("ESPN {status} {}", key_of(key)),
             ProviderError::Map { key, .. } => format!("ESPN bad body {}", key_of(key)),
             ProviderError::Io(e) => format!("disk {e}"),
         }
     }
 }
 
-/// "…/sports/football/nfl/scoreboard?x" -> "nfl scoreboard"; a cache key
-/// (`nfl-scoreboard`) reads the same way once its hyphens are spaces.
-fn key_of(url: &str) -> String {
-    if !url.contains("://") {
-        return url.replace('-', " ");
-    }
-    let path = url.split('?').next().unwrap_or(url);
-    let parts: Vec<&str> = path.rsplit('/').take(2).collect();
-    match parts.as_slice() {
-        [res, league] if !league.is_empty() => format!("{league} {res}"),
-        _ => url.to_string(),
-    }
+/// A cache key (`nfl-scoreboard`) reads as "league resource" once its hyphens
+/// are spaces. Only ever handed keys — never URLs.
+fn key_of(key: &str) -> String {
+    key.replace('-', " ")
 }
 
 pub trait SportsProvider {
