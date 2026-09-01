@@ -16,6 +16,10 @@
 //!   config        — the in-app config editor (:config)
 //!   filter        — the NFL tab narrowed by a committed /kc filter
 //!   theme-picker  — the `:theme` picker panel over the home board
+//!   home-live     — the first-boot Home frame, every live demo game on it
+//!   offline       — no board at all, a named fetch failure and its retry
+//!   stale         — a board served from cache, backdated to read STALE 4m
+//!   config-error  — an unparseable config.toml, named line and valid values
 //!
 //! Every capture is the sim state at a fixed tick (`--tick N`, default 0), so
 //! repeated runs are pixel-deterministic. No timestamps in file names.
@@ -134,6 +138,38 @@ pub fn gallery() -> Vec<Variant> {
     fn theme_picker(app: &mut App) {
         app.open_theme_picker();
     }
+    // Home now shows every live demo game, so the plain Home tab IS the
+    // first-boot frame — the capture other tasks compare the board against.
+    fn home_live(app: &mut App) {
+        app.tab = Tab::Home;
+    }
+    // Nothing on the board and a named failure: the empty-state message, the
+    // OFFLINE chip with its retry, and the footer line all at once.
+    fn offline(app: &mut App) {
+        app.boards.clear();
+        // The demo seeds its boards through `apply_boards`, which records a
+        // fresh OK — and a fresh OK outranks the failure behind it, so the
+        // chip would still say Live. Clearing the boards means clearing the
+        // apply that filled them: this is the boot that never got one.
+        app.net = crate::app::net::NetStatus::default();
+        app.note_failure(
+            League::Nfl,
+            "ESPN unreachable nfl scoreboard".into(),
+            Some(Duration::from_secs(40)),
+        );
+    }
+    // `NetStatus` measures age against `Instant`, so staleness is seeded by
+    // backdating the last OK apply four minutes — the chip reads "STALE 4m".
+    fn stale(app: &mut App) {
+        app.net.ok(Instant::now() - Duration::from_secs(4 * 60), true);
+    }
+    // A config.toml that doesn't parse: the banner names the line and the
+    // valid values, and `set_config_error` writes the footer itself.
+    fn config_error(app: &mut App) {
+        app.set_config_error(Some(
+            "config.toml:7: unknown variant `NFLL` — valid leagues: nfl|cfb|cbb|nba|wnba|nhl|mlb|epl|mls".into(),
+        ));
+    }
     let full = |stem, theme, style, setup| Variant {
         stem,
         cols: DUMP_COLS,
@@ -165,6 +201,10 @@ pub fn gallery() -> Vec<Variant> {
         full("config", "broadcast", ScoreStyle::Big, config),
         full("filter", "broadcast", ScoreStyle::Big, filter),
         full("theme-picker", "broadcast", ScoreStyle::Big, theme_picker),
+        full("home-live", "broadcast", ScoreStyle::Big, home_live),
+        full("offline", "broadcast", ScoreStyle::Big, offline),
+        full("stale", "broadcast", ScoreStyle::Big, stale),
+        full("config-error", "broadcast", ScoreStyle::Big, config_error),
     ]);
     out
 }
@@ -596,6 +636,10 @@ mod tests {
                 "config",
                 "filter",
                 "theme-picker",
+                "home-live",
+                "offline",
+                "stale",
+                "config-error",
             ],
             "gallery stems are a stable contract for other tasks"
         );
@@ -661,6 +705,37 @@ mod tests {
             "fixture group name missing:\n{text}"
         );
         assert!(text.contains("BUF"), "fixture team row missing:\n{text}");
+    }
+
+    /// The four state captures exist so a reviewer can see the states without
+    /// unplugging a cable — each must actually SAY its state, not just be
+    /// named after it.
+    #[test]
+    fn state_captures_each_show_the_state_they_are_named_for() {
+        let home = text_of(&render_variant(&variant("home-live"), 0).unwrap());
+        assert!(home.contains("[NFL]") && home.contains("[NBA]"), "live tiles:\n{home}");
+        // Home lists every live game; exactly one of them is the demo's pin,
+        // so exactly one tile header carries the ⚑ (the sidebar's GLOBAL
+        // ALERTS title is the only other one on the frame).
+        let flagged = home.lines().filter(|l| l.contains("⚑")).count();
+        assert_eq!(flagged, 2, "one pinned tile + the alerts title:\n{home}");
+
+        let offline = text_of(&render_variant(&variant("offline"), 0).unwrap());
+        assert!(offline.contains("OFFLINE · retry 40s"), "offline chip:\n{offline}");
+        assert!(
+            offline.contains("last error: ESPN unreachable nfl scoreboard"),
+            "the empty board must name the outage, not read as 'no games':\n{offline}"
+        );
+
+        // Seeded 240s in the past; `short_age` floors to minutes, so the label
+        // is "STALE 4m" for the whole 4:00–4:59 band — no flaky seconds.
+        let stale = text_of(&render_variant(&variant("stale"), 0).unwrap());
+        assert!(stale.contains("STALE 4m"), "stale chip:\n{stale}");
+        assert!(stale.contains("[NFL]"), "a stale board still shows its scores:\n{stale}");
+
+        let cfg = text_of(&render_variant(&variant("config-error"), 0).unwrap());
+        assert!(cfg.contains("config error: config.toml:7"), "error line:\n{cfg}");
+        assert!(cfg.contains("unknown variant"), "the reason is named:\n{cfg}");
     }
 
     #[test]

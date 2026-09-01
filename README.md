@@ -17,8 +17,11 @@ cargo run -- dump      # capture gallery into out/ (no network; --tick N picks t
 `board-gruvbox`, `board-tokyo-night`, `board-nord`, `board-catppuccin-mocha`,
 `board-rose-pine`, `board-everforest`, `board-dracula`), `board-compact`,
 `tab-nfl`, `focus`, `help`, `narrow`
-(80x24) — each as `.html` + `.ansi`, plus `.png` when headless Chrome is
-installed. Set `GAMEDAY_DUMP_FONT=/path/to/CascadiaMono.ttf` so PNGs carry the
+(80x24), `zoom-stats`, `plays-feed`, `standings`, `config`, `filter`,
+`theme-picker`, and the four state captures `home-live` (first boot),
+`offline` (no board, failed fetch), `stale` (board from cache), and
+`config-error` (unparseable config.toml) — each as `.html` + `.ansi`, plus
+`.png` when headless Chrome is installed. Set `GAMEDAY_DUMP_FONT=/path/to/CascadiaMono.ttf` so PNGs carry the
 sextant glyphs.
 
 Config: `~/.config/gameday/config.toml`

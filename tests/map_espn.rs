@@ -575,3 +575,113 @@ fn an_entry_with_neither_wins_nor_losses_is_dropped_not_read_as_0_0() {
     assert_eq!((rows[0].wins, rows[0].losses), (3, 0), "wins only maps as W-0");
     assert_eq!((rows[1].wins, rows[1].losses), (0, 2), "losses only maps as 0-L");
 }
+
+/// The truth test: real, untrimmed scoreboards and summaries from all nine
+/// leagues, captured once by `scripts/capture-fixtures.sh` and frozen here.
+/// Hand-written fixtures only prove the mapper reads what we imagined; these
+/// prove it reads what ESPN actually sends. Every event that carries two
+/// competitors must map — a skip means a real game would vanish from the
+/// board. (Events with fewer than two competitors are ESPN's own placeholder
+/// rows; the per-event skip exists precisely for them.)
+#[test]
+fn every_league_maps_its_full_scoreboard_and_summary_with_no_skips() {
+    let cases: [(League, &str, &str); 9] = [
+        (
+            League::Nfl,
+            include_str!("../fixtures/nfl_scoreboard_full.json"),
+            include_str!("../fixtures/nfl_summary_full.json"),
+        ),
+        (
+            League::Cfb,
+            include_str!("../fixtures/cfb_scoreboard_full.json"),
+            include_str!("../fixtures/cfb_summary_full.json"),
+        ),
+        (
+            League::Cbb,
+            include_str!("../fixtures/cbb_scoreboard_full.json"),
+            include_str!("../fixtures/cbb_summary_full.json"),
+        ),
+        (
+            League::Nba,
+            include_str!("../fixtures/nba_scoreboard_full.json"),
+            include_str!("../fixtures/nba_summary_full.json"),
+        ),
+        (
+            League::Wnba,
+            include_str!("../fixtures/wnba_scoreboard_full.json"),
+            include_str!("../fixtures/wnba_summary_full.json"),
+        ),
+        (
+            League::Nhl,
+            include_str!("../fixtures/nhl_scoreboard_full.json"),
+            include_str!("../fixtures/nhl_summary_full.json"),
+        ),
+        (
+            League::Mlb,
+            include_str!("../fixtures/mlb_scoreboard_full.json"),
+            include_str!("../fixtures/mlb_summary_full.json"),
+        ),
+        (
+            League::Epl,
+            include_str!("../fixtures/epl_scoreboard_full.json"),
+            include_str!("../fixtures/epl_summary_full.json"),
+        ),
+        (
+            League::Mls,
+            include_str!("../fixtures/mls_scoreboard_full.json"),
+            include_str!("../fixtures/mls_summary_full.json"),
+        ),
+    ];
+    for (league, sb, sm) in cases {
+        let raw: serde_json::Value = serde_json::from_str(sb).unwrap();
+        let mappable = raw["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| {
+                e["competitions"][0]["competitors"]
+                    .as_array()
+                    .is_some_and(|c| c.len() >= 2)
+            })
+            .count();
+        let games = map_scoreboard(league, sb, et()).unwrap();
+        assert_eq!(
+            games.len(),
+            mappable,
+            "{}: every event with two competitors maps (none skipped)",
+            league.slug()
+        );
+        for g in &games {
+            assert!(g.start.is_some(), "{}: {} has no start", league.slug(), g.id);
+            if g.status != Status::Pre {
+                assert!(
+                    !g.linescore.is_empty() || matches!(league, League::Epl | League::Mls),
+                    "{}: {} linescore",
+                    league.slug(),
+                    g.id
+                );
+            }
+        }
+        let s = map_summary(sm).unwrap();
+        assert!(!s.last_plays.is_empty(), "{}: summary plays", league.slug());
+        if league == League::Mlb {
+            assert!(
+                s.last_plays.iter().all(|p| !p.text.starts_with("Pitch ")),
+                "MLB pitch rows leaked"
+            );
+        }
+        if !s.scoring_plays.is_empty() {
+            assert!(
+                s.last_plays.iter().any(|p| p.scoring),
+                "{}: scoring flag lost",
+                league.slug()
+            );
+        }
+        let stats = map_stats(sm).unwrap();
+        assert!(
+            !stats.rows.is_empty(),
+            "{}: box score rows (grouped or flat)",
+            league.slug()
+        );
+    }
+}

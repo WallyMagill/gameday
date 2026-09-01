@@ -50,15 +50,14 @@ pub fn demo_config() -> Config {
 }
 
 pub fn demo_pins() -> Vec<Pin> {
-    ["nfl-live", "nba-live", "mlb-live", "nhl-live"]
-        .into_iter()
-        .zip([League::Nfl, League::Nba, League::Mlb, League::Nhl])
-        .map(|(id, league)| Pin {
-            game_id: id.into(),
-            league,
-            final_at: None,
-        })
-        .collect()
+    // One pin, not four: Home shows every live game on its own now, so pinning
+    // the whole slate only puts a ⚑ on every tile in every capture. KC@TB is
+    // the pin that reads as a choice.
+    vec![Pin {
+        game_id: "nfl-live".into(),
+        league: League::Nfl,
+        final_at: None,
+    }]
 }
 
 /// A box score for the demo `nfl-live` game (KC 27 @ TB 24), shaped like
@@ -340,8 +339,22 @@ mod tests {
     #[test]
     fn demo_board_has_four_live_leagues_and_pins() {
         let boards = demo_boards();
+        // The four scripted live games are still there; only the pin list shrank.
+        for (league, id) in [
+            (League::Nfl, "nfl-live"),
+            (League::Nba, "nba-live"),
+            (League::Mlb, "mlb-live"),
+            (League::Nhl, "nhl-live"),
+        ] {
+            let board = boards.get(&league).expect("board for live league");
+            let game = board.iter().find(|g| g.id == id).expect("live game");
+            assert_eq!(game.status, Status::Live);
+        }
+        // Home lists every live game unpinned, so the demo pins exactly one —
+        // otherwise every gallery tile wears a ⚑ and the flag says nothing.
         let pins = demo_pins();
-        assert_eq!(pins.len(), 4);
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].game_id, "nfl-live");
         for pin in &pins {
             let board = boards.get(&pin.league).expect("board for pinned league");
             let game = board.iter().find(|g| g.id == pin.game_id).expect("pinned game");
