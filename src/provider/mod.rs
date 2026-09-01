@@ -7,12 +7,59 @@ use crate::{Game, GameStats, League, Summary};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
-    #[error("http {0}")]
-    Http(String),
-    #[error("map {0}")]
-    Map(#[from] map::MapError),
+    /// `status` 0 means the request never got a response (DNS, TCP, timeout).
+    /// `url` is what the message names — the provider stamps the cache key here
+    /// when it gives up, and keeps the raw URL in `detail`.
+    #[error("http status={status} url={url} {detail}")]
+    Http {
+        status: u16,
+        url: String,
+        detail: String,
+    },
+    #[error("map {key}: {source}")]
+    Map {
+        key: String,
+        #[source]
+        source: map::MapError,
+    },
     #[error("io {0}")]
     Io(#[from] std::io::Error),
+}
+
+impl ProviderError {
+    /// One footer-sized phrase: what failed and where. `key` is the cache key
+    /// (`nfl-scoreboard`), which reads as "league resource".
+    pub fn short(&self) -> String {
+        match self {
+            ProviderError::Http {
+                status: 0,
+                url,
+                detail,
+            } if detail.contains("timed out") || detail.contains("timeout") => {
+                format!("ESPN timeout {}", key_of(url))
+            }
+            ProviderError::Http { status: 0, url, .. } => {
+                format!("ESPN unreachable {}", key_of(url))
+            }
+            ProviderError::Http { status, url, .. } => format!("ESPN {status} {}", key_of(url)),
+            ProviderError::Map { key, .. } => format!("ESPN bad body {}", key_of(key)),
+            ProviderError::Io(e) => format!("disk {e}"),
+        }
+    }
+}
+
+/// "…/sports/football/nfl/scoreboard?x" -> "nfl scoreboard"; a cache key
+/// (`nfl-scoreboard`) reads the same way once its hyphens are spaces.
+fn key_of(url: &str) -> String {
+    if !url.contains("://") {
+        return url.replace('-', " ");
+    }
+    let path = url.split('?').next().unwrap_or(url);
+    let parts: Vec<&str> = path.rsplit('/').take(2).collect();
+    match parts.as_slice() {
+        [res, league] if !league.is_empty() => format!("{league} {res}"),
+        _ => url.to_string(),
+    }
 }
 
 pub trait SportsProvider {
