@@ -78,6 +78,12 @@ exists).
 `Summary.scoring_plays` stays; `merge_summary` now copies it onto
 `Game.scoring_plays`.
 
+Rendering of `Team.rank`, `timeouts`, `Situation.{pitcher,batter,due_up}`, and
+`Extras::Soccer.events` is sub-project 2 (hero fragments, zoom matchup line, MY
+GAMES); the fields ship mapped and tested here. `Extras::Football` and
+`Extras::Hockey` ship as `Extras::None` — the scoreboard carries no drive text
+or shots-on-goal, so the variants land with the source in sub-project 3.
+
 ## 2. Mapper (`src/provider/map.rs`)
 
 - **Per-event fallibility.** A malformed event is skipped with one stderr

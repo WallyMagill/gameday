@@ -48,7 +48,14 @@ pub fn local_time(iso: &str, offset: UtcOffset) -> Option<OffsetDateTime> {
     }
     // "YYYY-MM-DDTHH:MMZ" -> "YYYY-MM-DDTHH:MM:00Z"
     let padded;
-    let s = if iso.len() == 17 && iso.ends_with('Z') && iso.as_bytes()[13] == b':' {
+    // `is_char_boundary(16)` guards the slice below: every byte index here is
+    // a byte index, not a char index, and a 17-byte string is not necessarily
+    // 17 characters.
+    let s = if iso.len() == 17
+        && iso.ends_with('Z')
+        && iso.as_bytes()[13] == b':'
+        && iso.is_char_boundary(16)
+    {
         padded = format!("{}:00Z", &iso[..16]);
         padded.as_str()
     } else {
@@ -186,6 +193,12 @@ mod time_tests {
         assert!(local_time("2026-09-13T17:00:00.000+00:00", la).is_some());
         assert_eq!(local_time("not a date", la), None);
         assert_eq!(local_time("", la), None);
+        // 17 BYTES, not 17 chars: the short-form branch slices at byte 16, so
+        // a multi-byte char anywhere near the tail must decline, not panic.
+        for s in ["2026-09-01T01:3é", "2é6-09-01T01:38Z"] {
+            assert_eq!(s.len(), 17, "{s:?} must be 17 bytes to reach the branch");
+            assert_eq!(local_time(s, la), None, "{s:?}");
+        }
     }
 
     #[test]

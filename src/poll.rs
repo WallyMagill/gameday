@@ -24,6 +24,18 @@ pub const STANDINGS_TTL: Duration = Duration::from_secs(600);
 /// would leave the traveled board empty forever; 15s matches the summary
 /// cadence so a retry can't hammer ESPN during an outage.
 pub const DATED_RETRY: Duration = Duration::from_secs(15);
+/// How long a failed on-demand fetch (standings, a dated slate, the zoomed
+/// game's summary/stats) waits before it is asked for again. Same 15s as
+/// [`DATED_RETRY`]: a failed fetch is retried at the summary cadence, not
+/// left behind the 10-minute standings TTL where the user would stare at an
+/// empty table for the rest of the session.
+pub const AUX_RETRY: Duration = Duration::from_secs(15);
+/// The window a cold start spreads its first scoreboard pass over. Nine
+/// leagues over 5s is < 2 req/s, well inside the measured tolerance (40
+/// rapid requests, zero non-200s); the alternative — spreading the first
+/// pass over the full idle minute — left Home naming the wrong next game for
+/// ~40s while the board that had the answer hadn't been fetched yet.
+pub const COLD_SPREAD: Duration = Duration::from_secs(5);
 /// Guess (the unofficial ESPN API sends no `Retry-After`): doubles per
 /// consecutive failure, capped at [`BACKOFF_CAP`].
 pub const BACKOFF_BASE: Duration = Duration::from_secs(5);
@@ -115,6 +127,12 @@ impl Scheduler {
         // jitter and quietly raise the request budget.
         if self.last_every.is_some_and(|last| every < last) {
             for st in self.leagues.values_mut() {
+                // A backed-off league keeps its backoff: the cadence changing
+                // says nothing about whether ESPN started answering again,
+                // and pulling the retry forward would hammer an outage.
+                if st.attempt > 0 {
+                    continue;
+                }
                 if let Some(slot) = st.next_due {
                     st.next_due = Some(slot.min(now + every));
                 }
@@ -122,12 +140,17 @@ impl Scheduler {
         }
         self.last_every = Some(every);
         // Stagger: a league that has never been scheduled gets its first slot
-        // i*every/n after `now`, so a cold start (or :config enabling nine
-        // leagues) spreads across the window instead of firing nine at once.
+        // i*COLD_SPREAD/n after `now`, so a cold start (or :config enabling
+        // nine leagues) spreads over five seconds instead of firing nine at
+        // once — and Home doesn't spend most of an idle minute naming the
+        // wrong "next" game because the board that had it hadn't arrived yet.
+        // After that first fetch each league re-arms at `now + every` and
+        // `report` re-jitters it, so the spread persists rather than
+        // collapsing into a burst.
         let n = wants.leagues.len().max(1) as u32;
         for (i, league) in wants.leagues.iter().enumerate() {
             let st = self.leagues.entry(*league).or_default();
-            let slot = *st.next_due.get_or_insert_with(|| now + every * i as u32 / n);
+            let slot = *st.next_due.get_or_insert_with(|| now + COLD_SPREAD * i as u32 / n);
             if refresh_now || slot <= now + TICK {
                 out.push(Request::Scoreboard(*league));
                 st.next_due = Some(now + every); // provisional; report() re-jitters
@@ -195,6 +218,37 @@ impl Scheduler {
         let jittered = self.jitter(every);
         if let Some(st) = self.leagues.get_mut(league) {
             st.next_due = Some(now + jittered);
+        }
+    }
+
+    /// Record an on-demand fetch's outcome. `due` paces these by "when did I
+    /// last ask", which on a failure would park standings behind the 10-minute
+    /// TTL — so a failure rewinds that stamp to [`AUX_RETRY`] before the
+    /// window closes, and the next pass past that retries. Success is a no-op:
+    /// `due` already stamped it.
+    pub fn report_aux(&mut self, req: &Request, ok: bool, now: Instant) {
+        if ok {
+            return;
+        }
+        // `now - (every - AUX_RETRY)`: the window has AUX_RETRY left to run.
+        let rewind = |every: Duration| {
+            now.checked_sub(every.saturating_sub(AUX_RETRY))
+                .unwrap_or(now)
+        };
+        match req {
+            Request::Scoreboard(_) => {}
+            Request::Summary(_, id) => {
+                self.last_summary = Some((id.clone(), rewind(SUMMARY_EVERY)));
+            }
+            Request::Stats(_, id) => {
+                self.last_stats = Some((id.clone(), rewind(STATS_EVERY)));
+            }
+            Request::Dated(league, date) => {
+                self.last_dated = Some(((*league, *date), rewind(DATED_RETRY)));
+            }
+            Request::Standings(league) => {
+                self.last_standings = Some((*league, rewind(STANDINGS_TTL)));
+            }
         }
     }
 

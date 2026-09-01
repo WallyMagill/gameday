@@ -136,9 +136,7 @@ pub struct MatchEvent {
 pub enum Extras {
     #[default]
     None,
-    Football { drive: Option<String> },
     Baseball { hits: Option<(u16, u16)>, errors: Option<(u16, u16)> },
-    Hockey { shots: Option<(u16, u16)> },
     Soccer { events: Vec<MatchEvent> },
 }
 

@@ -121,7 +121,9 @@ impl EspnProvider {
         let fresh_err = match http(etag.as_deref().filter(|_| cached.is_some())) {
             Ok(Fetched::Body { body, etag }) => match map(&body) {
                 Ok(v) => {
-                    cache_write(&self.cache_dir, key, &body)?;
+                    // Best-effort like the sidecar below: a full disk must not
+                    // turn a mapped fresh payload into an error.
+                    let _ = cache_write(&self.cache_dir, key, &body);
                     // The sidecar is an optimization, never a result: a write
                     // that fails costs one unconditional refetch later, so it
                     // must not turn a good payload into an error.

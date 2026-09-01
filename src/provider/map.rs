@@ -297,13 +297,17 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
                 hits.1 = h;
                 errors.1 = e;
             }
-            _ => {
+            Some("away") => {
                 away_score = score;
                 away = Some(team);
                 linescore_away = ls;
                 hits.0 = h;
                 errors.0 = e;
             }
+            // Anything else is schema drift, not an away team: writing it
+            // into `away` would render a two-home-team tile as if it were
+            // real. Skip the event and let the rest of the slate stand.
+            _ => return Err(miss("competitors[].homeAway")),
         }
     }
     let home = home.ok_or_else(|| miss("competitors[homeAway=home]"))?;
@@ -396,10 +400,9 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         League::Epl | League::Mls => Extras::Soccer {
             events: details_from(&comp["details"], &abbr_for_id),
         },
-        // Drive text lives on the summary, not the scoreboard; shots on goal
-        // weren't confirmable without a live NHL feed. Both stay None here.
-        League::Nfl | League::Cfb => Extras::Football { drive: None },
-        League::Nhl => Extras::Hockey { shots: None },
+        // Football drive text lives on the summary, not the scoreboard, and
+        // shots on goal weren't confirmable without a live NHL feed — neither
+        // has a source here, so neither gets a variant until one does.
         _ => Extras::None,
     };
     let odds = odds_from(&comp["odds"]);

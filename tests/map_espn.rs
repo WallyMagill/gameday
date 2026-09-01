@@ -475,6 +475,35 @@ fn summary_is_not_truncated_to_eight() {
 }
 
 #[test]
+fn a_competitor_with_an_unknown_home_away_skips_the_event() {
+    // Schema drift, not an away team: writing a third side into `away` would
+    // render a tile that claims two home teams played each other.
+    let drift = r#"{"events":[{"id":"9","competitions":[{"status":{"displayClock":"0:00","period":0,"type":{"state":"pre","completed":false}},"competitors":[
+      {"homeAway":"home","score":"0","team":{"id":"1","abbreviation":"NE","displayName":"Patriots","color":"002244","alternateColor":"c60c30"}},
+      {"homeAway":"neutral","score":"0","team":{"id":"2","abbreviation":"SEA","displayName":"Seahawks","color":"002244","alternateColor":"69be28"}}]}]}]}"#;
+    let ev: serde_json::Value = serde_json::from_str(drift).unwrap();
+    let err = gameday::provider::map::map_event(League::Nfl, &ev["events"][0], et()).unwrap_err();
+    assert!(
+        format!("{err}").contains("homeAway"),
+        "the skip names the field that drifted: {err}"
+    );
+    // The whole slate is that one event, so nothing maps.
+    assert!(map_scoreboard(League::Nfl, drift, et()).is_err());
+    // The same payload with a real away side maps fine.
+    let ok = drift.replace("\"neutral\"", "\"away\"");
+    assert_eq!(map_scoreboard(League::Nfl, &ok, et()).unwrap().len(), 1);
+}
+
+#[test]
+fn sports_with_no_extra_source_map_to_extras_none() {
+    // Football drive text and NHL shots have no scoreboard source; they carry
+    // no half-built variant until sub-project 3 gives them one.
+    let json = include_str!("../fixtures/nfl_scoreboard.json");
+    let g = &map_scoreboard(League::Nfl, json, et()).unwrap()[0];
+    assert_eq!(g.extras, gameday::domain::Extras::None);
+}
+
+#[test]
 fn grouped_box_score_maps_and_missing_leaders_is_empty_not_error() {
     let stats = map_stats(include_str!("../fixtures/mlb_summary_min.json")).unwrap();
     let hits = stats

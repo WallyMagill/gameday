@@ -13,15 +13,94 @@ fn scoreboards_are_staggered_not_burst() {
     let w = wants(&League::ALL, true);
     let first = s.due(&w, false, t0);
     assert_eq!(first.len(), 1, "one league per tick on a cold start, got {first:?}");
-    // Across one live window every league gets exactly one scoreboard.
+    // Then, past the cold pass, one scoreboard per league per live window —
+    // counted over four windows so the ±20% jitter can't make an exact count
+    // a coin flip: 60s / 15s = 4 each, and jitter can shift one either way.
     let mut count = std::collections::HashMap::new();
-    for i in 0..(SCOREBOARD_LIVE.as_millis() / 200) {
-        for r in s.due(&w, false, t0 + Duration::from_millis(200 * i as u64)) {
-            if let Request::Scoreboard(l) = &r { *count.entry(*l).or_insert(0) += 1; }
-            s.report(&r, true, t0 + Duration::from_millis(200 * i as u64));
+    let start = COLD_SPREAD + TICK;
+    for i in 0..((start + Duration::from_secs(60)).as_millis() / 200) {
+        let now = t0 + Duration::from_millis(200 * i as u64);
+        for r in s.due(&w, false, now) {
+            if let Request::Scoreboard(l) = &r {
+                if now >= t0 + start {
+                    *count.entry(*l).or_insert(0) += 1;
+                }
+            }
+            s.report(&r, true, now);
         }
     }
-    for l in League::ALL { assert_eq!(count.get(&l), Some(&1), "{} fetched once per window", l.slug()); }
+    for l in League::ALL {
+        let n = count.get(&l).copied().unwrap_or(0);
+        assert!((3..=5).contains(&n), "{} fetched {n}x in 60s, expected ~4", l.slug());
+    }
+}
+
+#[test]
+fn a_cold_start_spreads_its_first_pass_over_cold_spread_not_the_idle_minute() {
+    // The defect this pins: with nothing live, the first pass used to spread
+    // over the 60s idle cadence, so Home named the wrong "next" game until the
+    // board that had the real answer arrived at the tail of that minute.
+    let mut s = Scheduler::new(1);
+    let t0 = Instant::now();
+    let w = wants(&League::ALL, false);
+    let mut fired: Vec<League> = Vec::new();
+    for i in 0..=((COLD_SPREAD + TICK).as_millis() / 200) {
+        let now = t0 + Duration::from_millis(200 * i as u64);
+        for r in s.due(&w, false, now) {
+            if let Request::Scoreboard(l) = &r {
+                fired.push(*l);
+            }
+            s.report(&r, true, now);
+        }
+    }
+    for l in League::ALL {
+        assert!(fired.contains(&l), "{} never fired inside COLD_SPREAD: {fired:?}", l.slug());
+    }
+    // Spread, not burst: nine leagues never land on one tick.
+    assert!(s.due(&w, false, t0).len() <= 2);
+}
+
+#[test]
+fn a_backed_off_league_is_not_clamped_when_the_cadence_shrinks() {
+    let mut s = Scheduler::new(3);
+    let t0 = Instant::now();
+    let mut w = wants(&[League::Nfl], false);
+    let _ = s.due(&w, false, t0);
+    // Ten failures: the backoff is minutes out, far past the live cadence.
+    for _ in 0..10 {
+        s.report(&Request::Scoreboard(League::Nfl), false, t0);
+    }
+    let before = s.next_retry(League::Nfl, t0).unwrap();
+    assert!(before > SCOREBOARD_LIVE, "backoff should be minutes, got {before:?}");
+    w.any_live = true;
+    let _ = s.due(&w, false, t0 + Duration::from_millis(200));
+    let after = s.next_retry(League::Nfl, t0).unwrap();
+    assert_eq!(before, after, "a live cadence must not pull a backed-off retry forward");
+}
+
+#[test]
+fn a_failed_standings_fetch_retries_at_aux_retry_not_the_ttl() {
+    let mut s = Scheduler::new(1);
+    let t0 = Instant::now();
+    let mut w = wants(&[League::Cfb], false);
+    w.standings = Some(League::Cfb);
+    assert!(s.due(&w, false, t0).contains(&Request::Standings(League::Cfb)));
+    s.report_aux(&Request::Standings(League::Cfb), false, t0);
+    assert!(
+        !s.due(&w, false, t0 + AUX_RETRY - Duration::from_secs(1))
+            .contains(&Request::Standings(League::Cfb)),
+        "still inside the retry window"
+    );
+    assert!(
+        s.due(&w, false, t0 + AUX_RETRY + TICK)
+            .contains(&Request::Standings(League::Cfb)),
+        "a failed standings fetch retries at {AUX_RETRY:?}, not {STANDINGS_TTL:?}"
+    );
+    // A success leaves the TTL alone.
+    s.report_aux(&Request::Standings(League::Cfb), true, t0 + AUX_RETRY + TICK);
+    assert!(!s
+        .due(&w, false, t0 + AUX_RETRY + TICK + Duration::from_secs(60))
+        .contains(&Request::Standings(League::Cfb)));
 }
 
 #[test]
