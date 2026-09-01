@@ -1,4 +1,5 @@
-use std::io::stdout;
+use std::io::{stdout, IsTerminal};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -27,27 +28,66 @@ struct Args {
     tick: u64,
     /// `probe <league>`: fetch + map one real scoreboard and print it. Dev-only.
     probe: Option<String>,
+    help: bool,
+    version: bool,
+    config_dir: Option<PathBuf>,
 }
 
+const HELP: &str = "\
+gameday — terminal sports board. Pin games, they tile.
+
+USAGE
+  gameday                 live board (needs a terminal)
+  gameday --demo          scripted demo slate, no network
+  gameday --config-dir P  use P instead of ~/.config/gameday
+  gameday -h, --help      this text
+  gameday -V, --version   version
+
+KEYS  space pin · enter/z zoom · j/k move · tab league · [ ] date · / filter · : command · ? all keys · q quit
+CONFIG  ~/.config/gameday/config.toml (or $XDG_CONFIG_HOME/gameday); pins.json, cache/ and themes/ beside it
+DATA  unofficial ESPN JSON, polled; the last good payload is kept on disk and shown as STALE when the network fails
+
+dev:
+  gameday dump [--tick N]   write the capture gallery to out/ (no network)
+  gameday probe <league>    fetch + map one live scoreboard and print it
+";
+
 fn parse_args(args: &[String]) -> Result<Args, String> {
-    let probe = args
-        .iter()
-        .position(|a| a == "probe")
-        .map(|i| args.get(i + 1).cloned().unwrap_or_default());
-    let tick = match args.iter().position(|a| a == "--tick") {
-        None => 0,
-        Some(i) => {
-            let raw = args.get(i + 1).map(String::as_str).unwrap_or("");
-            raw.parse::<u64>()
-                .map_err(|_| format!("--tick expects a non-negative integer, got {raw:?}"))?
-        }
+    const VALID: &str =
+        "--demo|--help|-h|--version|-V|--config-dir <path>|dump [--tick N]|probe <league>";
+    let mut a = Args {
+        demo: false,
+        dump: false,
+        tick: 0,
+        probe: None,
+        help: false,
+        version: false,
+        config_dir: None,
     };
-    Ok(Args {
-        demo: args.iter().any(|a| a == "--demo"),
-        dump: args.iter().any(|a| a == "dump" || a == "--dump"),
-        tick,
-        probe,
-    })
+    let mut it = args.iter().skip(1);
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--demo" => a.demo = true,
+            "--help" | "-h" => a.help = true,
+            "--version" | "-V" => a.version = true,
+            "dump" | "--dump" => a.dump = true,
+            "--tick" => {
+                let raw = it.next().map(String::as_str).unwrap_or("");
+                a.tick = raw
+                    .parse()
+                    .map_err(|_| format!("--tick expects a non-negative integer, got {raw:?}"))?;
+            }
+            "probe" => a.probe = Some(it.next().cloned().unwrap_or_default()),
+            "--config-dir" => {
+                let p = it
+                    .next()
+                    .ok_or_else(|| "--config-dir expects a path".to_string())?;
+                a.config_dir = Some(PathBuf::from(p));
+            }
+            other => return Err(format!("unknown argument {other:?}, valid: {VALID}")),
+        }
+    }
+    Ok(a)
 }
 
 enum Msg {
@@ -102,6 +142,15 @@ fn main() -> std::io::Result<()> {
         }
     };
 
+    if args.help {
+        print!("{HELP}");
+        return Ok(());
+    }
+    if args.version {
+        println!("gameday {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     if args.dump {
         let out = std::path::Path::new("out");
         return gameday::dump::run(out, args.tick);
@@ -112,6 +161,10 @@ fn main() -> std::io::Result<()> {
     }
 
     if args.demo {
+        if let Err(e) = require_tty() {
+            eprintln!("gameday: {e}");
+            std::process::exit(1);
+        }
         // Demo state lives in a scratch dir so it never touches real pins/config.
         let dir = std::env::temp_dir().join(format!("gameday-demo-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
@@ -125,9 +178,17 @@ fn main() -> std::io::Result<()> {
         return run_ui(app, Some(rx), WantsShared::default(), RefreshFlag::default());
     }
 
-    let dir = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("gameday");
+    if let Err(e) = require_tty() {
+        eprintln!("gameday: {e}");
+        std::process::exit(1);
+    }
+
+    // Task 12's config::resolve_dir replaces this line; the flag works now.
+    let dir = args.config_dir.clone().unwrap_or_else(|| {
+        dirs::config_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("gameday")
+    });
     std::fs::create_dir_all(dir.join("cache"))?;
     let mut config = Config::load_from(&dir).unwrap_or_else(|_| Config::default_all());
     // User theme files first, so config.theme may name one of them; an
@@ -292,6 +353,32 @@ fn poll_loop(
     }
 }
 
+/// Live and `--demo` need a real terminal; `dump`, `probe`, `--help`, and
+/// `--version` must keep working piped (scripts, CI, `| head`).
+fn require_tty() -> Result<(), String> {
+    if std::io::stdout().is_terminal() {
+        Ok(())
+    } else {
+        Err("gameday needs a terminal (stdout is not a tty); try --help".to_string())
+    }
+}
+
+/// Installed at the top of `run_ui`: on panic, restore the terminal (leave
+/// the alternate screen, disable raw mode) before the default hook prints,
+/// so the backtrace lands on a normal scrollback instead of a wrecked TUI.
+fn install_panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = execute!(stdout(), DisableMouseCapture, LeaveAlternateScreen);
+        let _ = disable_raw_mode();
+        eprintln!(
+            "\ngameday {} crashed — please file this with the lines below:",
+            env!("CARGO_PKG_VERSION")
+        );
+        default(info);
+    }));
+}
+
 struct RestoreTerminal;
 
 impl Drop for RestoreTerminal {
@@ -320,6 +407,7 @@ fn run_ui(
     wants: WantsShared,
     refresh: RefreshFlag,
 ) -> std::io::Result<()> {
+    install_panic_hook();
     let mut published = gameday::poll::Wants::default();
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
@@ -457,5 +545,29 @@ mod tests {
         assert_eq!(parsed(&["gameday"]).probe, None);
         // Missing slug still enters probe mode so it can print the expected set.
         assert_eq!(parsed(&["gameday", "probe"]).probe.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn help_and_version_flags_parse_and_unknown_flags_name_the_valid_set() {
+        assert!(parsed(&["gameday", "--help"]).help);
+        assert!(parsed(&["gameday", "-h"]).help);
+        assert!(parsed(&["gameday", "--version"]).version);
+        assert!(parsed(&["gameday", "-V"]).version);
+        assert_eq!(parsed(&["gameday", "--config-dir", "/tmp/x"]).config_dir.as_deref(), Some(std::path::Path::new("/tmp/x")));
+        let owned: Vec<String> = ["gameday", "--nonsense"].iter().map(|s| s.to_string()).collect();
+        let err = parse_args(&owned).unwrap_err();
+        assert!(err.contains("--nonsense") && err.contains("--demo") && err.contains("--help"), "{err}");
+        let owned: Vec<String> = ["gameday", "nonsense"].iter().map(|s| s.to_string()).collect();
+        assert!(parse_args(&owned).is_err(), "bare unknown words are errors too");
+        let owned: Vec<String> = ["gameday", "--config-dir"].iter().map(|s| s.to_string()).collect();
+        assert!(parse_args(&owned).unwrap_err().contains("--config-dir expects a path"));
+    }
+
+    #[test]
+    fn help_text_lists_every_flag_and_the_dev_commands_under_their_own_heading() {
+        for needle in ["--demo", "--help", "--version", "--config-dir", "dev:", "dump", "probe", "--tick", "~/.config/gameday"] {
+            assert!(super::HELP.contains(needle), "HELP missing {needle}");
+        }
+        assert!(super::HELP.lines().count() < 30, "help must fit a small terminal");
     }
 }
