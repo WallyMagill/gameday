@@ -871,17 +871,18 @@ fn standings_view_without_data_says_so_and_esc_pops() {
     assert!(!app.should_quit);
 }
 
-/// College football has no one FBS table to stand — the view says that
-/// instead of "no standings yet", which reads as a fetch still in flight.
+/// With no CFB table in hand the view points at the per-conference command
+/// rather than saying "no standings yet", which reads as a fetch still in
+/// flight — and never claims ESPN has no FBS table, because it does.
 #[test]
-fn standings_view_for_cfb_says_there_is_no_fbs_wide_table() {
+fn standings_view_for_cfb_names_the_per_conference_workaround() {
     use gameday::views::View;
     let mut app = mk();
     app.view = View::Standings(League::Cfb);
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.contains("no FBS-wide standings table"), "{s}");
+    assert!(s.contains("no FBS standings right now"), "{s}");
     assert!(s.contains(":standings <conf>"), "the workaround must be named:\n{s}");
     assert!(!s.contains("no standings yet"), "{s}");
 }

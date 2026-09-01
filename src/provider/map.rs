@@ -769,8 +769,8 @@ pub fn map_standings(league: League, json: &str) -> Result<StandingsTable, MapEr
             return None; // a group with no mappable rows is noise, not data
         }
         rows.sort_by(|a, b| {
-            win_pct(league, b)
-                .total_cmp(&win_pct(league, a))
+            win_pct(b)
+                .total_cmp(&win_pct(a))
                 .then(b.wins.cmp(&a.wins))
                 .then(a.name.cmp(&b.name))
         });
@@ -811,18 +811,49 @@ pub fn map_standings(league: League, json: &str) -> Result<StandingsTable, MapEr
     })
 }
 
-/// Winning percentage, the sort key. Ties count half a win and one game
-/// played; hockey's overtime losses are losses that happen to be worth a
-/// point in the real standings — they add a game played and nothing else.
-fn win_pct(league: League, r: &StandingRow) -> f64 {
+/// Winning percentage, the sort key: the third column is worth half a win and
+/// a full game played, for every league that keeps one. For the NHL that is
+/// points percentage — an overtime loss banks a point, so a 40-20-20 team
+/// (100 pts, .500) stands above a 41-39-0 one (82 pts, .5125 by wins alone),
+/// which is the order the league's own table uses.
+fn win_pct(r: &StandingRow) -> f64 {
     let third = r.third.unwrap_or(0);
     let played = r.wins + r.losses + third;
     if played == 0 {
         return 0.0;
     }
-    let credit = match league {
-        League::Nhl => r.wins as f64,
-        _ => r.wins as f64 + 0.5 * third as f64,
-    };
-    credit / played as f64
+    (r.wins as f64 + 0.5 * third as f64) / played as f64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(wins: u32, losses: u32, third: Option<u32>) -> StandingRow {
+        StandingRow {
+            abbr: "XX".into(),
+            name: "Team".into(),
+            wins,
+            losses,
+            third,
+            third_label: if third.is_some() { "OTL" } else { "" },
+        }
+    }
+
+    #[test]
+    fn win_pct_counts_the_third_column_as_half_a_win() {
+        // The NHL's own table: 40-20-20 is 100 points in 80 games (.625 of
+        // the points available); 41-39-0 is 82 in 80. Sorting on wins alone
+        // would flip them (.5125 > .500) and stand a worse team higher.
+        let otl = row(40, 20, Some(20));
+        let none = row(41, 39, Some(0));
+        assert_eq!(win_pct(&otl), 0.625);
+        assert_eq!(win_pct(&none), 0.5125);
+        assert!(win_pct(&otl) > win_pct(&none), "100 points must stand above 82");
+        // Baseball/basketball keep no third column: plain wins over games.
+        assert_eq!(win_pct(&row(81, 81, None)), 0.5);
+        assert_eq!(win_pct(&row(58, 24, None)), 58.0 / 82.0);
+        // Nobody has played: no divide by zero, no fake .000 ordering games.
+        assert_eq!(win_pct(&row(0, 0, None)), 0.0);
+    }
 }

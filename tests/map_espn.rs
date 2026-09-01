@@ -558,3 +558,20 @@ fn cfb_divisions_become_their_own_groups_and_an_absent_zero_stat_is_zero() {
     assert_eq!((mich.abbr.as_str(), mich.wins, mich.losses), ("MICH", 0, 1));
     assert_eq!(osu.third, None, "no ties stat, no ties column");
 }
+
+/// The zero-stat rule has a floor: one of wins/losses is the zero the feed
+/// didn't send, but *neither* is not a 0-0 team — it's an entry we can't read,
+/// and inventing an 0-0 record for it would put a phantom in the table.
+#[test]
+fn an_entry_with_neither_wins_nor_losses_is_dropped_not_read_as_0_0() {
+    let json = r#"{"name":"FBS","children":[{"name":"Big Ten Conference","standings":{"entries":[
+        {"team":{"abbreviation":"OSU","name":"Buckeyes"},"stats":[{"type":"wins","value":3}]},
+        {"team":{"abbreviation":"PUR","name":"Boilermakers"},"stats":[{"type":"losses","value":2}]},
+        {"team":{"abbreviation":"GHOST","name":"Nobody"},"stats":[{"type":"playoffseed","value":7},{"type":"streak","value":1}]}]}}]}"#;
+    let t = map_standings(League::Cfb, json).unwrap();
+    let rows = &t.groups[0].rows;
+    let abbrs: Vec<&str> = rows.iter().map(|r| r.abbr.as_str()).collect();
+    assert_eq!(abbrs, ["OSU", "PUR"], "an entry with no W and no L is not a row");
+    assert_eq!((rows[0].wins, rows[0].losses), (3, 0), "wins only maps as W-0");
+    assert_eq!((rows[1].wins, rows[1].losses), (0, 2), "losses only maps as 0-L");
+}
