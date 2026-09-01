@@ -82,13 +82,25 @@ fn mk() -> App {
 #[test]
 fn header_and_tabs_render() {
     let mut app = mk();
-    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
-    t.draw(|f| app.draw(f)).unwrap();
-    let s = buf_text(&t);
+    // Wide enough for the whole header: the FILTER: label and the chips'
+    // brackets are the first two things the shed ladder gives up, so this is
+    // where they have to be checked.
+    let mut wide = Terminal::new(TestBackend::new(180, 24)).unwrap();
+    wide.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&wide);
     assert!(s.contains("GAMEDAY"), "{s}");
     assert!(s.contains("FILTER:"), "{s}");
     assert!(s.contains("[ALL]"), "{s}");
-    assert!(s.contains("NFL"), "{s}");
+    assert!(s.contains("[ NFL ]"), "{s}");
+    // At 120 with ten tabs the label and the brackets shed instead of the
+    // clock (R12), but the wordmark and every tab still render.
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let row = buf_text(&t).lines().next().unwrap().to_string();
+    assert!(row.contains("GAMEDAY"), "{row}");
+    assert!(row.contains("ALL"), "{row}");
+    assert!(row.contains("NFL") && row.contains("MLS"), "{row}");
+    assert!(!row.contains("FILTER:"), "label sheds before the clock: {row}");
 }
 
 #[test]
@@ -485,8 +497,8 @@ fn filter_matching_nothing_names_the_pattern() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     assert!(
-        s.contains("no games match \"zzz\""),
-        "empty filter result must name the pattern: {s}"
+        s.contains("no games match \"zzz\" on NFL"),
+        "empty filter result must name the pattern and the scope it searched: {s}"
     );
 }
 
@@ -1666,19 +1678,78 @@ fn header_chip_is_its_own_cell_and_offline_names_the_error() {
 
 #[test]
 fn a_narrow_header_shortens_the_chip_instead_of_chopping_it() {
-    // Every league enabled at 100 cols: the padded "OFFLINE · retry 40s"
-    // cannot fit, so the chip degrades to its bare state word. A chopped
-    // "OFFLINE · retry 4" would be a lie about the retry.
+    // Every league enabled at 50 cols: even with the left side shed all the
+    // way down (no FILTER: label, no brackets, one tab, "GD"), the padded
+    // "OFFLINE · retry 40s" cannot fit, so the chip degrades to its bare
+    // state word. A chopped "OFFLINE · retry 4" would be a lie about the
+    // retry.
     let mut app = mk();
     app.note_failure(
         League::Nfl,
         "ESPN 403 nfl scoreboard".into(),
         Some(std::time::Duration::from_secs(40)),
     );
-    let mut t = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    let mut t = Terminal::new(TestBackend::new(50, 40)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let b = t.backend().buffer();
     let row: String = (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect();
     assert!(row.contains("OFFLINE"), "chip survives a narrow header: {row:?}");
     assert!(!row.contains("retry 4"), "chopped retry tail: {row:?}");
+}
+
+#[test]
+fn header_keeps_the_clock_with_ten_chips_at_120_columns() {
+    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
+    app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let first = buf_text(&term).lines().next().unwrap().to_string();
+    assert!(first.contains("9:37:05 PM"), "clock clipped: {first}");
+}
+
+#[test]
+fn header_keeps_the_clock_and_the_selected_tab_at_eighty_columns() {
+    // Ten chips at 80 cols: the shed ladder runs out of league tabs long
+    // before it touches the right side. The selected tab is the one chip
+    // that never sheds, and the clock is never clipped.
+    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
+    app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
+    app.tab = Tab::League(League::Nfl);
+    let mut term = Terminal::new(TestBackend::new(80, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let first = buf_text(&term).lines().next().unwrap().to_string();
+    assert!(first.contains("9:37:05 PM"), "clock clipped: {first}");
+    assert!(first.contains("NFL"), "selected tab shed: {first}");
+}
+
+#[test]
+fn the_clock_survives_every_width_the_board_will_draw_at() {
+    // R12's rule swept: from the narrowest board the app will render (40)
+    // up, the clock is always whole and the status chip is never glued to
+    // whatever follows it. Caught a clipped "9:37:05" at 40 and an
+    // "OFFLINE9:37:05 PM" at 60.
+    for width in 40u16..=180 {
+        for tab in [Tab::Home, Tab::League(League::Mls)] {
+            let mut app = mk();
+            app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
+            app.tab = tab;
+            let mut t = Terminal::new(TestBackend::new(width, 40)).unwrap();
+            t.draw(|f| app.draw(f)).unwrap();
+            let b = t.backend().buffer();
+            let row: String = (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect();
+            assert!(row.contains("9:37:05 PM"), "clock clipped at {width}: {row:?}");
+            assert!(!row.contains("YET9") && !row.contains("YETMON"), "chip glued at {width}: {row:?}");
+        }
+    }
+}
+
+#[test]
+fn command_completion_shows_the_candidates_in_the_footer() {
+    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
+    for c in [':', 'n'] { gameday::input::handle_key(&mut app, crossterm::event::KeyCode::Char(c), crossterm::event::KeyModifiers::NONE); }
+    gameday::input::handle_key(&mut app, crossterm::event::KeyCode::Tab, crossterm::event::KeyModifiers::NONE);
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let last = buf_text(&term).lines().last().unwrap().to_string();
+    assert!(last.contains(":nfl") && last.contains("nba") && last.contains("nhl"), "{last}");
 }

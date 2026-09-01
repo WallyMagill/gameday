@@ -12,7 +12,7 @@ use crate::tiles::render_tile;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 /// Team-name column of the sidebar RECORDS rail, in cells.
@@ -181,12 +181,14 @@ fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
     let games = app.mosaic_games();
     let net = app.net.chip(std::time::Instant::now());
     match app.tab {
-        // An active filter that matches nothing names the pattern instead
-        // of pretending the board is empty.
+        // An active filter that matches nothing names the pattern, the scope
+        // it searched and where the pattern IS live, instead of pretending
+        // the board is empty. It wraps: the scope is the whole point of the
+        // message, so a narrow board must never chop it off.
         _ if games.is_empty() && app.active_filter().is_some() => {
-            let needle = app.active_filter().unwrap_or_default();
             frame.render_widget(
-                Paragraph::new(format!("no games match \"{needle}\" · esc clears"))
+                Paragraph::new(app.filter_miss_message())
+                    .wrap(Wrap { trim: true })
                     .style(Style::default().fg(th.muted).bg(th.bg))
                     .alignment(Alignment::Center),
                 area,
