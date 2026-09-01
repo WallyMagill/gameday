@@ -164,18 +164,40 @@ impl EspnProvider {
     }
 }
 
-pub fn scoreboard_url(league: League) -> String {
+/// Bare CFB scoreboard (no `dates`) returns the current *week*, not today —
+/// that's why a Monday view showed Saturday's ~100 finals under Monday's
+/// header. `today` picks the dated form (CFB only) so the header and slate
+/// agree. NFL's "today" stays undated: the current week is what an NFL board
+/// wants, and NFL's bare scoreboard is never a 100-game pile.
+pub fn scoreboard_url_for(league: League, today: Option<time::Date>) -> String {
     let (sport, slug) = league.espn_path();
     let mut u =
         format!("https://site.web.api.espn.com/apis/site/v2/sports/{sport}/{slug}/scoreboard");
     if league == League::Cfb {
         u.push_str("?groups=80");
+        // Probed 2026-08-31 against the live endpoint: bare=99 (whole week),
+        // dates=<Sat>=8, dates=<Sat>&limit=300=8 — that Saturday didn't hit
+        // the cap, but the bare week count (99) shows the cap is real and
+        // `limit=300` is cheap insurance against it.
+        u.push_str("&limit=300");
+        if let Some(d) = today {
+            u.push_str(&format!(
+                "&dates={:04}{:02}{:02}",
+                d.year(),
+                d.month() as u8,
+                d.day()
+            ));
+        }
     }
     u
 }
 
+pub fn scoreboard_url(league: League) -> String {
+    scoreboard_url_for(league, None)
+}
+
 /// Dated scoreboard: the same endpoint with `?dates=YYYYMMDD` (`&` when the
-/// base URL already carries a query, i.e. CFB's `?groups=80`).
+/// base URL already carries a query, i.e. CFB's `?groups=80&limit=300`).
 pub fn scoreboard_on_url(league: League, date: time::Date) -> String {
     let mut u = scoreboard_url(league);
     u.push(if u.contains('?') { '&' } else { '?' });
@@ -232,7 +254,19 @@ pub fn cache_age(dir: &Path, key: &str) -> Option<Duration> {
 
 impl SportsProvider for EspnProvider {
     fn scoreboard(&self, league: League) -> Result<(Vec<Game>, bool), ProviderError> {
-        let url = scoreboard_url(league);
+        // CFB's "today" needs the dated URL (bare returns the whole week);
+        // NFL's "today" stays undated (the current week is what an NFL board
+        // wants). Cache key stays `cfb-scoreboard` either way — it's "today".
+        let today = if league == League::Cfb {
+            Some(
+                time::OffsetDateTime::now_utc()
+                    .to_offset(self.offset)
+                    .date(),
+            )
+        } else {
+            None
+        };
+        let url = scoreboard_url_for(league, today);
         let key = format!("{}-scoreboard", league.slug());
         self.fetch(&url, &key, |body| {
             map_scoreboard(league, body, self.offset).map_err(|source| ProviderError::Map {
@@ -327,6 +361,7 @@ mod tests {
         let u = scoreboard_url(League::Cfb);
         assert!(u.contains("college-football/scoreboard"), "{u}");
         assert!(u.contains("groups=80"), "{u}");
+        assert!(u.contains("limit=300"), "{u}");
     }
 
     #[test]
@@ -346,12 +381,26 @@ mod tests {
             scoreboard_on_url(League::Nfl, d),
             "https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=20260913"
         );
-        // CFB already carries ?groups=80 — dates joins with '&', not a second '?'.
+        // CFB already carries ?groups=80&limit=300 — dates joins with '&', not a second '?'.
         let u = scoreboard_on_url(League::Cfb, d);
-        assert!(u.contains("?groups=80&dates=20260913"), "{u}");
+        assert!(u.contains("?groups=80&limit=300&dates=20260913"), "{u}");
         // Single-digit month/day zero-pad.
         let d2 = time::Date::from_calendar_date(2026, time::Month::January, 5).unwrap();
         assert!(scoreboard_on_url(League::Nba, d2).ends_with("?dates=20260105"));
+    }
+
+    #[test]
+    fn cfb_today_is_dated_and_uncapped() {
+        let today = time::Date::from_calendar_date(2026, time::Month::August, 31).unwrap();
+        let u = scoreboard_url_for(League::Cfb, Some(today));
+        assert!(
+            u.contains("groups=80") && u.contains("dates=20260831") && u.contains("limit=300"),
+            "{u}"
+        );
+        assert!(
+            !scoreboard_url_for(League::Nfl, Some(today)).contains("dates="),
+            "NFL today stays undated (ESPN returns the current week, which is what an NFL board wants)"
+        );
     }
 
     #[test]
