@@ -143,6 +143,10 @@ pub struct App {
     /// '?' overlay. Modal: Esc closes it before Esc touches focus.
     pub help_open: bool,
     pub config_dir: PathBuf,
+    /// Set when the config or pins on disk could not be parsed. While it is
+    /// Some, every `persist_*` is a no-op that re-arms the status line — a
+    /// typo is never silently overwritten with defaults.
+    pub config_error: Option<String>,
     /// Monotonic render tick (~10/s while live, ~1/s idle). Every animation
     /// is a pure function of this counter plus app state — keyboard input
     /// redraws but never advances it, so keys can't animate anything.
@@ -211,6 +215,7 @@ impl App {
             completion: None,
             help_open: false,
             config_dir,
+            config_error: None,
             tick: 0,
             last_scores: HashMap::new(),
             flashes: HashMap::new(),
@@ -220,6 +225,30 @@ impl App {
             hit_zones: Vec::new(),
             offset,
             now_override: None,
+        }
+    }
+
+    /// The only place config.toml is written. A config we could not parse is
+    /// never overwritten: the save is skipped and the footer says why, every
+    /// time, so the user can go fix the file.
+    pub fn persist_config(&mut self) {
+        if let Some(err) = &self.config_error {
+            self.status_line = Some(format!("not saving: {err}"));
+            return;
+        }
+        if let Err(e) = self.config.save_to(&self.config_dir) {
+            self.status_line = Some(format!("config save failed: {e}"));
+        }
+    }
+
+    /// The only place pins.json is written; same refusal as `persist_config`.
+    pub fn persist_pins(&mut self) {
+        if let Some(err) = &self.config_error {
+            self.status_line = Some(format!("not saving: {err}"));
+            return;
+        }
+        if let Err(e) = save_pins(&self.config_dir, &self.pins) {
+            self.status_line = Some(format!("pins save failed: {e}"));
         }
     }
 
@@ -488,7 +517,7 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up => self.move_theme_cursor(-1),
             KeyCode::Enter => {
                 self.config.theme = theme::current_name();
-                let _ = self.config.save_to(&self.config_dir);
+                self.persist_config();
                 self.view = View::Board;
             }
             KeyCode::Esc | KeyCode::Char('q') => {
@@ -602,13 +631,13 @@ impl App {
         } else {
             self.config.enabled_tabs.push(league);
         }
-        let _ = self.config.save_to(&self.config_dir);
+        self.persist_config();
     }
 
     fn config_remove_favorite(&mut self, i: usize) {
         if i < self.config.favorites.len() {
             self.config.favorites.remove(i);
-            let _ = self.config.save_to(&self.config_dir);
+            self.persist_config();
         }
         self.move_config_cursor(0); // re-clamp against the shrunk row list
     }
@@ -678,7 +707,7 @@ impl App {
             league,
             team_abbr: abbr,
         });
-        let _ = self.config.save_to(&self.config_dir);
+        self.persist_config();
     }
 
     /// h/l on a display row: cycle its value and persist. No-op on rows that
@@ -708,7 +737,7 @@ impl App {
             }
             ConfigRow::Tab(_) | ConfigRow::Favorite(_) | ConfigRow::AddFavorite => return,
         }
-        let _ = self.config.save_to(&self.config_dir);
+        self.persist_config();
     }
 
     /// Keys in the Standings view: j/k scroll the table one line, PgUp/PgDn
@@ -946,7 +975,7 @@ impl App {
         self.stats = stats;
         self.net.ok(Instant::now(), stale);
         self.pins = prune_pins(std::mem::take(&mut self.pins), now);
-        let _ = save_pins(&self.config_dir, &self.pins);
+        self.persist_pins();
         self.clamp_selected();
     }
 
@@ -1151,7 +1180,7 @@ impl App {
             });
             self.status_line = Some(format!("pinned {matchup}"));
         }
-        let _ = save_pins(&self.config_dir, &self.pins);
+        self.persist_pins();
         self.clamp_selected();
     }
 
@@ -1177,13 +1206,13 @@ impl App {
                 team_abbr: abbr,
             });
         }
-        let _ = self.config.save_to(&self.config_dir);
+        self.persist_config();
         self.clamp_selected();
     }
 
     fn set_layout(&mut self, layout: LayoutPref) {
         self.config.layout = layout;
-        let _ = self.config.save_to(&self.config_dir);
+        self.persist_config();
     }
 
     /// 'c': step to the next loaded theme in picker order (built-ins, then
@@ -1193,7 +1222,7 @@ impl App {
         let _ = theme::set_current(&next);
         self.status_line = Some(format!("theme {next}"));
         self.config.theme = next;
-        let _ = self.config.save_to(&self.config_dir);
+        self.persist_config();
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {

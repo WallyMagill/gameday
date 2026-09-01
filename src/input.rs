@@ -4,7 +4,7 @@
 
 use crate::app::{App, Tab};
 use crate::command::{self, Cmd};
-use crate::config::{save_pins, Pin};
+use crate::config::Pin;
 use crate::domain::League;
 use crate::theme;
 use crate::views::View;
@@ -185,17 +185,17 @@ fn apply(app: &mut App, cmd: Cmd) {
         Cmd::Theme(Some(name)) => match theme::set_current(&name) {
             Ok(canonical) => {
                 app.config.theme = canonical;
-                let _ = app.config.save_to(&app.config_dir);
+                app.persist_config();
             }
             Err(err) => app.status_line = Some(err),
         },
         Cmd::Score(style) => {
             app.config.score_style = style;
-            let _ = app.config.save_to(&app.config_dir);
+            app.persist_config();
         }
         Cmd::Layout(pref) => {
             app.config.layout = pref;
-            let _ = app.config.save_to(&app.config_dir);
+            app.persist_config();
         }
         Cmd::Pin(abbr) => pin_team(app, &abbr),
         Cmd::Quit => app.should_quit = true,
@@ -241,7 +241,7 @@ fn pin_team(app: &mut App, abbr: &str) {
             league,
             final_at: None,
         });
-        let _ = save_pins(&app.config_dir, &app.pins);
+        app.persist_pins();
     }
     app.status_line = Some(label);
 }

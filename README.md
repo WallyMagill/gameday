@@ -31,6 +31,9 @@ score_style = "big"             # big (sextant digits) | compact (single row)
 ```
 
 Favorites and pins live beside that file. Pins drop 6 hours after a game goes final.
+`$XDG_CONFIG_HOME` is honored, and `--config-dir <path>` overrides both.
+Older installs on macOS: the app reads `~/Library/Application Support/gameday` until you move it.
+A config.toml that doesn't parse is reported with its line and left alone — the board runs on defaults and saves nothing until you fix it.
 
 ## Keys
 

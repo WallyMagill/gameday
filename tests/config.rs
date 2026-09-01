@@ -1,4 +1,6 @@
-use gameday::config::{load_pins, prune_pins, save_pins, Config, Favorite, Pin};
+use gameday::config::{
+    load_config, load_pins, prune_pins, resolve_dir, save_pins, Config, Favorite, Pin,
+};
 use gameday::domain::League;
 use gameday::tiles::packer::LayoutPref;
 use gameday::tiles::ScoreStyle;
@@ -98,6 +100,74 @@ fn prune_drops_final_after_six_hours() {
     let out = prune_pins(vec![old, keep, live], now);
     let ids: Vec<_> = out.iter().map(|p| p.game_id.as_str()).collect();
     assert_eq!(ids, vec!["2", "3"]);
+}
+
+#[test]
+fn xdg_wins_then_dot_config_then_legacy_is_read_only() {
+    let home = tmp("home");
+    let legacy = home.join("Library/Application Support/gameday");
+    fs::create_dir_all(&legacy).unwrap();
+    fs::write(
+        legacy.join("config.toml"),
+        "enabled_tabs = [\"Nfl\"]\nlayout = \"Auto\"\nfavorites = []\n",
+    )
+    .unwrap();
+    // No ~/.config/gameday yet: dir is the new path, reads fall back to legacy.
+    let r = resolve_dir(None, &home, None, Some(&legacy));
+    assert_eq!(r.dir, home.join(".config/gameday"));
+    assert_eq!(r.legacy_read_from.as_deref(), Some(legacy.as_path()));
+    let out = load_config(&r);
+    assert_eq!(out.value.enabled_tabs, vec![League::Nfl]);
+    assert!(out.error.is_none());
+    // XDG_CONFIG_HOME set: it wins outright.
+    let xdg = home.join("xdg");
+    let r = resolve_dir(None, &home, Some(&xdg), Some(&legacy));
+    assert_eq!(r.dir, xdg.join("gameday"));
+    // --config-dir beats everything and never consults legacy.
+    let r = resolve_dir(Some(home.join("custom")), &home, Some(&xdg), Some(&legacy));
+    assert_eq!(r.dir, home.join("custom"));
+    assert!(r.legacy_read_from.is_none());
+    fs::remove_dir_all(&home).ok();
+}
+
+#[test]
+fn a_broken_config_loads_defaults_reports_the_line_and_is_never_overwritten() {
+    let dir = tmp("broken");
+    fs::write(
+        dir.join("config.toml"),
+        "enabled_tabs = [\"NFLL\"]\nlayout = \"Auto\"\nfavorites = []\n",
+    )
+    .unwrap();
+    let r = resolve_dir(Some(dir.clone()), &dir, None, None);
+    let out = load_config(&r);
+    assert_eq!(out.value, Config::default_all(), "defaults in memory");
+    let err = out.error.clone().expect("error reported");
+    assert!(
+        err.contains("config.toml") && err.contains("NFLL") && err.contains("nfl|cfb"),
+        "{err}"
+    );
+    let before = fs::read_to_string(dir.join("config.toml")).unwrap();
+    let mut app = gameday::app::App::new(out.value, vec![], dir.clone(), time::UtcOffset::UTC);
+    app.config_error = out.error;
+    // '2' sets the two-up layout, which would persist the config.
+    app.on_key(
+        crossterm::event::KeyCode::Char('2'),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    assert_eq!(
+        fs::read_to_string(dir.join("config.toml")).unwrap(),
+        before,
+        "file untouched"
+    );
+    assert!(
+        app.status_line
+            .as_deref()
+            .unwrap_or("")
+            .contains("not saving"),
+        "{:?}",
+        app.status_line
+    );
+    fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

@@ -11,7 +11,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use gameday::app::App;
-use gameday::config::{load_pins, Config};
+use gameday::config::{load_config, load_pins_outcome, resolve_dir};
 use gameday::domain::*;
 use gameday::provider::espn::EspnProvider;
 use gameday::provider::SportsProvider;
@@ -165,8 +165,11 @@ fn main() -> std::io::Result<()> {
             eprintln!("gameday: {e}");
             std::process::exit(1);
         }
-        // Demo state lives in a scratch dir so it never touches real pins/config.
-        let dir = std::env::temp_dir().join(format!("gameday-demo-{}", std::process::id()));
+        // Demo state lives in a scratch dir so it never touches real
+        // pins/config — unless --config-dir names one, which always wins.
+        let dir = args.config_dir.clone().unwrap_or_else(|| {
+            std::env::temp_dir().join(format!("gameday-demo-{}", std::process::id()))
+        });
         std::fs::create_dir_all(&dir)?;
         // Seed at tick 0, then the simulator drives the board over the same
         // Msg channel the live provider uses — the UI path is identical.
@@ -183,24 +186,43 @@ fn main() -> std::io::Result<()> {
         std::process::exit(1);
     }
 
-    // Task 12's config::resolve_dir replaces this line; the flag works now.
-    let dir = args.config_dir.clone().unwrap_or_else(|| {
-        dirs::config_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("gameday")
-    });
+    let resolved = resolve_dir(
+        args.config_dir.clone(),
+        &dirs::home_dir().unwrap_or_default(),
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .as_deref(),
+        dirs::config_dir().map(|d| d.join("gameday")).as_deref(),
+    );
+    if let Some(l) = &resolved.legacy_read_from {
+        eprintln!(
+            "gameday: reading config from {} — gameday now writes to {}; move the folder to keep one copy",
+            l.display(),
+            resolved.dir.display()
+        );
+    }
+    let dir = resolved.dir.clone();
     std::fs::create_dir_all(dir.join("cache"))?;
-    let mut config = Config::load_from(&dir).unwrap_or_else(|_| Config::default_all());
+    let loaded = load_config(&resolved);
+    let pins_loaded = load_pins_outcome(&resolved);
+    // A file we could not parse is reported and left alone: the app runs on
+    // defaults and every save is refused until the user fixes it.
+    let config_error = loaded.error.clone().or_else(|| pins_loaded.error.clone());
+    if let Some(err) = &config_error {
+        eprintln!("gameday: {err} — running on defaults, not saving until it parses");
+    }
+    let mut config = loaded.value;
     // User theme files first, so config.theme may name one of them; an
     // unknown name falls back to broadcast with a stderr note.
     gameday::theme::install_user_themes(&dir);
     config.theme = gameday::theme::select_or_default(&config.theme);
-    let pins = load_pins(&dir).unwrap_or_default();
+    let pins = pins_loaded.value;
     // Read the local offset here, on the main thread, before the poll thread
     // exists — `time` refuses the TZ database once the process is threaded.
     // The app and the mapper share this one value.
     let offset = gameday::text::startup_offset();
-    let app = App::new(config, pins, dir.clone(), offset);
+    let mut app = App::new(config, pins, dir.clone(), offset);
+    app.config_error = config_error;
 
     let provider = EspnProvider::new(dir.join("cache"), offset);
     let (tx, rx) = mpsc::channel::<Msg>();
