@@ -13,11 +13,14 @@ pub const STANDINGS_TTL: Duration = Duration::from_secs(10 * 60);
 
 pub struct EspnProvider {
     pub cache_dir: PathBuf,
+    /// Local UTC offset, read once on the main thread (`text::startup_offset`)
+    /// and carried here: the poll thread can't read the TZ database itself.
+    pub offset: time::UtcOffset,
 }
 
 impl EspnProvider {
-    pub fn new(cache_dir: PathBuf) -> Self {
-        Self { cache_dir }
+    pub fn new(cache_dir: PathBuf, offset: time::UtcOffset) -> Self {
+        Self { cache_dir, offset }
     }
 
     fn fetch<T, F>(&self, url: &str, key: &str, map: F) -> Result<(T, bool), ProviderError>
@@ -137,7 +140,7 @@ impl SportsProvider for EspnProvider {
         let url = scoreboard_url(league);
         let key = format!("{}-scoreboard", league.slug());
         self.fetch(&url, &key, |body| {
-            map_scoreboard(league, body).map_err(Into::into)
+            map_scoreboard(league, body, self.offset).map_err(Into::into)
         })
     }
 
@@ -155,7 +158,7 @@ impl SportsProvider for EspnProvider {
             date.day()
         );
         self.fetch(&url, &key, |body| {
-            map_scoreboard(league, body).map_err(Into::into)
+            map_scoreboard(league, body, self.offset).map_err(Into::into)
         })
     }
 
@@ -264,7 +267,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let fixture = include_str!("../../fixtures/nfl_standings.json");
         cache_write(&dir, "nfl-standings", fixture).unwrap();
-        let provider = EspnProvider::new(dir.clone());
+        let provider = EspnProvider::new(dir.clone(), time::UtcOffset::UTC);
         let (table, stale) = provider.standings(League::Nfl).unwrap();
         assert!(!stale, "fresh cache must not be marked stale");
         assert_eq!(table.groups.len(), 2);

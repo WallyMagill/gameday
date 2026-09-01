@@ -158,7 +158,9 @@ fn main() -> std::io::Result<()> {
     let enabled_tabs_poll = enabled_tabs.clone();
     let app = App::new(config, pins, dir.clone());
 
-    let provider = EspnProvider::new(dir.join("cache"));
+    // Read the local offset here, on the main thread, before the poll thread
+    // exists — `time` refuses the TZ database once the process is threaded.
+    let provider = EspnProvider::new(dir.join("cache"), gameday::text::startup_offset());
     let (tx, rx) = mpsc::channel::<Msg>();
     let tx_plan = tx.clone();
     // R in the UI sets this; poll_loop checks it every ~200ms tick and
@@ -207,7 +209,7 @@ fn probe(slug: &str) -> std::io::Result<()> {
         std::process::exit(2);
     };
     let cache = std::env::temp_dir().join(format!("gameday-probe-{}", std::process::id()));
-    let provider = EspnProvider::new(cache.clone());
+    let provider = EspnProvider::new(cache.clone(), gameday::text::startup_offset());
     let result = provider.scoreboard(league);
     let _ = std::fs::remove_dir_all(&cache);
     match result {
