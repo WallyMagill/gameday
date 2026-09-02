@@ -5,3 +5,4 @@
 pub mod hero;
 pub mod layout;
 pub mod logo;
+pub mod rows;
