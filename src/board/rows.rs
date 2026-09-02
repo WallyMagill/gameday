@@ -59,6 +59,10 @@ pub const GUTTER: u16 = 4;
 /// nudge takes the rest.
 const NUDGE_X: u16 = 2;
 
+/// Largest climb the 2-cell nudge gutter can say truthfully (ruling R31):
+/// `↑9` means "rose 9 or more places".
+const NUDGE_MAX: usize = 9;
+
 // ---------------------------------------------------------------- the grid
 //
 // Column offsets from the row's left edge, measured off the A′ reference
@@ -200,7 +204,11 @@ fn gutters(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
     let mark = if ctx.selected {
         Some(Span::styled("▸", Style::default().fg(theme::current().bright).add_modifier(Modifier::BOLD)))
     } else {
-        ctx.nudge.map(|n| Span::styled(format!("↑{n}"), Style::default().fg(r.digits)))
+        // Ruling R31: the gutter is two cells, so the DISPLAYED climb clamps
+        // at 9 — `↑9` reads "rose 9 or more". Clipping `↑12` to `↑1` would
+        // print a number that never happened; an understated climb is the
+        // honest failure.
+        ctx.nudge.map(|n| Span::styled(format!("↑{}", n.min(NUDGE_MAX)), Style::default().fg(r.digits)))
     };
     if let Some(span) = mark {
         col(frame, area, NUDGE_X, GUTTER - NUDGE_X, 0, Alignment::Left, Line::from(span));
@@ -570,6 +578,56 @@ mod tests {
         for x in NUDGE_X..GUTTER {
             assert_eq!(a[(x, 0)].symbol(), " ", "no nudge leaves the gutter empty at {x}");
         }
+    }
+
+    #[test]
+    fn a_big_nudge_clamps_to_nine_rather_than_lying() {
+        // Ruling R31: two cells cannot say "12", and `↑1` is a number that
+        // never happened. `↑9` understates; it never fabricates.
+        let game = tier2_game();
+        let r = theme::current().roles();
+        for (nudge, want) in [(2usize, "↑2"), (9, "↑9"), (12, "↑9"), (137, "↑9")] {
+            let term = render(120, 1, &game, &RowCtx { nudge: Some(nudge), ..ctx() }, draw_tier2);
+            let buf = term.backend().buffer();
+            let got: String = (NUDGE_X..GUTTER).map(|x| buf[(x, 0)].symbol()).collect();
+            assert_eq!(got, want, "nudge {nudge} renders {want} in the gutter\n{}", text_of(buf));
+            for x in NUDGE_X..GUTTER {
+                assert_eq!(buf[(x, 0)].fg, r.digits, "nudge {nudge}: the gutter is amber at {x}");
+            }
+            // Whatever it says, it says it inside the gutter.
+            assert_eq!(buf[(GUTTER, 0)].symbol(), " ", "nudge {nudge} must not spill past the gutter");
+        }
+    }
+
+    #[test]
+    fn selection_is_a_caret_in_the_gutter_and_brighter_text() {
+        let game = tier2_game();
+        let th = theme::current();
+        let quiet = render(120, 1, &game, &ctx(), draw_tier2);
+        let picked = render(120, 1, &game, &RowCtx { selected: true, ..ctx() }, draw_tier2);
+        let (a, b) = (quiet.backend().buffer(), picked.backend().buffer());
+        let text = text_of(b);
+
+        assert_eq!(b[(NUDGE_X, 0)].symbol(), "▸", "the caret takes the nudge gutter\n{text}");
+        assert_eq!(b[(NUDGE_X, 0)].fg, th.bright, "the caret is bright\n{text}");
+        assert_eq!(a[(NUDGE_X, 0)].symbol(), " ", "an unselected row has no caret");
+
+        // The abbrs and the clock brighten; the score keeps its amber, and
+        // nothing moves.
+        for needle in ["GB", "CHI"] {
+            let x = col_of(b, 0, needle).unwrap();
+            assert_eq!(col_of(a, 0, needle), Some(x), "selection never moves {needle}\n{text}");
+            assert_eq!(b[(x, 0)].fg, th.bright, "{needle} is bright while selected\n{text}");
+            assert_eq!(a[(x, 0)].fg, th.roles().ink, "{needle} is plain ink otherwise");
+        }
+        assert_eq!(b[(CLOCK_X, 0)].fg, th.bright, "the clock brightens too\n{text}");
+        assert_eq!(b[(AWAY_SCORE_X + 2, 0)].fg, th.roles().digits, "the score stays amber\n{text}");
+
+        // Selection wins the gutter over a nudge — one glyph, not two facts.
+        let both = render(120, 1, &game, &RowCtx { selected: true, nudge: Some(3), ..ctx() }, draw_tier2);
+        let c = both.backend().buffer();
+        assert_eq!(c[(NUDGE_X, 0)].symbol(), "▸", "the caret outranks the nudge\n{}", text_of(c));
+        assert!(!text_of(c).contains("↑3"), "no nudge beside the caret\n{}", text_of(c));
     }
 
     #[test]
