@@ -89,8 +89,16 @@ pub fn plan(width: u16, height: u16, live: usize, finals: usize, later: usize, m
         // spec §4 "< 60 cols": 2-line compact hero, no digits.
         (2, false)
     } else if width >= 100 && height >= 32 {
-        // spec §4 "≥120×40" / "100-119 cols": 8-row Full digits, 10 rows.
-        (10, true)
+        // spec §4 "≥120×40" / "100-119 cols": 8-row Full digits.
+        //
+        // Ruling R32: 12 rows, not 10. The band charges the digits first
+        // (R29), so 10 rows are nameplate 1 + digits 8 + ONE spare, which the
+        // keep order (R30) spends on the fragment — leaving the flagship hero
+        // with neither the meter bar nor the last-play line that the 6-row
+        // 80×24 hero does draw. 12 = 1 nameplate + 8 digits + fragment +
+        // meter + play, which is the A′ frame's hero exactly (11 buys the
+        // meter only). Costs 1–2 tier rows at 40 rows tall.
+        (12, true)
     } else {
         // spec §4 "80×24" / "60-79 cols": sextant digits, 6 rows total.
         (6, false)
@@ -156,9 +164,11 @@ mod tests {
 
     #[test]
     fn the_sizes_ladder_matches_the_spec_table() {
-        // 120x40: full hero, up to 3 promoted, no lane.
+        // 120x40: full hero, up to 3 promoted, no lane. Ruling R32: the Full
+        // bracket is 12 rows — nameplate + 8 digit rows + fragment + meter +
+        // play — so the flagship hero is never poorer than the 80×24 one.
         let p = plan(120, 38, 8, 2, 4, 0);
-        assert_eq!(p.hero_rows, 10);
+        assert_eq!(p.hero_rows, 12);
         assert!(p.hero_digits_full);
         assert_eq!(p.tier1, 3);
         assert!(!p.scores_lane);

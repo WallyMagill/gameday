@@ -1864,16 +1864,30 @@ fn pinned_games_sit_in_a_band_that_never_resorts() {
 
 #[test]
 fn selection_walks_the_whole_list_and_scrolls() {
-    let mut app = board_app(12, 2, 2);
-    let n = 16;
+    // 24 games (12 live + 6 final + 6 later) at 120x24: the body holds the
+    // 6-row hero, the IN PLAY rule and a handful of rows, so index 20 — the
+    // third LATER game — cannot be in the first window. That is the point:
+    // the window has to MOVE, not just highlight.
+    let mut app = board_app(12, 6, 6);
+    let opening = buf_text(&render(&mut app, 120, 24));
+    assert!(opening.contains("IN PLAY"), "the board opens at the top:\n{opening}");
+    assert!(!opening.contains("LATER"), "LATER starts off-screen:\n{opening}");
+
     for _ in 0..20 {
         key(&mut app, crossterm::event::KeyCode::Char('j'));
     }
-    assert_eq!(app.selected, 20 % n, "j walks the whole list, wrapping");
+    assert_eq!(app.selected, 20, "j walks the whole list — 24 games, no wrap");
+
     let term = render(&mut app, 120, 24);
     let buf = term.backend().buffer();
     let s = buf_text(&term);
-    // The selected row is on screen: its caret is drawn, in `bright`.
+    // The window moved: what was at the top is gone, what was off the bottom
+    // is here.
+    assert!(!s.contains("IN PLAY"), "the top of the list scrolled away:\n{s}");
+    assert!(s.contains("LATER"), "the window followed the selection:\n{s}");
+
+    // The selected row is on screen, cell-level: a `bright` caret in the
+    // nudge gutter, on the row that carries the selected game.
     let mut caret = None;
     for y in 0..buf.area().height {
         for x in 0..buf.area().width {
@@ -1883,8 +1897,13 @@ fn selection_walks_the_whole_list_and_scrolls() {
         }
     }
     let (_, y) = caret.unwrap_or_else(|| panic!("the selected row scrolled into view:\n{s}"));
+    // selection = in_play(12) ++ finals(6) ++ later(6); index 20 is later[2],
+    // and LATER keeps board order, so it is the 21st pair of `board_games`.
     let row = s.lines().nth(y as usize).unwrap();
-    assert!(row.trim().len() > 2, "the caret sits on a real row: {row:?}");
+    assert!(
+        row.contains("CIN") && row.contains("BAL"),
+        "the caret sits on the selected game: {row:?}\n{s}"
+    );
 }
 
 #[test]

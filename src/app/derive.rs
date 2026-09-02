@@ -131,6 +131,17 @@ impl App {
         })
     }
 
+    /// How many rows j/k can land on, without building the lists. The four
+    /// sections partition `visible_games()` — every visible game lands in
+    /// exactly one of them — so the selection is the same length as the
+    /// visible board. `clamp_selected`/`move_selected` run on the keypress
+    /// path and only ever wanted this number; a full `derive()` there also
+    /// cloned the whole scoring feed. The invariant is asserted in
+    /// `the_sections_partition_the_board_in_selection_order`.
+    pub(crate) fn selection_len(&self) -> usize {
+        self.visible_games().len()
+    }
+
     pub(crate) fn selected_game(&self) -> Option<Game> {
         self.derive().selection.get(self.selected).cloned()
     }
@@ -345,6 +356,15 @@ mod tests {
             vec!["live2", "pre1", "live1", "fin1"],
             "selection is my_games ++ in_play ++ finals ++ later"
         );
+        // The partition invariant `selection_len()` takes the shortcut on:
+        // every visible game is in exactly one section, so the selection is
+        // as long as the visible board and holds no duplicates.
+        let mut unique = ids(&d.selection);
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), d.selection.len(), "no game in two sections");
+        assert_eq!(d.selection.len(), app.visible_games().len());
+        assert_eq!(app.selection_len(), d.selection.len());
         // The hero: live2 is pinned AND live, so it leads.
         assert_eq!(d.hero_id.as_deref(), Some("live2"));
         assert!(!d.mixed, "one league on the board");

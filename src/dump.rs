@@ -857,13 +857,6 @@ mod tests {
     fn tick_zero_board_names_the_heros_state_at_every_size() {
         // 2x2 at 120x36, the 80x24 narrow board, and the zoom overview all
         // carry the gauge row: label at the left, value tail intact.
-        let needles: [(&str, &str); 4] = [
-            ("RED ZONE", "3 TO GOAL"),
-            ("LEAD", "DEN +7"),
-            ("BASES", "COUNT 1-2"),
-            ("PENALTY", "0:42"),
-        ];
-        let _ = needles;
         let wide = text_of(&render_variant(&variant("board-broadcast"), 0).unwrap());
         assert!(
             wide.lines().any(|l| l.contains("RED ZONE")),

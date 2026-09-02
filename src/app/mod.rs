@@ -1167,7 +1167,7 @@ impl App {
     }
 
     fn clamp_selected(&mut self) {
-        let n = self.derive().selection.len();
+        let n = self.selection_len();
         if n == 0 {
             self.selected = 0;
         } else if self.selected >= n {
@@ -1196,7 +1196,7 @@ impl App {
     /// both ends. The board scrolls itself to keep the selection visible
     /// (`board::first_visible`), so nothing here has a window to move.
     fn move_selected(&mut self, delta: isize) {
-        let n = self.derive().selection.len();
+        let n = self.selection_len();
         if n == 0 {
             self.selected = 0;
             return;
