@@ -1034,7 +1034,6 @@ impl App {
         if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
             return;
         }
-        let mut scoring_changed = false;
         for board in self.boards.values_mut() {
             if let Some(game) = board.iter_mut().find(|g| g.id == game_id) {
                 if !summary.scoring_plays.is_empty() {
@@ -1056,7 +1055,6 @@ impl App {
                     if newest_first {
                         sp.reverse();
                     }
-                    scoring_changed = game.scoring_plays != sp;
                     game.scoring_plays = sp;
                 }
                 if !summary.last_plays.is_empty() {
@@ -1068,15 +1066,12 @@ impl App {
                     }
                     game.last_plays = last_plays;
                 }
-                break;
+                return;
             }
         }
-        // A summary that moved the scoring plays can carry news the board has
-        // not seen yet (a summary poll can beat the scoreboard poll to a
-        // score). The fingerprint check decides whether it really did.
-        if scoring_changed {
-            self.maybe_reorder();
-        }
+        // No reorder here: a Summary carries nothing the rank fingerprint reads
+        // (scores/status/meters all arrive via the scoreboard). Re-add when
+        // sub-project 3 maps NHL power plays from the summary.
     }
 
     /// The zoomed game's (league, id) — the stats poll's only target. None
@@ -2000,20 +1995,14 @@ mod tests {
     }
 
     #[test]
-    fn a_summary_reorders_once_and_only_when_the_data_moved() {
-        // A summary that lands before the scoreboard poll is the board's
-        // first sight of these games: it reorders.
-        let mut app = app_with(vec![], vec![]);
-        app.apply_boards(
-            League::Nfl,
-            vec![
-                ranked("a", "Q1", "15:00", 14, 10),
-                ranked("b", "Q2", "5:00", 24, 21),
-            ],
-            true, // cached, so nothing has been ordered yet
-        );
-        // Nothing has been ordered, so `ordered` falls through to board order.
-        assert_eq!(ord(&app), vec!["a", "b"], "a cached apply orders nothing");
+    fn a_summary_never_reorders_the_board() {
+        // A Summary carries only plays — no score, status or meter — so it can
+        // never move the rank fingerprint. Scoring plays landing on a game
+        // leave the order exactly where the last scoreboard apply put it. The
+        // real event coverage lives in the apply_boards tests above
+        // (clock-drift freeze, score delta, hot flip).
+        let mut app = ordering_app();
+        let before = ord(&app);
         let score = |text: &str| Summary {
             last_plays: vec![],
             scoring_plays: vec![Play {
@@ -2025,17 +2014,18 @@ mod tests {
             meter: None,
         };
         app.merge_summary("a", score("Mahomes 20 yd TD pass"));
-        assert_eq!(ord(&app), vec!["b", "a"], "the summary is the first event");
-
-        // Now the clock advances under the board (no apply) so that a reorder,
-        // if one ran, would put "a" first. A second summary appends a scoring
-        // play but moves no score, status or hot flag — no reorder.
-        app.boards.get_mut(&League::Nfl).unwrap()[0].period = "Q3".into();
+        assert_eq!(ord(&app), before, "a summary is not a reorder event");
         app.merge_summary("a", score("Kelce 8 yd TD pass"));
+        assert_eq!(ord(&app), before, "nor is a second one");
         assert_eq!(
-            ord(&app),
-            vec!["b", "a"],
-            "a scoring play with no score move is not a reorder"
+            app.boards[&League::Nfl]
+                .iter()
+                .find(|x| x.id == "a")
+                .unwrap()
+                .scoring_plays
+                .len(),
+            1,
+            "the summary still did its own job"
         );
     }
 
