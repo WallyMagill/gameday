@@ -15,7 +15,7 @@ use crate::input::{CompletionState, InputMode};
 use crate::keymap;
 use crate::theme;
 use crate::ticker;
-use crate::tiles::packer::{page_size, LayoutPref};
+use crate::config::LayoutPref;
 use crate::tiles::TileFx;
 use crate::views::{self, View, ZoomTab};
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -70,7 +70,6 @@ pub fn date_label(d: time::Date) -> String {
 
 pub struct App {
     pub tab: Tab,
-    pub page: usize,
     pub selected: usize,
     pub pins: Vec<Pin>,
     pub config: Config,
@@ -205,7 +204,6 @@ impl App {
     ) -> Self {
         Self {
             tab: Tab::Home,
-            page: 0,
             selected: 0,
             pins,
             config,
@@ -318,12 +316,8 @@ impl App {
     pub fn on_hit(&mut self, hit: keymap::Hit) {
         use keymap::Hit;
         match hit {
-            Hit::Tile(i) => {
+            Hit::Row(i) => {
                 self.selected = i;
-                self.clamp_selected();
-            }
-            Hit::SlateRow(i) => {
-                self.selected = self.live_games().len() + i;
                 self.clamp_selected();
             }
             // A header click pops the picker like the Tab key: the preview
@@ -819,8 +813,8 @@ impl App {
             KeyCode::Char('t') => self.toggle_favorite(),
             KeyCode::Char('[') => self.step_viewed_date(-1),
             KeyCode::Char(']') => self.step_viewed_date(1),
-            KeyCode::Char('n') | KeyCode::PageDown => self.change_page(1),
-            KeyCode::Char('p') | KeyCode::PageUp => self.change_page(-1),
+            // v3.2 §7: n/p paging is deleted — the board is one scrolling
+            // list, so PgDn/PgUp have nothing to page and n/p are free again.
             KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('1') => self.set_layout(LayoutPref::One),
             KeyCode::Char('2') => self.set_layout(LayoutPref::Two),
@@ -891,9 +885,9 @@ impl App {
         self.zoom_scroll = next.clamp(0, len as isize - 1) as usize;
     }
 
-    /// Every live game on an enabled board, minus the pinned ones. Pins live
-    /// in the MY GAMES band and never re-sort (spec §1), so `OrderState` is
-    /// never told about them.
+    /// Every live game on an enabled board, minus the viewer's own. Pins AND
+    /// favorites live in the MY GAMES band and never re-sort (spec §1, ruling
+    /// R26), so `OrderState` is never told about either.
     pub fn live_all(&self) -> Vec<Game> {
         self.config
             .enabled_tabs
@@ -901,7 +895,7 @@ impl App {
             .filter_map(|l| self.boards.get(l))
             .flatten()
             .filter(|g| g.status == Status::Live)
-            .filter(|g| !self.pins.iter().any(|p| p.game_id == g.id))
+            .filter(|g| !self.is_my_game(g))
             .cloned()
             .collect()
     }
@@ -1173,44 +1167,12 @@ impl App {
     }
 
     fn clamp_selected(&mut self) {
-        let n = self.selection_list().len();
+        let n = self.derive().selection.len();
         if n == 0 {
             self.selected = 0;
         } else if self.selected >= n {
             self.selected = n - 1;
         }
-        // A shrunk board must never leave the page index past the end.
-        self.page = self.page.min(self.page_count() - 1);
-    }
-
-    /// Tiles per mosaic page under the current layout.
-    fn page_len(&self) -> usize {
-        self.page_len_of(self.mosaic_games().len())
-    }
-
-    /// Number of mosaic pages, always >= 1.
-    pub fn page_count(&self) -> usize {
-        self.page_count_of(self.mosaic_games().len())
-    }
-
-    /// The same two numbers for a mosaic already in hand — what a draw uses,
-    /// so a frame that has derived its lists never re-derives them to count
-    /// its pages.
-    pub(crate) fn page_len_of(&self, mosaic_len: usize) -> usize {
-        page_size(self.effective_layout(), mosaic_len.max(1))
-    }
-
-    pub(crate) fn page_count_of(&self, mosaic_len: usize) -> usize {
-        mosaic_len.max(1).div_ceil(self.page_len_of(mosaic_len))
-    }
-
-    /// n/p and PgDn/PgUp: wrap around the known page count (never a blank
-    /// page past the end) and land the selection on the page's first tile.
-    fn change_page(&mut self, delta: isize) {
-        let count = self.page_count() as isize;
-        self.page = (self.page as isize + delta).rem_euclid(count) as usize;
-        let sel_len = self.selection_list().len();
-        self.selected = (self.page * self.page_len()).min(sel_len.saturating_sub(1));
     }
 
     fn cycle_tab(&mut self, delta: isize) {
@@ -1226,23 +1188,20 @@ impl App {
     /// Direct tab jump (`:nfl`, `:home`): same reset a cycled switch does.
     pub fn set_tab(&mut self, tab: Tab) {
         self.tab = tab;
-        self.page = 0;
         self.selected = 0;
         self.view = View::Board;
     }
 
+    /// j/k: walk `Derived::selection` — one list, hero included, wrapping at
+    /// both ends. The board scrolls itself to keep the selection visible
+    /// (`board::first_visible`), so nothing here has a window to move.
     fn move_selected(&mut self, delta: isize) {
-        let n = self.selection_list().len();
+        let n = self.derive().selection.len();
         if n == 0 {
             self.selected = 0;
             return;
         }
         self.selected = (self.selected as isize + delta).rem_euclid(n as isize) as usize;
-        // Page follows the selection so the highlighted tile is always on
-        // screen; a selection down in the slate leaves the mosaic page alone.
-        if self.selected < self.mosaic_games().len() {
-            self.page = self.selected / self.page_len();
-        }
     }
 
     fn toggle_pin(&mut self) {
@@ -1291,20 +1250,11 @@ impl App {
         self.clamp_selected();
     }
 
-    /// 1/2/4/S: change the mosaic layout and keep looking at the same game.
-    /// The selection is an index into a list whose length doesn't change, but
-    /// the page that holds it does — so the index is restored by game id and
-    /// the page is recomputed from it. Without this, switching to [1] from
-    /// page 2 dropped you back on game 1.
+    /// 1/2/4/S: the mosaic layout setting. The mosaic itself is gone (v3.2
+    /// §7 — the board is one ranked list), so this only persists a value
+    /// nothing renders; Task 10 deletes the keys, the command and the setting.
     fn set_layout(&mut self, layout: LayoutPref) {
-        let sel = self.selected_game().map(|g| g.id);
         self.config.layout = layout;
-        if let Some(id) = sel {
-            if let Some(i) = self.selection_list().iter().position(|g| g.id == id) {
-                self.selected = i;
-            }
-        }
-        self.page = self.selected / self.page_len();
         self.clamp_selected();
         self.persist_config();
     }
@@ -1357,7 +1307,16 @@ impl App {
             );
             return;
         }
-        let ticker_h = if area.height >= 24 { ticker::HEIGHT } else { 0 };
+        // v3.2 §1: the board has no ticker — what used to run down there is
+        // now the board's own one-row SCORES lane, drawn inside the body only
+        // when something didn't fit. The other views keep the v3.1 ticker
+        // until Task 9 rebuilds the chrome around the lane.
+        let ticker_h = if area.height >= 24 && !matches!(self.view, View::Board | View::ThemePicker)
+        {
+            ticker::HEIGHT
+        } else {
+            0
+        };
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -1439,7 +1398,7 @@ mod tests {
     use super::*;
     use crate::config::{Config, Favorite, Pin};
     use crate::domain::*;
-    use crate::tiles::packer::LayoutPref;
+    use crate::config::LayoutPref;
     use crossterm::event::{KeyCode, KeyModifiers};
 
     fn team(abbr: &str) -> Team {
@@ -1501,8 +1460,11 @@ mod tests {
         );
         app.tab = Tab::League(League::Nfl);
         assert_eq!(app.visible_games().len(), 2);
-        assert_eq!(app.live_games().len(), 1);
-        assert_eq!(app.slate_games().len(), 1);
+        // v3.2 §1 retired live_games/slate_games: the board's sections come
+        // out of derive() now, and a league tab is the same board filtered.
+        let d = app.derive();
+        assert_eq!(d.in_play.len(), 1);
+        assert_eq!(d.later.len(), 1);
     }
 
     #[test]
@@ -1535,11 +1497,12 @@ mod tests {
         app.filter = Some("kc".into());
         app.filter_changed();
         assert_eq!(app.selected, 0, "selection clamps to the narrowed list");
-        assert_eq!(app.live_games().len(), 1);
+        // v3.2 §1 retired live_games(): the filtered live list is in_play.
+        assert_eq!(app.derive().in_play.len(), 1);
         // Esc in Normal mode clears the committed filter.
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(app.filter, None);
-        assert_eq!(app.live_games().len(), 2);
+        assert_eq!(app.derive().in_play.len(), 2);
     }
 
     /// A broken config turns saving off, but the poll loop must not keep
@@ -2298,16 +2261,6 @@ mod tests {
     }
 
     #[test]
-    fn layout_change_keeps_the_selected_game() {
-        let mut app = app_with(six_live(), vec![]);
-        app.tab = Tab::League(League::Nfl);
-        app.selected = 4;
-        app.set_layout(LayoutPref::One);
-        assert_eq!(app.selected, 4);
-        assert_eq!(app.page, 4, "page follows the selection under the new layout");
-    }
-
-    #[test]
     fn filter_miss_names_its_scope_and_the_ticker_match() {
         let mut app = app_with(vec![], vec![]);
         let mut sea = g("9", "SEA", "BOS", true);
@@ -2328,76 +2281,36 @@ mod tests {
             .collect()
     }
 
+    /// v3.2 §7 retired paging (`n`/`p`, `PAGE x/y`, the whole page index):
+    /// the board is one list that scrolls. What replaces those four tests is
+    /// the walk itself — j/k move through `Derived::selection` and wrap, and
+    /// a board that shrinks under the selection re-clamps it.
     #[test]
-    fn paging_wraps_instead_of_blanking() {
+    fn selection_walks_one_list_and_wraps() {
         let mut app = app_with(six_live(), vec![]);
         app.tab = Tab::League(League::Nfl);
-        // Auto over 6 games resolves to Four => 2 pages.
-        assert_eq!(app.page_count(), 2);
-        app.on_key(KeyCode::Char('n'), KeyModifiers::NONE);
-        assert_eq!(app.page, 1);
-        assert_eq!(app.selected, 4, "selection lands on the page's first tile");
-        app.on_key(KeyCode::Char('n'), KeyModifiers::NONE);
-        assert_eq!(app.page, 0, "past the end wraps to page 0, never blank");
-        app.on_key(KeyCode::Char('p'), KeyModifiers::NONE);
-        assert_eq!(app.page, 1, "p from page 0 wraps to the last page");
-        // PgUp/PgDn alias p/n.
-        app.on_key(KeyCode::PageDown, KeyModifiers::NONE);
-        assert_eq!(app.page, 0);
-        app.on_key(KeyCode::PageUp, KeyModifiers::NONE);
-        assert_eq!(app.page, 1);
-    }
-
-    #[test]
-    fn moving_selection_pulls_the_page_along() {
-        let mut app = app_with(six_live(), vec![]);
-        app.tab = Tab::League(League::Nfl);
-        for _ in 0..4 {
+        for _ in 0..5 {
             app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
         }
-        assert_eq!(app.selected, 4);
-        assert_eq!(app.page, 1, "page follows the selection");
+        assert_eq!(app.selected, 5);
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(app.selected, 0, "j past the end wraps");
         app.on_key(KeyCode::Char('k'), KeyModifiers::NONE);
-        assert_eq!(app.page, 0);
+        assert_eq!(app.selected, 5, "k from the top wraps to the end");
+        // n/p are dead keys now, not paging.
+        app.on_key(KeyCode::Char('n'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char('p'), KeyModifiers::NONE);
+        app.on_key(KeyCode::PageDown, KeyModifiers::NONE);
+        assert_eq!(app.selected, 5, "no page keys left to move it");
     }
 
     #[test]
-    fn shrinking_board_clamps_the_page() {
+    fn a_shrinking_board_clamps_the_selection() {
         let mut app = app_with(six_live(), vec![]);
         app.tab = Tab::League(League::Nfl);
-        app.on_key(KeyCode::Char('n'), KeyModifiers::NONE);
-        assert_eq!(app.page, 1);
+        app.selected = 5;
         app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
-        assert_eq!(app.page, 0, "page index must never point past the end");
-    }
-
-    #[test]
-    fn sidebar_paging_reaches_every_game_and_tracks_the_selection() {
-        // Regression: pack()'s narrow branch used a height-based page size
-        // while App paged by page_size() — games past page_count*8 were
-        // unreachable and j/k could select an off-screen game.
-        use crate::tiles::packer::pack;
-        use ratatui::layout::Rect;
-        let games: Vec<Game> = (0..16).map(|i| g(&format!("g{i}"), "KC", "TB", true)).collect();
-        let mut app = app_with(games.clone(), vec![]);
-        app.tab = Tab::League(League::Nfl);
-        app.config.layout = LayoutPref::Sidebar;
-        assert_eq!(app.page_count(), 2, "16 games / 8 per sidebar page");
-        app.on_key(KeyCode::Char('n'), KeyModifiers::NONE);
-        assert_eq!((app.page, app.selected), (1, 8));
-        // pack agrees: page 1 exists and starts at the game App selected.
-        let area = Rect::new(0, 0, 50, 30); // narrow branch (width < 60)
-        let tiles = pack(&games, area, LayoutPref::Sidebar, app.page);
-        assert!(!tiles.is_empty(), "page 1 must render tiles");
-        assert_eq!(tiles[0].game.id, "g8", "pack's page 1 starts where App thinks it does");
-        // j from the last tile of page 0 pulls the page to where the
-        // selection actually renders.
-        app.on_key(KeyCode::Char('p'), KeyModifiers::NONE);
-        for _ in 0..8 {
-            app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
-        }
-        assert_eq!(app.selected, 8);
-        assert_eq!(app.page, 1, "page follows selection under Sidebar layout");
+        assert_eq!(app.selected, 0, "the selection can never point past the end");
     }
 
     #[test]

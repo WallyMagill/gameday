@@ -1,12 +1,18 @@
 //! The derived game lists — every list a frame renders, and the `Derived`
 //! bundle that evaluates them once per draw instead of once per widget.
 //!
-//! They stay methods on `App` because the key handlers call them outside a
-//! draw (clamping the selection, paging, scrolling the feed); `derive()`
-//! runs all of them together and `App::draw` parks the result in
-//! `frame_cache` for the widgets to read through `derived()`.
+//! v3.2 §1 made this the single source of truth: the board is ONE ranked list
+//! cut into sections, and `derive()` is the only place those sections are
+//! decided. The standalone `live_games`/`slate_games`/`mosaic_games`/
+//! `selection_list` methods are gone with the tile grammar — v3.1 kept both a
+//! set of list fns and a `Derived` built out of them, and a test whose whole
+//! job was to prove the two never drift. Key handlers that need a list
+//! outside a draw call `derive()` (cheap off-frame, once per keypress);
+//! `App::draw` parks one in `frame_cache` for the widgets to read through
+//! `derived()`.
 
 use super::{App, Tab};
+use crate::config::prune_pins;
 use crate::domain::{Game, League, Play, Status};
 use crate::home::home_games;
 use std::cell::Cell;
@@ -18,16 +24,27 @@ thread_local! {
     pub(crate) static DERIVE_COUNT: Cell<u32> = const { Cell::new(0) };
 }
 
-/// Every game list one frame renders, evaluated together. Before this, each
-/// widget called the list fns itself and a single draw re-cloned the boards
-/// about fifteen times; now `App::draw` derives once and parks the result in
-/// `App::frame_cache` for the widgets to borrow.
+/// Every game list one frame renders, evaluated together — the board's four
+/// sections (spec §1), the selection they concatenate into, and the feeds the
+/// chrome reads.
 pub struct Derived {
-    pub visible: Vec<Game>,
-    pub live: Vec<Game>,
-    pub slate: Vec<Game>,
-    pub mosaic: Vec<Game>,
+    /// The MY GAMES band: pins first (pin order), then favorited-team games
+    /// (board order), deduped — a pinned favorite appears once. Never
+    /// re-sorted (spec §1, ruling R26).
+    pub my_games: Vec<Game>,
+    /// Live games that are NOT in the band, in `OrderState`'s frozen order.
+    pub in_play: Vec<Game>,
+    pub finals: Vec<Game>,
+    pub later: Vec<Game>,
+    /// What j/k walks: `my_games ++ in_play ++ finals ++ later`, which is
+    /// exactly the order the board draws.
     pub selection: Vec<Game>,
+    /// The hero game: the top of MY GAMES when that game is live, else the
+    /// best live game, else the first thing on the board.
+    pub hero_id: Option<String>,
+    /// More than one league on the board — the rows print league tags only
+    /// then (A′ call #5).
+    pub mixed: bool,
     pub scoring: Vec<(Game, Play)>,
     pub ticker_live: Vec<Game>,
     pub ticker_events: Vec<(Game, Play)>,
@@ -89,24 +106,6 @@ impl App {
         }
     }
 
-    pub fn live_games(&self) -> Vec<Game> {
-        self.visible_games()
-            .into_iter()
-            .filter(|g| g.status == Status::Live)
-            .collect()
-    }
-
-    pub fn slate_games(&self) -> Vec<Game> {
-        match self.tab {
-            Tab::Home => vec![],
-            Tab::League(_) => self
-                .visible_games()
-                .into_iter()
-                .filter(|g| g.status == Status::Pre || g.status == Status::Final)
-                .collect(),
-        }
-    }
-
     pub(crate) fn concat_boards(&self) -> Vec<Game> {
         let mut out = Vec::new();
         for league in &self.config.enabled_tabs {
@@ -117,22 +116,23 @@ impl App {
         out
     }
 
-    /// Everything j/k can land on. On a league tab the selection runs through
-    /// the live mosaic tiles first, then continues into the slate rows below.
-    pub(crate) fn selection_list(&self) -> Vec<Game> {
-        match self.tab {
-            Tab::Home => self.visible_games(),
-            Tab::League(_) => {
-                let mut list = self.live_games();
-                list.extend(self.slate_games());
-                list
-            }
-        }
+    /// Is this game one of the viewer's? Pins and favorites both (ruling
+    /// R26): the MY GAMES band holds both, and both are kept out of IN PLAY,
+    /// which is why `live_all` — what `OrderState` ranks — asks this too.
+    pub(crate) fn is_my_game(&self, game: &Game) -> bool {
+        self.pins.iter().any(|p| p.game_id == game.id) || self.favorited(game)
+    }
+
+    fn favorited(&self, game: &Game) -> bool {
+        self.config.favorites.iter().any(|fav| {
+            fav.league == game.league
+                && (game.away.abbr.eq_ignore_ascii_case(&fav.team_abbr)
+                    || game.home.abbr.eq_ignore_ascii_case(&fav.team_abbr))
+        })
     }
 
     pub(crate) fn selected_game(&self) -> Option<Game> {
-        let list = self.selection_list();
-        list.get(self.selected).cloned()
+        self.derive().selection.get(self.selected).cloned()
     }
 
     /// Scoring plays across every enabled board, newest first per game,
@@ -145,23 +145,6 @@ impl App {
             }
         }
         out
-    }
-
-    /// Games shown as mosaic tiles. With no live games on a league tab the
-    /// slate games fill the mosaic as tiles — never a blank pane — while the
-    /// slate strip below still lists them departure-board style.
-    pub(crate) fn mosaic_games(&self) -> Vec<Game> {
-        match self.tab {
-            Tab::Home => self.visible_games(),
-            Tab::League(_) => {
-                let live = self.live_games();
-                if !live.is_empty() {
-                    live
-                } else {
-                    self.slate_games()
-                }
-            }
-        }
     }
 
     /// What an empty filtered board says. A filter that misses is almost
@@ -201,40 +184,78 @@ impl App {
             .collect()
     }
 
-    /// Every list for one frame, built from each other rather than from the
-    /// boards: `visible` is the only walk of the enabled boards the tab
-    /// lists need, and `live`/`slate`/`mosaic`/`selection` are all filters of
-    /// it. Definitionally the same lists the fns above return — they are the
-    /// spec, this is the shared evaluation.
+    /// The board's four sections, built from one walk of `visible_games`.
+    /// This is the spec: the band is pins-then-favorites in that fixed order,
+    /// IN PLAY is whatever `OrderState` last froze, and FINAL/LATER are the
+    /// leftovers by status. `selection` is their concatenation — the same
+    /// order the board draws, so j/k and the rows can never disagree.
     pub(crate) fn derive(&self) -> Derived {
         DERIVE_COUNT.with(|c| c.set(c.get() + 1));
         let visible = self.visible_games();
-        let live: Vec<Game> = visible
+
+        // The band: pruned pins in pin order, then favorites in board order.
+        let mut my_games: Vec<Game> = Vec::new();
+        for pin in prune_pins(self.pins.clone(), self.now()) {
+            if let Some(g) = visible.iter().find(|g| g.id == pin.game_id) {
+                if !my_games.iter().any(|x| x.id == g.id) {
+                    my_games.push(g.clone());
+                }
+            }
+        }
+        for g in &visible {
+            if self.favorited(g) && !my_games.iter().any(|x| x.id == g.id) {
+                my_games.push(g.clone());
+            }
+        }
+
+        let rest: Vec<&Game> = visible
+            .iter()
+            .filter(|g| !my_games.iter().any(|m| m.id == g.id))
+            .collect();
+        let live: Vec<Game> = rest
             .iter()
             .filter(|g| g.status == Status::Live)
+            .map(|g| (*g).clone())
+            .collect();
+        let in_play: Vec<Game> = self.order.ordered(&live).into_iter().cloned().collect();
+        let finals: Vec<Game> = rest
+            .iter()
+            .filter(|g| g.status == Status::Final)
+            .map(|g| (*g).clone())
+            .collect();
+        let later: Vec<Game> = rest
+            .iter()
+            .filter(|g| g.status == Status::Pre)
+            .map(|g| (*g).clone())
+            .collect();
+
+        let selection: Vec<Game> = my_games
+            .iter()
+            .chain(in_play.iter())
+            .chain(finals.iter())
+            .chain(later.iter())
             .cloned()
             .collect();
-        let slate: Vec<Game> = match self.tab {
-            Tab::Home => Vec::new(),
-            Tab::League(_) => visible
-                .iter()
-                .filter(|g| g.status == Status::Pre || g.status == Status::Final)
-                .cloned()
-                .collect(),
-        };
-        let mosaic = match self.tab {
-            Tab::Home => visible.clone(),
-            Tab::League(_) if live.is_empty() => slate.clone(),
-            Tab::League(_) => live.clone(),
-        };
-        let selection = match self.tab {
-            Tab::Home => visible.clone(),
-            Tab::League(_) => {
-                let mut list = live.clone();
-                list.extend(slate.iter().cloned());
-                list
+
+        // Spec §1: the hero is the top of MY GAMES when it is live (a pin
+        // outranks watchability), else the best live game. With nothing live
+        // at all the board still gets a headline — the first thing on it —
+        // rather than an empty top third.
+        let hero_id = my_games
+            .first()
+            .filter(|g| g.status == Status::Live)
+            .or_else(|| in_play.first())
+            .or_else(|| selection.first())
+            .map(|g| g.id.clone());
+
+        let mut leagues: Vec<League> = Vec::new();
+        for g in &visible {
+            if !leagues.contains(&g.league) {
+                leagues.push(g.league);
             }
-        };
+        }
+        let mixed = leagues.len() > 1;
+
         let scoring = self.scoring_events();
         let ticker_live = self.ticker_live();
         // Scoring plays of the ticker's live games, board order.
@@ -244,11 +265,13 @@ impl App {
             .cloned()
             .collect();
         Derived {
-            visible,
-            live,
-            slate,
-            mosaic,
+            my_games,
+            in_play,
+            finals,
+            later,
             selection,
+            hero_id,
+            mixed,
             scoring,
             ticker_live,
             ticker_events,
@@ -262,7 +285,7 @@ impl App {
     pub(crate) fn derived(&self) -> &Derived {
         self.frame_cache
             .as_ref()
-            .expect("App::derived() outside draw — use the list fns")
+            .expect("App::derived() outside draw — use derive()")
     }
 }
 
@@ -271,12 +294,9 @@ mod tests {
     use super::*;
 
     /// The whole point of `Derived`: a frame that renders the header, the
-    /// mosaic, the slate, the sidebar, the ticker and the footer derives its
-    /// lists ONCE. A `derive()` per widget reads >1 here; a `draw` that
-    /// forgot to fill the cache reads 0 (and every `derived()` under it
-    /// panics). The widgets can't re-derive behind its back either — the
-    /// only other way to a list is the fns, and inside a draw they have no
-    /// callers left.
+    /// board and the footer derives its lists ONCE. A `derive()` per widget
+    /// reads >1 here; a `draw` that forgot to fill the cache reads 0 (and
+    /// every `derived()` under it panics).
     #[test]
     fn draw_derives_once_per_frame() {
         let mut app = crate::app::tests::app_with(crate::app::tests::six_live(), vec![]);
@@ -291,61 +311,50 @@ mod tests {
         );
     }
 
-    /// `Derived` builds its lists out of each other; the fns each walk the
-    /// boards. That is the whole optimization, and also the whole risk — one
-    /// of them drifting means a widget renders a list the key handlers don't
-    /// agree with (j/k landing on a tile that isn't there). So: four app
-    /// states, both paths, same ids.
+    /// The sections partition the board and concatenate into the selection —
+    /// spec §1's "one list". v3.1's `derived_lists_agree_with_the_fns` proved
+    /// the same thing about two implementations of the same lists; there is
+    /// only one implementation now, so what is left to prove is the shape:
+    /// nothing is in two sections, nothing on the board is in none, and
+    /// `selection` is exactly their concatenation.
     #[test]
-    fn derived_lists_agree_with_the_fns() {
+    fn the_sections_partition_the_board_in_selection_order() {
         use crate::app::tests::{app_with, g};
+        use crate::config::{Favorite, Pin};
         use crate::domain::{League, Status};
 
         let ids = |games: &[Game]| -> Vec<String> { games.iter().map(|g| g.id.clone()).collect() };
-        let mut mixed = vec![
+        let mut games = vec![
             g("live1", "KC", "TB", true),
             g("live2", "DAL", "PHI", true),
             g("pre1", "NE", "SEA", false),
+            g("fin1", "GB", "CHI", false),
         ];
-        mixed[2].status = Status::Pre;
-        let mut finals = vec![g("pre2", "NYG", "WAS", false), g("fin1", "GB", "CHI", false)];
-        finals[1].status = Status::Final;
+        games[3].status = Status::Final;
 
-        let mut cases: Vec<(&str, App)> = Vec::new();
-        // Home with live + pre.
-        cases.push(("home", app_with(mixed.clone(), vec![])));
-        // A league tab with live games.
-        let mut a = app_with(mixed.clone(), vec![]);
-        a.tab = Tab::League(League::Nfl);
-        cases.push(("league live", a));
-        // A league tab with nothing live: the slate fills the mosaic.
-        let mut a = app_with(finals.clone(), vec![]);
-        a.tab = Tab::League(League::Nfl);
-        cases.push(("league slate only", a));
-        // A league tab with `/` narrowing the board.
-        let mut a = app_with(mixed.clone(), vec![]);
-        a.tab = Tab::League(League::Nfl);
-        a.filter = Some("KC".into());
-        cases.push(("league filtered", a));
+        let mut app = app_with(games.clone(), vec![Pin { game_id: "live2".into(), league: League::Nfl, final_at: None }]);
+        app.config.favorites.push(Favorite { league: League::Nfl, team_abbr: "NE".into() });
+        let d = app.derive();
 
-        for (name, app) in &cases {
-            let d = app.derive();
-            assert_eq!(ids(&d.visible), ids(&app.visible_games()), "{name}: visible");
-            assert_eq!(ids(&d.live), ids(&app.live_games()), "{name}: live");
-            assert_eq!(ids(&d.slate), ids(&app.slate_games()), "{name}: slate");
-            assert_eq!(ids(&d.mosaic), ids(&app.mosaic_games()), "{name}: mosaic");
-            assert_eq!(
-                ids(&d.selection),
-                ids(&app.selection_list()),
-                "{name}: selection"
-            );
-        }
-        // And the states are actually distinct — a test where every list is
-        // empty would pass without proving anything.
-        let d = cases[1].1.derive();
-        assert_eq!(d.live.len(), 2, "league live: {:?}", ids(&d.live));
-        assert_eq!(cases[2].1.derive().mosaic.len(), 2, "slate fills the mosaic");
-        assert_eq!(cases[3].1.derive().visible.len(), 1, "the filter narrows to KC");
+        assert_eq!(ids(&d.my_games), vec!["live2", "pre1"], "pins then favorites");
+        assert_eq!(ids(&d.in_play), vec!["live1"], "the band is not in play");
+        assert_eq!(ids(&d.finals), vec!["fin1"]);
+        assert!(d.later.is_empty(), "pre1 is a my-game: {:?}", ids(&d.later));
+        assert_eq!(
+            ids(&d.selection),
+            vec!["live2", "pre1", "live1", "fin1"],
+            "selection is my_games ++ in_play ++ finals ++ later"
+        );
+        // The hero: live2 is pinned AND live, so it leads.
+        assert_eq!(d.hero_id.as_deref(), Some("live2"));
+        assert!(!d.mixed, "one league on the board");
+
+        // A band whose top game is not live hands the hero to the ranking.
+        let mut app = app_with(games, vec![Pin { game_id: "pre1".into(), league: League::Nfl, final_at: None }]);
+        app.tab = Tab::League(League::Nfl);
+        let d = app.derive();
+        assert_eq!(ids(&d.my_games), vec!["pre1"]);
+        assert_eq!(d.hero_id.as_deref(), Some("live1"), "a pre-game pin never takes the hero");
     }
 
     /// `derived()` is a frame-scoped borrow, and saying so out loud beats a

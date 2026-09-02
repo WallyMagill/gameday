@@ -1,6 +1,5 @@
 use crate::domain::League;
 use crate::rank::SortKey;
-use crate::tiles::packer::LayoutPref;
 use crate::tiles::ScoreStyle;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,6 +15,21 @@ pub enum ConfigError {
     TomlDe(#[from] toml::de::Error),
     #[error("json {0}")]
     Json(#[from] serde_json::Error),
+}
+
+/// The old mosaic's tile arrangement. The mosaic and its packer are gone
+/// (v3.2 §7 — the board is one ranked list), so this is now only a persisted
+/// config value with no renderer behind it; Task 10 deletes the setting and
+/// this type with it. It lives here rather than in `tiles::packer` because
+/// that module was deleted with the grammar it packed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub enum LayoutPref {
+    #[default]
+    Auto,
+    One,
+    Two,
+    Four,
+    Sidebar,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -16,12 +16,10 @@ use ratatui::layout::Position;
 /// view decide what scrolls.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hit {
-    /// Select mosaic tile at this selection-list index.
-    Tile(usize),
+    /// Select the board row at this `Derived::selection` index.
+    Row(usize),
     /// Switch to this header tab.
     TabChip(Tab),
-    /// Select slate row `i` (selection index = live tiles + i).
-    SlateRow(usize),
     /// Switch the zoomed view to this tab.
     ZoomTab(ZoomTab),
     ScrollUp,
@@ -123,12 +121,6 @@ pub const KEYMAP: &[Binding] = &[
         label: "LEAGUE",
         group: Group::Navigation,
         footer: FooterSlot::Always,
-    },
-    Binding {
-        keys: &["N/P", "PGDN/PGUP"],
-        label: "PAGE",
-        group: Group::Navigation,
-        footer: FooterSlot::Board,
     },
     Binding {
         // Slate time travel: step the viewed date back/forward a day. Board
@@ -248,7 +240,7 @@ pub const KEYMAP: &[Binding] = &[
 /// whole chord list, least valuable first. HELP and QUIT are deliberately
 /// absent: whatever gets clipped, the way out and the way to the full keymap
 /// stay visible.
-pub const FOOTER_DROP_ORDER: &[&str] = &["MOVE", "PAGE", "PIN", "LEAGUE", "FILTER", "CMD"];
+pub const FOOTER_DROP_ORDER: &[&str] = &["MOVE", "PIN", "LEAGUE", "FILTER", "CMD"];
 
 /// The footer chord list for the current view: (key, label) pairs in table
 /// order.
@@ -312,8 +304,8 @@ mod tests {
             app.tab = crate::app::Tab::League(League::Nfl);
             app
         };
-        let snapshot = |a: &App| format!("{:?}|{}|{}|{}|{:?}|{}|{}|{}|{:?}|{:?}|{:?}|{}|{:?}",
-            a.tab, a.page, a.selected, a.pins.len(), a.view, a.help_open, a.should_quit, a.refresh_now,
+        let snapshot = |a: &App| format!("{:?}|{}|{}|{:?}|{}|{}|{}|{:?}|{:?}|{:?}|{}|{:?}",
+            a.tab, a.selected, a.pins.len(), a.view, a.help_open, a.should_quit, a.refresh_now,
             a.filter, a.config.layout, a.config.theme, a.config.favorites.len(), a.viewed_date_offset);
         let chord_for = |c: char| -> String { match c {
             ' ' => "SPC".into(), '[' | ']' => "[/]".into(), '?' => "?".into(), ':' => ":".into(), '/' => "/".into(),

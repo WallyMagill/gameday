@@ -4,7 +4,7 @@
 
 use crate::domain::League;
 use crate::theme;
-use crate::tiles::packer::LayoutPref;
+use crate::config::LayoutPref;
 use crate::tiles::ScoreStyle;
 
 /// A parsed `:` command, ready to apply.

@@ -251,7 +251,7 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::domain::*;
-    use crate::tiles::packer::LayoutPref;
+    use crate::config::LayoutPref;
     use crate::tiles::ScoreStyle;
 
     fn team(abbr: &str) -> Team {

@@ -387,7 +387,7 @@ impl App {
         }
 
         // Right side, dropped piecewise if the row runs out of columns:
-        // GAME 3/8 goes first, PAGE and UPD stay.
+        // GAME 3/8 goes first, UPD stays.
         let mut right: Vec<String> = Vec::new();
         if zoomed {
             if let Some(g) = self.zoomed_game() {
@@ -399,10 +399,8 @@ impl App {
                 right.push(format!("GAME {}/{}", self.selected + 1, sel_len));
             }
         }
-        let pages = self.page_count_of(self.derived().mosaic.len());
-        if pages > 1 && !zoomed {
-            right.push(format!("PAGE {}/{}", self.page.min(pages - 1) + 1, pages));
-        }
+        // v3.2 §7: no pages — the board is one scrolling list, so GAME x/y is
+        // the whole position report.
         // The UPD age freezes and dims the moment the data stops arriving —
         // `net` marks the frozen label with a trailing "·" so a stale number
         // can't pass for a live one.
@@ -422,7 +420,7 @@ impl App {
                 if i > 0 {
                     spans.push(Span::raw("  "));
                 }
-                // GAME/PAGE/UPD is status, clock-shaped: it takes the clocks
+                // GAME/UPD is status, clock-shaped: it takes the clocks
                 // discipline (cyan on broadcast, muted on studio), never raw
                 // cyan — except a frozen UPD, which drops to dim.
                 let color = if part.ends_with('·') { th.dim } else { th.clock() };

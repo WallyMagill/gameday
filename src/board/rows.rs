@@ -39,6 +39,10 @@ use time::OffsetDateTime;
 pub struct RowCtx {
     /// `rank::Watch::hot`. The mark's only input.
     pub hot: bool,
+    /// `rank::Watch::chip` — "RED ZONE", "2-MIN", … Tier 1 prints it under
+    /// the clock in `hot` (the A′ frame's red `2-MIN` beneath `Q4 0:48`);
+    /// tiers 2 and 3 have no row to spare and ignore it.
+    pub chip: Option<&'static str>,
     /// Places this game just rose, from `OrderState`. `None` is the normal
     /// state; the gutter stays reserved either way.
     pub nudge: Option<usize>,
@@ -83,7 +87,9 @@ const AWAY_SCORE_X: u16 = 9;
 const HOME_ABBR_X: u16 = 13;
 const HOME_SCORE_X: u16 = 18;
 /// Clock/status column — wide enough for baseball's `BOT 7TH` and soccer's
-/// `2ND HALF` without touching the league tag.
+/// `2ND HALF` without touching the league tag. The text is truncated one cell
+/// short of the field so a full-width state (`SEP 13 8:20`, a LATER row a week
+/// out) keeps a column of air before the tag instead of reading `8:20NFL`.
 const CLOCK_X: u16 = 22;
 const CLOCK_W: u16 = 11;
 const LEAGUE_X: u16 = 33;
@@ -156,6 +162,10 @@ fn score_span(value: u16, r: &Roles, strong: bool) -> Line<'static> {
 /// says FT where the American leagues say FINAL (the A′ frame's FINAL
 /// section: `ARS 3 BHA 0 FT EPL` above `BOS 5 TEX 2 FINAL MLB`).
 fn state_text(game: &Game, now: OffsetDateTime) -> String {
+    truncate(&state_text_raw(game, now), CLOCK_W as usize - 1)
+}
+
+fn state_text_raw(game: &Game, now: OffsetDateTime) -> String {
     match game.status {
         Status::Live => format!("{} {}", game.period, game.clock).trim().to_string(),
         Status::Final => match game.league {
@@ -239,6 +249,13 @@ pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     if !state.is_empty() {
         let span = Span::styled(state, Style::default().fg(ink(ctx)).add_modifier(Modifier::BOLD));
         col(frame, area, T1_CLOCK_X, CLOCK_W, 0, Alignment::Left, Line::from(span));
+    }
+    // The state chip sits directly under the clock (A′ frame: red `2-MIN`
+    // beneath `Q4 0:48`). Plain hot text, not a filled block — the filled
+    // chip is the hero's alone (spec §1).
+    if let Some(chip) = ctx.chip {
+        let span = Span::styled(chip, Style::default().fg(r.hot).add_modifier(Modifier::BOLD));
+        col(frame, area, T1_CLOCK_X, CLOCK_W, 1, Alignment::Left, Line::from(span));
     }
     let room = (area.width.saturating_sub(T1_TEXT_X)) as usize;
     if let Some(fragment) = situation_summary(game) {
@@ -446,6 +463,7 @@ mod tests {
     fn ctx() -> RowCtx {
         RowCtx {
             hot: false,
+            chip: None,
             nudge: None,
             selected: false,
             pinned: false,
@@ -735,6 +753,19 @@ mod tests {
             assert_eq!(buf[(0, y)].symbol(), "▌", "the mark runs the block's height\n{text}");
             assert_eq!(buf[(0, y)].fg, r.hot, "hot row\n{text}");
         }
+
+        // The state chip rides under the clock, in `hot` — the A′ frame's red
+        // `2-MIN` beneath `Q4 0:48` (docs/research/v3-identity/nfl-sunday-120x40.png).
+        let chipped = RowCtx { chip: Some("2-MIN"), ..ctx() };
+        let term = render(120, 3, &game, &chipped, draw_tier1);
+        let buf = term.backend().buffer();
+        let text = text_of(buf);
+        assert_eq!(col_of(buf, 1, "2-MIN"), Some(T1_CLOCK_X), "chip under the clock\n{text}");
+        assert_eq!(buf[(T1_CLOCK_X, 1)].fg, r.hot, "the chip is hot\n{text}");
+        assert_eq!(col_of(buf, 0, "Q4 0:48"), Some(T1_CLOCK_X), "the clock keeps row 0\n{text}");
+        assert_eq!(col_of(buf, 1, "▸ Hurts hit"), Some(T1_TEXT_X), "the play keeps its column\n{text}");
+        let bare = text_of(render(120, 3, &game, &ctx(), draw_tier1).backend().buffer());
+        assert!(!bare.contains("2-MIN"), "no chip, no row\n{bare}");
 
         // Too short for a sextant: the score is text, never blank.
         let term = render(120, 1, &game, &ctx(), draw_tier1);

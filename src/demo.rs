@@ -4,7 +4,7 @@
 
 use crate::config::{Config, Pin};
 use crate::domain::*;
-use crate::tiles::packer::LayoutPref;
+use crate::config::LayoutPref;
 use std::collections::HashMap;
 
 fn team(

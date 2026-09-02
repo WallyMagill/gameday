@@ -3,7 +3,7 @@ use gameday::config::{
     Favorite, Pin,
 };
 use gameday::domain::League;
-use gameday::tiles::packer::LayoutPref;
+use gameday::config::LayoutPref;
 use gameday::tiles::ScoreStyle;
 use std::fs;
 use time::{Duration, OffsetDateTime};

@@ -1,8 +1,10 @@
 //! View dispatch: `App.view` names the full-screen surface the body renders;
 //! each surface draws from its own module. Header/ticker/footer stay in
 //! `app/chrome.rs` — they are shared chrome, identical across views.
+//!
+//! `View::Board` is the one surface that does not live here: the ranked board
+//! is `crate::board`, which owns its layout, rows and hero (v3.2 §1).
 
-pub mod board;
 pub mod config_view;
 pub mod plays_feed;
 pub mod standings;
@@ -65,13 +67,13 @@ impl ZoomTab {
 pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
     // Cloned so the borrow of `app.view` doesn't pin `app` across the call.
     match app.view.clone() {
-        View::Board => board::draw(app, frame, area),
+        View::Board => crate::board::draw(app, frame, area),
         View::Zoom { game_id, tab } => zoom::draw(app, frame, area, &game_id, tab),
         View::PlaysFeed => plays_feed::draw(app, frame, area),
         View::Standings(league) => standings::draw(app, frame, area, league),
         View::ConfigView => config_view::draw(app, frame, area),
         View::ThemePicker => {
-            board::draw(app, frame, area);
+            crate::board::draw(app, frame, area);
             theme_picker::draw(app, frame, area);
         }
     }

@@ -1,5 +1,10 @@
+//! The tile grammar. v3.2 §7 took the board away from it — the ranked board
+//! in `crate::board` replaced the mosaic, and the packer that arranged tiles
+//! is deleted. What is left serves two callers: the zoom view, which is still
+//! one full-pane tile until Task 13 rebuilds it on the hero, and the board's
+//! own glyph/meter helpers (`digit_glyphs`, `glyph_cell`, `meter_line`).
+
 pub mod logo;
-pub mod packer;
 
 use crate::domain::{Game, League, Meter, Status, Team};
 use crate::text::truncate;

@@ -187,7 +187,7 @@ fn footer_shows_freshness_age() {
 }
 
 #[test]
-fn league_tab_with_only_slate_games_fills_mosaic_and_highlights_selection() {
+fn league_tab_with_only_scheduled_games_lists_them_under_later() {
     let mut app = mk();
     app.apply_boards(
         League::Nfl,
@@ -195,15 +195,15 @@ fn league_tab_with_only_slate_games_fills_mosaic_and_highlights_selection() {
         false,
     );
     app.tab = Tab::League(League::Nfl);
-    // Tall enough for the slate strip: mosaic must NOT be blank above it.
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.contains("SLATE"), "{s}");
-    // Tiles render in the mosaic (tile chrome, not just slate rows).
+    // v3.2 §7: no mosaic and no boxed SLATE — scheduled games are the board's
+    // own LATER section, and the board is never blank above it.
+    assert!(s.contains("LATER"), "{s}");
     assert!(s.contains("KC"), "{s}");
     assert!(s.contains("DAL"), "{s}");
-    // The selected slate row carries the accent marker.
+    // The selected row still carries the caret.
     assert!(s.contains("▸"), "{s}");
 }
 
@@ -299,47 +299,24 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
         }
         panic!("{needle:?} not on the board:\n{}", buf_text(&t));
     };
-    // Chrome disciplined: sidebar headers + clocks + play abbrs go gray.
-    assert_eq!(fg_at("TOP PLAYS"), studio.muted);
-    assert_eq!(fg_at("RECORDS"), studio.muted);
-    assert_eq!(fg_at("GLOBAL ALERTS"), studio.muted);
-    assert_eq!(fg_at("LAST PLAYS"), studio.muted);
-    // Identity floor: chip, LIVE, scoring word and scores stay colored. (The
-    // tile's chip reads "[NFL] LIVE"; the bare "[NFL]" is the header's
-    // inverted tab chip.)
-    assert_eq!(fg_at("[NFL] LIVE"), studio.league_accent(League::Nfl));
-    assert_eq!(fg_at("LIVE"), studio.live);
-    assert_eq!(fg_at("TOUCHDOWN!"), studio.live);
-    assert_eq!(fg_at("27 - 24"), gameday::theme::rgb([200, 16, 46]), "score digits keep team color");
+    // v3.2 §6/§7: the sidebar and the tile chrome are gone. What carries the
+    // theme's discipline now is the board itself — section rules in `cool`,
+    // and the identity floor on the hero's digits.
+    assert_eq!(fg_at("IN PLAY"), studio.roles().cool);
+    let team = studio.art_color([200, 16, 46]);
+    let colored = (0..area.height)
+        .flat_map(|y| (0..area.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| b[(x, y)].fg == team)
+        .count();
+    assert!(colored > 0, "the hero's digits keep team color:\n{}", buf_text(&t));
     theme::set_current("broadcast").unwrap();
 }
 
-#[test]
-fn sidebar_top_plays_are_abbr_surname_clock() {
-    let mut app = mk();
-    let mut game = g("1", "KC", "TB", true);
-    game.last_plays = vec![Play {
-        clock: "1:27".into(),
-        team: "KC".into(),
-        text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
-        scoring: true,
-        ..Default::default()
-    }];
-    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
-    app.tab = Tab::League(League::Nfl);
-    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
-    t.draw(|f| app.draw(f)).unwrap();
-    let s = buf_text(&t);
-    let row = s
-        .lines()
-        .find(|l| l.contains("★"))
-        .expect("TOP PLAYS row with a starred play");
-    // A leaderboard line — abbr + surname, never the truncated sentence —
-    // with the clock hugging the sidebar's right border.
-    assert!(row.contains("★ KC  Mahomes"), "abbr + surname: {row:?}");
-    assert!(!row.contains("pass"), "the sentence stays out of the rail: {row:?}");
-    assert!(row.trim_end().ends_with("1:27│"), "clock not right-aligned: {row:?}");
-}
+// v3.2 §7: the GLOBAL ALERTS / TOP PLAYS / RECORDS sidebar is deleted, and
+// with it `sidebar_top_plays_are_abbr_surname_clock` and
+// `records_rail_shows_the_abbr_instead_of_a_clipped_name`. The scoring feed
+// they rendered still exists (`Derived::scoring`) and is covered by the plays
+// feed tests.
 
 #[test]
 fn empty_home_with_no_boards_points_at_config() {
@@ -354,14 +331,19 @@ fn empty_home_with_no_boards_points_at_config() {
 }
 
 #[test]
-fn empty_home_names_the_next_start() {
+fn home_with_nothing_live_still_lists_the_day() {
     let mut app = mk();
-    // One scheduled game, nothing live: Home names when the slate opens.
+    // v3.2 §1: Home is ONE list of the day, so a board with nothing live is
+    // not an empty board — it is a LATER section. (The "nothing live · next:"
+    // message stays for a board with no games at all; the empty-Home strings
+    // themselves are pinned by `empty_home_with_no_boards_points_at_config`.)
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", false)], false);
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
-    let s = buf_text(&t).to_lowercase();
-    assert!(s.contains("nothing live · next: kc @ tb"), "{s}");
+    let s = buf_text(&t);
+    assert!(s.contains("LATER"), "{s}");
+    assert!(s.contains("KC") && s.contains("TB"), "{s}");
+    assert!(!s.contains("nothing live"), "a scheduled game is not an empty board:\n{s}");
 }
 
 #[test]
@@ -376,15 +358,16 @@ fn too_small_message() {
 #[test]
 fn nfl_tab_draws_live_score() {
     let mut app = mk();
-    app.config.score_style = gameday::tiles::ScoreStyle::Compact;
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.contains("27"), "{s}");
-    assert!(s.contains("KC"), "{s}");
-    assert!(s.contains("LIVE"), "{s}");
+    // v3.2 §1: the only live game is the hero — its score is digit glyphs and
+    // the tile's "[NFL] LIVE" chip is gone with the tile.
+    assert!(s.contains("KC") && s.contains("TB"), "{s}");
+    assert!(s.contains('█') || s.contains("27"), "the score renders in some form:\n{s}");
+    assert!(s.contains("IN PLAY"), "{s}");
 }
 
 #[test]
@@ -1081,30 +1064,6 @@ fn plays_feed_marks_its_end_when_the_pane_has_room() {
 }
 
 #[test]
-fn records_rail_shows_the_abbr_instead_of_a_clipped_name() {
-    // filter.png: "2. Buccanee… 11 6" — a name past the 9-cell column falls
-    // back to the abbr rather than an ellipsized fragment.
-    let mut app = mk();
-    let mut game = g("1", "KC", "TB", true);
-    game.away.name = "Chiefs".into();
-    game.away.record = "11-6".into();
-    game.home.name = "Buccaneers".into();
-    game.home.record = "11-6".into();
-    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
-    app.tab = Tab::League(League::Nfl);
-    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
-    t.draw(|f| app.draw(f)).unwrap();
-    let s = buf_text(&t);
-    assert!(s.contains("RECORDS"), "sidebar rail present:\n{s}");
-    assert!(!s.contains("Buccanee…"), "clipped name in the rail:\n{s}");
-    let rail_rows: Vec<&str> = s.lines().filter(|l| l.contains(". ") && l.contains(" 11  6")).collect();
-    assert!(
-        rail_rows.iter().any(|l| l.contains("Chiefs")) && rail_rows.iter().any(|l| l.contains("TB ")),
-        "rail rows: {rail_rows:?}\n{s}"
-    );
-}
-
-#[test]
 fn standings_command_opens_the_view_and_sets_the_poll_target() {
     use crossterm::event::{KeyCode, KeyModifiers};
     use gameday::views::View;
@@ -1162,11 +1121,9 @@ fn brackets_step_the_viewed_date_and_header_marks_it() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("DAL") && s.contains("PHI"), "{s}");
-    // The ticker keeps running today's live scores while you travel (its
-    // SCORES lane is every live game), so only the board must hide KC.
-    let (board, ticker) = s.split_once(" SCORES ").expect("ticker lane below the board");
-    assert!(!board.contains("KC"), "today's board is hidden while traveling:\n{s}");
-    assert!(ticker.contains("NFL KC 27 TB 24"), "live score still in the ticker:\n{s}");
+    // v3.2 §1: no ticker under the board, so a traveled board shows the
+    // traveled slate and nothing of today.
+    assert!(!s.contains("KC"), "today's board is hidden while traveling:\n{s}");
 
     // Clamped at ±7.
     for _ in 0..20 {
@@ -1185,7 +1142,7 @@ fn brackets_step_the_viewed_date_and_header_marks_it() {
 }
 
 #[test]
-fn pre_tile_and_slate_show_odds() {
+fn a_later_row_shows_its_odds() {
     let mut app = mk();
     let mut game = g("1", "KC", "TB", false); // Pre
     game.last_plays.clear(); // a pre-game has no plays
@@ -1196,8 +1153,10 @@ fn pre_tile_and_slate_show_odds() {
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    // Once on the mosaic tile, once on the slate row.
-    assert!(s.matches("O/U 47.5").count() >= 2, "{s}");
+    // v3.2 §1: once, on the LATER row (the mosaic tile that repeated it is
+    // deleted).
+    assert!(s.contains("LATER"), "{s}");
+    assert_eq!(s.matches("O/U 47.5").count(), 1, "{s}");
 }
 
 // ---- Task 9: mouse support -------------------------------------------------
@@ -1244,7 +1203,7 @@ fn zone_for(app: &App, hit: gameday::keymap::Hit) -> ratatui::layout::Rect {
 }
 
 #[test]
-fn clicking_a_tile_selects_it() {
+fn clicking_a_row_selects_it() {
     use gameday::keymap::Hit;
     let mut app = mk();
     app.apply_boards(
@@ -1256,9 +1215,10 @@ fn clicking_a_tile_selects_it() {
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     assert_eq!(app.selected, 0);
-    let zone = zone_for(&app, Hit::Tile(1));
+    // v3.2 §7: tiles are gone — every board row is a Hit::Row zone.
+    let zone = zone_for(&app, Hit::Row(1));
     click(&mut app, zone.x + zone.width / 2, zone.y + zone.height / 2);
-    assert_eq!(app.selected, 1, "click on the second tile selects it");
+    assert_eq!(app.selected, 1, "click on the second row selects it");
     // A click outside every zone (the footer row) changes nothing.
     click(&mut app, 0, 23);
     assert_eq!(app.selected, 1);
@@ -1283,7 +1243,7 @@ fn clicking_a_header_tab_chip_switches_tabs() {
 }
 
 #[test]
-fn clicking_a_slate_row_selects_it() {
+fn clicking_a_later_row_selects_it() {
     use gameday::keymap::Hit;
     let mut app = mk();
     app.apply_boards(
@@ -1292,13 +1252,13 @@ fn clicking_a_slate_row_selects_it() {
         false,
     );
     app.tab = Tab::League(League::Nfl);
-    // 120x36 keeps the slate strip visible (it needs >= 24 body rows).
+    // v3.2 §7: the SLATE strip is gone; a LATER row is a board row like any
+    // other, at its `Derived::selection` index (1 live + this one).
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
-    let zone = zone_for(&app, Hit::SlateRow(0));
+    let zone = zone_for(&app, Hit::Row(1));
     click(&mut app, zone.x + 2, zone.y);
-    // Selection list = live tiles first, then slate rows: 1 live + row 0.
-    assert_eq!(app.selected, 1, "slate row 0 is selection index 1");
+    assert_eq!(app.selected, 1, "the LATER row is selection index 1");
 }
 
 #[test]
@@ -1483,7 +1443,7 @@ fn config_favorite_miss_names_the_abbr_and_the_league_form() {
 #[test]
 fn config_h_l_cycle_score_and_layout_and_persist() {
     use crossterm::event::KeyCode;
-    use gameday::tiles::packer::LayoutPref;
+    use gameday::config::LayoutPref;
     use gameday::tiles::ScoreStyle;
     use gameday::views::View;
     let dir = config_dir("cycle");
@@ -1599,8 +1559,11 @@ fn baseball_play_rows_show_the_inning_not_a_dash_clock() {
     let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
     term.draw(|f| app.draw(f)).unwrap();
     let text = buf_text(&term);
-    assert!(text.contains("[B9]"), "{text}");
-    assert!(!text.contains("[-:--]"), "{text}");
+    // v3.2 §1: the tile's `[B9]` play stamp went with the tile; the hero
+    // prints the play itself and the clock column says the inning.
+    assert!(text.contains("BOT 9TH"), "{text}");
+    assert!(text.contains("Rodríguez singles"), "{text}");
+    assert!(!text.contains("-:--"), "{text}");
 }
 
 #[test]
@@ -1796,4 +1759,171 @@ fn command_completion_shows_the_candidates_in_the_footer() {
     term.draw(|f| app.draw(f)).unwrap();
     let last = buf_text(&term).lines().last().unwrap().to_string();
     assert!(last.contains(":nfl") && last.contains("nba") && last.contains("nhl"), "{last}");
+}
+
+// ---------------------------------------------------------------------------
+// v3.2 §1: the ranked board — one list, sections, band, selection, lane.
+
+/// `live` live games, then `finals`, then `later`, all NFL, distinct abbrs so
+/// a row can be found by text. Scores differ per game so the ranked order is
+/// observable.
+fn board_games(live: usize, finals: usize, later: usize) -> Vec<Game> {
+    const PAIRS: [(&str, &str); 12] = [
+        ("KC", "TB"), ("DAL", "PHI"), ("GB", "CHI"), ("SF", "SEA"),
+        ("BUF", "MIA"), ("NYJ", "NE"), ("DEN", "LV"), ("ATL", "NO"),
+        ("CIN", "BAL"), ("PIT", "CLE"), ("HOU", "IND"), ("MIN", "DET"),
+    ];
+    let mut out = Vec::new();
+    let mut next = 0usize;
+    for (tag, n, status) in [
+        ("l", live, Status::Live),
+        ("f", finals, Status::Final),
+        ("p", later, Status::Pre),
+    ] {
+        for i in 0..n {
+            let (away, home) = PAIRS[next % PAIRS.len()];
+            next += 1;
+            let mut game = g(&format!("{tag}{i}"), away, home, status == Status::Live);
+            game.status = status;
+            game.away_score = 10 + i as u16;
+            game.home_score = 7 + i as u16;
+            out.push(game);
+        }
+    }
+    out
+}
+
+fn board_app(live: usize, finals: usize, later: usize) -> App {
+    let mut app = mk();
+    app.apply_boards(League::Nfl, board_games(live, finals, later), false);
+    app
+}
+
+fn render(app: &mut App, w: u16, h: u16) -> Terminal<TestBackend> {
+    let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    term
+}
+
+#[test]
+fn the_board_is_one_ranked_list_with_sections() {
+    let mut app = board_app(6, 2, 2);
+    let term = render(&mut app, 120, 40);
+    let s = buf_text(&term);
+    assert!(!s.contains("MY GAMES"), "no pins, no band:\n{s}");
+    assert!(s.contains("IN PLAY"), "the live section names itself:\n{s}");
+    assert!(s.contains("SORTED BY WATCHABILITY"), "the rule names the sort:\n{s}");
+    assert!(s.contains("FINAL"), "FINAL section:\n{s}");
+    assert!(s.contains("LATER"), "LATER section:\n{s}");
+    // The hero's digits are drawn as glyph cells, not as "27 - 24" text.
+    assert!(s.contains('█'), "hero digit glyphs:\n{s}");
+    // Spec §7: the tile grammar is gone — no borders, no MOMENTUM rail, no
+    // SLATE strip, no GLOBAL ALERTS sidebar.
+    for dead in ['┌', '┐', '└', '┘'] {
+        assert!(!s.contains(dead), "no box-drawing on the board ({dead}):\n{s}");
+    }
+    for dead in ["MOMENTUM", "SLATE", "GLOBAL ALERTS", "TOP PLAYS", "RECORDS"] {
+        assert!(!s.contains(dead), "{dead} is deleted:\n{s}");
+    }
+}
+
+#[test]
+fn pinned_games_sit_in_a_band_that_never_resorts() {
+    // Two pinned LATER games: neither can be the hero (the hero is the top of
+    // MY GAMES only when it is live), so both show as band rows in pin order.
+    let games = board_games(4, 0, 2);
+    let pin = |id: &str| gameday::config::Pin {
+        game_id: id.into(),
+        league: League::Nfl,
+        final_at: None,
+    };
+    let band_rows = |pins: Vec<gameday::config::Pin>| -> Vec<String> {
+        let mut app = mk();
+        app.pins = pins;
+        app.apply_boards(League::Nfl, games.clone(), false);
+        let term = render(&mut app, 120, 40);
+        let s = buf_text(&term);
+        assert!(
+            s.contains("2 PINNED · NEVER RE-SORTS"),
+            "the band says what it is:\n{s}"
+        );
+        let lines: Vec<&str> = s.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.contains("MY GAMES"))
+            .expect("MY GAMES rule");
+        lines[at + 1..at + 3].iter().map(|l| l.trim().to_string()).collect()
+    };
+    let forward = band_rows(vec![pin("p0"), pin("p1")]);
+    let backward = band_rows(vec![pin("p1"), pin("p0")]);
+    assert!(forward[0].contains("BUF"), "p0 first: {forward:?}");
+    assert!(forward[1].contains("NYJ"), "p1 second: {forward:?}");
+    assert!(backward[0].contains("NYJ"), "pin order wins: {backward:?}");
+    assert!(backward[1].contains("BUF"), "pin order wins: {backward:?}");
+}
+
+#[test]
+fn selection_walks_the_whole_list_and_scrolls() {
+    let mut app = board_app(12, 2, 2);
+    let n = 16;
+    for _ in 0..20 {
+        key(&mut app, crossterm::event::KeyCode::Char('j'));
+    }
+    assert_eq!(app.selected, 20 % n, "j walks the whole list, wrapping");
+    let term = render(&mut app, 120, 24);
+    let buf = term.backend().buffer();
+    let s = buf_text(&term);
+    // The selected row is on screen: its caret is drawn, in `bright`.
+    let mut caret = None;
+    for y in 0..buf.area().height {
+        for x in 0..buf.area().width {
+            if buf[(x, y)].symbol() == "▸" && buf[(x, y)].fg == gameday::theme::current().bright {
+                caret = Some((x, y));
+            }
+        }
+    }
+    let (_, y) = caret.unwrap_or_else(|| panic!("the selected row scrolled into view:\n{s}"));
+    let row = s.lines().nth(y as usize).unwrap();
+    assert!(row.trim().len() > 2, "the caret sits on a real row: {row:?}");
+}
+
+#[test]
+fn the_ticker_is_gone_at_40_rows_and_the_lane_appears_when_truncated() {
+    let mut app = board_app(4, 0, 0);
+    let s = buf_text(&render(&mut app, 120, 40));
+    assert!(!s.contains("SCORES"), "everything fits — no lane:\n{s}");
+    assert!(!s.contains("ALERTS"), "the v3.1 ticker is gone from the board:\n{s}");
+
+    let mut app = board_app(10, 2, 4);
+    let term = render(&mut app, 80, 24);
+    let s = buf_text(&term);
+    let lines: Vec<&str> = s.lines().collect();
+    let lane = lines[lines.len() - 2];
+    assert!(lane.contains("SCORES"), "one lane above the footer:\n{s}");
+    // The lane accounts for exactly what didn't fit. Here every live game is
+    // on screen and it is LATER that ran out of rows (Task 5's note), so the
+    // lane degrades to the counts rather than naming a live game twice.
+    let drawn = lines[..lines.len() - 2].join("\n");
+    // 16 games; the 22-row body holds the hero (6 rows), the 9 other live
+    // rows, both finals and one LATER row — so three LATER games are off.
+    assert!(
+        lane.contains("3 OFF-SCREEN") && lane.contains("3 LATER"),
+        "the lane counts exactly what is not drawn:\n{s}"
+    );
+    assert_eq!(drawn.matches("LATER").count(), 1, "one LATER section:\n{s}");
+}
+
+#[test]
+fn paging_keys_are_dead_and_not_advertised() {
+    let mut app = board_app(10, 2, 2);
+    let before = app.selected;
+    key(&mut app, crossterm::event::KeyCode::Char('n'));
+    key(&mut app, crossterm::event::KeyCode::PageDown);
+    assert_eq!(app.selected, before, "n/PgDn are dead keys on the board");
+    let s = buf_text(&render(&mut app, 120, 40));
+    assert!(!s.contains("PAGE"), "no PAGE in the footer:\n{s}");
+    assert!(
+        !gameday::keymap::KEYMAP.iter().any(|b| b.label == "PAGE"),
+        "the PAGE binding is deleted"
+    );
 }

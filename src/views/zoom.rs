@@ -6,8 +6,7 @@
 use crate::app::App;
 use crate::domain::Game;
 use crate::theme;
-use crate::tiles::packer::{pack, LayoutPref};
-use crate::tiles::render_tile;
+use crate::tiles::{render_tile, Density};
 use crate::views::ZoomTab;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -92,13 +91,20 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     let linescore = linescore_lines(game).filter(|_| area.height >= 20);
     let strip = if linescore.is_some() { 3 } else { 0 };
     let tile_area = Rect { height: area.height - strip, ..area };
-    let one = [game.clone()];
-    for tile in pack(&one, tile_area, LayoutPref::One, 0) {
+    // v3.2 §7 deleted the packer; a zoom was always one tile filling the pane
+    // (`LayoutPref::One` → the whole area, `Density::Full`), and the packer's
+    // narrow branch is the only other case a single tile could hit.
+    let density = if tile_area.width < 60 {
+        Density::Compact
+    } else {
+        Density::Full
+    };
+    {
         render_tile(
             frame,
-            tile.area,
-            tile.game,
-            tile.density,
+            tile_area,
+            game,
+            density,
             true,
             fx,
             app.config.score_style,

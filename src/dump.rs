@@ -72,9 +72,11 @@ pub fn gallery() -> Vec<Variant> {
     fn home(_: &mut App) {}
     fn tab_nfl(app: &mut App) {
         app.tab = Tab::League(League::Nfl);
-        // Land the selection past the live tiles, on the first slate row, so
-        // the ▸ slate highlight is part of the capture.
-        app.selected = app.live_games().len();
+        // Land the selection past the live rows, on the first FINAL/LATER
+        // row, so the ▸ caret is part of the capture. (Gallery stems are
+        // redesigned in Task 15; this only keeps the stem building.)
+        let d = app.derive();
+        app.selected = d.my_games.len() + d.in_play.len();
     }
     fn focus(app: &mut App) {
         // The demo NFL live game, zoomed: tab bar + expanded single-game view.
@@ -636,7 +638,8 @@ mod tests {
         for name in theme::BUILTIN_NAMES {
             assert!(text.contains(name), "picker missing {name}:\n{text}");
         }
-        assert!(text.contains("[NBA]"), "board must still render behind the picker:\n{text}");
+        // v3.2 §1: the board behind the picker is the ranked list, not tiles.
+        assert!(text.contains("IN PLAY"), "board must still render behind the picker:\n{text}");
     }
 
     #[test]
@@ -697,12 +700,12 @@ mod tests {
     #[test]
     fn state_captures_each_show_the_state_they_are_named_for() {
         let home = text_of(&render_variant(&variant("home-live"), 0).unwrap());
-        assert!(home.contains("[NFL]") && home.contains("[NBA]"), "live tiles:\n{home}");
-        // Home lists every live game; exactly one of them is the demo's pin,
-        // so exactly one tile header carries the ⚑ (the sidebar's GLOBAL
-        // ALERTS title is the only other one on the frame).
+        // v3.2 §1: Home is the ranked board — a MY GAMES band over IN PLAY,
+        // not a grid of tiles with [NFL] headers.
+        assert!(home.contains("MY GAMES") && home.contains("IN PLAY"), "the ranked board:\n{home}");
+        // The demo's one pin leads the band, so the hero carries the flag.
         let flagged = home.lines().filter(|l| l.contains("⚑")).count();
-        assert_eq!(flagged, 2, "one pinned tile + the alerts title:\n{home}");
+        assert_eq!(flagged, 1, "the pinned hero is the only flag:\n{home}");
 
         let offline = text_of(&render_variant(&variant("offline"), 0).unwrap());
         assert!(offline.contains("OFFLINE · retry 40s"), "offline chip:\n{offline}");
@@ -715,7 +718,7 @@ mod tests {
         // is "STALE 4m" for the whole 4:00–4:59 band — no flaky seconds.
         let stale = text_of(&render_variant(&variant("stale"), 0).unwrap());
         assert!(stale.contains("STALE 4m"), "stale chip:\n{stale}");
-        assert!(stale.contains("[NFL]"), "a stale board still shows its scores:\n{stale}");
+        assert!(stale.contains("IN PLAY"), "a stale board still shows its scores:\n{stale}");
 
         let cfg = text_of(&render_variant(&variant("config-error"), 0).unwrap());
         assert!(cfg.contains("config error: config.toml:7"), "error line:\n{cfg}");
@@ -734,10 +737,11 @@ mod tests {
     fn filter_variant_narrows_the_nfl_tab_and_shows_the_pattern() {
         let text = text_of(&render_variant(&variant("filter"), 0).unwrap());
         assert!(text.contains("/kc"), "committed filter missing from footer:\n{text}");
-        assert!(text.contains("CHIEFS"), "the matching game must stay:\n{text}");
+        // v3.2 §1: rows are abbrs, not "CHIEFS" nameplates.
+        assert!(text.contains("KC"), "the matching game must stay:\n{text}");
         assert!(
-            !text.contains("SEAHAWKS") && !text.contains("COWBOYS"),
-            "non-matching slate games must be filtered out:\n{text}"
+            !text.contains("SEA") && !text.contains("DAL"),
+            "non-matching games must be filtered out:\n{text}"
         );
     }
 
@@ -778,10 +782,12 @@ mod tests {
     }
 
     #[test]
-    fn tab_nfl_variant_shows_the_slate_with_a_selected_row() {
+    fn tab_nfl_variant_shows_the_later_section_with_a_selected_row() {
         let text = text_of(&render_variant(&variant("tab-nfl"), 0).unwrap());
-        assert!(text.contains(" SLATE "), "NFL tab must render the slate:\n{text}");
-        assert!(text.contains('▸'), "a slate row must carry the selection marker:\n{text}");
+        // v3.2 §7: the boxed SLATE strip is gone — its games are the board's
+        // own FINAL/LATER sections now.
+        assert!(text.contains("LATER"), "NFL tab must render the LATER section:\n{text}");
+        assert!(text.contains('▸'), "the selected row carries the caret:\n{text}");
     }
 
     #[test]
@@ -806,14 +812,20 @@ mod tests {
         let text = text_of(&buf);
         assert!(
             !text.contains("GLOBAL ALERTS"),
-            "sidebar must drop below 100 cols:\n{text}"
+            // v3.2 §7: there is no sidebar at any width any more.
+            "the sidebar is deleted:\n{text}"
         );
     }
 
+    /// v3.2 §7: `ScoreStyle` no longer reaches the board — its scores are
+    /// hero digit glyphs and amber row text, and the compact tile lives only
+    /// inside the zoom. The stem stays until Task 15 respecs the gallery, so
+    /// what it must still prove is that it captures the ranked board at all.
     #[test]
-    fn compact_variant_uses_the_single_row_score() {
+    fn compact_variant_still_captures_the_board() {
         let text = text_of(&render_variant(&variant("board-compact"), 0).unwrap());
-        assert!(text.contains("27 - 24"), "compact score row missing:\n{text}");
+        assert!(text.contains("IN PLAY"), "the ranked board:\n{text}");
+        assert!(!text.contains("27 - 24"), "no tile score row on the board:\n{text}");
     }
 
     #[test]
@@ -826,17 +838,23 @@ mod tests {
             }
             text.push('\n');
         }
+        // v3.2 §1/§7: the tile grammar (tile headers, text score rows, LAST
+        // PLAYS, MOMENTUM, the sidebar) is deleted; what the demo board must
+        // show now is the sections, the hero's chip and the chrome.
         for needle in [
-            "GAMEDAY", "FILTER:", "[NFL]", "[NBA]", "[MLB]", "[NHL]", "27 - 24", "88 - 81",
-            "5 - 3", "3 - 2", "LAST PLAYS", "MOMENTUM", "RED ZONE", "SCORES", "ALERTS", "GLOBAL ALERTS",
-            "NAV:",
+            "GAMEDAY", "FILTER:", "MY GAMES", "IN PLAY", "FINAL", "RED ZONE", "NAV:",
         ] {
             assert!(text.contains(needle), "missing {needle:?} in board:\n{text}");
         }
     }
 
+    /// v3.2 §1: the four inline meters were a tile feature. Only the hero
+    /// has room for state now, and at the 10-row bracket even its meter row
+    /// yields to the fragment (ruling R30) — so what every size must still
+    /// show is the hero SAYING its state. The zoom keeps the tile meter
+    /// until Task 13 rebuilds it.
     #[test]
-    fn tick_zero_board_shows_all_four_inline_meters_at_every_size() {
+    fn tick_zero_board_names_the_heros_state_at_every_size() {
         // 2x2 at 120x36, the 80x24 narrow board, and the zoom overview all
         // carry the gauge row: label at the left, value tail intact.
         let needles: [(&str, &str); 4] = [
@@ -845,16 +863,21 @@ mod tests {
             ("BASES", "COUNT 1-2"),
             ("PENALTY", "0:42"),
         ];
+        let _ = needles;
         let wide = text_of(&render_variant(&variant("board-broadcast"), 0).unwrap());
-        for (label, tail) in needles {
-            let row = wide.lines().find(|l| l.contains(label) && l.contains(tail));
-            assert!(row.is_some(), "120x36 board: no row with {label:?} … {tail:?}:\n{wide}");
-        }
+        assert!(
+            wide.lines().any(|l| l.contains("RED ZONE")),
+            "120x36 board: the hero's state chip is missing:\n{wide}"
+        );
+        assert!(
+            wide.lines().any(|l| l.contains("BALL ON TB 3")),
+            "120x36 board: the hero's fragment line is missing:\n{wide}"
+        );
         let narrow = text_of(&render_variant(&variant("narrow"), 0).unwrap());
-        for (label, tail) in [("RED ZONE", "TO GOAL"), ("LEAD", "DEN +7"), ("BASES", "1-2"), ("PENALTY", "0:42")] {
-            let row = narrow.lines().find(|l| l.contains(label) && l.contains(tail));
-            assert!(row.is_some(), "80x24 board: no row with {label:?} … {tail:?}:\n{narrow}");
-        }
+        assert!(
+            narrow.lines().any(|l| l.contains("RED ZONE")),
+            "80x24 board: the hero still names its state:\n{narrow}"
+        );
         let focus = text_of(&render_variant(&variant("focus"), 0).unwrap());
         assert!(
             focus.lines().any(|l| l.contains("RED ZONE") && l.contains("3 TO GOAL")),
@@ -882,12 +905,13 @@ mod tests {
         // the identity rows appear under them. The 4-up NFL tile can't fit
         // "BUCCANEERS 11-6", so both sides fall back to the abbr form rather
         // than losing the records.
-        assert!(!text.contains("27 - 24"), "default is big, not the text score row:\n{text}");
-        assert!(text.contains("KC 11-6") && text.contains("TB 11-6"), "big identity row missing:\n{text}");
-        // NBA demo tile carries a shot clock => the boxed amber chip renders
-        // (star-background cells beyond the [ALL] header tab).
-        assert!(text.contains(" 24 "), "shot clock chip text missing");
-        assert!(star_bg > "[ALL]".len(), "amber chip cells missing, got {star_bg}");
+        assert!(!text.contains("27 - 24"), "the board never prints a text score row:\n{text}");
+        // v3.2 §1: the hero's nameplates carry the identity the tile header
+        // used to; the shot-clock chip was a tile chip and is gone with it.
+        // The nameplates are mirrored: `KC 11-6` left, `11-6  TB` right.
+        assert!(text.contains("KC 11-6"), "hero away nameplate missing:\n{text}");
+        assert!(text.contains("11-6"), "hero home nameplate missing:\n{text}");
+        let _ = star_bg;
     }
 
     #[test]
@@ -900,37 +924,16 @@ mod tests {
             }
             text.push('\n');
         }
-        assert!(text.contains("33 - 24"), "KC TD score missing:\n{text}");
+        // v3.2 §1: the hero's score is digit glyphs, so the capture's proof
+        // that the TD landed is the play text (the digits themselves are
+        // cell-tested in `board::hero`).
         assert!(text.contains("TOUCHDOWN"), "TD play missing:\n{text}");
     }
 
-    #[test]
-    fn td_tick_dump_captures_the_score_flash() {
-        let th = theme::current();
-        let live_bg_cells = |tick: u64| {
-            let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, tick, ScoreStyle::default()).unwrap();
-            let mut n = 0;
-            for y in 0..DUMP_ROWS {
-                for x in 0..DUMP_COLS {
-                    if buf[(x, y)].bg == th.live {
-                        n += 1;
-                    }
-                }
-            }
-            n
-        };
-        assert_eq!(live_bg_cells(0), 0, "no score changed at tick 0 — nothing flashes");
-        assert!(
-            live_bg_cells(crate::sim::KC_TD_TICK) > 0,
-            "the KC TD at tick {} must render mid-flash",
-            crate::sim::KC_TD_TICK
-        );
-        // Deterministic: the same tick always renders the same frame.
-        assert_eq!(
-            live_bg_cells(crate::sim::KC_TD_TICK),
-            live_bg_cells(crate::sim::KC_TD_TICK)
-        );
-    }
+    // v3.2 §7 deleted the tile's inverted score flash with the tile; the
+    // board's answer to a score is the cut overlay (Task 11), which is where
+    // the "a score is visible in the capture" test belongs. Nothing here can
+    // assert it in the meantime without asserting a feature that is gone.
 
     #[test]
     fn html_dump_contains_colored_cells() {
