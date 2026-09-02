@@ -397,6 +397,16 @@ impl App {
         self.tick < 30 * LIVE_TICKS_PER_SEC
             || !matches!(self.mode, InputMode::Normal)
             || self.help_open
+            // The config view's favorite-abbr editor is a text prompt in
+            // everything but the enum: keys land in `config_edit` char by
+            // char, so a takeover over it means typing blind into a buffer
+            // that is no longer on screen. The static config view and Zoom
+            // stay coverable — they are read-and-arrow surfaces.
+            || self.config_edit.is_some()
+            // The theme picker is modal too (`input.rs` classes it next to
+            // `help_open`) and its whole point is a live preview a takeover
+            // would hide.
+            || matches!(self.view, View::ThemePicker)
     }
 
     /// Does this game earn the whole screen? Pinned, favorited, or TV mode —
@@ -1457,7 +1467,10 @@ impl App {
             }
         }
         let mut body = chunks[1];
-        if let Some(cut) = self.cuts.active(self.tick).cloned() {
+        // `!c.full` is explicit rather than implied by the early return above:
+        // a full cut whose game left the board falls through to here, and a
+        // takeover must never degrade into a band.
+        if let Some(cut) = self.cuts.active(self.tick).filter(|c| !c.full).cloned() {
             if let Some(game) = self.game_by_id(&cut.game_id) {
                 if body.height > crate::board::cut::BAND_ROWS {
                     let band = Rect { height: crate::board::cut::BAND_ROWS, ..body };

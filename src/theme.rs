@@ -748,6 +748,16 @@ pub fn scoring_word(league: League) -> &'static str {
 pub fn scoring_word_for_play(league: League, text: &str) -> &'static str {
     if matches!(league, League::Nfl | League::Cfb) {
         let lower = text.to_lowercase();
+        // Order matters, and touchdown wins (ruling R34). ESPN writes the
+        // whole play as one sentence, so a kick-return score really does read
+        // "Blocked Field Goal returned 62 yards for a TOUCHDOWN" — matching
+        // "field goal" first puts FIELD GOAL! on screen for a touchdown. The
+        // score delta was considered as a discriminator and rejected: a TD
+        // and its extra point batch into one +7 apply, and a two-point
+        // conversion and a safety are both +2.
+        if lower.contains("touchdown") {
+            return scoring_word(league);
+        }
         if lower.contains("field goal") {
             return "FIELD GOAL!";
         }

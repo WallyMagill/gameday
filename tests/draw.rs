@@ -2153,6 +2153,14 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     assert!(hot >= 40, "TOUCHDOWN! must be painted in block letters: {hot} hot cells\n{s}");
     assert!(s.contains("CHIEFS AT BILLS"), "the dim strip names the game:\n{s}");
     assert!(s.contains("MAHOMES"), "the detail line comes from the play:\n{s}");
+    // Spec §3's chip, verbatim, on the takeover's one filled element.
+    assert!(rows[1].contains("▲ SCORING PLAY · KC"), "the takeover chip is the spec's:\n{s}");
+    let chip_x = rows[1].chars().position(|c| c == '▲').unwrap() as u16;
+    assert_eq!(
+        t.backend().buffer()[(chip_x, 1)].bg,
+        r.hot,
+        "the chip is filled hot, like the hero's state chip"
+    );
 
     // Unpinned: two quiet rows above the list, and the board stays.
     let mut app = mk();
@@ -2162,10 +2170,23 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     let rows: Vec<&str> = s.lines().collect();
-    assert!(rows[1].contains("TOUCHDOWN!"), "the band's headline is row 1:\n{s}");
-    assert!(rows[1].contains("KC 24"), "the band carries the score:\n{s}");
-    assert!(rows[2].contains("MAHOMES"), "the band's second row is the detail:\n{s}");
+    // Spec §3 / ruling R33: `▲ HOME RUN · TEX Seager (32) · ATH 0 TEX 5` on a
+    // hot ground, two rows, above an intact list.
+    assert!(rows[1].starts_with("▲ TOUCHDOWN! · KC MAHOMES · KC 24 BUF 21"), "band headline:\n{s}");
+    assert!(rows[2].contains("12 YD PASS TO KELCE"), "the band's second row is the play:\n{s}");
     assert!(s.contains("IN PLAY"), "the board is still there under the band:\n{s}");
+    // Cell level: the mark, and the hot fill across both rows including the
+    // empty tail — the band is a bar of alert color, not a bare line.
+    let b = t.backend().buffer();
+    let r = gameday::theme::current().roles();
+    assert_eq!(b[(0, 1)].symbol(), "▲", "the mark is the band's first cell");
+    assert_eq!(b[(0, 1)].fg, r.ground, "band ink is the ground role on hot");
+    for y in 1..=2u16 {
+        for x in 0..120u16 {
+            assert_eq!(b[(x, y)].bg, r.hot, "the whole band row {y} is hot at ({x},{y})");
+        }
+    }
+    assert_ne!(b[(0, 3)].bg, r.hot, "the fill stops at the band: row 3 is the board");
 }
 
 #[test]
@@ -2176,6 +2197,22 @@ fn cuts_are_suppressed_during_prompts_and_startup() {
     app.mode = gameday::input::InputMode::Filter { buf: "kc".into() };
     land_a_score(&mut app, true);
     assert!(app.cuts.active(app.tick).is_none(), "no cut while a prompt is open");
+
+    // The config view's favorite-abbr editor: a text prompt in everything but
+    // the enum. A takeover here blanks the editor while keystrokes keep
+    // landing in the buffer the user can no longer see.
+    let mut app = mk();
+    app.tick = 400;
+    app.config_edit = Some("K".into());
+    land_a_score(&mut app, true);
+    assert!(app.cuts.active(app.tick).is_none(), "no cut while the abbr editor is open");
+
+    // The theme picker is modal and IS a live preview.
+    let mut app = mk();
+    app.tick = 400;
+    app.view = gameday::views::View::ThemePicker;
+    land_a_score(&mut app, true);
+    assert!(app.cuts.active(app.tick).is_none(), "no cut over the theme picker");
 
     // Startup: the first boards arrive carrying a whole day of scores.
     let mut app = mk();
@@ -2191,4 +2228,5 @@ fn cuts_are_suppressed_during_prompts_and_startup() {
     assert!(cut.full, "a pinned game takes the screen");
     assert!(app.bell_pending, "a takeover rings the bell");
 }
+
 

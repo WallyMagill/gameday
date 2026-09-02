@@ -37,6 +37,10 @@ pub const CUT_TICKS: u64 = 3 * LIVE_TICKS_PER_SEC;
 /// Band lifetime: 1.5 s (spec §3), same cadence, so 15 ticks.
 pub const BAND_TICKS: u64 = 3 * LIVE_TICKS_PER_SEC / 2;
 
+/// The cut's mark: the same `▲` the spec's band and takeover chip both wear
+/// (spec §3). One glyph, one meaning — "a score just happened".
+const MARK: &str = "▲";
+
 /// Rows the quiet band occupies above the list: the headline and one detail
 /// line (spec §3).
 pub const BAND_ROWS: u16 = 2;
@@ -145,8 +149,9 @@ fn plan(area: Rect, word: &str) -> Plan {
     //
     // Width receipt: at `PixelSize::Full` one glyph is 8 cells wide
     // (`tiles::glyph_cell`), so the longest word we ship — "TOUCHDOWN!", 10
-    // glyphs — needs 80 columns, and the plain "TOUCHDOWN" of the brief's
-    // math needs 72. Anything narrower steps down to sextant (4 cells/glyph,
+    // glyphs including the "!" — needs 80 columns. (The brief's 72-col gate
+    // counted a bare "TOUCHDOWN"; the word we actually ship carries the bang,
+    // so 80 is the number.) Anything narrower steps down to sextant (4/glyph,
     // 40 columns) and then to a plain bold line. Never a clipped letter.
     let (word_form, score_full) = [
         (WordForm::Full, true),
@@ -204,7 +209,7 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, play: &Play) {
 
     if brackets > 0 {
         frame.render_widget(
-            Paragraph::new(chip_line(game)).alignment(Alignment::Center),
+            Paragraph::new(chip_line(play)).alignment(Alignment::Center),
             Rect { height: 1, ..area },
         );
     }
@@ -245,57 +250,72 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, play: &Play) {
     }
 }
 
-/// Draw the band into the 2 rows above the list: the word and the score on
-/// one line, the detail dim under it. No background fill — the band is an
-/// insertion into the board, not a panel over it.
+/// Draw the band into the 2 rows above the list (spec §3, ruling R33): both
+/// rows on the `hot` ground, `▲ HOME RUN · TEX Seager (32) · ATH 0 TEX 5` on
+/// the first, the rest of the play on the second. Ink is the theme's ground
+/// throughout — team color on a hot fill is unreadable, and the band's job is
+/// to be a bar of the alert color that the eye catches above the list.
 pub fn draw_band(frame: &mut Frame, area: Rect, game: &Game, play: &Play) {
     if area.width == 0 || area.height == 0 {
         return;
     }
     let th = theme::current();
     let r = th.roles();
-    let (away_color, home_color, _) = theme::hero_pair(&th, game.away.color, game.home.color);
-    let bold = Modifier::BOLD;
-    let head = Line::from(vec![
-        Span::styled(word_for(game, play), Style::default().fg(r.hot).add_modifier(bold)),
-        Span::styled("  ", Style::default()),
-        Span::styled(game.away.abbr.clone(), Style::default().fg(away_color).add_modifier(bold)),
-        Span::styled(format!(" {} ", game.away_score), Style::default().fg(r.ink).add_modifier(bold)),
-        Span::styled("· ", Style::default().fg(r.dim)),
-        Span::styled(game.home.abbr.clone(), Style::default().fg(home_color).add_modifier(bold)),
-        Span::styled(format!(" {}", game.home_score), Style::default().fg(r.ink).add_modifier(bold)),
-    ]);
-    frame.render_widget(Paragraph::new(head), Rect { height: 1, ..area });
+    let on_hot = Style::default().fg(r.ground).bg(r.hot);
+    let bold = on_hot.add_modifier(Modifier::BOLD);
+    frame.render_widget(Block::default().style(on_hot), area);
+
+    let (name, _) = split_surname(&play.text);
+    let mut head = format!("{MARK} {}", word_for(game, play));
+    if !play.team.is_empty() {
+        head.push_str(&format!(" · {}", play.team.to_uppercase()));
+        if let Some(name) = name {
+            head.push_str(&format!(" {}", name.to_uppercase()));
+        }
+    }
+    head.push_str(&format!(
+        " · {} {} {} {}",
+        game.away.abbr, game.away_score, game.home.abbr, game.home_score
+    ));
+    frame.render_widget(
+        Paragraph::new(Span::styled(truncate(&head, area.width as usize), bold)),
+        Rect { height: 1, ..area },
+    );
     if area.height >= 2 {
+        // The second row is the play itself. No dim role here: `dim` is a
+        // ground-relative gray and vanishes on the hot fill.
+        let (_, rest) = split_surname(&play.text);
+        let clock = format!("{} {}", play.period, play.clock).trim().to_string();
+        let tail = if clock.is_empty() {
+            rest.to_uppercase()
+        } else {
+            format!("{} · {clock}", rest.to_uppercase())
+        };
         frame.render_widget(
-            Paragraph::new(detail_line(game, play, area.width)),
+            Paragraph::new(Span::styled(truncate(&tail, area.width as usize), on_hot)),
             Rect { y: area.y + 1, height: 1, ..area },
         );
     }
 }
 
-/// `KC        Q4 1:52        BUF` — the two identities and the moment, above
-/// the digits. Mirror-aligned like the hero's nameplates so the takeover and
-/// the block it replaced read as the same object.
-fn chip_line(game: &Game) -> Line<'static> {
+/// `▲ SCORING PLAY · KC` (spec §3, ruling R33) — the takeover's one filled
+/// element, the same ground-on-hot chip the hero's state chip wears. The
+/// teams' own identities arrive right below it, in the score's colors.
+fn chip_line(play: &Play) -> Line<'static> {
     let th = theme::current();
     let r = th.roles();
-    let (away_color, home_color, _) = theme::hero_pair(&th, game.away.color, game.home.color);
-    let bold = Modifier::BOLD;
-    let clock = format!("{} {}", game.period, game.clock).trim().to_string();
-    Line::from(vec![
-        Span::styled(game.away.abbr.clone(), Style::default().fg(away_color).add_modifier(bold)),
-        Span::styled("   ", Style::default()),
-        Span::styled(
-            format!(" {clock} "),
-            Style::default().fg(r.ground).bg(r.hot).add_modifier(bold),
-        ),
-        Span::styled("   ", Style::default()),
-        Span::styled(game.home.abbr.clone(), Style::default().fg(home_color).add_modifier(bold)),
-    ])
+    let text = if play.team.is_empty() {
+        format!(" {MARK} SCORING PLAY ")
+    } else {
+        format!(" {MARK} SCORING PLAY · {} ", play.team.to_uppercase())
+    };
+    Line::from(Span::styled(
+        text,
+        Style::default().fg(r.ground).bg(r.hot).add_modifier(Modifier::BOLD),
+    ))
 }
 
-/// `MAHOMES · pass to Kelce for 3 yards · Q4 1:52` — every part from the
+/// `MAHOMES · 12 YD PASS TO KELCE · Q4 1:52` — every part from the
 /// `Play` itself. The scorer's surname is the play text's own first token:
 /// ESPN writes these subject-first ("Mahomes pass to …", "Kelce 3 Yd pass
 /// from …"), and a token that isn't a plain word is simply not treated as a
@@ -318,7 +338,10 @@ fn detail_line(game: &Game, play: &Play, width: u16) -> Line<'static> {
         budget = budget.saturating_sub(clock.chars().count() + 3);
     }
     if !rest.is_empty() {
-        spans.push(Span::styled(truncate(rest, budget), Style::default().fg(r.ink)));
+        // Uppercase like the rest of the cut (spec §3's `4 YD RUSH`): ESPN
+        // writes sentence case, and one lowercase clause under block letters
+        // reads as a caption from another screen.
+        spans.push(Span::styled(truncate(&rest.to_uppercase(), budget), Style::default().fg(r.ink)));
     }
     if !clock.is_empty() {
         if !spans.is_empty() {
@@ -334,7 +357,14 @@ fn detail_line(game: &Game, play: &Play, width: u16) -> Line<'static> {
 fn split_surname(text: &str) -> (Option<&str>, &str) {
     let trimmed = text.trim();
     let head = trimmed.split_whitespace().next().unwrap_or_default();
-    let is_name = head.len() > 1
+    // A handful of capitalized words that open a play sentence without being
+    // anybody's name ("End of quarter", "Safety, snap out of the end zone").
+    // A stop list, not a parser: the cost of a miss is one word painted in a
+    // team color for three seconds.
+    const NOT_A_NAME: [&str; 8] =
+        ["End", "Safety", "Timeout", "Penalty", "Blocked", "Missed", "Two", "Extra"];
+    let is_name = !NOT_A_NAME.iter().any(|w| w.eq_ignore_ascii_case(head))
+        && head.len() > 1
         && head.chars().next().is_some_and(|c| c.is_uppercase())
         && head.chars().all(|c| c.is_alphabetic() || c == '\'' || c == '-' || c == '.');
     if is_name {
@@ -424,6 +454,17 @@ mod tests {
         assert_eq!(word_for(&game(), &play("Mahomes 12 Yd pass to Kelce")), "TOUCHDOWN!");
         assert_eq!(word_for(&game(), &play("Butker 41 Yd Field Goal")), "FIELD GOAL!");
         assert_eq!(word_for(&game(), &play("Jones sacked in end zone for a Safety")), "SAFETY!");
+        // Ruling R34: touchdown wins over every other word in the sentence.
+        // ESPN really writes these, and FIELD GOAL! on a return score is a
+        // lie the screen tells for three seconds.
+        assert_eq!(
+            word_for(&game(), &play("Blocked Field Goal returned 62 yards for a TOUCHDOWN")),
+            "TOUCHDOWN!"
+        );
+        assert_eq!(
+            word_for(&game(), &play("Fumble on the Safety, recovered for a Touchdown")),
+            "TOUCHDOWN!"
+        );
         let mut nba = game();
         nba.league = League::Nba;
         // Basketball has no field goals in this sense: "field goal" arms are
@@ -435,11 +476,27 @@ mod tests {
     fn the_detail_line_is_built_from_the_play_alone() {
         let line = detail_line(&game(), &play("Mahomes pass to Kelce for 3 yards"), 80);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(text, "MAHOMES · pass to Kelce for 3 yards · Q4 1:52");
+        // Uppercase throughout, like spec §3's `P. MAHOMES · 4 YD RUSH · Q4 1:52`.
+        assert_eq!(text, "MAHOMES · PASS TO KELCE FOR 3 YARDS · Q4 1:52");
 
         // A text with no leading name invents none.
         let line = detail_line(&game(), &play("3 yard rush, touchdown"), 80);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(text, "3 yard rush, touchdown · Q4 1:52");
+        assert_eq!(text, "3 YARD RUSH, TOUCHDOWN · Q4 1:52");
+    }
+
+    #[test]
+    fn a_capitalized_non_name_is_never_painted_as_a_scorer() {
+        // The surname is a stop-listed guess, not a parser: these sentences
+        // open with a capitalized word that is nobody.
+        for text in [
+            "Safety, snap out of the end zone",
+            "End of quarter",
+            "Blocked Field Goal returned 62 yards for a TOUCHDOWN",
+        ] {
+            assert_eq!(split_surname(text).0, None, "{text:?} has no scorer to name");
+            assert_eq!(split_surname(text).1, text, "the whole sentence survives: {text:?}");
+        }
+        assert_eq!(split_surname("Mahomes 12 Yd pass").0, Some("Mahomes"));
     }
 }
