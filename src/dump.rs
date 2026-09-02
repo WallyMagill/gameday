@@ -840,12 +840,16 @@ mod tests {
         }
         // v3.2 §1/§7: the tile grammar (tile headers, text score rows, LAST
         // PLAYS, MOMENTUM, the sidebar) is deleted; what the demo board must
-        // show now is the sections, the hero's chip and the chrome.
+        // show now is the sections, the hero's chip and the chrome. Task 9:
+        // the header never shows "FILTER:" and the Board footer is the
+        // lowercase A′ legend, not the old "NAV:" chord list.
         for needle in [
-            "GAMEDAY", "FILTER:", "MY GAMES", "IN PLAY", "FINAL", "RED ZONE", "NAV:",
+            "GAMEDAY", "MY GAMES", "IN PLAY", "FINAL", "RED ZONE", "s sort", "q quit",
         ] {
             assert!(text.contains(needle), "missing {needle:?} in board:\n{text}");
         }
+        assert!(!text.contains("FILTER:"), "the FILTER: label is gone:\n{text}");
+        assert!(!text.contains("NAV:"), "the Board footer drops NAV\\::\n{text}");
     }
 
     /// v3.2 §1: the four inline meters were a tile feature. Only the hero

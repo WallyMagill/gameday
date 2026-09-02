@@ -27,8 +27,6 @@ use std::time::Instant;
 struct HeaderRung {
     /// The wordmark: `" GAMEDAY "`, or `" GD "` on the last rungs.
     mark: &'static str,
-    /// Whether the `FILTER:` label before the tab bar is rendered.
-    filter: bool,
     /// Whether tab chips wear their brackets (`[ NFL ]` vs `NFL`).
     bracketed: bool,
     /// The window of the tab list that renders; always holds the selected
@@ -37,13 +35,14 @@ struct HeaderRung {
 }
 
 impl App {
-    /// The header row. Its rule (spec R12): the right side — status chip,
-    /// date, clock — is never dropped and never clipped. A clock that
-    /// vanishes on a 120-column terminal is worse than a tab bar that reads
-    /// `NFL NBA` instead of `[ NFL ] [ NBA ]`, so the LEFT side is what
-    /// gives, in this order: the `FILTER:` label, the chips' brackets,
-    /// trailing league tabs (never past the selected one), and finally the
-    /// wordmark `GAMEDAY` → `GD`.
+    /// The header row. Its rule (spec R12): the right side — sort chip,
+    /// status chip, date, clock — is never dropped and never clipped. A
+    /// clock that vanishes on a 120-column terminal is worse than a tab bar
+    /// that reads `NFL NBA` instead of `[ NFL ] [ NBA ]`, so the LEFT side is
+    /// what gives, in this order: the chips' brackets, trailing league tabs
+    /// (never past the selected one), and finally the wordmark `GAMEDAY` →
+    /// `GD`. Spec §1: there is no `FILTER:` label anywhere on this ladder —
+    /// v3.1's rung 0 is gone, and the bracketed chip row is the default.
     pub(super) fn draw_header(&mut self, frame: &mut Frame, area: Rect) {
         let th = theme::current();
         let width = area.width as usize;
@@ -79,11 +78,28 @@ impl App {
         let date_len = date.chars().count() + 2;
         let clock_len = clock.chars().count() + 1;
 
+        // The sort chip (spec §1: `s SORT: WATCH`) — Board view only. It
+        // sits on the right, ahead of the NetStatus chip, and — like that
+        // chip — degrades to nothing rather than ever clip the clock.
+        let sort_text = (self.view == View::Board)
+            .then(|| format!("s SORT: {} ", self.config.sort.label()));
+        let sort_len = sort_text.as_ref().map_or(0, |s| s.chars().count());
+
         // --- The left side, as measurements rather than spans: the shed
         // ladder below picks one shape, and only then does it get rendered.
         let labels: Vec<(String, Tab)> = self
             .tab_list()
             .into_iter()
+            // Spec §1: only an enabled league with a game today earns a
+            // chip; the rest stay reachable via `:league`. The active tab is
+            // exempt — switching to a quiet league must not erase its own
+            // highlight.
+            .filter(|tab| match tab {
+                Tab::Home => true,
+                Tab::League(league) => {
+                    *tab == self.tab || self.boards.get(league).is_some_and(|v| !v.is_empty())
+                }
+            })
             .map(|tab| {
                 let label = match tab {
                     Tab::Home => "ALL".to_string(),
@@ -98,7 +114,6 @@ impl App {
             .as_ref()
             .map(|a| a.text.chars().count() + 2)
             .unwrap_or(0);
-        const FILTER_LABEL: &str = "  FILTER: ";
         // Rendered width of one chip, plus the space that follows it.
         let chip_cells = |label: &str, selected: bool, bracketed: bool| -> usize {
             let inner = label.chars().count();
@@ -112,9 +127,8 @@ impl App {
         // `shown` is a window into the tab list, not a prefix count: trailing
         // tabs shed first, and the leading ones only once there is nothing
         // else left to give. The selected tab is always inside it.
-        let left_len = |mark: &str, filter: bool, bracketed: bool, shown: Range<usize>| -> usize {
+        let left_len = |mark: &str, bracketed: bool, shown: Range<usize>| -> usize {
             mark.chars().count()
-                + if filter { FILTER_LABEL.chars().count() } else { 0 }
                 + labels[shown.clone()]
                     .iter()
                     .enumerate()
@@ -132,21 +146,17 @@ impl App {
         // thing, and the first rung whose left side plus the whole right side
         // fits the row is what renders.
         let n = labels.len();
-        let rung = |mark, filter, bracketed, shown| HeaderRung {
+        let rung = |mark, bracketed, shown| HeaderRung {
             mark,
-            filter,
             bracketed,
             shown,
         };
-        let mut ladder = vec![
-            rung(" GAMEDAY ", true, true, 0..n),
-            rung(" GAMEDAY ", false, true, 0..n),
-        ];
+        let mut ladder = vec![rung(" GAMEDAY ", true, 0..n)];
         for end in (selected_idx + 1..=n).rev() {
-            ladder.push(rung(" GAMEDAY ", false, false, 0..end));
+            ladder.push(rung(" GAMEDAY ", false, 0..end));
         }
         for start in 0..=selected_idx {
-            ladder.push(rung(" GD ", false, false, start..selected_idx + 1));
+            ladder.push(rung(" GD ", false, start..selected_idx + 1));
         }
 
         // Try the chip's forms longest-first at every rung: a padded chip
@@ -160,26 +170,34 @@ impl App {
                 .find(|f| left + chip_width(f) + date + clock_len <= width)
                 .map(|f| Some(f.clone()))
         };
-        let mut fit: Option<(HeaderRung, Option<String>, bool)> = None;
-        for r in ladder.iter().cloned() {
-            let left = left_len(r.mark, r.filter, r.bracketed, r.shown.clone());
-            if let Some(chip) = best_chip(left, date_len) {
-                fit = Some((r, chip, true));
-                break;
+        // The sort chip tries present, then absent, at every rung — it gives
+        // way before the net chip degrades, but never before the clock does.
+        let mut fit: Option<(HeaderRung, bool, Option<String>, bool)> = None;
+        'ladder: for r in ladder.iter().cloned() {
+            let left = left_len(r.mark, r.bracketed, r.shown.clone());
+            for use_sort in [true, false] {
+                if use_sort && sort_text.is_none() {
+                    continue;
+                }
+                let sort_w = if use_sort { sort_len } else { 0 };
+                if let Some(chip) = best_chip(left + sort_w, date_len) {
+                    fit = Some((r, use_sort, chip, true));
+                    break 'ladder;
+                }
             }
         }
         // Under ~45 columns not even one tab plus the right side fits. The
         // clock is the last thing standing — it is the one thing the board
-        // below never repeats — so the date goes first, then the chip.
-        let (shape, chip_text, show_date) = fit.unwrap_or_else(|| {
+        // below never repeats — so the date goes first, then the chip (the
+        // sort chip is long gone by this point).
+        let (shape, use_sort, chip_text, show_date) = fit.unwrap_or_else(|| {
             let r = ladder.last().expect("ladder is non-empty").clone();
-            let left = left_len(r.mark, r.filter, r.bracketed, r.shown.clone());
+            let left = left_len(r.mark, r.bracketed, r.shown.clone());
             let chip = best_chip(left, 0).unwrap_or(None);
-            (r, chip, false)
+            (r, false, chip, false)
         });
         let HeaderRung {
             mark,
-            filter,
             bracketed,
             shown,
         } = shape;
@@ -189,9 +207,6 @@ impl App {
             mark,
             Style::default().fg(th.live).add_modifier(Modifier::BOLD),
         )];
-        if filter {
-            spans.push(Span::styled(FILTER_LABEL, Style::default().fg(th.muted)));
-        }
         for (i, (label, tab)) in labels[shown.clone()].iter().enumerate() {
             let selected = shown.start + i == selected_idx;
             let text = match (bracketed, selected) {
@@ -250,13 +265,27 @@ impl App {
         let chip_pad = chip_span
             .as_ref()
             .is_some_and(|s| !s.content.ends_with(' '));
-        let right_len = chip_span
-            .as_ref()
-            .map_or(0, |s| s.content.chars().count() + usize::from(chip_pad))
+        let sort_render_len = if use_sort { sort_len } else { 0 };
+        let right_len = sort_render_len
+            + chip_span
+                .as_ref()
+                .map_or(0, |s| s.content.chars().count() + usize::from(chip_pad))
             + if show_date { date_len } else { 0 }
             + clock_len;
         let spacer = width.saturating_sub(rendered_left + right_len);
         spans.push(Span::raw(" ".repeat(spacer)));
+        if use_sort {
+            // `sort_text` is `Some` whenever `use_sort` is true (the search
+            // above never sets it otherwise): key "s" bright, the rest muted,
+            // like the footer's own key-cap discipline.
+            let text = sort_text.as_deref().unwrap_or_default();
+            let (key, rest) = text.split_at(1);
+            spans.push(Span::styled(
+                key.to_string(),
+                Style::default().fg(th.fg).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(rest.to_string(), Style::default().fg(th.muted)));
+        }
         if let Some(s) = chip_span {
             spans.push(s);
             if chip_pad {
@@ -278,9 +307,12 @@ impl App {
         );
     }
 
+    /// One SCORES lane, gated by `layout::plan(...).scores_lane` in
+    /// `App::draw` (spec §1) — the Board never reaches this at all, since it
+    /// draws its own inline off-screen lane (one lane, one owner).
     pub(super) fn draw_ticker(&self, frame: &mut Frame, area: Rect) {
         let d = self.derived();
-        ticker::draw(frame, area, &d.ticker_live, &d.ticker_events, self.tick);
+        ticker::draw_lane(frame, area, &d.ticker_live, self.tick);
     }
 
     /// Context-aware footer: the TOP chords from the keymap table (the full
@@ -350,24 +382,9 @@ impl App {
             View::Zoom { .. } => keymap::FooterCtx::Zoomed,
             View::PlaysFeed | View::Standings(_) | View::ThemePicker => keymap::FooterCtx::Feed,
         };
-        // Narrow terminals can't hold every chord: shed the low-value ones in
-        // keymap's declared order so HELP and QUIT are never the ones clipped.
-        let mut chords = keymap::footer_chords(ctx);
-        // " /kc" steals footer columns, so it counts toward the shed budget.
+        // " /kc" steals footer columns, so it counts toward every shed budget
+        // below regardless of which legend renders.
         let filter_width = self.filter.as_ref().map_or(0, |f| f.chars().count() + 2);
-        let chords_width = |cs: &[(&str, &str)]| -> usize {
-            filter_width
-                + 5
-                + cs.iter()
-                    .map(|(k, a)| 4 + k.chars().count() + a.chars().count())
-                    .sum::<usize>()
-        };
-        for drop in keymap::FOOTER_DROP_ORDER {
-            if chords_width(&chords) < area.width as usize {
-                break;
-            }
-            chords.retain(|(_, a)| a != drop);
-        }
         let mut spans = Vec::new();
         // An active committed filter stays visible so a narrowed board is
         // never mistaken for a quiet one.
@@ -377,13 +394,55 @@ impl App {
                 Style::default().fg(th.star).add_modifier(Modifier::BOLD),
             ));
         }
-        spans.push(Span::styled(
-            " NAV:",
-            Style::default().fg(th.fg).add_modifier(Modifier::BOLD),
-        ));
-        for (key, action) in chords {
-            spans.push(Span::styled(format!(" [{key}]"), Style::default().fg(th.fg)));
-            spans.push(Span::styled(format!(" {action}"), Style::default().fg(th.muted)));
+        if ctx == keymap::FooterCtx::Board {
+            // Spec §1: the Board footer is the fixed A′ legend — lowercase,
+            // no brackets, no `NAV:` label. CMD earns no slot here (still
+            // reachable via `:` and the help overlay); SORT/TV get real
+            // KEYMAP rows in Task 10.
+            let mut pairs: Vec<(&str, &str)> = keymap::BOARD_LEGEND.to_vec();
+            let legend_width = |ps: &[(&str, &str)]| -> usize {
+                filter_width
+                    + 1
+                    + ps.iter()
+                        .map(|(k, l)| k.chars().count() + l.chars().count() + 3)
+                        .sum::<usize>()
+            };
+            for drop in keymap::BOARD_LEGEND_DROP_ORDER {
+                if legend_width(&pairs) < area.width as usize {
+                    break;
+                }
+                pairs.retain(|(_, l)| l != drop);
+            }
+            for (key, label) in pairs {
+                spans.push(Span::styled(format!(" {key}"), Style::default().fg(th.fg)));
+                spans.push(Span::styled(format!(" {label} "), Style::default().fg(th.muted)));
+            }
+        } else {
+            // Narrow terminals can't hold every chord: shed the low-value
+            // ones in keymap's declared order so HELP and QUIT are never the
+            // ones clipped.
+            let mut chords = keymap::footer_chords(ctx);
+            let chords_width = |cs: &[(&str, &str)]| -> usize {
+                filter_width
+                    + 5
+                    + cs.iter()
+                        .map(|(k, a)| 4 + k.chars().count() + a.chars().count())
+                        .sum::<usize>()
+            };
+            for drop in keymap::FOOTER_DROP_ORDER {
+                if chords_width(&chords) < area.width as usize {
+                    break;
+                }
+                chords.retain(|(_, a)| a != drop);
+            }
+            spans.push(Span::styled(
+                " NAV:",
+                Style::default().fg(th.fg).add_modifier(Modifier::BOLD),
+            ));
+            for (key, action) in chords {
+                spans.push(Span::styled(format!(" [{key}]"), Style::default().fg(th.fg)));
+                spans.push(Span::styled(format!(" {action}"), Style::default().fg(th.muted)));
+            }
         }
 
         // Right side, dropped piecewise if the row runs out of columns:

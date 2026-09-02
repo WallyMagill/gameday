@@ -242,6 +242,28 @@ pub const KEYMAP: &[Binding] = &[
 /// stay visible.
 pub const FOOTER_DROP_ORDER: &[&str] = &["MOVE", "PIN", "LEAGUE", "FILTER", "CMD"];
 
+/// The Board footer's legend (spec §1): `↑↓ move  enter zoom  space pin
+/// / filter  s sort  v tv  ? help  q quit`, fixed order, lowercase, no
+/// brackets — the A′ frames' own key-cap style, distinct from every other
+/// view's `NAV:` chord list. `s`/`v` get real KEYMAP rows once Task 10 wires
+/// `:sort`/`:tv`; chrome shows the legend text now so the frame matches the
+/// spec ahead of that.
+pub const BOARD_LEGEND: &[(&str, &str)] = &[
+    ("↑↓", "move"),
+    ("enter", "zoom"),
+    ("space", "pin"),
+    ("/", "filter"),
+    ("s", "sort"),
+    ("v", "tv"),
+    ("?", "help"),
+    ("q", "quit"),
+];
+
+/// Shed order for [`BOARD_LEGEND`] at a narrow width, least valuable first —
+/// `help` and `quit` are never in this list, same discipline as
+/// [`FOOTER_DROP_ORDER`].
+pub const BOARD_LEGEND_DROP_ORDER: &[&str] = &["move", "pin", "filter", "sort", "tv"];
+
 /// The footer chord list for the current view: (key, label) pairs in table
 /// order.
 pub fn footer_chords(ctx: FooterCtx) -> Vec<(&'static str, &'static str)> {

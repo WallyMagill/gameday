@@ -51,6 +51,11 @@ pub struct HeroPlan {
     /// Draw the flanking marks at all. The board turns this off under 100
     /// cols: the flanks are the first casualty, never the digits.
     pub show_logos: bool,
+    /// The hero is a selectable row like any tier (spec §1 selection). A `▸`
+    /// mark on the outside edge of each nameplate — same glyph the tier rows
+    /// use in their gutter — is the only thing selection changes; the digits
+    /// keep team color regardless (task-9 review carry-forward #1).
+    pub selected: bool,
 }
 
 /// Minimum flank width, in cells, that earns a 16-wide hero mark: the art
@@ -222,6 +227,10 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
     let team = if away { &game.away } else { &game.home };
     let color = if away { away_color } else { home_color };
     let star = Style::default().fg(th.star);
+    // The caret is the same glyph a selected tier row puts in its gutter
+    // (`rows.rs`); the hero has no gutter, so it sits on the outside edge —
+    // spec §1 selection, task-9 review carry-forward #1.
+    let caret = Style::default().fg(th.bright).add_modifier(Modifier::BOLD);
     // Why this game is the hero, always on the outside edge so the two
     // nameplates stay mirror images of each other.
     let mut marks: Vec<&'static str> = Vec::new();
@@ -238,6 +247,9 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
     let block = (!away && fell).then(|| Span::styled("▌", Style::default().fg(th.art_color(team.color))));
     let mut spans: Vec<Span<'static>> = Vec::new();
     if away {
+        if plan.selected {
+            spans.push(Span::styled("▸ ", caret));
+        }
         spans.extend(marks.iter().map(|m| Span::styled(format!("{m} "), star)));
         spans.push(abbr);
         if let Some(rec) = record {
@@ -252,6 +264,9 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
         spans.extend(block);
         spans.push(abbr);
         spans.extend(marks.iter().rev().map(|m| Span::styled(format!(" {m}"), star)));
+        if plan.selected {
+            spans.push(Span::styled(" ▸", caret));
+        }
     }
     Line::from(spans)
 }
@@ -530,6 +545,7 @@ mod tests {
             pinned: false,
             favorite: false,
             show_logos: true,
+            selected: false,
         }
     }
 
@@ -818,6 +834,37 @@ mod tests {
         // is dim (spec §6) — check the away record's first cell.
         let rx = col(&row, "2-0");
         assert_eq!(buf[(rx, 0)].fg, th.roles().dim, "the record stays dim");
+    }
+
+    #[test]
+    fn selected_hero_carries_a_bright_caret_on_both_outside_edges() {
+        // Task-9 review carry-forward #1: the hero is a selectable row like
+        // any tier, and had no way to show it. A `▸` lands on the outer edge
+        // of each nameplate — mirrored, like every other mark there — in
+        // `th.bright`, the same ink `rows.rs` uses for a selected row.
+        let (w, h) = (120u16, 12u16);
+        let th = theme::current();
+        let mut p = plan();
+        p.selected = true;
+        let term = render(w, h, &nfl_game(), &p);
+        let buf = term.backend().buffer();
+        let cells: Vec<&str> = (0..w).map(|x| buf[(x, 0)].symbol()).collect();
+        let left: String = cells[..(w / 2) as usize].concat();
+        let right: String = cells[(w / 2) as usize..].concat();
+        assert!(left.trim_start().starts_with('▸'), "away caret on the outside edge: {left:?}");
+        assert!(right.trim_end().ends_with('▸'), "home caret on the outside edge: {right:?}");
+        let ax = left.find('▸').unwrap();
+        assert_eq!(buf[(ax as u16, 0)].fg, th.bright, "the caret is bright");
+        let hx = (w / 2) as usize + right.rfind('▸').unwrap();
+        assert_eq!(buf[(hx as u16, 0)].fg, th.bright, "the home caret is bright too");
+
+        // Unselected: no caret anywhere on the nameplate row.
+        let mut unselected = plan();
+        unselected.selected = false;
+        let term = render(w, h, &nfl_game(), &unselected);
+        let buf = term.backend().buffer();
+        let row: String = (0..w).map(|x| buf[(x, 0)].symbol()).collect();
+        assert!(!row.contains('▸'), "no caret when the hero is not selected: {row:?}");
     }
 
     #[test]

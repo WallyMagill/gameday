@@ -62,16 +62,6 @@ fn game_matches(game: &Game, needle: &str) -> bool {
 }
 
 impl App {
-    /// The soonest scheduled start still ahead of us across the enabled
-    /// boards — what empty Home names when nothing is live.
-    pub fn next_start(&self) -> Option<Game> {
-        let now = self.now();
-        self.concat_boards()
-            .into_iter()
-            .filter(|g| g.status == Status::Pre && g.start.is_some_and(|s| s > now))
-            .min_by_key(|g| g.start.expect("filtered to Some above"))
-    }
-
     pub fn visible_games(&self) -> Vec<Game> {
         let games = match self.tab {
             Tab::Home => {
@@ -250,13 +240,17 @@ impl App {
 
         // Spec §1: the hero is the top of MY GAMES when it is live (a pin
         // outranks watchability), else the best live game. With nothing live
-        // at all the board still gets a headline — the first thing on it —
-        // rather than an empty top third.
+        // at all there is no hero (task-9 review carry-forward #3): a third
+        // fallback to `selection.first()` used to reach for a FINAL/LATER
+        // game, but `board/mod.rs` only ever draws a `Hero` block for a game
+        // in the band or in `in_play` — that game would render as a plain
+        // tier-3 row regardless, so the fallback never actually put a
+        // headline on screen. Dropped rather than wired through, since a
+        // board with nothing live genuinely has nothing to feature.
         let hero_id = my_games
             .first()
             .filter(|g| g.status == Status::Live)
             .or_else(|| in_play.first())
-            .or_else(|| selection.first())
             .map(|g| g.id.clone());
 
         let mut leagues: Vec<League> = Vec::new();

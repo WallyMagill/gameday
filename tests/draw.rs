@@ -81,19 +81,24 @@ fn mk() -> App {
 
 #[test]
 fn header_and_tabs_render() {
+    // v3.2 spec §1: only an enabled league with a game today earns a chip —
+    // NFL and MLS both need boards to show up here at all.
     let mut app = mk();
-    // Wide enough for the whole header: the FILTER: label and the chips'
-    // brackets are the first two things the shed ladder gives up, so this is
-    // where they have to be checked.
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    let mut mls_game = g("2", "LAFC", "SEA", true);
+    mls_game.league = League::Mls;
+    app.apply_boards(League::Mls, vec![mls_game], false);
+    // Wide enough for the whole header: the chips' brackets are the first
+    // thing the shed ladder gives up (spec §1: no `FILTER:` label at all).
     let mut wide = Terminal::new(TestBackend::new(180, 24)).unwrap();
     wide.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&wide);
     assert!(s.contains("GAMEDAY"), "{s}");
-    assert!(s.contains("FILTER:"), "{s}");
+    assert!(!s.contains("FILTER:"), "the FILTER: label is gone: {s}");
     assert!(s.contains("[ALL]"), "{s}");
     assert!(s.contains("[ NFL ]"), "{s}");
-    // At 120 with ten tabs the label and the brackets shed instead of the
-    // clock (R12), but the wordmark and every tab still render.
+    // At 120 with the enabled chips the brackets shed instead of the clock
+    // (R12), but the wordmark and every chip with a game still render.
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let row = buf_text(&t).lines().next().unwrap().to_string();
@@ -128,18 +133,32 @@ fn active_alert_banner_renders_in_header_in_live_color() {
 
 #[test]
 fn footer_shows_chords() {
+    // v3.2 spec §1: the Board footer is the lowercase A′ legend — no
+    // brackets, no "NAV:" label.
     let mut app = mk();
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.contains("NAV:"), "{s}");
-    assert!(s.contains("[Q]"), "{s}");
-    assert!(s.contains("[SPC]"), "{s}");
-    assert!(s.contains("[?] HELP"), "{s}");
-    // The whole chord list fits 120 cols: QUIT must not be clipped.
-    assert!(s.contains("QUIT"), "{s}");
-    // Theme moved out of the footer into help — the footer shows top chords only.
-    assert!(!s.contains("[C] THEME"), "{s}");
+    assert!(!s.contains("NAV:"), "{s}");
+    assert!(s.contains("q quit"), "{s}");
+    assert!(s.contains("space pin"), "{s}");
+    assert!(s.contains("? help"), "{s}");
+    // Theme never had a footer slot; still true of the new legend.
+    assert!(!s.contains("THEME"), "{s}");
+}
+
+#[test]
+fn footer_advertises_sort_and_tv_not_pages() {
+    // v3.2 spec §1: the Board legend names `s sort` and `v tv`; the old caps
+    // "PAGE"/"PIN [SPC]" style is gone.
+    let mut app = mk();
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("s sort"), "{s}");
+    assert!(s.contains("v tv"), "{s}");
+    assert!(!s.contains("PAGE"), "{s}");
+    assert!(!s.contains("PIN [SPC]"), "{s}");
 }
 
 #[test]
@@ -603,27 +622,39 @@ fn q_in_zoom_pops_instead_of_quitting() {
 }
 
 #[test]
-fn footer_advertises_command_and_filter_chords() {
+fn footer_advertises_filter_chord_but_not_cmd_on_the_board() {
+    // v3.2 spec §1: `/ filter` is in the fixed Board legend; `:` earns no
+    // footer slot there (CMD is still reachable via `:` and the `?`
+    // overlay) — the old bracket-caps "[:] CMD"/"[/] FILTER" style is gone.
     let mut app = mk();
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.contains("[:] CMD"), "{s}");
-    assert!(s.contains("[/] FILTER"), "{s}");
+    assert!(s.contains("/ filter"), "{s}");
+    assert!(!s.contains("CMD"), "{s}");
+    // The Zoomed footer keeps the old generic list, CMD included.
+    use gameday::views::{View, ZoomTab};
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
+    let mut tz = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    tz.draw(|f| app.draw(f)).unwrap();
+    let sz = buf_text(&tz);
+    assert!(sz.contains("[:] CMD"), "{sz}");
+    assert!(sz.contains("[/] FILTER"), "{sz}");
 }
 
 #[test]
 fn narrow_footer_sheds_low_value_chords_but_keeps_help_and_quit() {
-    // 80 cols can't hold the whole chord list; MOVE/PAGE go first, the way
-    // out and the full keymap never get clipped.
+    // Narrow enough that the whole legend can't fit; move/pin go first, the
+    // way out and help never get clipped (spec §1's shed order discipline).
     let mut app = mk();
-    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    let mut t = Terminal::new(TestBackend::new(45, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
-    let s = buf_text(&t);
-    let footer = s.lines().find(|l| l.contains("NAV:")).expect("footer row");
-    assert!(footer.contains("[?] HELP"), "HELP clipped: {footer:?}");
-    assert!(footer.contains("[Q] QUIT"), "QUIT clipped: {footer:?}");
-    assert!(!footer.contains("MOVE"), "MOVE should be shed first: {footer:?}");
+    let footer = buf_text(&t).lines().last().unwrap().to_string();
+    assert!(footer.contains("? help"), "help clipped: {footer:?}");
+    assert!(footer.contains("q quit"), "quit clipped: {footer:?}");
+    assert!(!footer.contains("move"), "move should be shed first: {footer:?}");
 }
 
 #[test]
@@ -1705,6 +1736,39 @@ fn a_narrow_header_shortens_the_chip_instead_of_chopping_it() {
 }
 
 #[test]
+fn header_shows_sort_key_and_only_leagues_with_games() {
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    // NBA is enabled but has no board applied at all — no chip for it.
+    let mut t = Terminal::new(TestBackend::new(180, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let first = buf_text(&t).lines().next().unwrap().to_string();
+    assert!(first.contains("s SORT: WATCH"), "{first}");
+    assert!(first.contains("NFL"), "{first}");
+    assert!(!first.contains("NBA"), "a league with no games gets no chip: {first}");
+
+    // The sort chip is Board-only — it disappears in Zoom.
+    use gameday::views::{View, ZoomTab};
+    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
+    let mut tz = Terminal::new(TestBackend::new(180, 40)).unwrap();
+    tz.draw(|f| app.draw(f)).unwrap();
+    let zoomed_first = buf_text(&tz).lines().next().unwrap().to_string();
+    assert!(!zoomed_first.contains("SORT:"), "{zoomed_first}");
+
+    // Clock survives the sort chip across the same width sweep R12 already
+    // guarantees for the net chip and the tab ladder.
+    for width in 40u16..=180 {
+        let mut app = mk();
+        app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        let mut t = Terminal::new(TestBackend::new(width, 40)).unwrap();
+        t.draw(|f| app.draw(f)).unwrap();
+        let row = buf_text(&t).lines().next().unwrap().to_string();
+        assert!(row.contains("9:37:05 PM"), "clock clipped at {width} with the sort chip: {row:?}");
+    }
+}
+
+#[test]
 fn header_keeps_the_clock_with_ten_chips_at_120_columns() {
     let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
     app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
@@ -1930,6 +1994,39 @@ fn the_ticker_is_gone_at_40_rows_and_the_lane_appears_when_truncated() {
         "the lane counts exactly what is not drawn:\n{s}"
     );
     assert_eq!(drawn.matches("LATER").count(), 1, "one LATER section:\n{s}");
+}
+
+#[test]
+fn scores_lane_lists_off_screen_games_only() {
+    // Task 9: every other view gets the SAME off-screen SCORES lane the
+    // Board would show at this size — gated by the identical
+    // `layout::plan(...).scores_lane` truncation check (spec §1), never a
+    // second grammar, and never allocated when the Board itself wouldn't
+    // truncate.
+    use gameday::views::{View, ZoomTab};
+    let mut app = board_app(10, 2, 4);
+    app.tab = Tab::League(League::Nfl);
+    app.view = View::Zoom { game_id: "l0".into(), tab: ZoomTab::Overview };
+    let small = buf_text(&render(&mut app, 80, 24));
+    assert!(
+        small.contains("SCORES"),
+        "the board would truncate at 80x24 too, so Zoom gets the lane:\n{small}"
+    );
+
+    let mut wide_app = board_app(4, 0, 0);
+    wide_app.tab = Tab::League(League::Nfl);
+    wide_app.view = View::Zoom { game_id: "l0".into(), tab: ZoomTab::Overview };
+    let wide = buf_text(&render(&mut wide_app, 120, 40));
+    assert!(
+        !wide.contains("SCORES"),
+        "everything fits on the board at 120x40 — no lane here either:\n{wide}"
+    );
+
+    // The Board itself never allocates these rows a second time: exactly one
+    // SCORES lane, its own inline one.
+    let mut board_view = board_app(10, 2, 4);
+    let board_s = buf_text(&render(&mut board_view, 80, 24));
+    assert_eq!(board_s.matches("SCORES").count(), 1, "one lane, one owner:\n{board_s}");
 }
 
 #[test]

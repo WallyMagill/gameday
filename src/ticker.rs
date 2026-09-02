@@ -94,6 +94,32 @@ pub fn whole_segments(segments: &[Cells], width: usize, step: u64, sep: Style) -
     out
 }
 
+/// Rows the off-screen SCORES lane costs on its own — no rule, no ALERTS.
+pub const LANE_HEIGHT: u16 = 1;
+
+/// The SCORES lane alone, gutter + whole score segments, no rule and no
+/// ALERTS lane. The Board draws its own inline off-screen lane
+/// (`board::mod::draw_lane`) straight into its body and never allocates
+/// these rows (spec §1: one lane, one owner) — this is what `App::draw`
+/// gives every OTHER view instead, gated on whether the Board's own
+/// `layout::plan(...).scores_lane` says the list would truncate at the
+/// current size, so a viewer parked in Zoom/Standings/the plays feed still
+/// sees what is off the Board without a second ticker grammar.
+pub fn draw_lane(frame: &mut Frame, area: Rect, live: &[Game], tick: u64) {
+    let th = theme::current();
+    let sep = Style::default().fg(th.dim);
+    let gutter = LANE_LABELS[0];
+    let content_w = (area.width as usize).saturating_sub(gutter.chars().count());
+    let segments: Vec<Cells> = live.iter().map(score_segment).collect();
+    let lane = whole_segments(&segments, content_w, tick / SCORES_DWELL_TICKS, sep);
+    let mut spans = vec![Span::styled(gutter, Style::default().fg(th.muted))];
+    spans.extend(group_spans(lane.into_iter()));
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)).style(Style::default().bg(th.bg)),
+        area,
+    );
+}
+
 /// Every scoring event as `1:27 KC TD text 27-24 KC`, `│`-separated. No cap:
 /// the marquee brings each into view.
 pub fn alerts_lane(events: &[(Game, Play)]) -> Cells {
@@ -292,5 +318,19 @@ mod tests {
         assert_eq!(row(0), "─".repeat(80), "row 0 is the rule");
         assert!(row(1).starts_with(" SCORES NFL KC 27 TB 24 Q4 1:27 │ NBA DEN 88 BOS 81 Q3 4:38"), "{:?}", row(1));
         assert!(row(2).starts_with(" ALERTS no scoring plays yet"), "{:?}", row(2));
+    }
+
+    #[test]
+    fn lane_is_one_row_gutter_and_scores_no_rule_no_alerts() {
+        // Task 9: what non-Board views get instead of the old rule+2-lane
+        // ticker — the gutter is bright cyan/muted like `draw`'s, but there
+        // is exactly one row, and no ALERTS lane at all.
+        let live = vec![game(League::Nfl, "KC", "TB", (27, 24), ("Q4", "1:27"))];
+        let mut term = Terminal::new(TestBackend::new(80, LANE_HEIGHT)).unwrap();
+        term.draw(|f| draw_lane(f, f.area(), &live, 0)).unwrap();
+        let buf = term.backend().buffer();
+        let row: String = (0..80).map(|x| buf[(x, 0)].symbol().to_string()).collect();
+        assert_eq!(row.trim_end(), " SCORES NFL KC 27 TB 24 Q4 1:27", "{row:?}");
+        assert_eq!(buf[(1, 0)].fg, theme::current().muted, "the gutter takes the muted role");
     }
 }

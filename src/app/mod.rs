@@ -1307,15 +1307,33 @@ impl App {
             );
             return;
         }
-        // v3.2 §1: the board has no ticker — what used to run down there is
-        // now the board's own one-row SCORES lane, drawn inside the body only
-        // when something didn't fit. The other views keep the v3.1 ticker
-        // until Task 9 rebuilds the chrome around the lane.
-        let ticker_h = if area.height >= 24 && !matches!(self.view, View::Board | View::ThemePicker)
-        {
-            ticker::HEIGHT
-        } else {
+        // v3.2 §1: the Board has no separate ticker rows at all — it draws
+        // its own one-row SCORES lane inline, inside the body, only when
+        // something didn't fit (one lane, one owner; see `board::mod`'s
+        // `draw_lane`). Every other view gets the same off-screen lane at
+        // the bottom of the frame, gated by the SAME truncation the Board
+        // would show at this size: `layout::plan(...).scores_lane`, run
+        // against the current tab's counts.
+        let ticker_h = if matches!(self.view, View::Board | View::ThemePicker) {
             0
+        } else {
+            let d = self.derived();
+            let hero_in_band = d.my_games.iter().any(|g| Some(&g.id) == d.hero_id.as_ref());
+            let band_rows = d.my_games.len() - usize::from(hero_in_band);
+            let body_h = area.height.saturating_sub(2); // header + footer
+            let plan = crate::board::layout::plan(
+                area.width,
+                body_h,
+                d.in_play.len(),
+                d.finals.len(),
+                d.later.len(),
+                band_rows,
+            );
+            if plan.scores_lane {
+                ticker::LANE_HEIGHT
+            } else {
+                0
+            }
         };
         let chunks = Layout::default()
             .direction(Direction::Vertical)

@@ -230,7 +230,7 @@ fn board_walk<'a>(
         };
         match block {
             Block::Rule(label, caption) => draw_rule(frame, rect, label, caption),
-            Block::Hero(game, _, _) => {
+            Block::Hero(game, i, _) => {
                 let watch = rank::watchability(game, now);
                 hero::draw_hero(
                     frame,
@@ -245,6 +245,10 @@ fn board_walk<'a>(
                         // Under 100 columns the flanks are the first casualty
                         // (spec §4) — never the digits.
                         show_logos: area.width >= 100,
+                        // The hero is a selectable row (task-9 review carry
+                        // forward #1): a `▸` on the nameplates, like the
+                        // caret every other selected row gets in its gutter.
+                        selected: *i == selected,
                     },
                 );
             }
@@ -466,23 +470,16 @@ fn draw_empty_state(app: &mut App, frame: &mut Frame, area: Rect) -> bool {
             );
             true
         }
-        // Home carries every live game now, so an empty Home means nothing is
-        // live anywhere — name the next start instead of asking for a pin.
+        // Home carries every live game AND every scheduled/final one now
+        // (spec §1: Home is whole-day) — an empty Home means nothing is
+        // scheduled at all today, not merely nothing live. The old "nothing
+        // live · next: …" message for a still-empty board with an upcoming
+        // game was dead: any upcoming game is itself a LATER entry in
+        // `selection`, which makes the board non-empty (task-9 review
+        // carry-forward #2) — so only the true-empty message remains.
         Tab::Home if empty => {
-            let msg = match app.next_start() {
-                Some(g) => format!(
-                    "nothing live · next: {} @ {} {}",
-                    g.away.abbr,
-                    g.home.abbr,
-                    crate::text::fmt_start(
-                        g.start.expect("next_start only returns games with a start"),
-                        app.now()
-                    )
-                ),
-                None => "nothing live on the enabled boards · :config to add leagues".to_string(),
-            };
             frame.render_widget(
-                Paragraph::new(msg)
+                Paragraph::new("nothing live on the enabled boards · :config to add leagues")
                     .style(Style::default().fg(th.muted).bg(th.bg))
                     .alignment(Alignment::Center),
                 area,
