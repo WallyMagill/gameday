@@ -50,7 +50,10 @@ pub fn lateness(league: League, period: &str, clock: &str) -> u32 {
                 _ => return 0,
             };
             let qlen = quarter_len(league);
-            let played = qlen - clock_secs(clock).min(qlen);
+            // Unparseable clock ("junk", "") reads as "just started" (played
+            // = 0), not "fully elapsed" — a bad clock string must never
+            // inflate lateness (gap R23).
+            let played = clock_secs(clock).map(|s| qlen - s.min(qlen)).unwrap_or(0);
             (((q - 1) as u32 * qlen + played) * 100 / (4 * qlen)).min(100)
         }
         League::Cbb => {
@@ -60,8 +63,8 @@ pub fn lateness(league: League, period: &str, clock: &str) -> u32 {
                 "OT" => 3,
                 _ => return 0,
             };
-            let hl = 20 * 60;
-            let played = hl - clock_secs(clock).min(hl);
+            let hl = 20 * 60; // college basketball halves are 20 minutes.
+            let played = clock_secs(clock).map(|s| hl - s.min(hl)).unwrap_or(0);
             (((h - 1) as u32 * hl + played) * 100 / (2 * hl)).min(100)
         }
         League::Nhl => {
@@ -72,8 +75,8 @@ pub fn lateness(league: League, period: &str, clock: &str) -> u32 {
                 "OT" | "SO" => 4,
                 _ => return 0,
             };
-            let pl = 20 * 60;
-            let played = pl - clock_secs(clock).min(pl);
+            let pl = 20 * 60; // NHL periods are 20 minutes.
+            let played = clock_secs(clock).map(|s| pl - s.min(pl)).unwrap_or(0);
             (((p - 1) as u32 * pl + played) * 100 / (3 * pl)).min(100)
         }
         League::Mlb => {
@@ -113,32 +116,39 @@ pub fn lateness(league: League, period: &str, clock: &str) -> u32 {
             if period.contains('+') || base >= 90 {
                 return 95 + (base.saturating_sub(90)).min(5);
             }
-            base.min(94) * 100 / 94
+            // base is <90 here (the >=90 branch above already returned), so
+            // no cap is needed: at base=89 this is 89*100/94 = 94, still
+            // under the 95 stoppage floor set above.
+            base * 100 / 94
         }
     }
 }
 
 fn quarter_len(league: League) -> u32 {
     match league {
-        League::Nba => 12 * 60,
-        League::Wnba => 10 * 60,
-        _ => 15 * 60,
+        League::Nba => 12 * 60,  // NBA quarters are 12 minutes.
+        League::Wnba => 10 * 60, // WNBA quarters are 10 minutes.
+        _ => 15 * 60,            // NFL/CFB quarters are 15 minutes.
     }
 }
 
-/// "1:52" → 112; "" or junk → 0 (an empty clock reads as 0 elapsed-remaining,
-/// which is fine since callers only use this once the period is known-valid).
-fn clock_secs(clock: &str) -> u32 {
+/// "1:52" → Some(112); an unparseable clock ("junk", "") → None, so callers
+/// can treat it as "clock unknown" (played = 0, this segment just started)
+/// rather than silently reading it as fully elapsed (gap R23).
+fn clock_secs(clock: &str) -> Option<u32> {
     let mut it = clock.split(':');
     match (
         it.next().and_then(|m| m.parse::<u32>().ok()),
         it.next().and_then(|s| s.parse::<u32>().ok()),
     ) {
-        (Some(m), Some(s)) => m * 60 + s,
-        _ => 0,
+        (Some(m), Some(s)) => Some(m * 60 + s),
+        _ => None,
     }
 }
 
+// `_now` is unused today — kept in the signature so a later time-of-day
+// weighting (e.g. late-night games ranked down) doesn't need to change the
+// public API.
 pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
     if g.status != Status::Live {
         return Watch {
@@ -170,11 +180,14 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             if matches!(g.meter, Some(Meter::RedZone { .. })) {
                 bonus!(40, Some("RED ZONE"));
             }
-            // 120s = the two-minute warning window, Q2/Q4 only.
+            // 120s = the two-minute warning window, Q2/Q4 only. An
+            // unparseable clock (None) never triggers this — only a
+            // confirmed reading under 2:00 does.
             if matches!(g.period.as_str(), "Q2" | "Q4") {
-                let secs = clock_secs(&g.clock);
-                if secs > 0 && secs <= 120 {
-                    bonus!(30, Some("2-MIN"));
+                if let Some(secs) = clock_secs(&g.clock) {
+                    if secs > 0 && secs <= 120 {
+                        bonus!(30, Some("2-MIN"));
+                    }
                 }
             }
         }
@@ -188,10 +201,14 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
                 bonus!(30, Some("BASES LOADED"));
             }
             // Tying/go-ahead run on base, 8th inning or later (77 = 8th-inning
-            // start on the 18-half scale). Half tells who's batting: TOP=away, BOT/MID/END=home.
+            // start on the 18-half scale). Half tells who's batting: TOP (top
+            // in progress) and END (bottom just finished, so the *next*
+            // batter is the top of the following inning) both mean AWAY
+            // bats; MID (top just finished, next batter is bottom of this
+            // inning) and BOT (bottom in progress) both mean HOME bats.
             let inning_late = lateness(League::Mlb, &g.period, "") >= 77;
             let runners = bases.iter().filter(|b| **b).count() as u16;
-            let (bat, field) = if g.period.starts_with("TOP") {
+            let (bat, field) = if g.period.starts_with("TOP") || g.period.starts_with("END") {
                 (g.away_score, g.home_score)
             } else {
                 (g.home_score, g.away_score)
@@ -201,10 +218,10 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             }
         }
         League::Nba | League::Wnba | League::Cbb => {
-            let last2 = matches!(g.period.as_str(), "Q4" | "2ND HALF" | "OT") && {
-                let secs = clock_secs(&g.clock);
-                secs > 0 && secs <= 120
-            };
+            // Only a confirmed clock reading under 2:00 counts — an
+            // unparseable clock (None) never fires this bonus.
+            let last2 = matches!(g.period.as_str(), "Q4" | "2ND HALF" | "OT")
+                && clock_secs(&g.clock).is_some_and(|secs| secs > 0 && secs <= 120);
             if last2 && margin <= one_score(g.league) {
                 bonus!(40, Some("CLUTCH"));
             }
@@ -333,6 +350,70 @@ mod tests {
             Some("TYING RUN ON"),
             "chip prefix; the base is appended by the caller"
         );
+    }
+
+    #[test]
+    fn mlb_end_half_batting_side_is_away_not_home() {
+        // END 8TH: bottom just finished, next batter is the top of the 9th
+        // -> AWAY bats. Away trails by 1 with a runner on 2nd -> tying run
+        // on, hot.
+        let mut end_away_down = g(League::Mlb, "END 8TH", "", 5, 6); // away 5, home 6
+        end_away_down.situation = Some(Situation {
+            on_base: Some([false, true, false]),
+            outs: Some(1),
+            balls: Some(2),
+            strikes: Some(1),
+            ..Default::default()
+        });
+        let w = watchability(&end_away_down, now());
+        assert!(w.hot, "away is the batting/tying side on END, must be hot");
+        assert_eq!(w.chip, Some("TYING RUN ON"));
+
+        // Same shape relabeled BOT 8TH: bottom in progress, HOME bats. Home
+        // trails by 1 with a runner on 2nd -> tying run on, hot.
+        let mut bot_home_down = g(League::Mlb, "BOT 8TH", "", 6, 5); // away 6, home 5
+        bot_home_down.situation = Some(Situation {
+            on_base: Some([false, true, false]),
+            outs: Some(1),
+            balls: Some(2),
+            strikes: Some(1),
+            ..Default::default()
+        });
+        let w = watchability(&bot_home_down, now());
+        assert!(w.hot, "home is the batting/tying side on BOT, must be hot");
+        assert_eq!(w.chip, Some("TYING RUN ON"));
+
+        // END 8TH again, but HOME trails (so AWAY, the batting side, is
+        // actually ahead) — the old `starts_with("TOP")`-vs-else code
+        // wrongly treated HOME as batting here and fired hot; the batting
+        // side (away) is not the trailing team, so this must NOT be hot.
+        let mut end_home_down = g(League::Mlb, "END 8TH", "", 6, 5); // away 6, home 5
+        end_home_down.situation = Some(Situation {
+            on_base: Some([false, true, false]),
+            outs: Some(1),
+            balls: Some(2),
+            strikes: Some(1),
+            ..Default::default()
+        });
+        let w = watchability(&end_home_down, now());
+        assert!(
+            !w.hot,
+            "away bats next on END and is already ahead, not tying"
+        );
+    }
+
+    #[test]
+    fn junk_clock_reads_as_segment_start_not_fully_elapsed() {
+        assert_eq!(
+            lateness(League::Nfl, "Q4", "junk"),
+            lateness(League::Nfl, "Q4", "15:00"),
+            "unparseable clock counts as 0 elapsed in the segment"
+        );
+        assert!(lateness(League::Nfl, "Q4", "junk") < lateness(League::Nfl, "Q4", "1:52"));
+
+        // A junk clock must never falsely trigger the 2-MIN bonus.
+        let w = watchability(&g(League::Nfl, "Q4", "junk", 17, 17), now());
+        assert_ne!(w.chip, Some("2-MIN"));
     }
 
     #[test]
