@@ -14,10 +14,12 @@
 //!   flank too narrow (or a team with no committed art) simply stays empty —
 //!   the nameplate already carries that team's identity, so a placeholder
 //!   would be noise.
-//! * **The digits give up size before the rows give up content.** The band
-//!   takes what the nameplate/fragment/meter/play rows leave, and
-//!   [`score_block`] steps 8-row → sextant → a bold `24 - 21` text line
-//!   rather than blanking.
+//! * **The digits are charged first** (ruling R29). The band reserves the
+//!   rows the caller's bracket asked for — 8 for Full, 3 for sextant — and
+//!   the fragment/meter/play rows split what is left, in that keep order
+//!   (R30). [`score_block`]'s 8-row → sextant → bold `24 - 21` ladder is for
+//!   a bracket too short to hold the form, never something an optional row
+//!   can take away.
 
 use crate::domain::{Game, League, Status};
 use crate::text::truncate;
@@ -62,9 +64,10 @@ const FLANK_MIN_COLS: u16 = 18;
 /// Committed hero art is 16 cells wide; a narrower flank is not a flank.
 const MARK_COLS: u16 = 16;
 
-/// Rows the band keeps for digits before any optional row is charged: one
-/// sextant glyph (3 rows). Below this the digits fall to their text form,
-/// which is worse than losing the fragment line.
+/// The sextant floor: one sextant glyph is 3 rows, so a band with fewer than
+/// three rows has already fallen to the text form. This is what the digits
+/// are charged when the bracket didn't ask for Full — never a cap on a
+/// bracket that did (ruling R29).
 const DIGIT_FLOOR_ROWS: u16 = 3;
 
 /// Which size the score digits ended up at.
@@ -143,8 +146,18 @@ pub fn score_block(frame: &mut Frame, area: Rect, game: &Game, full: bool) {
         return;
     }
     let big = spots.form == ScoreForm::Full;
-    tiles::digit_glyphs(frame, spots.away, game.away_score, away_color, big);
-    tiles::digit_glyphs(frame, spots.home, game.home_score, home_color, big);
+    // `score_spots` already proved the fit, and `digit_glyphs` re-checks it
+    // for callers who probe instead of measuring. Two answers to one question
+    // is the shape that drifts, so a disagreement is loud in debug builds.
+    let drew_away = tiles::digit_glyphs(frame, spots.away, game.away_score, away_color, big);
+    let drew_home = tiles::digit_glyphs(frame, spots.home, game.home_score, home_color, big);
+    debug_assert!(
+        drew_away && drew_home,
+        "score_spots handed {:?} rects the glyph renderer rejected: away {:?}, home {:?}",
+        spots.form,
+        spots.away,
+        spots.home
+    );
 }
 
 /// The fragment line under the digits: football's `2ND & GOAL · BALL ON 4 ·
@@ -261,19 +274,38 @@ pub fn draw_hero(frame: &mut Frame, area: Rect, game: &Game, plan: &HeroPlan) {
     let meter = tiles::meter_line(game, area.width as usize);
     let play = game.last_plays.first().map(|p| p.text.clone());
 
-    // Optional rows in keep order: the meter is the hero's distinctive band,
-    // the last play is why the block is worth watching, and the fragment is
-    // the one the chip can stand in for — so it is charged last and cut first.
-    let mut band_rows = area.height - 1;
-    let mut want = [meter.is_some(), play.is_some(), fragment.is_some()];
+    // Ruling R29: the digits are charged FIRST. The bracket asked for a form
+    // (`digits_full`), so the band reserves the rows that form needs and the
+    // optional rows below split whatever is left. The Full → sextant → text
+    // ladder is for brackets too short to hold the form — never something a
+    // meter row can take away. (Before this, the flagship 10-row bracket
+    // spent three rows on options and rendered sextants.)
+    let under_nameplate = area.height.saturating_sub(1);
+    let full_rows = tiles::glyph_cell(true).1;
+    let digit_rows = if plan.digits_full && under_nameplate >= full_rows {
+        full_rows
+    } else if under_nameplate >= DIGIT_FLOOR_ROWS {
+        DIGIT_FLOOR_ROWS
+    } else {
+        under_nameplate.min(1)
+    };
+    // Keep order, ruling R30: fragment → meter → play. The fragment carries
+    // the only down-and-distance on screen; the meter's own label repeats the
+    // chip ("RED ZONE" twice at the 6-row bracket), so it yields first of the
+    // two, and the play stamp is the last nice-to-have.
+    let mut spare = under_nameplate - digit_rows;
+    let mut want = [fragment.is_some(), meter.is_some(), play.is_some()];
     for slot in &mut want {
-        if *slot && band_rows > DIGIT_FLOOR_ROWS {
-            band_rows -= 1;
+        if *slot && spare > 0 {
+            spare -= 1;
         } else {
             *slot = false;
         }
     }
-    let [show_meter, show_play, show_fragment] = want;
+    let [show_fragment, show_meter, show_play] = want;
+    // Rows the options declined stay with the band, so a taller-than-bracket
+    // hero grows its digits' breathing room rather than stranding rows.
+    let band_rows = under_nameplate - want.iter().filter(|w| **w).count() as u16;
 
     let name_row = Rect { height: 1, ..area };
     let half = area.width / 2;
@@ -663,36 +695,96 @@ mod tests {
     }
 
     #[test]
-    fn under_100_cols_logos_drop_before_digits_shrink() {
-        let (w, h) = (80u16, 8u16);
-        let th = theme::current();
+    fn dropping_the_logos_never_moves_or_shrinks_a_digit() {
+        // 120x12: the one geometry where the marks actually draw (10-row art
+        // in a 8-row band is rejected, so a smaller frame would compare two
+        // identical logo-less renders and prove nothing).
+        let (w, h) = (120u16, 12u16);
         let game = nfl_game();
-        let (away_color, ..) = theme::hero_pair(&th, game.away.color, game.home.color);
         let band = band_of(w, h);
-        let third = w / 3;
-        let left_third = Rect { x: 0, width: third, ..band };
+        let spots = score_spots(band, &game, true);
 
         let mut with = plan();
-        with.digits_full = false;
         with.show_logos = true;
         let mut without = with.clone();
         without.show_logos = false;
 
         let lit = render(w, h, &game, &with);
         let dark = render(w, h, &game, &without);
-        let digits_lit = cells_with_fg(lit.backend().buffer(), left_third, away_color);
-        let digits_dark = cells_with_fg(dark.backend().buffer(), left_third, away_color);
-        assert!(digits_lit > 0, "the digits render at 80 cols");
-        assert_eq!(digits_lit, digits_dark, "dropping the logos must not move or shrink a digit");
 
-        // With logos off, the margin outside the digits is untouched ground.
-        let spots = score_spots(band, &game, false);
-        let buf = dark.backend().buffer();
-        for y in band.y..band.bottom() {
-            for x in 0..spots.away.x {
-                assert_eq!(buf[(x, y)].symbol(), " ", "no art at ({x},{y}) when show_logos is off");
+        // The art is on screen in the lit render — without this the
+        // comparison below can pass for a `draw_flanks` that reflows digits.
+        let flank = Rect { x: 0, y: band.y, width: spots.away.x, height: band.height };
+        let painted = |t: &Terminal<TestBackend>| {
+            let buf = t.backend().buffer();
+            let mut n = 0;
+            for y in flank.y..flank.bottom() {
+                for x in flank.x..flank.right() {
+                    if buf[(x, y)].symbol() != " " || buf[(x, y)].bg != Color::Reset {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        assert!(painted(&lit) >= 20, "the KC mark must be drawn for this test to mean anything");
+        assert_eq!(painted(&dark), 0, "show_logos = false leaves the flank untouched ground");
+
+        // Cell for cell, both digit rects are the same pixels either way.
+        let (a, b) = (lit.backend().buffer(), dark.backend().buffer());
+        for rect in [spots.away, spots.home] {
+            for y in rect.y..rect.bottom() {
+                for x in rect.x..rect.right() {
+                    assert_eq!(a[(x, y)].symbol(), b[(x, y)].symbol(), "digit cell ({x},{y}) moved with the logos on");
+                    assert_eq!(a[(x, y)].fg, b[(x, y)].fg, "digit color at ({x},{y}) changed with the logos on");
+                }
             }
         }
+    }
+
+    #[test]
+    fn every_layout_bracket_renders_the_digit_form_it_asked_for() {
+        // The seam Task 5 owns the other half of: `layout::plan` picks
+        // (hero_rows, hero_digits_full) and the hero must honour it. Ruling
+        // R29 — digits are charged before any optional row, so the flagship
+        // 10-row bracket really does render 8-row LEDs.
+        let th = theme::current();
+        let game = nfl_game();
+        let (away_color, ..) = theme::hero_pair(&th, game.away.color, game.home.color);
+        let digit_rows = |t: &Terminal<TestBackend>, w: u16, h: u16| -> Vec<u16> {
+            let buf = t.backend().buffer();
+            (0..h)
+                .filter(|y| (0..w / 3).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 4)
+                .collect()
+        };
+        // (terminal size, rows of away-colored digit cells the bracket owes)
+        for (w, h, want) in [(120u16, 40u16, 8usize), (100, 32, 8), (80, 24, 3), (60, 20, 3)] {
+            let tier = crate::board::layout::plan(w, h, 8, 2, 4, 0);
+            let mut p = plan();
+            p.digits_full = tier.hero_digits_full;
+            let term = render(w, tier.hero_rows, &game, &p);
+            let rows = digit_rows(&term, w, tier.hero_rows);
+            assert_eq!(
+                rows.len(),
+                want,
+                "{w}x{h} → hero_rows {} digits_full {}: wanted {want} digit rows, got {rows:?}\n{}",
+                tier.hero_rows,
+                tier.hero_digits_full,
+                text_of(term.backend().buffer())
+            );
+            // Contiguous, and under the nameplate — not scattered by a stray
+            // team-colored span somewhere else in the block.
+            assert_eq!(rows[0], 1, "the digit band starts right under the nameplate");
+            assert_eq!(*rows.last().unwrap() as usize, rows.len(), "the digit band is contiguous: {rows:?}");
+            // R30 keep order: the fragment is the row a football hero keeps.
+            let text = text_of(term.backend().buffer());
+            assert!(text.contains("2ND & GOAL"), "the fragment line survives at {w}x{h}\n{text}");
+        }
+        // The compact bracket has no room for a glyph at all and says so in text.
+        let tier = crate::board::layout::plan(55, 38, 3, 1, 2, 0);
+        assert_eq!((tier.hero_rows, tier.hero_digits_full), (2, false));
+        let term = render(55, tier.hero_rows, &game, &plan());
+        assert!(text_of(term.backend().buffer()).contains("24 - 21"));
     }
 
     #[test]
@@ -747,6 +839,7 @@ mod tests {
             }
         }
     }
+
 
     #[test]
     fn a_band_with_no_room_for_glyphs_still_prints_the_score() {

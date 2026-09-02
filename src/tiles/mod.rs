@@ -277,11 +277,6 @@ fn render_identity(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
     logo::draw_logo(frame, cols[6], &game.home);
 }
 
-/// Big digits for `game`'s score centered in `center`: sextant (4x3 cells per
-/// glyph) or, when `full`, whole-cell LED glyphs (8x8). Returns false without
-/// drawing when the digits don't fit `center` — every slot is also clamped to
-/// the rect so a wider-than-expected glyph can never index past the buffer
-/// (3-digit scores in narrow tiles panicked here before).
 /// Cell size of one big-text glyph: 8×8 at `PixelSize::Full`, 4×3 at
 /// sextant. The one place those numbers are written down — the hero's fit
 /// ladder and this module's tiles both step through them.
@@ -321,6 +316,11 @@ pub(crate) fn digit_glyphs(frame: &mut Frame, rect: Rect, value: u16, color: Col
     true
 }
 
+/// Big digits for `game`'s score centered in `center`: sextant (4x3 cells per
+/// glyph) or, when `full`, whole-cell LED glyphs (8x8). Returns false without
+/// drawing when the digits don't fit `center` — every slot is also clamped to
+/// the rect so a wider-than-expected glyph can never index past the buffer
+/// (3-digit scores in narrow tiles panicked here before).
 fn render_digits(frame: &mut Frame, center: Rect, game: &Game, flash: bool, full: bool) -> bool {
     let th = theme::current();
     let (gw, gh) = glyph_cell(full);
