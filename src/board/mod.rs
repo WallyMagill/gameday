@@ -35,6 +35,7 @@
 //! No borders anywhere: a section is a label, a dim rule, and a right-hand
 //! caption (spec §1, the A′ frames).
 
+pub mod cut;
 pub mod hero;
 pub mod layout;
 pub mod logo;

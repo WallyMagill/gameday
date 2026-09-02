@@ -735,6 +735,29 @@ pub fn scoring_word(league: League) -> &'static str {
     }
 }
 
+/// The word for one specific scoring play. The league word is the answer
+/// everywhere except football, where the play text itself distinguishes the
+/// three ways a score happens.
+///
+/// The model carries no play *kind* — `Play` is `{clock, period, team, text,
+/// scoring}`, and ESPN's scoreboard `lastPlay` (where a captured scoring play
+/// comes from) gives us the sentence, not a type id. So the sharpening is
+/// read out of the sentence ESPN wrote ("Butker 41 Yd Field Goal", "…tackled
+/// in End Zone for a Safety") and nothing else; a text that doesn't say so
+/// keeps the league's word rather than being guessed at.
+pub fn scoring_word_for_play(league: League, text: &str) -> &'static str {
+    if matches!(league, League::Nfl | League::Cfb) {
+        let lower = text.to_lowercase();
+        if lower.contains("field goal") {
+            return "FIELD GOAL!";
+        }
+        if lower.contains("safety") {
+            return "SAFETY!";
+        }
+    }
+    scoring_word(league)
+}
+
 /// Floor for `art_color`, in redmean distance. Measured on the demo slate:
 /// the pairs that vanish (Yankees navy 0,43,109 on nord 103 / dracula 110 /
 /// gruvbox 131; Oilers navy on the same, 92-109) sit below it, the approved

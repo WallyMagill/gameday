@@ -172,6 +172,10 @@ pub struct App {
     /// The header banner currently showing, if any; expired by
     /// `advance_tick` once its `until_tick` passes.
     pub active_alert: Option<crate::alerts::Alert>,
+    /// The scoring cut (spec §3): a full-frame takeover for a game you care
+    /// about, a quiet 2-row band for everything else. Fired from the score
+    /// delta below; read once per draw.
+    pub cuts: crate::board::cut::CutState,
     /// Set when a banner starts; main consumes it to write the terminal
     /// bell (`\x07`) — App never touches stdout itself.
     pub bell_pending: bool,
@@ -238,6 +242,7 @@ impl App {
             flashes: HashMap::new(),
             alerts: crate::alerts::AlertState::default(),
             active_alert: None,
+            cuts: crate::board::cut::CutState::default(),
             bell_pending: false,
             hit_zones: Vec::new(),
             offset,
@@ -370,12 +375,40 @@ impl App {
     }
 
     /// Any live game on any board — the render loop runs at ~10fps while true
-    /// and drops to ~1fps otherwise.
+    /// and drops to ~1fps otherwise. An active cut counts: its 3 s / 1.5 s
+    /// lifetimes are written in 10-tick seconds (`cut::CUT_TICKS`), so the
+    /// overlay pins the loop to the live cadence for as long as it is up,
+    /// exactly like a live board does.
     pub fn any_live(&self) -> bool {
-        self.boards
-            .values()
-            .flatten()
-            .any(|g| g.status == Status::Live)
+        self.cuts.active(self.tick).is_some()
+            || self
+                .boards
+                .values()
+                .flatten()
+                .any(|g| g.status == Status::Live)
+    }
+
+    /// The cut refuses to fire at all during the first 30 s of a session
+    /// (the boards arrive with history, and every one of those scores would
+    /// otherwise take the screen) and while a prompt or the help overlay is
+    /// open — an overlay over a prompt eats the keystroke the user is in the
+    /// middle of (spec §3).
+    fn cut_suppressed(&self) -> bool {
+        self.tick < 30 * LIVE_TICKS_PER_SEC
+            || !matches!(self.mode, InputMode::Normal)
+            || self.help_open
+    }
+
+    /// Does this game earn the whole screen? Pinned, favorited, or TV mode —
+    /// where the one game on screen is the only thing there is.
+    fn cut_is_full(&self, game: &Game) -> bool {
+        matches!(self.view, View::Tv)
+            || self.pins.iter().any(|p| p.game_id == game.id)
+            || self.config.favorites.iter().any(|f| {
+                f.league == game.league
+                    && (f.team_abbr.eq_ignore_ascii_case(&game.away.abbr)
+                        || f.team_abbr.eq_ignore_ascii_case(&game.home.abbr))
+            })
     }
 
     pub fn tab_list(&self) -> Vec<Tab> {
@@ -984,7 +1017,20 @@ impl App {
                         if !g.scoring_plays.iter().any(|s| s.text == p.text) {
                             let mut p = p.clone();
                             p.scoring = true;
-                            g.scoring_plays.push(p);
+                            g.scoring_plays.push(p.clone());
+                            // The cut (spec §3): a newly captured scoring
+                            // play IS the firing. Size is decided here, not
+                            // in `CutState` — pinned/favorited/TV takes the
+                            // screen, everything else is the quiet band.
+                            if !self.cut_suppressed() {
+                                let full = self.cut_is_full(g);
+                                self.cuts.fire(&g.id, &p, full, self.tick);
+                                if full {
+                                    // Only a takeover rings; the band is
+                                    // quiet by definition.
+                                    self.bell_pending = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -1045,8 +1091,15 @@ impl App {
         if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
             return;
         }
+        // A summary lands only for the zoomed game, and it can carry a
+        // scoring play the scoreboard never showed us. That is news exactly
+        // once: the play whose text is new to `game.scoring_plays` fires a
+        // cut, and the rest of the list is history being backfilled.
+        let mut fresh: Option<(String, crate::domain::Play)> = None;
         for board in self.boards.values_mut() {
             if let Some(game) = board.iter_mut().find(|g| g.id == game_id) {
+                let known: Vec<String> =
+                    game.scoring_plays.iter().map(|p| p.text.clone()).collect();
                 if !summary.scoring_plays.is_empty() {
                     // Summary order differs by source: football's
                     // `scoringPlays` is oldest-first, a list derived from the
@@ -1077,7 +1130,30 @@ impl App {
                     }
                     game.last_plays = last_plays;
                 }
-                return;
+                // Newest new scoring play, if any. `known` is empty on the
+                // very first summary for a game, and a whole game's scoring
+                // history is not a cut — only an append to a list we already
+                // had is.
+                if !known.is_empty() {
+                    fresh = game
+                        .scoring_plays
+                        .iter()
+                        .rev()
+                        .find(|p| !known.contains(&p.text))
+                        .map(|p| (game.id.clone(), p.clone()));
+                }
+                break;
+            }
+        }
+        if let Some((id, play)) = fresh {
+            if !self.cut_suppressed() {
+                let full = self
+                    .game_by_id(&id)
+                    .is_some_and(|g| self.cut_is_full(&g));
+                self.cuts.fire(&id, &play, full, self.tick);
+                if full {
+                    self.bell_pending = true;
+                }
             }
         }
         // No reorder here: a Summary carries nothing the rank fingerprint reads
@@ -1365,7 +1441,36 @@ impl App {
             ])
             .split(area);
         self.draw_header(frame, chunks[0]);
-        views::draw(self, frame, chunks[1]);
+        // The cut (spec §3). The takeover owns everything under the header —
+        // the board is not drawn behind it at all — and the band is two rows
+        // inserted above whatever the view was going to draw.
+        let cut = self.cuts.active(self.tick).cloned();
+        if let Some(cut) = cut.filter(|c| c.full) {
+            if let Some(game) = self.game_by_id(&cut.game_id) {
+                let below = Rect {
+                    y: area.y + 1,
+                    height: area.height - 1,
+                    ..area
+                };
+                crate::board::cut::draw_takeover(frame, below, &game, &cut.play);
+                return;
+            }
+        }
+        let mut body = chunks[1];
+        if let Some(cut) = self.cuts.active(self.tick).cloned() {
+            if let Some(game) = self.game_by_id(&cut.game_id) {
+                if body.height > crate::board::cut::BAND_ROWS {
+                    let band = Rect { height: crate::board::cut::BAND_ROWS, ..body };
+                    body = Rect {
+                        y: band.bottom(),
+                        height: body.height - crate::board::cut::BAND_ROWS,
+                        ..body
+                    };
+                    crate::board::cut::draw_band(frame, band, &game, &cut.play);
+                }
+            }
+        }
+        views::draw(self, frame, body);
         if ticker_h > 0 {
             self.draw_ticker(frame, chunks[2]);
         }

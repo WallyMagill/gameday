@@ -2038,3 +2038,157 @@ fn paging_keys_are_dead_and_not_advertised() {
         "the PAGE binding is deleted"
     );
 }
+
+// ---------------------------------------------------------------- the cut
+
+/// The scoring play a cut fires on, and a two-team game that isn't a
+/// same-color pair (so the digits really are two different colors).
+fn cut_game(id: &str) -> Game {
+    let mut game = g(id, "KC", "BUF", true);
+    game.away.name = "Chiefs".into();
+    game.home.name = "Bills".into();
+    game.home.color = [0, 51, 141];
+    game.away_score = 24;
+    game.home_score = 21;
+    game
+}
+
+fn scoring_play() -> Play {
+    Play {
+        clock: "1:52".into(),
+        period: "Q4".into(),
+        team: "KC".into(),
+        text: "Mahomes 12 Yd pass to Kelce".into(),
+        scoring: true,
+    }
+}
+
+/// Seed the board (first sighting never fires), then land a score delta whose
+/// `lastPlay` is the scoring play — exactly the path `apply_boards` captures.
+fn land_a_score(app: &mut App, pinned: bool) {
+    let mut before = cut_game("1");
+    before.away_score = 17;
+    before.last_plays = vec![Play {
+        text: "Mahomes pass short right to Kelce for 6 yards".into(),
+        ..Default::default()
+    }];
+    app.apply_boards(League::Nfl, vec![before, g("2", "DAL", "PHI", true)], false);
+    if pinned {
+        app.pins.push(gameday::config::Pin {
+            game_id: "1".into(),
+            league: League::Nfl,
+            final_at: None,
+        });
+    }
+    let mut after = cut_game("1");
+    after.last_plays = vec![scoring_play()];
+    app.apply_boards(League::Nfl, vec![after, g("2", "DAL", "PHI", true)], false);
+}
+
+#[test]
+fn the_takeover_and_the_hero_agree_on_every_digit_cell() {
+    // Spec §1's hard rule: there is ONE score formatter. The takeover asks
+    // `hero::score_block` for its digits, so the same game rendered both ways
+    // must be identical cell for cell inside the score's rect — a takeover
+    // that re-implemented the glyphs would drift here immediately.
+    use ratatui::layout::Rect;
+    let game = cut_game("1");
+    let play = scoring_play();
+    let area = Rect::new(0, 1, 120, 39); // everything under the header row
+    let (slot, full) = gameday::board::cut::score_slot(area, &game, &play);
+    assert!(slot.width > 0 && slot.height > 0, "the takeover must reserve a score band");
+
+    let mut cut = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    cut.draw(|f| gameday::board::cut::draw_takeover(f, area, &game, &play))
+        .unwrap();
+    let mut hero = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    hero.draw(|f| gameday::board::hero::score_block(f, slot, &game, full))
+        .unwrap();
+
+    let (a, b) = (cut.backend().buffer(), hero.backend().buffer());
+    let mut painted = 0;
+    for y in slot.y..slot.bottom() {
+        for x in slot.x..slot.right() {
+            assert_eq!(
+                a[(x, y)].symbol(),
+                b[(x, y)].symbol(),
+                "digit cell ({x},{y}) differs between the cut and the hero"
+            );
+            // The takeover paints its own ground across the whole area, so
+            // an empty cell's fg differs by construction; the digits are the
+            // claim, and every painted cell must match in color too.
+            if a[(x, y)].symbol() != " " {
+                assert_eq!(
+                    a[(x, y)].fg,
+                    b[(x, y)].fg,
+                    "digit color at ({x},{y}) differs between the cut and the hero"
+                );
+                painted += 1;
+            }
+        }
+    }
+    assert!(painted >= 32, "the score has to actually be drawn: {painted} cells");
+}
+
+#[test]
+fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
+    let r = gameday::theme::current().roles();
+
+    // Pinned: the screen becomes the score. The header row survives; the
+    // board underneath does not.
+    let mut app = mk();
+    app.tick = 400; // past the 30 s startup suppression
+    land_a_score(&mut app, true);
+    let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let rows: Vec<&str> = s.lines().collect();
+    assert!(rows[0].contains("GAMEDAY"), "the header row survives the cut:\n{s}");
+    assert!(!s.contains("IN PLAY"), "the board is not drawn behind the takeover:\n{s}");
+    // The word is block letters, so it is cells in the hot role, not text.
+    let b = t.backend().buffer();
+    let hot = (1..40u16)
+        .map(|y| (0..120u16).filter(|&x| b[(x, y)].fg == r.hot && b[(x, y)].symbol() != " ").count())
+        .sum::<usize>();
+    assert!(hot >= 40, "TOUCHDOWN! must be painted in block letters: {hot} hot cells\n{s}");
+    assert!(s.contains("CHIEFS AT BILLS"), "the dim strip names the game:\n{s}");
+    assert!(s.contains("MAHOMES"), "the detail line comes from the play:\n{s}");
+
+    // Unpinned: two quiet rows above the list, and the board stays.
+    let mut app = mk();
+    app.tick = 400;
+    land_a_score(&mut app, false);
+    let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let rows: Vec<&str> = s.lines().collect();
+    assert!(rows[1].contains("TOUCHDOWN!"), "the band's headline is row 1:\n{s}");
+    assert!(rows[1].contains("KC 24"), "the band carries the score:\n{s}");
+    assert!(rows[2].contains("MAHOMES"), "the band's second row is the detail:\n{s}");
+    assert!(s.contains("IN PLAY"), "the board is still there under the band:\n{s}");
+}
+
+#[test]
+fn cuts_are_suppressed_during_prompts_and_startup() {
+    // A prompt is open: the cut would eat the keystroke the user is typing.
+    let mut app = mk();
+    app.tick = 400;
+    app.mode = gameday::input::InputMode::Filter { buf: "kc".into() };
+    land_a_score(&mut app, true);
+    assert!(app.cuts.active(app.tick).is_none(), "no cut while a prompt is open");
+
+    // Startup: the first boards arrive carrying a whole day of scores.
+    let mut app = mk();
+    app.tick = 12;
+    land_a_score(&mut app, true);
+    assert!(app.cuts.active(app.tick).is_none(), "no cut in the first 30 s");
+
+    // Same delta once the session is warm and no prompt is open: it fires.
+    let mut app = mk();
+    app.tick = 400;
+    land_a_score(&mut app, true);
+    let cut = app.cuts.active(app.tick).expect("a warm, unblocked delta fires");
+    assert!(cut.full, "a pinned game takes the screen");
+    assert!(app.bell_pending, "a takeover rings the bell");
+}
+

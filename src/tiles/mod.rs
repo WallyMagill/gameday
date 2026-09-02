@@ -308,6 +308,14 @@ fn glyph_slot(frame: &mut Frame, rect: Rect, text: &str, style: Style, full: boo
     );
 }
 
+/// Big letters for a word (the cut's scoring word), in `rect`, at the size
+/// the caller already measured with [`glyph_cell`]. Same renderer as the
+/// digits — one glyph engine, so a word and a score never disagree about
+/// their cell grid.
+pub(crate) fn word_glyphs(frame: &mut Frame, rect: Rect, word: &str, color: Color, full: bool) {
+    glyph_slot(frame, rect, word, Style::default().fg(color), full);
+}
+
 /// One number, one color, one rect: the shared score-glyph core. Returns
 /// false — drawing nothing — when the glyphs don't fit `rect`, which is how
 /// every caller steps down a size instead of clipping a digit in half.
