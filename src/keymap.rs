@@ -190,10 +190,16 @@ pub const KEYMAP: &[Binding] = &[
         footer: FooterSlot::Config,
     },
     Binding {
-        keys: &["1/2/4/S"],
-        label: "LAYOUT",
+        keys: &["S"],
+        label: "SORT",
         group: Group::View,
-        footer: FooterSlot::Never,
+        footer: FooterSlot::Board,
+    },
+    Binding {
+        keys: &["V"],
+        label: "TV",
+        group: Group::View,
+        footer: FooterSlot::Board,
     },
     Binding {
         keys: &["C"],
@@ -245,9 +251,8 @@ pub const FOOTER_DROP_ORDER: &[&str] = &["MOVE", "PIN", "LEAGUE", "FILTER", "CMD
 /// The Board footer's legend (spec §1): `↑↓ move  enter zoom  space pin
 /// / filter  s sort  v tv  ? help  q quit`, fixed order, lowercase, no
 /// brackets — the A′ frames' own key-cap style, distinct from every other
-/// view's `NAV:` chord list. `s`/`v` get real KEYMAP rows once Task 10 wires
-/// `:sort`/`:tv`; chrome shows the legend text now so the frame matches the
-/// spec ahead of that.
+/// view's `NAV:` chord list. `s`/`v` also have real KEYMAP rows (SORT/TV) so
+/// the help overlay and the coverage test see them too.
 pub const BOARD_LEGEND: &[(&str, &str)] = &[
     ("↑↓", "move"),
     ("enter", "zoom"),
@@ -328,10 +333,9 @@ mod tests {
         };
         let snapshot = |a: &App| format!("{:?}|{}|{}|{:?}|{}|{}|{}|{:?}|{:?}|{:?}|{}|{:?}",
             a.tab, a.selected, a.pins.len(), a.view, a.help_open, a.should_quit, a.refresh_now,
-            a.filter, a.config.layout, a.config.theme, a.config.favorites.len(), a.viewed_date_offset);
+            a.filter, a.config.sort, a.config.theme, a.config.favorites.len(), a.viewed_date_offset);
         let chord_for = |c: char| -> String { match c {
             ' ' => "SPC".into(), '[' | ']' => "[/]".into(), '?' => "?".into(), ':' => ":".into(), '/' => "/".into(),
-            '1' | '2' | '4' => "1/2/4/S".into(), 's' => "1/2/4/S".into(),
             other => other.to_ascii_uppercase().to_string(),
         }};
         let mut unadvertised = vec![];

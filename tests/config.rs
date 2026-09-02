@@ -3,8 +3,6 @@ use gameday::config::{
     Favorite, Pin,
 };
 use gameday::domain::League;
-use gameday::config::LayoutPref;
-use gameday::tiles::ScoreStyle;
 use std::fs;
 use time::{Duration, OffsetDateTime};
 
@@ -20,37 +18,15 @@ fn roundtrip_config() {
     let dir = tmp("cfg");
     let c = Config {
         enabled_tabs: vec![League::Nfl, League::Cfb],
-        layout: LayoutPref::Two,
         favorites: vec![Favorite { league: League::Nfl, team_abbr: "KC".into() }],
         theme: "ceefax".into(),
-        score_style: gameday::tiles::ScoreStyle::Compact,
         sort: Default::default(),
     };
     c.save_to(&dir).unwrap();
     let loaded = Config::load_from(&dir).unwrap();
     assert_eq!(loaded.favorites[0].team_abbr, "KC");
-    assert_eq!(loaded.layout, LayoutPref::Two);
     assert_eq!(loaded.enabled_tabs, vec![League::Nfl, League::Cfb]);
     assert_eq!(loaded.theme, "ceefax");
-    assert_eq!(loaded.score_style, ScoreStyle::Compact);
-    fs::remove_dir_all(&dir).ok();
-}
-
-#[test]
-fn config_without_score_style_key_defaults_to_big() {
-    // Configs written before score_style existed must keep loading, and the
-    // TOML value is the lowercase word from the spec ("big"/"compact").
-    let dir = tmp("cfg-no-score-style");
-    fs::write(
-        dir.join("config.toml"),
-        "enabled_tabs = [\"Nfl\"]\nlayout = \"Auto\"\nfavorites = []\n",
-    )
-    .unwrap();
-    let c = Config::load_from(&dir).unwrap();
-    assert_eq!(c.score_style, ScoreStyle::Big);
-    c.save_to(&dir).unwrap();
-    let text = fs::read_to_string(dir.join("config.toml")).unwrap();
-    assert!(text.contains("score_style = \"big\""), "{text}");
     fs::remove_dir_all(&dir).ok();
 }
 
@@ -73,7 +49,6 @@ fn missing_config_enables_every_league() {
     let dir = tmp("missing");
     let c = Config::load_from(&dir).unwrap();
     assert_eq!(c.enabled_tabs, League::ALL.to_vec());
-    assert_eq!(c.layout, LayoutPref::Auto);
     fs::remove_dir_all(&dir).ok();
 }
 
@@ -82,10 +57,8 @@ fn new_league_variants_roundtrip_in_toml() {
     let dir = tmp("cfg-new-leagues");
     let c = Config {
         enabled_tabs: vec![League::Wnba, League::Epl, League::Mls],
-        layout: LayoutPref::Auto,
         favorites: vec![],
         theme: "broadcast".into(),
-        score_style: Default::default(),
         sort: Default::default(),
     };
     c.save_to(&dir).unwrap();
@@ -213,9 +186,9 @@ fn a_broken_config_loads_defaults_reports_the_line_and_is_never_overwritten() {
     let before = fs::read_to_string(dir.join("config.toml")).unwrap();
     let mut app = gameday::app::App::new(out.value, vec![], dir.clone(), time::UtcOffset::UTC);
     app.config_error = out.error;
-    // '2' sets the two-up layout, which would persist the config.
+    // 's' cycles the sort key, which would persist the config.
     app.on_key(
-        crossterm::event::KeyCode::Char('2'),
+        crossterm::event::KeyCode::Char('s'),
         crossterm::event::KeyModifiers::NONE,
     );
     assert_eq!(
@@ -244,8 +217,9 @@ fn pins_roundtrip() {
     fs::remove_dir_all(&dir).ok();
 }
 
+// Task 10 (spec §9): layout/score_style are deleted from Config; an old
+// config.toml carrying those keys must still load instead of erroring.
 #[test]
-#[ignore = "fields removed in the keys task"]
 fn sort_key_round_trips_and_old_layout_keys_are_ignored() {
     let dir = tmp("sortkey");
     fs::write(dir.join("config.toml"),

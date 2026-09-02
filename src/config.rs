@@ -1,6 +1,5 @@
 use crate::domain::League;
 use crate::rank::SortKey;
-use crate::tiles::ScoreStyle;
 use std::fs;
 use std::path::{Path, PathBuf};
 use time::{Duration, OffsetDateTime};
@@ -15,21 +14,6 @@ pub enum ConfigError {
     TomlDe(#[from] toml::de::Error),
     #[error("json {0}")]
     Json(#[from] serde_json::Error),
-}
-
-/// The old mosaic's tile arrangement. The mosaic and its packer are gone
-/// (v3.2 §7 — the board is one ranked list), so this is now only a persisted
-/// config value with no renderer behind it; Task 10 deletes the setting and
-/// this type with it. It lives here rather than in `tiles::packer` because
-/// that module was deleted with the grammar it packed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
-pub enum LayoutPref {
-    #[default]
-    Auto,
-    One,
-    Two,
-    Four,
-    Sidebar,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -48,7 +32,6 @@ pub struct Pin {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Config {
     pub enabled_tabs: Vec<League>,
-    pub layout: LayoutPref,
     pub favorites: Vec<Favorite>,
     /// Theme name: any loaded theme (`theme::names()` — the built-ins plus
     /// `<config_dir>/themes/*.toml`). Kept as a string so an unknown value
@@ -56,10 +39,6 @@ pub struct Config {
     /// instead of failing the whole config load.
     #[serde(default = "default_theme")]
     pub theme: String,
-    /// Score digit rendering: "big" (sextant digits, default) | "compact"
-    /// (single row). Replaces the old GAMEDAY_BIG_SCORES env hack.
-    #[serde(default)]
-    pub score_style: ScoreStyle,
     /// Board order: watch (watchability, default) | time | league. The board
     /// only re-sorts on a data event — see `rank::OrderState`.
     #[serde(default)]
@@ -74,10 +53,8 @@ impl Config {
     pub fn default_all() -> Self {
         Self {
             enabled_tabs: League::ALL.to_vec(),
-            layout: LayoutPref::Auto,
             favorites: vec![],
             theme: default_theme(),
-            score_style: ScoreStyle::default(),
             sort: SortKey::default(),
         }
     }

@@ -189,14 +189,17 @@ fn apply(app: &mut App, cmd: Cmd) {
             }
             Err(err) => app.status_line = Some(err),
         },
-        Cmd::Score(style) => {
-            app.config.score_style = style;
+        // `:sort` alone cycles; `:sort <key>` sets directly. Either way the
+        // board must re-derive its order immediately (a sort-key change is
+        // an event, not something the next score tick should gate).
+        Cmd::Sort(key) => {
+            let next = key.unwrap_or_else(|| app.config.sort.cycled());
+            app.config.sort = next;
             app.persist_config();
+            app.force_reorder();
+            app.status_line = Some(format!("sort {}", next.label().to_ascii_lowercase()));
         }
-        Cmd::Layout(pref) => {
-            app.config.layout = pref;
-            app.persist_config();
-        }
+        Cmd::Tv => app.view = View::Tv,
         Cmd::Pin(abbr) => pin_team(app, &abbr),
         Cmd::Quit => app.should_quit = true,
     }
@@ -251,8 +254,7 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::domain::*;
-    use crate::config::LayoutPref;
-    use crate::tiles::ScoreStyle;
+    use crate::rank::SortKey;
 
     fn team(abbr: &str) -> Team {
         Team {
@@ -472,19 +474,24 @@ mod tests {
     }
 
     #[test]
-    fn score_and_layout_commands_persist() {
+    fn sort_and_tv_commands_persist_and_navigate() {
         let mut app = mk();
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
-        type_line(&mut app, "score compact");
+        type_line(&mut app, "sort time");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(app.config.score_style, ScoreStyle::Compact);
-        handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
-        type_line(&mut app, "layout 2");
-        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(app.config.layout, LayoutPref::Two);
+        assert_eq!(app.config.sort, SortKey::Time);
         let saved = Config::load_from(&app.config_dir).unwrap();
-        assert_eq!(saved.score_style, ScoreStyle::Compact);
-        assert_eq!(saved.layout, LayoutPref::Two);
+        assert_eq!(saved.sort, SortKey::Time);
+        // Bare `:sort` cycles from the current key.
+        handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
+        type_line(&mut app, "sort");
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.config.sort, SortKey::League);
+        // `:tv` enters the TV view.
+        handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
+        type_line(&mut app, "tv");
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.view, View::Tv);
     }
 
     #[test]

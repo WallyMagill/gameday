@@ -1,5 +1,5 @@
 //! In-app config editor (`:config`): league tab toggles, favorites, and the
-//! display prefs (theme / score style / layout), one selectable row each.
+//! display prefs (theme / sort), one selectable row each.
 //! j/k moves, space/enter activates (toggle, remove, edit), h/l cycles the
 //! display rows. Every change writes through `Config::save_to` immediately —
 //! there is no "save" step to forget. The only free text is the favorite
@@ -8,8 +8,6 @@
 use crate::app::App;
 use crate::domain::League;
 use crate::theme;
-use crate::config::LayoutPref;
-use crate::tiles::ScoreStyle;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -28,8 +26,7 @@ pub enum ConfigRow {
     AddFavorite,
     /// Cycle with h/l (enter steps forward).
     Theme,
-    Score,
-    Layout,
+    Sort,
 }
 
 /// Every selectable row for the current config state. Section headers are
@@ -38,35 +35,8 @@ pub fn rows(app: &App) -> Vec<ConfigRow> {
     let mut out: Vec<ConfigRow> = League::ALL.into_iter().map(ConfigRow::Tab).collect();
     out.extend((0..app.config.favorites.len()).map(ConfigRow::Favorite));
     out.push(ConfigRow::AddFavorite);
-    out.extend([ConfigRow::Theme, ConfigRow::Score, ConfigRow::Layout]);
+    out.extend([ConfigRow::Theme, ConfigRow::Sort]);
     out
-}
-
-/// Cycle order for the LAYOUT row (h/l): matches the 1/2/4/s board keys plus
-/// auto.
-pub const LAYOUTS: [LayoutPref; 5] = [
-    LayoutPref::Auto,
-    LayoutPref::One,
-    LayoutPref::Two,
-    LayoutPref::Four,
-    LayoutPref::Sidebar,
-];
-
-fn layout_label(pref: LayoutPref) -> &'static str {
-    match pref {
-        LayoutPref::Auto => "auto",
-        LayoutPref::One => "one",
-        LayoutPref::Two => "two",
-        LayoutPref::Four => "four",
-        LayoutPref::Sidebar => "sidebar",
-    }
-}
-
-fn score_label(style: ScoreStyle) -> &'static str {
-    match style {
-        ScoreStyle::Big => "big",
-        ScoreStyle::Compact => "compact",
-    }
 }
 
 pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
@@ -194,16 +164,10 @@ fn row_line(app: &App, row: ConfigRow, selected: bool) -> Line<'static> {
         ConfigRow::Theme => {
             push_cycler(&mut spans, "THEME", theme::current_name().as_str(), label_style)
         }
-        ConfigRow::Score => push_cycler(
+        ConfigRow::Sort => push_cycler(
             &mut spans,
-            "SCORE",
-            score_label(app.config.score_style),
-            label_style,
-        ),
-        ConfigRow::Layout => push_cycler(
-            &mut spans,
-            "LAYOUT",
-            layout_label(app.config.layout),
+            "SORT",
+            &app.config.sort.label().to_ascii_lowercase(),
             label_style,
         ),
     }

@@ -4,7 +4,6 @@
 
 use crate::config::{Config, Pin};
 use crate::domain::*;
-use crate::config::LayoutPref;
 use std::collections::HashMap;
 
 fn team(
@@ -42,10 +41,8 @@ fn play(clock: &str, team: &str, text: &str, scoring: bool) -> Play {
 pub fn demo_config() -> Config {
     Config {
         enabled_tabs: vec![League::Nfl, League::Nba, League::Mlb, League::Nhl, League::Epl],
-        layout: LayoutPref::Auto,
         favorites: vec![],
         theme: crate::theme::current_name(),
-        score_style: Default::default(),
         sort: Default::default(),
     }
 }

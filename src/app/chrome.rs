@@ -380,7 +380,9 @@ impl App {
             View::Board => keymap::FooterCtx::Board,
             View::ConfigView => keymap::FooterCtx::Config,
             View::Zoom { .. } => keymap::FooterCtx::Zoomed,
-            View::PlaysFeed | View::Standings(_) | View::ThemePicker => keymap::FooterCtx::Feed,
+            View::PlaysFeed | View::Standings(_) | View::ThemePicker | View::Tv => {
+                keymap::FooterCtx::Feed
+            }
         };
         // " /kc" steals footer columns, so it counts toward every shed budget
         // below regardless of which legend renders.

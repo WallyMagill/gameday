@@ -247,13 +247,15 @@ pub fn render_demo_buffer(
     cols: u16,
     rows: u16,
     tick: u64,
-    score_style: ScoreStyle,
+    // Task 10 (spec §9) deleted `Config::score_style` — the board never read
+    // it, only the zoom's legacy tile did, and that now hardcodes its style
+    // until Task 13 deletes the tile grammar wholesale. Kept as a parameter
+    // so every call site below still names its intent for that day.
+    _score_style: ScoreStyle,
 ) -> std::io::Result<Buffer> {
     let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     let mut app = demo_app(dir, tick);
-    // Dump variants pick the score style programmatically (no env hack).
-    app.config.score_style = score_style;
     let mut term = Terminal::new(TestBackend::new(cols, rows))?;
     term.draw(|f| app.draw(f))?;
     Ok(term.backend().buffer().clone())
@@ -267,7 +269,9 @@ pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
         let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         let mut app = demo_app(dir, tick);
-        app.config.score_style = v.style;
+        // `v.style` is inert since Task 10 deleted `Config::score_style` —
+        // see `render_demo_buffer`'s comment.
+        let _ = v.style;
         (v.setup)(&mut app);
         let mut term = Terminal::new(TestBackend::new(v.cols, v.rows))?;
         term.draw(|f| app.draw(f))?;
@@ -728,7 +732,7 @@ mod tests {
     #[test]
     fn config_variant_renders_every_section() {
         let text = text_of(&render_variant(&variant("config"), 0).unwrap());
-        for needle in ["CONFIG", "TABS", "FAVORITES", "THEME", "SCORE", "LAYOUT"] {
+        for needle in ["CONFIG", "TABS", "FAVORITES", "THEME", "SORT"] {
             assert!(text.contains(needle), "missing {needle:?} in config capture:\n{text}");
         }
     }

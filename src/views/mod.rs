@@ -31,6 +31,9 @@ pub enum View {
     /// `:theme` with no argument: the board stays underneath as the live
     /// preview; the panel lists every loaded theme.
     ThemePicker,
+    /// `:tv`/`v`: the TV-mode surface. Empty for now — Task 12 fills it in;
+    /// this task only wires the mode transition (spec §9).
+    Tv,
 }
 
 /// Tabs inside the zoomed single-game view, cycled with h/l and [/].
@@ -76,6 +79,8 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
             crate::board::draw(app, frame, area);
             theme_picker::draw(app, frame, area);
         }
+        // Task 12 fills this: the TV-mode draw.
+        View::Tv => {}
     }
 }
 

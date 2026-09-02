@@ -171,7 +171,7 @@ fn help_overlay_lists_every_group_and_the_hidden_chords() {
     for needle in [
         "KEYS", "NAVIGATION", "SELECTION", "VIEW", "APP",
         // Chords the footer omits must still be discoverable here.
-        "THEME", "LAYOUT", "FAVORITE", "CTRL-C", "S-TAB",
+        "THEME", "SORT", "TV", "FAVORITE", "CTRL-C", "S-TAB",
     ] {
         assert!(s.contains(needle), "help overlay missing {needle:?}:\n{s}");
     }
@@ -302,7 +302,6 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
         scoring: true,
         ..Default::default()
     }];
-    app.config.score_style = gameday::tiles::ScoreStyle::Compact;
     app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
@@ -403,7 +402,6 @@ fn stale_flag_in_header() {
 fn zoomed_pre_game_on_nfl_tab_fills_the_body() {
     use gameday::views::{View, ZoomTab};
     let mut app = mk();
-    app.config.score_style = gameday::tiles::ScoreStyle::Compact;
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", false)], false);
     app.tab = Tab::League(League::Nfl);
     app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
@@ -1392,8 +1390,7 @@ fn config_view_renders_every_section() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     for needle in [
-        "CONFIG", "TABS", "[x] NFL", "FAVORITES", "★ NFL KC", "ADD FAVORITE", "THEME", "SCORE",
-        "LAYOUT",
+        "CONFIG", "TABS", "[x] NFL", "FAVORITES", "★ NFL KC", "ADD FAVORITE", "THEME", "SORT",
     ] {
         assert!(s.contains(needle), "missing {needle:?} in config view:\n{s}");
     }
@@ -1471,29 +1468,27 @@ fn config_favorite_miss_names_the_abbr_and_the_league_form() {
     );
 }
 
+// Task 10 (spec §9): the config editor's SCORE/LAYOUT rows are gone; DISPLAY
+// is THEME + SORT now.
 #[test]
-fn config_h_l_cycle_score_and_layout_and_persist() {
+fn config_h_l_cycle_sort_and_persist() {
     use crossterm::event::KeyCode;
-    use gameday::config::LayoutPref;
-    use gameday::tiles::ScoreStyle;
+    use gameday::rank::SortKey;
     use gameday::views::View;
     let dir = config_dir("cycle");
     let mut app = App::new(Config::default_all(), vec![], dir.clone(), time::UtcOffset::UTC);
     app.view = View::ConfigView;
-    // Rows: 9 tabs, ADD FAVORITE, THEME, SCORE, LAYOUT.
+    // Rows: 9 tabs, ADD FAVORITE, THEME, SORT.
     for _ in 0..League::ALL.len() + 2 {
         key(&mut app, KeyCode::Char('j'));
     }
     key(&mut app, KeyCode::Char('l'));
-    assert_eq!(app.config.score_style, ScoreStyle::Compact, "l cycles score style");
-    key(&mut app, KeyCode::Char('j'));
-    key(&mut app, KeyCode::Char('l'));
-    assert_eq!(app.config.layout, LayoutPref::One, "l cycles layout forward");
+    assert_eq!(app.config.sort, SortKey::Time, "l cycles sort forward");
     key(&mut app, KeyCode::Char('h'));
-    assert_eq!(app.config.layout, LayoutPref::Auto, "h cycles layout back");
+    assert_eq!(app.config.sort, SortKey::Watch, "h cycles sort back");
+    key(&mut app, KeyCode::Char('l'));
     let saved = Config::load_from(&dir).unwrap();
-    assert_eq!(saved.score_style, ScoreStyle::Compact);
-    assert_eq!(saved.layout, LayoutPref::Auto);
+    assert_eq!(saved.sort, SortKey::Time);
 }
 
 #[test]

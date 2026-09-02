@@ -92,8 +92,8 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     let strip = if linescore.is_some() { 3 } else { 0 };
     let tile_area = Rect { height: area.height - strip, ..area };
     // v3.2 §7 deleted the packer; a zoom was always one tile filling the pane
-    // (`LayoutPref::One` → the whole area, `Density::Full`), and the packer's
-    // narrow branch is the only other case a single tile could hit.
+    // (the whole area, `Density::Full`), and the packer's narrow branch is
+    // the only other case a single tile could hit.
     let density = if tile_area.width < 60 {
         Density::Compact
     } else {
@@ -107,7 +107,10 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
             density,
             true,
             fx,
-            app.config.score_style,
+            // Task 10 deleted `Config::score_style` — the board never read
+            // it, only this legacy tile does. Hardcoded until Task 13
+            // deletes the tile grammar wholesale.
+            crate::tiles::ScoreStyle::Big,
         );
     }
     if let Some(lines) = linescore {

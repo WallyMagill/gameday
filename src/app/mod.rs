@@ -15,7 +15,6 @@ use crate::input::{CompletionState, InputMode};
 use crate::keymap;
 use crate::theme;
 use crate::ticker;
-use crate::config::LayoutPref;
 use crate::tiles::TileFx;
 use crate::views::{self, View, ZoomTab};
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -343,6 +342,7 @@ impl App {
                     View::Standings(_) => self.move_standings_scroll(delta),
                     View::ConfigView => self.move_config_cursor(delta),
                     View::ThemePicker => self.move_theme_cursor(delta),
+                    View::Tv => {}
                 }
             }
         }
@@ -464,6 +464,15 @@ impl App {
             View::Standings(_) => self.on_key_standings(code),
             View::ConfigView => self.on_key_config(code),
             View::ThemePicker => self.on_key_theme_picker(code),
+            View::Tv => self.on_key_tv(code),
+        }
+    }
+
+    /// TV mode (spec §9): Esc/q pop back to the board. Task 12 adds the
+    /// surface's own keys.
+    fn on_key_tv(&mut self, code: KeyCode) {
+        if let KeyCode::Esc | KeyCode::Char('q') = code {
+            self.view = View::Board;
         }
     }
 
@@ -550,9 +559,7 @@ impl App {
                     ConfigRow::Favorite(i) => self.config_remove_favorite(i),
                     ConfigRow::AddFavorite => self.config_edit = Some(String::new()),
                     // Enter on a cycler steps it forward, same as l.
-                    ConfigRow::Theme | ConfigRow::Score | ConfigRow::Layout => {
-                        self.config_cycle(1)
-                    }
+                    ConfigRow::Theme | ConfigRow::Sort => self.config_cycle(1),
                 }
             }
             KeyCode::Char('h') | KeyCode::Left => self.config_cycle(-1),
@@ -696,7 +703,7 @@ impl App {
     /// h/l on a display row: cycle its value and persist. No-op on rows that
     /// don't cycle.
     fn config_cycle(&mut self, delta: isize) {
-        use crate::views::config_view::{rows, ConfigRow, LAYOUTS};
+        use crate::views::config_view::{rows, ConfigRow};
         let rows = rows(self);
         match rows[self.config_cursor.min(rows.len() - 1)] {
             ConfigRow::Theme => {
@@ -704,19 +711,15 @@ impl App {
                 let _ = theme::set_current(&next);
                 self.config.theme = next;
             }
-            ConfigRow::Score => {
-                self.config.score_style = match self.config.score_style {
-                    crate::tiles::ScoreStyle::Big => crate::tiles::ScoreStyle::Compact,
-                    crate::tiles::ScoreStyle::Compact => crate::tiles::ScoreStyle::Big,
+            ConfigRow::Sort => {
+                self.config.sort = if delta >= 0 {
+                    self.config.sort.cycled()
+                } else {
+                    // Only three values: cycling forward twice is cycling
+                    // back once.
+                    self.config.sort.cycled().cycled()
                 };
-            }
-            ConfigRow::Layout => {
-                let i = LAYOUTS
-                    .iter()
-                    .position(|l| *l == self.config.layout)
-                    .unwrap_or(0) as isize;
-                self.config.layout =
-                    LAYOUTS[(i + delta).rem_euclid(LAYOUTS.len() as isize) as usize];
+                self.force_reorder();
             }
             ConfigRow::Tab(_) | ConfigRow::Favorite(_) | ConfigRow::AddFavorite => return,
         }
@@ -816,10 +819,8 @@ impl App {
             // v3.2 §7: n/p paging is deleted — the board is one scrolling
             // list, so PgDn/PgUp have nothing to page and n/p are free again.
             KeyCode::Char('?') => self.help_open = true,
-            KeyCode::Char('1') => self.set_layout(LayoutPref::One),
-            KeyCode::Char('2') => self.set_layout(LayoutPref::Two),
-            KeyCode::Char('4') => self.set_layout(LayoutPref::Four),
-            KeyCode::Char('s') => self.set_layout(LayoutPref::Sidebar),
+            KeyCode::Char('s') => self.cycle_sort(),
+            KeyCode::Char('v') => self.view = View::Tv,
             KeyCode::Char('c') => self.cycle_theme(),
             KeyCode::Char('r') => self.refresh_now = true,
             KeyCode::Char('q') => self.should_quit = true,
@@ -935,6 +936,22 @@ impl App {
             );
         }
         self.rank_fingerprints = fps;
+    }
+
+    /// A sort-key change (`s`, `:sort`, the config editor's SORT row) is a
+    /// real event on its own: unlike a clock tick, it must re-derive the
+    /// order right away rather than waiting for `maybe_reorder`'s fingerprint
+    /// gate to see a score/status change.
+    pub fn force_reorder(&mut self) {
+        let live = self.live_all();
+        let now = self.now();
+        self.order.on_event(
+            &live,
+            self.config.sort,
+            &self.config.enabled_tabs,
+            now,
+            self.tick,
+        );
     }
 
     pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
@@ -1158,14 +1175,6 @@ impl App {
             .map(|(league, _)| *league)
     }
 
-    pub fn effective_layout(&self) -> LayoutPref {
-        if matches!(self.view, View::Zoom { .. }) {
-            LayoutPref::One
-        } else {
-            self.config.layout
-        }
-    }
-
     fn clamp_selected(&mut self) {
         let n = self.selection_len();
         if n == 0 {
@@ -1250,15 +1259,6 @@ impl App {
         self.clamp_selected();
     }
 
-    /// 1/2/4/S: the mosaic layout setting. The mosaic itself is gone (v3.2
-    /// §7 — the board is one ranked list), so this only persists a value
-    /// nothing renders; Task 10 deletes the keys, the command and the setting.
-    fn set_layout(&mut self, layout: LayoutPref) {
-        self.config.layout = layout;
-        self.clamp_selected();
-        self.persist_config();
-    }
-
     /// 'c': step to the next loaded theme in picker order (built-ins, then
     /// user files), wrapping; persisted like layout.
     fn cycle_theme(&mut self) {
@@ -1275,6 +1275,26 @@ impl App {
             (Some(_), _) => format!("theme {next} · not saving (config error)"),
             (None, Some(err)) => err,
             (None, None) => format!("theme {next}"),
+        });
+    }
+
+    /// 's': cycle WATCH → TIME → LEAGUE → WATCH and re-derive the order right
+    /// away — a sort-key change is an event, not something the next score
+    /// tick should gate (spec §9).
+    fn cycle_sort(&mut self) {
+        let next = self.config.sort.cycled();
+        self.config.sort = next;
+        self.force_reorder();
+        self.status_line = None;
+        self.persist_config();
+        let save_error = self.status_line.take();
+        self.status_line = Some(match (&self.config_error, save_error) {
+            (Some(_), _) => format!(
+                "sort {} · not saving (config error)",
+                next.label().to_ascii_lowercase()
+            ),
+            (None, Some(err)) => err,
+            (None, None) => format!("sort {}", next.label().to_ascii_lowercase()),
         });
     }
 
@@ -1416,7 +1436,7 @@ mod tests {
     use super::*;
     use crate::config::{Config, Favorite, Pin};
     use crate::domain::*;
-    use crate::config::LayoutPref;
+    use crate::rank::SortKey;
     use crossterm::event::{KeyCode, KeyModifiers};
 
     fn team(abbr: &str) -> Team {
@@ -1716,10 +1736,8 @@ mod tests {
             app.view,
             View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview }
         );
-        assert_eq!(app.effective_layout(), LayoutPref::One);
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(app.view, View::Board);
-        assert_eq!(app.effective_layout(), LayoutPref::Auto);
         // 'z' aliases Enter, and 'z' inside the zoom restores the board.
         app.on_key(KeyCode::Char('z'), KeyModifiers::NONE);
         assert!(matches!(app.view, View::Zoom { .. }));
@@ -1847,13 +1865,26 @@ mod tests {
         assert_eq!(app.config.theme, "broadcast");
     }
 
+    // Task 10 (spec §9): 's' cycles the sort key and re-derives the order
+    // immediately (not gated on the next score event), and the header's
+    // sort chip reads it straight from config so it follows without a
+    // second wire-up.
     #[test]
-    fn layout_keys() {
-        let mut app = app_with(vec![], vec![]);
-        app.on_key(KeyCode::Char('2'), KeyModifiers::NONE);
-        assert_eq!(app.config.layout, LayoutPref::Two);
+    fn s_cycles_the_sort_and_persists_and_the_header_follows() {
+        let mut app = app_with(six_live(), vec![]);
+        assert_eq!(app.config.sort, SortKey::Watch);
         app.on_key(KeyCode::Char('s'), KeyModifiers::NONE);
-        assert_eq!(app.config.layout, LayoutPref::Sidebar);
+        assert_eq!(app.config.sort, SortKey::Time);
+        assert!(app.status_line.as_deref().unwrap_or("").contains("sort time"));
+    }
+
+    #[test]
+    fn v_enters_tv_and_esc_leaves() {
+        let mut app = app_with(six_live(), vec![]);
+        app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+        assert!(matches!(app.view, View::Tv));
+        app.on_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.view, View::Board);
     }
 
     /// A live NFL game with an explicit clock and score — the ordering tests
@@ -2032,10 +2063,8 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let cfg = Config {
             enabled_tabs: vec![League::Nfl, League::Cfb],
-            layout: LayoutPref::Auto,
             favorites: vec![],
             theme: "broadcast".into(),
-            score_style: Default::default(),
             sort: Default::default(),
         };
         let app = App::new(cfg, vec![], dir, time::UtcOffset::UTC);
@@ -2489,10 +2518,8 @@ mod tests {
         let mut app = App::new(
             Config {
                 enabled_tabs: vec![League::Nfl, League::Cfb],
-                layout: LayoutPref::Auto,
                 favorites: vec![],
                 theme: "broadcast".into(),
-                score_style: Default::default(),
                 sort: Default::default(),
             },
             vec![],

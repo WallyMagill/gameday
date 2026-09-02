@@ -28,10 +28,12 @@ Config: `~/.config/gameday/config.toml`
 
 ```toml
 enabled_tabs = ["Nfl", "Cfb"]   # default: all nine leagues
-layout = "Auto"                 # Auto | One | Two | Four | Sidebar
 theme = "broadcast"             # any loaded theme: the 11 built-ins or a file in themes/
-score_style = "big"             # big (sextant digits) | compact (single row)
+sort = "watch"                  # watch | time | league
 ```
+
+Old `layout` and `score_style` keys from before v3.2 are ignored if present — they
+no longer do anything and are not written back.
 
 Favorites and pins live beside that file (`pins.json`), along with `gameday.log` — where notes like a skipped malformed game go once the board owns the terminal. Pins drop 6 hours after a game goes final.
 `$XDG_CONFIG_HOME` is honored, and `--config-dir <path>` overrides both.
@@ -40,7 +42,7 @@ A config.toml that doesn't parse is reported with its line and left alone — th
 
 ## Keys
 
-space pin/unpin · enter/z zoom · esc back · j/k move · n/p page · [ ] date · / filter · : command · ? keys · t fav home team · 1/2/4/s layout · c theme · tab/h/l tabs · r refresh · q quit
+space pin/unpin · enter/z zoom · esc back · j/k move · [ ] date · / filter · : command · ? keys · t fav home team · s sort · v tv · c theme · tab/h/l tabs · r refresh · q quit
 
 ## Data
 

@@ -3,9 +3,8 @@
 //! parses. Pure — applying a `Cmd` to the app lives in `input.rs`.
 
 use crate::domain::League;
+use crate::rank::SortKey;
 use crate::theme;
-use crate::config::LayoutPref;
-use crate::tiles::ScoreStyle;
 
 /// A parsed `:` command, ready to apply.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,8 +17,11 @@ pub enum Cmd {
     /// `:theme <name>` applies directly (canonical loaded name); `:theme`
     /// alone opens the picker.
     Theme(Option<String>),
-    Score(ScoreStyle),
-    Layout(LayoutPref),
+    /// `:sort` alone cycles WATCH → TIME → LEAGUE → WATCH; `:sort <key>`
+    /// sets it directly.
+    Sort(Option<SortKey>),
+    /// `:tv` enters the TV view.
+    Tv,
     Pin(String),
     Quit,
 }
@@ -30,13 +32,11 @@ enum ArgSpec {
     None,
     OptLeague,
     Theme,
-    Score,
-    Layout,
+    Sort,
     Abbr,
 }
 
-const SCORE_VALUES: &[&str] = &["big", "compact"];
-const LAYOUT_VALUES: &[&str] = &["1", "2", "4", "s", "auto"];
+const SORT_VALUES: &[&str] = &["watch", "time", "league"];
 
 /// Every command name the prompt accepts, in the order errors and completion
 /// list them. League slugs lead; a test pins this list to `League::ALL` so a
@@ -57,8 +57,8 @@ const REGISTRY: &[(&str, ArgSpec)] = &[
     ("standings", ArgSpec::OptLeague),
     ("config", ArgSpec::None),
     ("theme", ArgSpec::Theme),
-    ("score", ArgSpec::Score),
-    ("layout", ArgSpec::Layout),
+    ("sort", ArgSpec::Sort),
+    ("tv", ArgSpec::None),
     ("pin", ArgSpec::Abbr),
     ("q", ArgSpec::None),
     ("quit", ArgSpec::None),
@@ -88,8 +88,7 @@ fn arg_values(spec: ArgSpec) -> Vec<String> {
         ArgSpec::None | ArgSpec::Abbr => vec![],
         ArgSpec::OptLeague => League::ALL.iter().map(|l| l.slug().to_string()).collect(),
         ArgSpec::Theme => theme::names(),
-        ArgSpec::Score => SCORE_VALUES.iter().map(|s| s.to_string()).collect(),
-        ArgSpec::Layout => LAYOUT_VALUES.iter().map(|s| s.to_string()).collect(),
+        ArgSpec::Sort => SORT_VALUES.iter().map(|s| s.to_string()).collect(),
     }
 }
 
@@ -118,6 +117,7 @@ pub fn parse(input: &str) -> Result<Cmd, String> {
                 "home" | "all" => Cmd::GoHome,
                 "plays" => Cmd::Plays,
                 "config" => Cmd::ConfigView,
+                "tv" => Cmd::Tv,
                 "q" | "quit" => Cmd::Quit,
                 slug => Cmd::GoLeague(
                     League::from_slug(slug).expect("registry league entries match League::ALL"),
@@ -138,31 +138,15 @@ pub fn parse(input: &str) -> Result<Cmd, String> {
                 None => Err(format!("unknown theme {a:?}, valid: {}", theme_names())),
             },
         },
-        ArgSpec::Score => match arg.map(str::to_ascii_lowercase).as_deref() {
-            None => Err(format!(
-                "{name:?} needs a style, valid: {}",
-                SCORE_VALUES.join("|")
-            )),
-            Some("big") => Ok(Cmd::Score(ScoreStyle::Big)),
-            Some("compact") => Ok(Cmd::Score(ScoreStyle::Compact)),
+        ArgSpec::Sort => match arg.map(str::to_ascii_lowercase).as_deref() {
+            // Bare `:sort` cycles — no argument is not an error here.
+            None => Ok(Cmd::Sort(None)),
+            Some("watch") => Ok(Cmd::Sort(Some(SortKey::Watch))),
+            Some("time") => Ok(Cmd::Sort(Some(SortKey::Time))),
+            Some("league") => Ok(Cmd::Sort(Some(SortKey::League))),
             Some(other) => Err(format!(
-                "unknown score style {other:?}, valid: {}",
-                SCORE_VALUES.join("|")
-            )),
-        },
-        ArgSpec::Layout => match arg.map(str::to_ascii_lowercase).as_deref() {
-            None => Err(format!(
-                "{name:?} needs a value, valid: {}",
-                LAYOUT_VALUES.join("|")
-            )),
-            Some("1") => Ok(Cmd::Layout(LayoutPref::One)),
-            Some("2") => Ok(Cmd::Layout(LayoutPref::Two)),
-            Some("4") => Ok(Cmd::Layout(LayoutPref::Four)),
-            Some("s") => Ok(Cmd::Layout(LayoutPref::Sidebar)),
-            Some("auto") => Ok(Cmd::Layout(LayoutPref::Auto)),
-            Some(other) => Err(format!(
-                "unknown layout {other:?}, valid: {}",
-                LAYOUT_VALUES.join("|")
+                "unknown sort {other:?}, valid: {}",
+                SORT_VALUES.join("|")
             )),
         },
         ArgSpec::Abbr => match arg {
@@ -256,13 +240,25 @@ mod tests {
         assert_eq!(parse("all").unwrap(), Cmd::GoHome);
         assert_eq!(parse("plays").unwrap(), Cmd::Plays);
         assert_eq!(parse("config").unwrap(), Cmd::ConfigView);
-        assert_eq!(parse("score compact").unwrap(), Cmd::Score(ScoreStyle::Compact));
-        assert_eq!(parse("layout s").unwrap(), Cmd::Layout(LayoutPref::Sidebar));
-        assert_eq!(parse("layout auto").unwrap(), Cmd::Layout(LayoutPref::Auto));
+        assert_eq!(parse("sort league").unwrap(), Cmd::Sort(Some(SortKey::League)));
+        assert_eq!(parse("tv").unwrap(), Cmd::Tv);
         assert_eq!(parse("q").unwrap(), Cmd::Quit);
         assert_eq!(parse("quit").unwrap(), Cmd::Quit);
         // Case-insensitive, whitespace-tolerant.
         assert_eq!(parse("  THEME Gruvbox ").unwrap(), Cmd::Theme(Some("gruvbox".into())));
+    }
+
+    // Task 10 (spec §9): `:sort`/`:tv` land, `:layout`/`:score` and the old
+    // tile-grammar keys are removed from the registry.
+    #[test]
+    fn sort_and_tv_parse_and_layout_score_are_gone() {
+        assert_eq!(parse("sort").unwrap(), Cmd::Sort(None));
+        assert_eq!(parse("sort time").unwrap(), Cmd::Sort(Some(SortKey::Time)));
+        assert!(parse("sort sideways").unwrap_err().contains("watch|time|league"));
+        assert_eq!(parse("tv").unwrap(), Cmd::Tv);
+        let err = parse("layout").unwrap_err();
+        assert!(err.contains("unknown command"), "{err}");
+        assert!(!valid_names().contains("score"), "registry cleaned");
     }
 
     #[test]
@@ -280,10 +276,8 @@ mod tests {
         assert!(err.contains("zebra"), "the valid set is the whole loaded list: {err}");
         let err = parse("standings xfl").unwrap_err();
         assert!(err.contains("\"xfl\"") && err.contains("nfl") && err.contains("mls"), "{err}");
-        let err = parse("layout 3").unwrap_err();
-        assert!(err.contains("\"3\"") && err.contains("1|2|4|s|auto"), "{err}");
-        let err = parse("score huge").unwrap_err();
-        assert!(err.contains("\"huge\"") && err.contains("big|compact"), "{err}");
+        let err = parse("sort sideways").unwrap_err();
+        assert!(err.contains("\"sideways\"") && err.contains("watch|time|league"), "{err}");
         let err = parse("pin").unwrap_err();
         assert!(err.contains("abbr"), "{err}");
         let err = parse("nfl extra").unwrap_err();
@@ -298,7 +292,7 @@ mod tests {
         let n: Vec<String> = complete("n");
         assert!(n.contains(&"nfl".into()) && n.contains(&"nba".into()) && n.contains(&"nhl".into()));
         assert_eq!(complete("standings n"), vec!["standings nfl", "standings nba", "standings nhl"]);
-        assert_eq!(complete("layout "), vec!["layout 1", "layout 2", "layout 4", "layout s", "layout auto"]);
+        assert_eq!(complete("sort "), vec!["sort watch", "sort time", "sort league"]);
         assert!(complete("pin k").is_empty(), "abbrs are free text");
         assert!(complete("bogus x").is_empty());
         assert_eq!(complete("").len(), REGISTRY.len(), "empty prompt offers everything");
