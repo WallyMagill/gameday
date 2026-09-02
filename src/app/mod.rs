@@ -162,6 +162,11 @@ pub struct App {
     /// Last-seen (away, home) score per game id: apply_boards diffs against
     /// this to detect data-driven score changes.
     last_scores: HashMap<String, (u16, u16)>,
+    /// What the live band looked like the last time it was allowed to
+    /// re-sort: id -> (away, home, status, hot). A poll that only advanced the
+    /// clock leaves every fingerprint equal, so no reorder happens — the order
+    /// is frozen even though watchability keeps rising (R24 / spec §2).
+    rank_fingerprints: HashMap<String, (u16, u16, Status, bool)>,
     /// game id -> tick when its score last changed; drives the one-shot flash.
     flashes: HashMap<String, u64>,
     /// Favorite-score alert diff state (own score memory + per-game cooldown).
@@ -232,6 +237,7 @@ impl App {
             aux_errors: HashMap::new(),
             tick: 0,
             last_scores: HashMap::new(),
+            rank_fingerprints: HashMap::new(),
             flashes: HashMap::new(),
             alerts: crate::alerts::AlertState::default(),
             active_alert: None,
@@ -900,6 +906,43 @@ impl App {
             .collect()
     }
 
+    /// Re-sort the live band, but only if the data behind the order actually
+    /// moved: the id set changed, or some game's score, status or hot flag
+    /// did. A clock that merely advanced is not an event (R24) — spec §2:
+    /// "Between events the order is frozen even though L keeps rising."
+    fn maybe_reorder(&mut self) {
+        let live = self.live_all();
+        let now = self.now();
+        let fps: HashMap<String, (u16, u16, Status, bool)> = live
+            .iter()
+            .map(|g| {
+                (
+                    g.id.clone(),
+                    (
+                        g.away_score,
+                        g.home_score,
+                        g.status,
+                        crate::rank::watchability(g, now).hot,
+                    ),
+                )
+            })
+            .collect();
+        let changed = fps.len() != self.rank_fingerprints.len()
+            || fps
+                .iter()
+                .any(|(id, f)| self.rank_fingerprints.get(id) != Some(f));
+        if changed {
+            self.order.on_event(
+                &live,
+                self.config.sort,
+                &self.config.enabled_tabs,
+                now,
+                self.tick,
+            );
+        }
+        self.rank_fingerprints = fps;
+    }
+
     pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
         let now = OffsetDateTime::now_utc();
         let prev_board = self.boards.get(&league).cloned().unwrap_or_default();
@@ -961,11 +1004,11 @@ impl App {
                 self.active_alert = Some(alert);
                 self.bell_pending = true;
             }
-            // Data landed: this is the one moment the live band is allowed to
-            // re-sort (spec §2). A cached apply is not news, so it is outside
-            // the guard — a stale payload must never move the board.
-            self.order
-                .on_event(&self.live_all(), self.config.sort, self.now(), self.tick);
+            // Fresh data landed: the live band may re-sort, if the data that
+            // decides the order actually moved (`maybe_reorder`). This sits
+            // inside the `!stale` guard on purpose — a cached payload is not
+            // news and must never move the board.
+            self.maybe_reorder();
         }
         // Drop score memory for games no board carries any more: unbounded
         // growth over a days-long session, and a recycled id would flash on
@@ -1028,11 +1071,11 @@ impl App {
                 break;
             }
         }
-        // A summary that moved the scoring plays is a data event like any
-        // other — it can change what the board should lead with.
+        // A summary that moved the scoring plays can carry news the board has
+        // not seen yet (a summary poll can beat the scoreboard poll to a
+        // score). The fingerprint check decides whether it really did.
         if scoring_changed {
-            self.order
-                .on_event(&self.live_all(), self.config.sort, self.now(), self.tick);
+            self.maybe_reorder();
         }
     }
 
@@ -1835,6 +1878,165 @@ mod tests {
         assert_eq!(app.config.layout, LayoutPref::Two);
         app.on_key(KeyCode::Char('s'), KeyModifiers::NONE);
         assert_eq!(app.config.layout, LayoutPref::Sidebar);
+    }
+
+    /// A live NFL game with an explicit clock and score — the ordering tests
+    /// need all four, and `g` fixes them.
+    fn ranked(id: &str, period: &str, clock: &str, away: u16, home: u16) -> Game {
+        let mut x = g(id, "KC", "TB", true);
+        x.period = period.into();
+        x.clock = clock.into();
+        x.away_score = away;
+        x.home_score = home;
+        x
+    }
+
+    /// The live band in display order.
+    fn ord(app: &App) -> Vec<String> {
+        app.order
+            .ordered(&app.live_all())
+            .iter()
+            .map(|x| x.id.clone())
+            .collect()
+    }
+
+    /// Two live games: "a" is early (ranks low), "b" is later and close.
+    fn ordering_app() -> App {
+        let app = app_with(
+            vec![
+                ranked("a", "Q1", "15:00", 14, 10),
+                ranked("b", "Q2", "5:00", 24, 21),
+            ],
+            vec![],
+        );
+        assert_eq!(ord(&app), vec!["b", "a"], "the close later game leads");
+        app
+    }
+
+    #[test]
+    fn a_clock_that_merely_advanced_never_reorders_the_board() {
+        // Spec §2's headline: between events the order is frozen even though
+        // watchability keeps rising. "a" moving Q1 -> Q3 outranks "b" on
+        // score, but nothing about the DATA changed, so the board holds.
+        let mut app = ordering_app();
+        app.apply_boards(
+            League::Nfl,
+            vec![
+                ranked("a", "Q3", "5:00", 14, 10),
+                ranked("b", "Q2", "5:00", 24, 21),
+            ],
+            false,
+        );
+        assert_eq!(
+            ord(&app),
+            vec!["b", "a"],
+            "clock drift alone must not reorder"
+        );
+    }
+
+    #[test]
+    fn a_score_delta_reorders_the_board() {
+        let mut app = ordering_app();
+        app.apply_boards(
+            League::Nfl,
+            vec![
+                ranked("a", "Q3", "5:00", 14, 14), // tied: now the better watch
+                ranked("b", "Q2", "5:00", 24, 21),
+            ],
+            false,
+        );
+        assert_eq!(ord(&app), vec!["a", "b"], "a score change is an event");
+    }
+
+    #[test]
+    fn a_hot_flip_reorders_the_board_with_no_score_change() {
+        // Red zone appears on "a" — same score, same clock, but the game is
+        // hot now, and that is news the order has to answer to.
+        let mut app = ordering_app();
+        let mut a = ranked("a", "Q1", "15:00", 14, 10);
+        a.meter = Some(crate::domain::Meter::RedZone { yards_to_goal: 6 });
+        app.apply_boards(
+            League::Nfl,
+            vec![a, ranked("b", "Q2", "5:00", 24, 21)],
+            false,
+        );
+        assert_eq!(ord(&app), vec!["a", "b"], "a hot flip is an event");
+    }
+
+    #[test]
+    fn a_cached_apply_never_reorders_the_board() {
+        let mut app = ordering_app();
+        app.apply_boards(
+            League::Nfl,
+            vec![
+                ranked("a", "Q3", "5:00", 14, 14),
+                ranked("b", "Q2", "5:00", 24, 21),
+            ],
+            true, // cached: an older snapshot, not news
+        );
+        assert_eq!(
+            ord(&app),
+            vec!["b", "a"],
+            "a stale payload must not move the board"
+        );
+    }
+
+    #[test]
+    fn a_pinned_game_is_not_in_the_ordered_live_band() {
+        // Pins live in the MY GAMES band and never re-sort (spec §1), so
+        // OrderState is never told about them.
+        let app = app_with(
+            vec![
+                ranked("a", "Q1", "15:00", 14, 10),
+                ranked("b", "Q2", "5:00", 24, 21),
+            ],
+            vec![Pin {
+                game_id: "b".into(),
+                league: League::Nfl,
+                final_at: None,
+            }],
+        );
+        assert_eq!(ord(&app), vec!["a"], "the pinned game is not ordered here");
+    }
+
+    #[test]
+    fn a_summary_reorders_once_and_only_when_the_data_moved() {
+        // A summary that lands before the scoreboard poll is the board's
+        // first sight of these games: it reorders.
+        let mut app = app_with(vec![], vec![]);
+        app.apply_boards(
+            League::Nfl,
+            vec![
+                ranked("a", "Q1", "15:00", 14, 10),
+                ranked("b", "Q2", "5:00", 24, 21),
+            ],
+            true, // cached, so nothing has been ordered yet
+        );
+        // Nothing has been ordered, so `ordered` falls through to board order.
+        assert_eq!(ord(&app), vec!["a", "b"], "a cached apply orders nothing");
+        let score = |text: &str| Summary {
+            last_plays: vec![],
+            scoring_plays: vec![Play {
+                text: text.into(),
+                team: "KC".into(),
+                scoring: true,
+                ..Default::default()
+            }],
+            meter: None,
+        };
+        app.merge_summary("a", score("Mahomes 20 yd TD pass"));
+        assert_eq!(ord(&app), vec!["b", "a"], "the summary is the first event");
+
+        // Now the clock advances under the board (no apply) so that a reorder,
+        // if one ran, would put "a" first. A second summary appends a scoring
+        // play but moves no score, status or hot flag — no reorder.
+        app.boards.get_mut(&League::Nfl).unwrap()[0].period = "Q3".into();
+        app.merge_summary("a", score("Kelce 8 yd TD pass"));
+        assert_eq!(
+            ord(&app),
+            vec!["b", "a"],
+            "a scoring play with no score move is not a reorder"
+        );
     }
 
     #[test]

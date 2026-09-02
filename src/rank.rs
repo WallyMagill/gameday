@@ -288,52 +288,66 @@ pub struct OrderState {
     nudges: HashMap<String, (usize, u64)>,
 }
 
-/// Sort `games` by `key`, returning ids. Every comparison ends in the id so
-/// the result is total — two games that tie on the key never swap between
-/// events.
-fn sorted_ids(games: &[Game], key: SortKey, now: OffsetDateTime) -> Vec<String> {
+/// Sort `games` by `key`, returning ids. `enabled` is the viewer's tab order —
+/// the League key follows it, not `League::ALL`, so the board reads in the
+/// order the tab row shows (R25). Every comparison ends in the id so the
+/// result is total: two games that tie on the key never swap between events.
+fn sorted_ids(
+    games: &[Game],
+    key: SortKey,
+    enabled: &[League],
+    now: OffsetDateTime,
+) -> Vec<String> {
     let mut idx: Vec<&Game> = games.iter().collect();
     match key {
-        SortKey::Watch => idx.sort_by(|a, b| {
-            watchability(b, now)
-                .score
-                .cmp(&watchability(a, now).score)
-                .then_with(|| a.id.cmp(&b.id))
+        // `sort_by_cached_key` so `watchability` runs once per game, not once
+        // per comparison. Reverse the score (u32::MAX - s) to get descending
+        // out of an ascending sort, then the id for a total order.
+        SortKey::Watch => {
+            idx.sort_by_cached_key(|g| (u32::MAX - watchability(g, now).score, g.id.clone()))
+        }
+        // `is_none()` leads because `None < Some(_)` in Option's own ordering,
+        // which would float an unscheduled game to the top; false sorts before
+        // true, so this puts it last instead.
+        SortKey::Time => idx.sort_by_cached_key(|g| {
+            (
+                g.start.is_none(),
+                g.start,
+                league_pos(g.league, enabled),
+                g.id.clone(),
+            )
         }),
-        // A game with no start time sorts after every scheduled one (None >
-        // Some for Option's own ordering would put it first, so map it to the
-        // max explicitly).
-        SortKey::Time => idx.sort_by(|a, b| {
-            a.start
-                .is_none()
-                .cmp(&b.start.is_none())
-                .then_with(|| a.start.cmp(&b.start))
-                .then_with(|| a.id.cmp(&b.id))
-        }),
-        SortKey::League => idx.sort_by(|a, b| {
-            league_pos(a.league)
-                .cmp(&league_pos(b.league))
-                .then_with(|| a.start.is_none().cmp(&b.start.is_none()))
-                .then_with(|| a.start.cmp(&b.start))
-                .then_with(|| a.id.cmp(&b.id))
+        SortKey::League => idx.sort_by_cached_key(|g| {
+            (
+                league_pos(g.league, enabled),
+                g.start.is_none(),
+                g.start,
+                g.id.clone(),
+            )
         }),
     }
     idx.into_iter().map(|g| g.id.clone()).collect()
 }
 
-/// Position in `League::ALL` — the canonical league order the tab row uses.
-fn league_pos(l: League) -> usize {
-    League::ALL
-        .iter()
-        .position(|x| *x == l)
-        .unwrap_or(usize::MAX)
+/// Position in the viewer's enabled-tab order. A league that is not enabled
+/// (a pinned game's league, say) sorts after every enabled one.
+fn league_pos(l: League, enabled: &[League]) -> usize {
+    enabled.iter().position(|x| *x == l).unwrap_or(usize::MAX)
 }
 
 impl OrderState {
     /// Recompute after a data event. `games` = live games (pins excluded by the
-    /// caller); returns nothing — read via `ordered`/`nudge`.
-    pub fn on_event(&mut self, games: &[Game], key: SortKey, now: OffsetDateTime, tick: u64) {
-        let next = sorted_ids(games, key, now);
+    /// caller), `enabled` = the viewer's tab order; returns nothing — read via
+    /// `ordered`/`nudge`.
+    pub fn on_event(
+        &mut self,
+        games: &[Game],
+        key: SortKey,
+        enabled: &[League],
+        now: OffsetDateTime,
+        tick: u64,
+    ) {
+        let next = sorted_ids(games, key, enabled, now);
         // The "before" picture is the old order with departed games removed:
         // a game going final must not read as a rise for everything under it.
         let before: Vec<&String> = self
@@ -347,6 +361,10 @@ impl OrderState {
             };
             if old_i > new_i {
                 self.nudges.insert(id.clone(), (old_i - new_i, tick));
+            } else {
+                // Holding still or falling clears any live arrow: a row that
+                // dropped must not keep showing the ↑n it earned a moment ago.
+                self.nudges.remove(id);
             }
         }
         self.nudges.retain(|id, _| next.iter().any(|n| n == id));
@@ -575,6 +593,12 @@ mod tests {
         os.ordered(games).iter().map(|g| g.id.clone()).collect()
     }
 
+    /// Every league enabled, in the canonical tab order — what the League key
+    /// follows unless a test says otherwise.
+    fn all() -> Vec<League> {
+        League::ALL.to_vec()
+    }
+
     #[test]
     fn order_is_frozen_between_events_and_nudges_mark_risers() {
         let mut os = OrderState::default();
@@ -585,7 +609,7 @@ mod tests {
         let mut c = g(League::Mlb, "TOP 3RD", "", 1, 0);
         c.id = "c".into();
         let board = [a.clone(), b.clone(), c.clone()];
-        os.on_event(&board, SortKey::Watch, now(), 0);
+        os.on_event(&board, SortKey::Watch, &all(), now(), 0);
         let ids1 = ids(&os, &board);
         assert_eq!(ids1[0], "b", "late close game leads");
         // No event: calling ordered again (later clock would rank differently) keeps order.
@@ -599,7 +623,7 @@ mod tests {
         a3.away_score = 24;
         a3.home_score = 24;
         let scored = [a3.clone(), b.clone(), c.clone()];
-        os.on_event(&scored, SortKey::Watch, now(), 100);
+        os.on_event(&scored, SortKey::Watch, &all(), now(), 100);
         assert_eq!(
             ids(&os, &scored)[0],
             "a",
@@ -608,6 +632,54 @@ mod tests {
         assert_eq!(os.nudge("a", 100), Some(1), "rose one place");
         assert_eq!(os.nudge("a", 100 + NUDGE_TICKS), None, "nudge expires");
         assert_eq!(os.nudge("b", 100), None, "the faller gets nothing");
+    }
+
+    #[test]
+    fn a_row_that_falls_back_loses_its_arrow_inside_the_window() {
+        // Two events inside NUDGE_TICKS: a rises, then a falls back. The
+        // arrow it earned must be gone, not linger for the rest of the 10 s.
+        let mut os = OrderState::default();
+        let mut a = g(League::Nfl, "Q4", "8:00", 14, 10);
+        a.id = "a".into();
+        let mut b = g(League::Nfl, "Q4", "8:00", 24, 21);
+        b.id = "b".into();
+        os.on_event(&[a.clone(), b.clone()], SortKey::Watch, &all(), now(), 0);
+        assert_eq!(ids(&os, &[a.clone(), b.clone()]), vec!["b", "a"]);
+        // a ties it up in the last minute and leads.
+        let mut a_up = a.clone();
+        a_up.clock = "0:30".into();
+        a_up.away_score = 21;
+        a_up.home_score = 21;
+        os.on_event(
+            &[a_up.clone(), b.clone()],
+            SortKey::Watch,
+            &all(),
+            now(),
+            10,
+        );
+        assert_eq!(os.nudge("a", 10), Some(1), "a rose");
+        // Within the same window b ties its own game up while a's opponent
+        // pulls away: b takes the lead back and a drops.
+        let mut b_up = b.clone();
+        b_up.clock = "0:20".into();
+        b_up.away_score = 24;
+        b_up.home_score = 24;
+        let mut a_down = a_up.clone();
+        a_down.away_score = 28; // a is a one-score-plus game again
+        os.on_event(
+            &[a_down.clone(), b_up.clone()],
+            SortKey::Watch,
+            &all(),
+            now(),
+            20,
+        );
+        assert_eq!(ids(&os, &[a_down.clone(), b_up.clone()]), vec!["b", "a"]);
+        assert_eq!(os.nudge("b", 20), Some(1), "b rose back");
+        assert_eq!(
+            os.nudge("a", 20),
+            None,
+            "a fell inside the window; its arrow is cleared, not left to expire"
+        );
     }
 
     #[test]
@@ -620,13 +692,22 @@ mod tests {
         b.id = "b".into();
         b.start = Some(time::macros::datetime!(2026-09-13 13:00 -4));
         let board = [a.clone(), b.clone()];
-        os.on_event(&board, SortKey::Time, now(), 0);
+        os.on_event(&board, SortKey::Time, &all(), now(), 0);
         assert_eq!(ids(&os, &board), vec!["b", "a"], "earlier start first");
-        os.on_event(&board, SortKey::League, now(), 0);
+        os.on_event(&board, SortKey::League, &all(), now(), 0);
         assert_eq!(
             ids(&os, &board),
             vec!["b", "a"],
-            "NFL precedes MLB in League::ALL order"
+            "NFL precedes MLB in the default tab order"
+        );
+        // R25: the League key follows the viewer's tab order, so moving MLB
+        // to the front of `enabled_tabs` moves it to the front of the board.
+        let mlb_first = [League::Mlb, League::Nfl];
+        os.on_event(&board, SortKey::League, &mlb_first, now(), 0);
+        assert_eq!(
+            ids(&os, &board),
+            vec!["a", "b"],
+            "League follows enabled_tabs, not League::ALL"
         );
     }
 
@@ -635,12 +716,12 @@ mod tests {
         let mut os = OrderState::default();
         let mut a = g(League::Nfl, "Q4", "1:00", 20, 17);
         a.id = "a".into();
-        os.on_event(&[a.clone()], SortKey::Watch, now(), 0);
+        os.on_event(&[a.clone()], SortKey::Watch, &all(), now(), 0);
         let mut b = g(League::Nfl, "Q1", "15:00", 0, 0);
         b.id = "b".into();
         // b entering IS an event.
         let board = [a.clone(), b.clone()];
-        os.on_event(&board, SortKey::Watch, now(), 10);
+        os.on_event(&board, SortKey::Watch, &all(), now(), 10);
         assert_eq!(ids(&os, &board), vec!["a", "b"]);
         assert_eq!(os.nudge("b", 10), None, "entering is not rising");
     }
