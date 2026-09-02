@@ -75,10 +75,21 @@ Recorded as directions — reasoning, and what reopens them.
   `assets/themes/` and still load from `~/.config/gameday/themes/` for anyone who
   wants them. Reasoning: the design critic showed them to be one theme with six
   names; shipping them files the app under "another rice". Reopens if users ask.
-- **Pending (Walter's call, decided by eye from the logo study): logos.** The A′
-  frames drop the logo zone; before that is final, a rendered study compares the
-  existing marks at real cell sizes and placements (hero, TV, cut) against the
-  abbr+color-block identity. See docs/research/v3-identity/logo-study/ once built.
+- **Direction: logos are hero-only, 16×10, with the color-block fallback
+  (decided 2026-09-02 by eye from the logo study, docs/research/v3-identity/
+  logo-study/).** The marks flank the hero nameplates in the band's two
+  29-column outer margins — no digit moves; a team without art gets the A′
+  color-block+abbr identity, so the fallback degrades per-team, never
+  asymmetrically. TV, the cut, and every row tier stay logo-free (the study's
+  TV frames show two 40-col marks collapse the digits from 15 rows to 6 and
+  evict the play feed). The existing 38 marks are regenerated at 16×10 via
+  `tools/gen-logos.sh` (~100 KB); `logo.rs` slims to hero use. Coverage
+  (38/~687 teams today) expands per-league inside sub-project 3 as each league
+  gets its data pass — numeric-id URL table for soccer, `ncaa/500/{id}` for
+  college, never a bulk scrape in this sub-project. Reasoning: at 16×10 an
+  arrowhead is finally an arrowhead and the hero has the room for free; the
+  brighten step cannot fix navy-on-black but the fallback path guarantees
+  4.5:1 for every team. Reopens if the hero reads cluttered on a live night.
 
 ## 1. Board anatomy
 
@@ -263,8 +274,9 @@ above.
 
 ## 7. What is deleted
 
-`src/tiles/logo.rs` and `assets/logos/**` (the abbr + team-color block is the
-identity mark); `src/tiles/packer.rs` (the list layout is a top-down y-cursor —
+the tile logo *zone* (the abbr + team-color block is the row identity;
+`src/tiles/logo.rs` survives slimmed for the hero's 16×10 marks and
+`assets/logos/**` is regenerated at that size); `src/tiles/packer.rs` (the list layout is a top-down y-cursor —
 "as many 3-row rows as fit" is not expressible in percentage constraints); every
 `Block::borders` in `tiles/mod.rs`; `views/board.rs::draw_sidebar` and
 `draw_slate` (FINAL/LATER are tiers); `MOMENTUM`; `n`/`p` paging and
