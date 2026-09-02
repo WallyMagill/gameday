@@ -206,7 +206,7 @@ mod tests {
         assert_eq!(parse("nfl").unwrap(), Cmd::GoLeague(League::Nfl));
         assert_eq!(parse("standings nba").unwrap(), Cmd::Standings(Some(League::Nba)));
         assert_eq!(parse("standings").unwrap(), Cmd::Standings(None));
-        assert_eq!(parse("theme phosphor").unwrap(), Cmd::Theme(Some("phosphor".into())));
+        assert_eq!(parse("theme gruvbox").unwrap(), Cmd::Theme(Some("gruvbox".into())));
         assert_eq!(parse("theme").unwrap(), Cmd::Theme(None), "bare :theme opens the picker");
         assert_eq!(parse("pin kc").unwrap(), Cmd::Pin("kc".into()));
         let err = parse("foo").unwrap_err();
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn completes_prefixes() {
         assert!(complete("st").contains(&"standings".to_string()));
-        assert!(complete("theme ").contains(&"theme phosphor".to_string()));
+        assert!(complete("theme ").contains(&"theme gruvbox".to_string()));
     }
 
     #[test]
@@ -227,11 +227,11 @@ mod tests {
             assert!(all.contains(&format!("theme {name}")), "missing {name}: {all:?}");
         }
         assert_eq!(complete("theme gr"), vec!["theme gruvbox"]);
-        assert_eq!(complete("theme TOKYO"), vec!["theme tokyo-night"], "case-insensitive");
+        assert_eq!(complete("theme STUD"), vec!["theme studio"], "case-insensitive");
         // A user theme installed on this thread completes too.
         theme::install(theme::Entry {
             name: "zebra".into(),
-            theme: theme::builtin("nord"),
+            theme: theme::builtin("gruvbox"),
             user: true,
         });
         assert_eq!(complete("theme z"), vec!["theme zebra"]);
@@ -262,14 +262,22 @@ mod tests {
         assert_eq!(parse("q").unwrap(), Cmd::Quit);
         assert_eq!(parse("quit").unwrap(), Cmd::Quit);
         // Case-insensitive, whitespace-tolerant.
-        assert_eq!(parse("  THEME Ceefax ").unwrap(), Cmd::Theme(Some("ceefax".into())));
+        assert_eq!(parse("  THEME Gruvbox ").unwrap(), Cmd::Theme(Some("gruvbox".into())));
     }
 
     #[test]
     fn argument_errors_name_the_value_and_the_valid_set() {
         let err = parse("theme solarized").unwrap_err();
-        assert!(err.contains("\"solarized\"") && err.contains("broadcast|studio|ceefax"), "{err}");
-        assert!(err.contains("dracula"), "the valid set is the whole loaded list: {err}");
+        assert!(err.contains("\"solarized\"") && err.contains("broadcast|studio|gruvbox"), "{err}");
+        // The valid set is the whole loaded list, not just the built-ins: a
+        // user theme installed on this thread has to appear in it too.
+        theme::install(theme::Entry {
+            name: "zebra".into(),
+            theme: theme::builtin("gruvbox"),
+            user: true,
+        });
+        let err = parse("theme solarized").unwrap_err();
+        assert!(err.contains("zebra"), "the valid set is the whole loaded list: {err}");
         let err = parse("standings xfl").unwrap_err();
         assert!(err.contains("\"xfl\"") && err.contains("nfl") && err.contains("mls"), "{err}");
         let err = parse("layout 3").unwrap_err();

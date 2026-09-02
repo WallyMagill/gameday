@@ -1,8 +1,13 @@
-//! Themes as identities: a theme is a palette plus a *discipline* (what the
-//! chrome is allowed to color). Every draw call reads roles (bg/fg/live/...)
-//! off the current `Theme`, never raw colors, and asks the discipline helpers
-//! (`chip`, `section_label`, `team_text`, `clock`, `sidebar_header`) before
-//! spending an accent.
+//! Themes as identities: a theme is a palette read through *roles* (spec §6).
+//! `Roles` is the layer the v3.2 board spends — `ground`/`ink`/`dim`/`digits`
+//! /`hot`/`cool` plus a `team` scope saying where team color is allowed — and
+//! the optional `[roles]` table in a theme file decides which palette key
+//! plays which part.
+//!
+//! The pre-v3.2 `discipline` knobs (`chip`, `section_label`, `team_text`,
+//! `clock`, `sidebar_header`) are still here and still read by the board that
+//! has not been rebuilt yet; `[discipline]` in a *user* file parses, is
+//! compat-only, and says so once in the log.
 //!
 //! One TOML format serves the built-ins (compiled in from `assets/themes/`)
 //! and user files in `<config_dir>/themes/*.toml`; a user file wins on a name
@@ -18,35 +23,17 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
-/// Built-in theme names in picker/cycle order. `broadcast` is the default
-/// identity; the community palettes are opt-in.
-pub const BUILTIN_NAMES: [&str; 11] = [
-    "broadcast",
-    "studio",
-    "ceefax",
-    "phosphor",
-    "gruvbox",
-    "tokyo-night",
-    "nord",
-    "catppuccin-mocha",
-    "rose-pine",
-    "everforest",
-    "dracula",
-];
+/// Built-in theme names in picker/cycle order (v3.2 decision A: three
+/// identities, not eleven palettes). `broadcast` is the default; `studio` is
+/// its calm twin; `gruvbox` is the one warm-ground community palette. The
+/// other eight files stay in `assets/themes/` and still load as user files.
+pub const BUILTIN_NAMES: [&str; 3] = ["broadcast", "studio", "gruvbox"];
 
 /// The compiled-in theme sources, parallel to [`BUILTIN_NAMES`].
-const BUILTIN_TOML: [&str; 11] = [
+const BUILTIN_TOML: [&str; 3] = [
     include_str!("../assets/themes/broadcast.toml"),
     include_str!("../assets/themes/studio.toml"),
-    include_str!("../assets/themes/ceefax.toml"),
-    include_str!("../assets/themes/phosphor.toml"),
     include_str!("../assets/themes/gruvbox.toml"),
-    include_str!("../assets/themes/tokyo-night.toml"),
-    include_str!("../assets/themes/nord.toml"),
-    include_str!("../assets/themes/catppuccin-mocha.toml"),
-    include_str!("../assets/themes/rose-pine.toml"),
-    include_str!("../assets/themes/everforest.toml"),
-    include_str!("../assets/themes/dracula.toml"),
 ];
 
 /// How the three sidebar headers (⚑ GLOBAL ALERTS / TOP PLAYS / RECORDS) are
@@ -98,6 +85,59 @@ impl Default for Discipline {
     }
 }
 
+/// Where team color is allowed (spec §6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TeamColorScope {
+    /// The hero card only — the identity floor.
+    #[default]
+    Hero,
+    /// The hero plus the row marks.
+    HeroMarks,
+    /// Nowhere: a fully monochrome chrome.
+    Never,
+}
+
+impl TeamColorScope {
+    pub const VALID: &'static str = "hero|hero+marks|never";
+
+    /// The spelling a theme file uses (`hero+marks`, not the serde default
+    /// `heromarks` — spec §6 writes the plus).
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "hero" => Some(Self::Hero),
+            "hero+marks" => Some(Self::HeroMarks),
+            "never" => Some(Self::Never),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Hero => "hero",
+            Self::HeroMarks => "hero+marks",
+            Self::Never => "never",
+        }
+    }
+}
+
+/// The six colors and one scope every draw call spends (spec §6). A theme is
+/// roles, not tints: the palette holds the hues, `[roles]` decides which hue
+/// plays which part, and the board never names a palette field directly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Roles {
+    pub ground: Color,
+    pub ink: Color,
+    pub dim: Color,
+    /// amber — every score outside the hero
+    pub digits: Color,
+    /// mark, state chips, cut, scoring word
+    pub hot: Color,
+    /// rules, legend keys, structure
+    pub cool: Color,
+    pub team: TeamColorScope,
+}
+
 /// Which sidebar header a draw call is coloring.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SidebarHeader {
@@ -126,10 +166,18 @@ pub struct Theme {
     /// One accent per league, indexed like `League::ALL`; slugs a theme file
     /// leaves out are filled with `star` at parse time.
     league: [Color; 9],
+    /// The role layer this palette is read through (spec §6). Built at parse
+    /// from the optional `[roles]` table, so draw code never re-derives it.
+    roles: Roles,
     pub discipline: Discipline,
 }
 
 impl Theme {
+    /// The roles this theme assigns (spec §6).
+    pub fn roles(&self) -> Roles {
+        self.roles
+    }
+
     /// Accent color for a league (chips, LAST PLAYS, meter labels — each
     /// gated by its discipline helper below).
     pub fn league_accent(&self, league: League) -> Color {
@@ -257,8 +305,35 @@ fn league_index(league: League) -> usize {
 struct ThemeFile {
     name: String,
     palette: PaletteFile,
-    #[serde(default)]
-    discipline: Discipline,
+    /// Optional: absent means the documented defaults (see [`RolesFile`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    roles: Option<RolesFile>,
+    /// Compat-only (spec §6). `Option` so a file that carries the table can be
+    /// told apart from one that doesn't, and named in the note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    discipline: Option<Discipline>,
+}
+
+/// `[roles]`: role → palette key name. Every key is optional; the defaults are
+/// `ground=bg, ink=fg, dim=muted, digits=star, hot=live, cool=border,
+/// team=hero` (spec §6).
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RolesFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ground: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ink: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dim: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    digits: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hot: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    team: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -301,6 +376,15 @@ fn hex_of(c: Color) -> String {
 /// Parse one theme file's text. Errors name the key and the expected form;
 /// unknown enum values for `sidebar_headers` list the valid set.
 pub fn parse_theme(text: &str) -> Result<(String, Theme), String> {
+    parse_theme_inner(text, true)
+}
+
+/// The palette keys a `[roles]` value may name, in file order.
+const PALETTE_KEYS: [&str; 11] = [
+    "bg", "fg", "bright", "muted", "dim", "border", "live", "green", "cyan", "magenta", "star",
+];
+
+fn parse_theme_inner(text: &str, compat_note: bool) -> Result<(String, Theme), String> {
     // toml's full Display carries the offending line (key and value) and,
     // for enums, the expected set — e.g. `sidebar_headers = "rainbow"` /
     // "unknown variant `rainbow`, expected one of `multi`, `single`, `muted`".
@@ -321,22 +405,74 @@ pub fn parse_theme(text: &str) -> Result<(String, Theme), String> {
         };
         league[league_index(l)] = parse_hex(&format!("palette.league.{slug}"), value)?;
     }
+    let colors: [Color; 11] = [
+        parse_hex("palette.bg", &p.bg)?,
+        parse_hex("palette.fg", &p.fg)?,
+        parse_hex("palette.bright", &p.bright)?,
+        parse_hex("palette.muted", &p.muted)?,
+        parse_hex("palette.dim", &p.dim)?,
+        parse_hex("palette.border", &p.border)?,
+        parse_hex("palette.live", &p.live)?,
+        parse_hex("palette.green", &p.green)?,
+        parse_hex("palette.cyan", &p.cyan)?,
+        parse_hex("palette.magenta", &p.magenta)?,
+        star,
+    ];
+    let empty = RolesFile::default();
+    let r = file.roles.as_ref().unwrap_or(&empty);
+    let pick = |role: &str, named: &Option<String>, default_key: &str| -> Result<Color, String> {
+        let key = named.as_deref().unwrap_or(default_key);
+        match PALETTE_KEYS.iter().position(|k| *k == key) {
+            Some(i) => Ok(colors[i]),
+            None => Err(format!(
+                "roles.{role} = {key:?} is not a palette key, expected one of {}",
+                PALETTE_KEYS.join("|")
+            )),
+        }
+    };
+    let team = match r.team.as_deref() {
+        None => TeamColorScope::default(),
+        Some(v) => TeamColorScope::parse(v).ok_or_else(|| {
+            format!("roles.team = {v:?} is not a scope, expected one of {}", TeamColorScope::VALID)
+        })?,
+    };
+    let roles = Roles {
+        ground: pick("ground", &r.ground, "bg")?,
+        ink: pick("ink", &r.ink, "fg")?,
+        dim: pick("dim", &r.dim, "muted")?,
+        digits: pick("digits", &r.digits, "star")?,
+        hot: pick("hot", &r.hot, "live")?,
+        cool: pick("cool", &r.cool, "border")?,
+        team,
+    };
+    if compat_note && file.discipline.is_some() {
+        // spec §6: `[discipline]` is read for compatibility and will stop
+        // being honored — say so once per theme, not once per parse.
+        crate::log::note_once(
+            &format!("theme:{name}:discipline"),
+            &format!(
+                "theme {name}: [discipline] is compatibility-only in v3.2 and will be removed; \
+                 use [roles] instead"
+            ),
+        );
+    }
     Ok((
         name,
         Theme {
-            bg: parse_hex("palette.bg", &p.bg)?,
-            fg: parse_hex("palette.fg", &p.fg)?,
-            bright: parse_hex("palette.bright", &p.bright)?,
-            muted: parse_hex("palette.muted", &p.muted)?,
-            dim: parse_hex("palette.dim", &p.dim)?,
-            border: parse_hex("palette.border", &p.border)?,
-            live: parse_hex("palette.live", &p.live)?,
-            green: parse_hex("palette.green", &p.green)?,
-            cyan: parse_hex("palette.cyan", &p.cyan)?,
-            magenta: parse_hex("palette.magenta", &p.magenta)?,
+            bg: colors[0],
+            fg: colors[1],
+            bright: colors[2],
+            muted: colors[3],
+            dim: colors[4],
+            border: colors[5],
+            live: colors[6],
+            green: colors[7],
+            cyan: colors[8],
+            magenta: colors[9],
             star,
             league,
-            discipline: file.discipline,
+            roles,
+            discipline: file.discipline.unwrap_or_default(),
         },
     ))
 }
@@ -344,8 +480,28 @@ pub fn parse_theme(text: &str) -> Result<(String, Theme), String> {
 /// Serialize a theme in the same format `parse_theme` reads (every league
 /// slug written out, so a round trip is exact).
 pub fn to_toml(name: &str, th: &Theme) -> String {
+    // Roles are stored as colors, so write back the palette key that carries
+    // each one. Two keys can share a color; either spelling re-parses to the
+    // same role, which is what a round trip has to preserve.
+    let key_of = |c: Color| -> Option<String> {
+        let colors = [
+            th.bg, th.fg, th.bright, th.muted, th.dim, th.border, th.live, th.green, th.cyan,
+            th.magenta, th.star,
+        ];
+        colors.iter().position(|x| *x == c).map(|i| PALETTE_KEYS[i].to_string())
+    };
+    let r = th.roles;
     let file = ThemeFile {
         name: name.to_string(),
+        roles: Some(RolesFile {
+            ground: key_of(r.ground),
+            ink: key_of(r.ink),
+            dim: key_of(r.dim),
+            digits: key_of(r.digits),
+            hot: key_of(r.hot),
+            cool: key_of(r.cool),
+            team: Some(r.team.as_str().to_string()),
+        }),
         palette: PaletteFile {
             bg: hex_of(th.bg),
             fg: hex_of(th.fg),
@@ -363,7 +519,7 @@ pub fn to_toml(name: &str, th: &Theme) -> String {
                 .map(|l| (l.slug().to_string(), hex_of(th.league_accent(*l))))
                 .collect(),
         },
-        discipline: th.discipline,
+        discipline: Some(th.discipline),
     };
     toml::to_string_pretty(&file).expect("theme file shape always serializes")
 }
@@ -387,7 +543,10 @@ fn builtins() -> &'static [Entry] {
             .iter()
             .zip(BUILTIN_TOML)
             .map(|(expected, text)| {
-                let (name, theme) = parse_theme(text)
+                // Built-ins never emit the `[discipline]` compat note: their
+                // tables are still read by the surviving discipline helpers,
+                // and a self-warning built-in is noise, not information.
+                let (name, theme) = parse_theme_inner(text, false)
                     .unwrap_or_else(|e| panic!("built-in theme {expected} fails to parse: {e}"));
                 assert_eq!(&name, expected, "assets/themes/{expected}.toml names itself {name:?}");
                 Entry { name, theme, user: false }
@@ -594,6 +753,61 @@ fn redmean(a: [u8; 3], b: [u8; 3]) -> f64 {
     ((2.0 + rm / 256.0) * dr * dr + 4.0 * dg * dg + (2.0 + (255.0 - rm) / 256.0) * db * db).sqrt()
 }
 
+/// Hue in degrees (0..360) and lightness (0..1) of an sRGB triple. Plain HSL,
+/// not a perceptual space: the hue-separation rule below asks "same color
+/// family?", which is exactly what an HSL hue wheel answers, and the two
+/// thresholds were picked against it.
+fn hsl(c: [u8; 3]) -> (f32, f32) {
+    let (r, g, b) = (c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0;
+    let d = max - min;
+    if d <= f32::EPSILON {
+        return (0.0, l); // gray: hue is undefined, and no hue can match it
+    }
+    let h = if max == r {
+        60.0 * (((g - b) / d) % 6.0)
+    } else if max == g {
+        60.0 * ((b - r) / d + 2.0)
+    } else {
+        60.0 * ((r - g) / d + 4.0)
+    };
+    ((h + 360.0) % 360.0, l)
+}
+
+/// Hue-separation rule (spec §6): when both lifted colors are within 20° of
+/// hue AND 15% of luminance, the HOME side falls back to `digits` amber.
+///
+/// The two numbers are the spec's, not measured here: 20° is about a sixth of
+/// the distance between adjacent named hues (navy vs navy, red vs red), and
+/// 15% lightness is the step below which two fills read as one on a terminal
+/// cell. The pair that motivated them is SEA navy (12,44,86) against BOS navy
+/// (19,41,75) — 2.3° and 0.8% apart.
+pub fn hero_pair(th: &Theme, away: [u8; 3], home: [u8; 3]) -> (Color, Color, bool) {
+    const HUE_DEG: f32 = 20.0;
+    const LUMA: f32 = 0.15;
+    let lifted = |c: [u8; 3]| -> (Color, [u8; 3]) {
+        let color = th.art_color(c);
+        match color {
+            Color::Rgb(r, g, b) => (color, [r, g, b]),
+            _ => (color, c),
+        }
+    };
+    let (away_color, a) = lifted(away);
+    let (home_color, h) = lifted(home);
+    let (ah, al) = hsl(a);
+    let (hh, hl) = hsl(h);
+    let hue_delta = {
+        let d = (ah - hh).abs() % 360.0;
+        d.min(360.0 - d)
+    };
+    if hue_delta < HUE_DEG && (al - hl).abs() < LUMA {
+        return (away_color, th.roles.digits, true);
+    }
+    (away_color, home_color, false)
+}
+
 fn blend(a: u8, b: u8, t: f64) -> u8 {
     (a as f64 + (b as f64 - a as f64) * t).round().clamp(0.0, 255.0) as u8
 }
@@ -603,24 +817,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn three_builtins_and_every_one_defines_every_role() {
+        assert_eq!(BUILTIN_NAMES, ["broadcast", "studio", "gruvbox"]);
+        for name in BUILTIN_NAMES {
+            let th = builtin(name);
+            let r = th.roles();
+            for (label, c) in [
+                ("ground", r.ground),
+                ("ink", r.ink),
+                ("dim", r.dim),
+                ("digits", r.digits),
+                ("hot", r.hot),
+                ("cool", r.cool),
+            ] {
+                assert!(matches!(c, Color::Rgb(..)), "{name}: role {label} must be a concrete color");
+            }
+        }
+    }
+
+    #[test]
+    fn discipline_table_still_parses_but_is_ignored() {
+        let toml = "name = \"legacy\"\n[palette]\nbg=\"#000000\"\nfg=\"#e0e0e0\"\nbright=\"#ffffff\"\nmuted=\"#888888\"\ndim=\"#444444\"\nborder=\"#333333\"\nlive=\"#ff3333\"\ngreen=\"#33cc66\"\ncyan=\"#33cccc\"\nmagenta=\"#cc66cc\"\nstar=\"#ffbf00\"\n[discipline]\nchips = true\n";
+        let (name, _th) = parse_theme(toml).expect("legacy file loads");
+        assert_eq!(name, "legacy");
+    }
+
+    #[test]
+    fn hero_pair_separates_lookalike_colors() {
+        let th = builtin("broadcast");
+        // SEA navy vs BOS navy-ish: same hue family → home falls back to amber.
+        let (a, h, fell) = hero_pair(&th, [12, 44, 86], [19, 41, 75]);
+        assert!(fell, "lookalikes must separate");
+        assert_eq!(h, th.roles().digits);
+        assert!(matches!(a, Color::Rgb(..)));
+        // KC red vs BUF blue: both keep their color.
+        let (_, _, fell2) = hero_pair(&th, [227, 24, 55], [0, 51, 141]);
+        assert!(!fell2);
+    }
+
+    #[test]
     fn palettes_carry_their_identity() {
         assert_eq!(builtin("broadcast").bg, Color::Rgb(0, 0, 0));
         assert_eq!(builtin("broadcast").live, Color::Rgb(255, 60, 60));
-        assert_ne!(builtin("ceefax").bg, Color::Rgb(0, 0, 0), "teletext ground is tinted");
-        assert_eq!(builtin("ceefax").star, Color::Rgb(255, 238, 0));
-        assert_eq!(builtin("phosphor").fg, Color::Rgb(255, 176, 0));
-        // NHL keeps the single cold accent in the amber palette.
-        assert_eq!(builtin("phosphor").league_accent(League::Nhl), Color::Rgb(200, 220, 220));
+        // studio is broadcast's palette, calm — same ground, same red.
+        assert_eq!(builtin("studio").bg, Color::Rgb(0, 0, 0));
+        assert_eq!(builtin("studio").live, builtin("broadcast").live);
         assert_eq!(builtin("gruvbox").bg, Color::Rgb(0x28, 0x28, 0x28));
-        assert_eq!(builtin("nord").bg, Color::Rgb(0x2e, 0x34, 0x40));
-        assert_eq!(builtin("dracula").bg, Color::Rgb(0x28, 0x2a, 0x36));
+        assert_eq!(builtin("gruvbox").star, Color::Rgb(0xfa, 0xbd, 0x2f));
+        assert_eq!(builtin("gruvbox").league_accent(League::Nhl), Color::Rgb(0x8e, 0xc0, 0x7c));
     }
 
     #[test]
     fn current_is_settable_per_thread() {
         assert_eq!(current_name(), "broadcast");
-        set_current("phosphor").unwrap();
-        assert_eq!(current(), builtin("phosphor"));
+        set_current("gruvbox").unwrap();
+        assert_eq!(current(), builtin("gruvbox"));
         // Another thread still sees the default.
         std::thread::spawn(|| assert_eq!(current_name(), "broadcast"))
             .join()
@@ -640,7 +891,7 @@ mod tests {
     #[test]
     fn unknown_keys_are_errors_that_name_the_key() {
         // A typo'd knob must not silently take its default.
-        let base = to_toml("x", &builtin("nord"));
+        let base = to_toml("x", &builtin("gruvbox"));
         for (typo, at) in [
             ("play_abbr = true", "[discipline]"),
             ("section_label = false", "[discipline]"),
@@ -683,9 +934,10 @@ mod tests {
     #[test]
     fn art_color_lifts_only_what_sinks_into_the_ground() {
         // The measured pairs behind ART_FLOOR: Yankees art navy (0,43,109)
-        // reads on broadcast black (redmean 207) but vanishes on nord
-        // (103) / dracula (110) / gruvbox (131).
-        set_current("nord").unwrap();
+        // reads on broadcast black (redmean 207) but vanishes on gruvbox
+        // (131) — and on the nord/dracula files that are now user themes
+        // (103 / 110).
+        set_current("gruvbox").unwrap();
         let navy = [0u8, 43, 109];
         let lifted = current().art_color(navy);
         assert_ne!(lifted, rgb(navy), "sunk color must be remapped");
@@ -697,7 +949,7 @@ mod tests {
 
     #[test]
     fn team_mark_color_cascades_primary_alt_lift() {
-        set_current("nord").unwrap();
+        set_current("gruvbox").unwrap();
         let th = current();
         // Primary clears the floor: used as-is.
         assert_eq!(th.team_mark_color([237, 237, 237], [0, 43, 109]), rgb([237, 237, 237]));
@@ -745,7 +997,7 @@ mod tests {
 
     #[test]
     fn league_slugs_in_a_theme_file_are_validated() {
-        let text = to_toml("x", &builtin("nord")).replace("nfl = ", "xfl = ");
+        let text = to_toml("x", &builtin("gruvbox")).replace("nfl = ", "xfl = ");
         let err = parse_theme(&text).unwrap_err();
         assert!(err.contains("palette.league.xfl") && err.contains("nfl|cfb"), "{err}");
     }

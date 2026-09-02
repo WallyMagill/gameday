@@ -26,6 +26,16 @@ nhl = "#46c8dc"
 epl = "#5ad282"
 mls = "#3cc8b4"
 
+# Same roles as broadcast; the identity floor is team color on the hero only.
+[roles]
+ground = "bg"
+ink = "fg"
+dim = "muted"
+digits = "star"
+hot = "live"
+cool = "border"
+team = "hero"
+
 [discipline]
 chips = true
 section_labels = false

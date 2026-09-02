@@ -3,8 +3,8 @@
 //! when headless Chrome is available. This is the visual iteration loop:
 //! compare out/board-broadcast.png to the reference image. The gallery:
 //!
-//!   board-<theme> — home board, big scores, one per BUILT-IN theme (eleven:
-//!       board-broadcast … board-dracula, selected programmatically, not via env)
+//!   board-<theme> — home board, big scores, one per BUILT-IN theme (three:
+//!       board-broadcast/-studio/-gruvbox, selected programmatically, not via env)
 //!   board-compact — broadcast theme, compact score_style
 //!   tab-nfl       — NFL league tab with the slate visible and a slate row selected
 //!   focus         — a focused game view
@@ -59,18 +59,10 @@ pub struct Variant {
 /// `board-<theme>` stems, one per built-in, in `BUILTIN_NAMES` order. Static
 /// strings because stems are the fixed-name contract other tasks read; a test
 /// pins this list to `BUILTIN_NAMES` so a new theme can't ship without a board.
-pub const BOARD_STEMS: [(&str, &str); 11] = [
+pub const BOARD_STEMS: [(&str, &str); 3] = [
     ("broadcast", "board-broadcast"),
     ("studio", "board-studio"),
-    ("ceefax", "board-ceefax"),
-    ("phosphor", "board-phosphor"),
     ("gruvbox", "board-gruvbox"),
-    ("tokyo-night", "board-tokyo-night"),
-    ("nord", "board-nord"),
-    ("catppuccin-mocha", "board-catppuccin-mocha"),
-    ("rose-pine", "board-rose-pine"),
-    ("everforest", "board-everforest"),
-    ("dracula", "board-dracula"),
 ];
 
 /// The fixed gallery, in write order. Stems are stable file names — other
@@ -616,15 +608,7 @@ mod tests {
             [
                 "board-broadcast",
                 "board-studio",
-                "board-ceefax",
-                "board-phosphor",
                 "board-gruvbox",
-                "board-tokyo-night",
-                "board-nord",
-                "board-catppuccin-mocha",
-                "board-rose-pine",
-                "board-everforest",
-                "board-dracula",
                 "board-compact",
                 "tab-nfl",
                 "focus",

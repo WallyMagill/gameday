@@ -380,18 +380,18 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
-        type_line(&mut app, "theme phosphor");
+        type_line(&mut app, "theme gruvbox");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), "phosphor");
-        assert_eq!(app.config.theme, "phosphor");
+        assert_eq!(theme::current_name(), "gruvbox");
+        assert_eq!(app.config.theme, "gruvbox");
         let saved = Config::load_from(&app.config_dir).unwrap();
-        assert_eq!(saved.theme, "phosphor");
+        assert_eq!(saved.theme, "gruvbox");
         // Case-insensitive, persisted canonical.
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
-        type_line(&mut app, "theme Rose-Pine");
+        type_line(&mut app, "theme StUdIo");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), "rose-pine");
-        assert_eq!(Config::load_from(&app.config_dir).unwrap().theme, "rose-pine");
+        assert_eq!(theme::current_name(), "studio");
+        assert_eq!(Config::load_from(&app.config_dir).unwrap().theme, "studio");
         theme::set_current("broadcast").unwrap();
     }
 
@@ -410,7 +410,7 @@ mod tests {
         // j previews live: the current theme changes with the cursor.
         handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
         handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), "ceefax", "j/j previews the third theme");
+        assert_eq!(theme::current_name(), "gruvbox", "j/j previews the third theme");
         assert_eq!(app.config.theme, "broadcast", "preview is not persisted");
         // Esc reverts to what was current when the picker opened.
         handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
@@ -422,11 +422,11 @@ mod tests {
         type_line(&mut app, "theme");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         handle_key(&mut app, KeyCode::Char('k'), KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), "dracula", "k wraps to the last theme");
+        assert_eq!(theme::current_name(), "gruvbox", "k wraps to the last theme");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(app.view, View::Board);
-        assert_eq!(app.config.theme, "dracula");
-        assert_eq!(Config::load_from(&app.config_dir).unwrap().theme, "dracula");
+        assert_eq!(app.config.theme, "gruvbox");
+        assert_eq!(Config::load_from(&app.config_dir).unwrap().theme, "gruvbox");
         // Reopening starts on the now-current theme, and q reverts like Esc.
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "theme");
@@ -435,7 +435,7 @@ mod tests {
         handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
         assert_eq!(theme::current_name(), "broadcast", "j wraps to the top");
         handle_key(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), "dracula");
+        assert_eq!(theme::current_name(), "gruvbox");
         assert!(!app.should_quit);
         theme::set_current("broadcast").unwrap();
     }

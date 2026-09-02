@@ -25,6 +25,16 @@ nhl = "#8ec07c"
 epl = "#b8bb26"
 mls = "#8ec07c"
 
+# gruvbox's amber (`star` = #fabd2f) carries the digits; the rest are defaults.
+[roles]
+ground = "bg"
+ink = "fg"
+dim = "muted"
+digits = "star"
+hot = "live"
+cool = "border"
+team = "hero"
+
 [discipline]
 chips = true
 section_labels = false

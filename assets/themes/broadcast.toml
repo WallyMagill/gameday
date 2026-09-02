@@ -26,6 +26,16 @@ nhl = "#46c8dc"
 epl = "#5ad282"    # pitch green
 mls = "#3cc8b4"    # teal, apart from EPL
 
+# The role layer (spec §6). broadcast is the documented default mapping.
+[roles]
+ground = "bg"
+ink = "fg"
+dim = "muted"
+digits = "star"
+hot = "live"
+cool = "border"
+team = "hero"
+
 [discipline]
 chips = true
 section_labels = true

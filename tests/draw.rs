@@ -218,9 +218,8 @@ fn draw_reads_the_current_theme() {
         t.draw(|f| app.draw(f)).unwrap();
         t.backend().buffer()[(0, 0)].bg
     };
-    assert_eq!(bg_of("ceefax"), theme::builtin("ceefax").bg);
-    assert_eq!(bg_of("phosphor"), theme::builtin("phosphor").bg);
     assert_eq!(bg_of("gruvbox"), Color::Rgb(0x28, 0x28, 0x28));
+    assert_eq!(bg_of("studio"), theme::builtin("studio").bg);
     assert_eq!(bg_of("broadcast"), Color::Rgb(0, 0, 0));
 }
 

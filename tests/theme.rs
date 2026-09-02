@@ -20,23 +20,8 @@ fn tmp(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn the_eleven_builtins_ship_in_the_decided_order() {
-    assert_eq!(
-        theme::BUILTIN_NAMES,
-        [
-            "broadcast",
-            "studio",
-            "ceefax",
-            "phosphor",
-            "gruvbox",
-            "tokyo-night",
-            "nord",
-            "catppuccin-mocha",
-            "rose-pine",
-            "everforest",
-            "dracula",
-        ]
-    );
+fn the_three_builtins_ship_in_the_decided_order() {
+    assert_eq!(theme::BUILTIN_NAMES, ["broadcast", "studio", "gruvbox"]);
     assert_eq!(theme::names(), theme::BUILTIN_NAMES.map(String::from).to_vec());
 }
 
@@ -183,7 +168,7 @@ fn user_theme_overrides_builtin_and_bad_files_are_skipped_with_a_note() {
     // A user-only theme.
     fs::write(
         dir.join("themes/mine.toml"),
-        theme::to_toml("mine", &theme::builtin("nord")),
+        theme::to_toml("mine", &theme::builtin("studio")),
     )
     .unwrap();
     // A broken one: skipped, never fatal.
@@ -206,33 +191,82 @@ fn user_theme_overrides_builtin_and_bad_files_are_skipped_with_a_note() {
     assert_eq!(names.last().map(String::as_str), Some("mine"), "user-only names follow the built-ins");
     assert_eq!(
         names.iter().position(|n| n == "gruvbox"),
-        Some(4),
+        Some(2),
         "an overriding user theme keeps the built-in's slot"
     );
     theme::set_current("MINE").unwrap();
     assert_eq!(theme::current_name(), "mine", "names are case-insensitive, canonical on read");
-    assert_eq!(theme::current(), theme::builtin("nord"));
+    assert_eq!(theme::current(), theme::builtin("studio"));
     fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_eight_retired_palettes_still_load_as_user_files() {
+    // v3.2 decision A cut the built-in list to three, but the files stayed in
+    // assets/themes/ — dropping them out of `include_str!` must not make them
+    // unloadable, and every one of them gets the documented default roles.
+    let dir = tmp("retired");
+    for (name, text) in [
+        ("ceefax", include_str!("../assets/themes/ceefax.toml")),
+        ("phosphor", include_str!("../assets/themes/phosphor.toml")),
+        ("tokyo-night", include_str!("../assets/themes/tokyo-night.toml")),
+        ("nord", include_str!("../assets/themes/nord.toml")),
+        ("catppuccin-mocha", include_str!("../assets/themes/catppuccin-mocha.toml")),
+        ("rose-pine", include_str!("../assets/themes/rose-pine.toml")),
+        ("everforest", include_str!("../assets/themes/everforest.toml")),
+        ("dracula", include_str!("../assets/themes/dracula.toml")),
+    ] {
+        fs::write(dir.join(format!("themes/{name}.toml")), text).unwrap();
+        let (parsed, th) = theme::parse_theme(text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(parsed, name);
+        let r = th.roles();
+        assert_eq!((r.ground, r.ink, r.dim), (th.bg, th.fg, th.muted), "{name} default roles");
+        assert_eq!((r.digits, r.hot, r.cool), (th.star, th.live, th.border), "{name} default roles");
+    }
+    let (entries, errors) = theme::load_user_themes(&dir);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(entries.len(), 8, "every retired palette loads from disk");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_theme_file_can_reassign_roles_and_scope_team_color() {
+    let base = theme::to_toml("mine", &theme::builtin("broadcast"));
+    let text = base
+        .replace("digits = \"star\"", "digits = \"cyan\"")
+        .replace("team = \"hero\"", "team = \"hero+marks\"");
+    let (_, th) = theme::parse_theme(&text).unwrap();
+    assert_eq!(th.roles().digits, th.cyan, "the role follows the palette key it names");
+    assert_eq!(th.roles().team, theme::TeamColorScope::HeroMarks);
+
+    let bad_key = base.replace("hot = \"live\"", "hot = \"crimson\"");
+    let err = theme::parse_theme(&bad_key).unwrap_err();
+    assert!(err.contains("roles.hot") && err.contains("\"crimson\""), "{err}");
+    assert!(err.contains("live") && err.contains("star"), "the valid set: {err}");
+
+    let bad_scope = base.replace("team = \"hero\"", "team = \"everywhere\"");
+    let err = theme::parse_theme(&bad_scope).unwrap_err();
+    assert!(err.contains("roles.team") && err.contains("hero+marks"), "{err}");
 }
 
 #[test]
 fn unknown_names_fall_back_to_broadcast_and_errors_name_the_valid_set() {
     let err = theme::set_current("solarized").unwrap_err();
     assert!(err.contains("\"solarized\""), "{err}");
-    assert!(err.contains("broadcast|studio|ceefax"), "{err}");
+    assert!(err.contains("broadcast|studio|gruvbox"), "{err}");
     assert_eq!(theme::current_name(), "broadcast", "a failed set leaves the theme alone");
-    theme::set_current("dracula").unwrap();
+    theme::set_current("gruvbox").unwrap();
     assert_eq!(theme::select_or_default("nope"), "broadcast");
     assert_eq!(theme::current_name(), "broadcast");
-    assert_eq!(theme::select_or_default("Everforest"), "everforest");
-    assert_eq!(theme::current(), theme::builtin("everforest"));
+    assert_eq!(theme::select_or_default("GruvBox"), "gruvbox");
+    assert_eq!(theme::current(), theme::builtin("gruvbox"));
 }
 
 #[test]
 fn next_name_cycles_the_loaded_set_both_ways() {
     assert_eq!(theme::next_name("broadcast", 1), "studio");
-    assert_eq!(theme::next_name("dracula", 1), "broadcast", "wraps forward");
-    assert_eq!(theme::next_name("broadcast", -1), "dracula", "wraps backward");
+    assert_eq!(theme::next_name("gruvbox", 1), "broadcast", "wraps forward");
+    assert_eq!(theme::next_name("broadcast", -1), "gruvbox", "wraps backward");
     assert_eq!(theme::next_name("unknown", 1), "broadcast", "unknown restarts at the top");
 }
 
