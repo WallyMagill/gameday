@@ -1,4 +1,5 @@
 use crate::domain::League;
+use crate::rank::SortKey;
 use crate::tiles::packer::LayoutPref;
 use crate::tiles::ScoreStyle;
 use std::fs;
@@ -45,6 +46,10 @@ pub struct Config {
     /// (single row). Replaces the old GAMEDAY_BIG_SCORES env hack.
     #[serde(default)]
     pub score_style: ScoreStyle,
+    /// Board order: watch (watchability, default) | time | league. The board
+    /// only re-sorts on a data event — see `rank::OrderState`.
+    #[serde(default)]
+    pub sort: SortKey,
 }
 
 fn default_theme() -> String {
@@ -59,6 +64,7 @@ impl Config {
             favorites: vec![],
             theme: default_theme(),
             score_style: ScoreStyle::default(),
+            sort: SortKey::default(),
         }
     }
 

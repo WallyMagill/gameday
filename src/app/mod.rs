@@ -75,6 +75,10 @@ pub struct App {
     pub pins: Vec<Pin>,
     pub config: Config,
     pub boards: HashMap<League, Vec<Game>>,
+    /// Display order of the live band. Re-sorts only when data arrives (a
+    /// fresh board apply, or a summary that moved the scoring plays), so the
+    /// board never slides under the eye between events (spec §2).
+    pub order: crate::rank::OrderState,
     /// Box scores by game id, filled by the ~30s stats poll while that game
     /// is zoomed. Pruned with `last_scores` when a game leaves every board.
     pub stats: HashMap<String, GameStats>,
@@ -201,6 +205,7 @@ impl App {
             pins,
             config,
             boards: HashMap::new(),
+            order: crate::rank::OrderState::default(),
             stats: HashMap::new(),
             standings: HashMap::new(),
             net: NetStatus::default(),
@@ -880,6 +885,21 @@ impl App {
         self.zoom_scroll = next.clamp(0, len as isize - 1) as usize;
     }
 
+    /// Every live game on an enabled board, minus the pinned ones. Pins live
+    /// in the MY GAMES band and never re-sort (spec §1), so `OrderState` is
+    /// never told about them.
+    pub fn live_all(&self) -> Vec<Game> {
+        self.config
+            .enabled_tabs
+            .iter()
+            .filter_map(|l| self.boards.get(l))
+            .flatten()
+            .filter(|g| g.status == Status::Live)
+            .filter(|g| !self.pins.iter().any(|p| p.game_id == g.id))
+            .cloned()
+            .collect()
+    }
+
     pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
         let now = OffsetDateTime::now_utc();
         let prev_board = self.boards.get(&league).cloned().unwrap_or_default();
@@ -941,6 +961,11 @@ impl App {
                 self.active_alert = Some(alert);
                 self.bell_pending = true;
             }
+            // Data landed: this is the one moment the live band is allowed to
+            // re-sort (spec §2). A cached apply is not news, so it is outside
+            // the guard — a stale payload must never move the board.
+            self.order
+                .on_event(&self.live_all(), self.config.sort, self.now(), self.tick);
         }
         // Drop score memory for games no board carries any more: unbounded
         // growth over a days-long session, and a recycled id would flash on
@@ -966,6 +991,7 @@ impl App {
         if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
             return;
         }
+        let mut scoring_changed = false;
         for board in self.boards.values_mut() {
             if let Some(game) = board.iter_mut().find(|g| g.id == game_id) {
                 if !summary.scoring_plays.is_empty() {
@@ -987,6 +1013,7 @@ impl App {
                     if newest_first {
                         sp.reverse();
                     }
+                    scoring_changed = game.scoring_plays != sp;
                     game.scoring_plays = sp;
                 }
                 if !summary.last_plays.is_empty() {
@@ -998,8 +1025,14 @@ impl App {
                     }
                     game.last_plays = last_plays;
                 }
-                return;
+                break;
             }
+        }
+        // A summary that moved the scoring plays is a data event like any
+        // other — it can change what the board should lead with.
+        if scoring_changed {
+            self.order
+                .on_event(&self.live_all(), self.config.sort, self.now(), self.tick);
         }
     }
 
@@ -1830,6 +1863,7 @@ mod tests {
             favorites: vec![],
             theme: "broadcast".into(),
             score_style: Default::default(),
+            sort: Default::default(),
         };
         let app = App::new(cfg, vec![], dir, time::UtcOffset::UTC);
         assert_eq!(
@@ -2335,7 +2369,8 @@ mod tests {
                 layout: LayoutPref::Auto,
                 favorites: vec![],
                 theme: "broadcast".into(),
-            score_style: Default::default(),
+                score_style: Default::default(),
+                sort: Default::default(),
             },
             vec![],
             dir,

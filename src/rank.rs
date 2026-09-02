@@ -3,6 +3,7 @@
 //! mapper (fixtures verified per league), and an unparsed string scores 0 so
 //! bad data can never lead the board (spec §2).
 use crate::domain::{Game, League, Meter, Status};
+use std::collections::HashMap;
 use time::OffsetDateTime;
 
 /// One game's watchability verdict. `score` orders the board; `hot` drives
@@ -242,6 +243,141 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
     Watch { score, hot, chip }
 }
 
+/// How the board orders its live games. `Watch` is watchability (the default);
+/// `Time` and `League` are the stable alternatives a viewer can cycle to when
+/// they want a slate that never moves for reasons they can't see (spec §2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SortKey {
+    #[default]
+    Watch,
+    Time,
+    League,
+}
+
+impl SortKey {
+    pub fn label(self) -> &'static str {
+        match self {
+            SortKey::Watch => "WATCH",
+            SortKey::Time => "TIME",
+            SortKey::League => "LEAGUE",
+        }
+    }
+
+    /// The next key in the WATCH → TIME → LEAGUE → WATCH cycle.
+    pub fn cycled(self) -> SortKey {
+        match self {
+            SortKey::Watch => SortKey::Time,
+            SortKey::Time => SortKey::League,
+            SortKey::League => SortKey::Watch,
+        }
+    }
+}
+
+/// Render ticks a nudge stays visible: 10 s at the live cadence (spec §1).
+pub const NUDGE_TICKS: u64 = 10 * crate::app::LIVE_TICKS_PER_SEC;
+
+/// Owns the display order of live games. Reorders ONLY in `on_event`; between
+/// events the order is frozen even as lateness rises (spec §2) — a board that
+/// re-sorted on every render tick would slide out from under the eye.
+#[derive(Default)]
+pub struct OrderState {
+    /// Game ids, in display order, as of the last event.
+    order: Vec<String>,
+    /// id -> (places risen, tick when it rose). Only risers are recorded.
+    nudges: HashMap<String, (usize, u64)>,
+}
+
+/// Sort `games` by `key`, returning ids. Every comparison ends in the id so
+/// the result is total — two games that tie on the key never swap between
+/// events.
+fn sorted_ids(games: &[Game], key: SortKey, now: OffsetDateTime) -> Vec<String> {
+    let mut idx: Vec<&Game> = games.iter().collect();
+    match key {
+        SortKey::Watch => idx.sort_by(|a, b| {
+            watchability(b, now)
+                .score
+                .cmp(&watchability(a, now).score)
+                .then_with(|| a.id.cmp(&b.id))
+        }),
+        // A game with no start time sorts after every scheduled one (None >
+        // Some for Option's own ordering would put it first, so map it to the
+        // max explicitly).
+        SortKey::Time => idx.sort_by(|a, b| {
+            a.start
+                .is_none()
+                .cmp(&b.start.is_none())
+                .then_with(|| a.start.cmp(&b.start))
+                .then_with(|| a.id.cmp(&b.id))
+        }),
+        SortKey::League => idx.sort_by(|a, b| {
+            league_pos(a.league)
+                .cmp(&league_pos(b.league))
+                .then_with(|| a.start.is_none().cmp(&b.start.is_none()))
+                .then_with(|| a.start.cmp(&b.start))
+                .then_with(|| a.id.cmp(&b.id))
+        }),
+    }
+    idx.into_iter().map(|g| g.id.clone()).collect()
+}
+
+/// Position in `League::ALL` — the canonical league order the tab row uses.
+fn league_pos(l: League) -> usize {
+    League::ALL
+        .iter()
+        .position(|x| *x == l)
+        .unwrap_or(usize::MAX)
+}
+
+impl OrderState {
+    /// Recompute after a data event. `games` = live games (pins excluded by the
+    /// caller); returns nothing — read via `ordered`/`nudge`.
+    pub fn on_event(&mut self, games: &[Game], key: SortKey, now: OffsetDateTime, tick: u64) {
+        let next = sorted_ids(games, key, now);
+        // The "before" picture is the old order with departed games removed:
+        // a game going final must not read as a rise for everything under it.
+        let before: Vec<&String> = self
+            .order
+            .iter()
+            .filter(|id| next.iter().any(|n| n == *id))
+            .collect();
+        for (new_i, id) in next.iter().enumerate() {
+            let Some(old_i) = before.iter().position(|o| *o == id) else {
+                continue; // entering the board is not rising
+            };
+            if old_i > new_i {
+                self.nudges.insert(id.clone(), (old_i - new_i, tick));
+            }
+        }
+        self.nudges.retain(|id, _| next.iter().any(|n| n == id));
+        self.order = next;
+    }
+
+    /// The stored order, resolved against `games`: ids the board no longer
+    /// carries drop out, and games the last event never saw go at the end in
+    /// board order (no key is stored, and sorting here would be a reorder
+    /// between events — exactly what this type exists to prevent).
+    pub fn ordered<'a>(&self, games: &'a [Game]) -> Vec<&'a Game> {
+        let mut out: Vec<&'a Game> = self
+            .order
+            .iter()
+            .filter_map(|id| games.iter().find(|g| g.id == *id))
+            .collect();
+        // Belt and braces: `on_event` should have seen every game already, so
+        // this only catches a caller that read before the next event landed.
+        out.extend(games.iter().filter(|g| !self.order.contains(&g.id)));
+        out
+    }
+
+    /// `Some(n)` while game `id` shows an `↑n` nudge (10 s per spec §1).
+    pub fn nudge(&self, id: &str, tick: u64) -> Option<usize> {
+        self.nudges
+            .get(id)
+            .filter(|(_, t0)| tick.saturating_sub(*t0) < NUDGE_TICKS)
+            .map(|(n, _)| *n)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,6 +567,82 @@ mod tests {
         let mut p = g(League::Nfl, "", "", 0, 0);
         p.status = Status::Pre;
         assert_eq!(watchability(&p, now()).score, 0);
+    }
+
+    /// Ids in display order. A helper because `ordered` borrows the slice it
+    /// is given, so the games have to outlive the call.
+    fn ids(os: &OrderState, games: &[Game]) -> Vec<String> {
+        os.ordered(games).iter().map(|g| g.id.clone()).collect()
+    }
+
+    #[test]
+    fn order_is_frozen_between_events_and_nudges_mark_risers() {
+        let mut os = OrderState::default();
+        let mut a = g(League::Nfl, "Q2", "8:00", 14, 10);
+        a.id = "a".into();
+        let mut b = g(League::Nfl, "Q4", "1:52", 24, 21);
+        b.id = "b".into();
+        let mut c = g(League::Mlb, "TOP 3RD", "", 1, 0);
+        c.id = "c".into();
+        let board = [a.clone(), b.clone(), c.clone()];
+        os.on_event(&board, SortKey::Watch, now(), 0);
+        let ids1 = ids(&os, &board);
+        assert_eq!(ids1[0], "b", "late close game leads");
+        // No event: calling ordered again (later clock would rank differently) keeps order.
+        let mut a2 = a.clone();
+        a2.period = "Q4".into();
+        a2.clock = "0:30".into();
+        let later = [a2.clone(), b.clone(), c.clone()];
+        assert_eq!(ids1, ids(&os, &later), "no event, no reorder");
+        // Event: a's score changes; it rises and carries a nudge.
+        let mut a3 = a2.clone();
+        a3.away_score = 24;
+        a3.home_score = 24;
+        let scored = [a3.clone(), b.clone(), c.clone()];
+        os.on_event(&scored, SortKey::Watch, now(), 100);
+        assert_eq!(
+            ids(&os, &scored)[0],
+            "a",
+            "tied in the last minute now leads"
+        );
+        assert_eq!(os.nudge("a", 100), Some(1), "rose one place");
+        assert_eq!(os.nudge("a", 100 + NUDGE_TICKS), None, "nudge expires");
+        assert_eq!(os.nudge("b", 100), None, "the faller gets nothing");
+    }
+
+    #[test]
+    fn sort_keys_time_and_league_are_stable_alternatives() {
+        let mut os = OrderState::default();
+        let mut a = g(League::Mlb, "TOP 1ST", "", 0, 0);
+        a.id = "a".into();
+        a.start = Some(time::macros::datetime!(2026-09-13 13:05 -4));
+        let mut b = g(League::Nfl, "Q1", "15:00", 0, 0);
+        b.id = "b".into();
+        b.start = Some(time::macros::datetime!(2026-09-13 13:00 -4));
+        let board = [a.clone(), b.clone()];
+        os.on_event(&board, SortKey::Time, now(), 0);
+        assert_eq!(ids(&os, &board), vec!["b", "a"], "earlier start first");
+        os.on_event(&board, SortKey::League, now(), 0);
+        assert_eq!(
+            ids(&os, &board),
+            vec!["b", "a"],
+            "NFL precedes MLB in League::ALL order"
+        );
+    }
+
+    #[test]
+    fn a_new_game_joins_without_scrambling_the_rest() {
+        let mut os = OrderState::default();
+        let mut a = g(League::Nfl, "Q4", "1:00", 20, 17);
+        a.id = "a".into();
+        os.on_event(&[a.clone()], SortKey::Watch, now(), 0);
+        let mut b = g(League::Nfl, "Q1", "15:00", 0, 0);
+        b.id = "b".into();
+        // b entering IS an event.
+        let board = [a.clone(), b.clone()];
+        os.on_event(&board, SortKey::Watch, now(), 10);
+        assert_eq!(ids(&os, &board), vec!["a", "b"]);
+        assert_eq!(os.nudge("b", 10), None, "entering is not rising");
     }
 
     #[test]

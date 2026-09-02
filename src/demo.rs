@@ -46,6 +46,7 @@ pub fn demo_config() -> Config {
         favorites: vec![],
         theme: crate::theme::current_name(),
         score_style: Default::default(),
+        sort: Default::default(),
     }
 }
 

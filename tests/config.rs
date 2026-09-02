@@ -24,6 +24,7 @@ fn roundtrip_config() {
         favorites: vec![Favorite { league: League::Nfl, team_abbr: "KC".into() }],
         theme: "ceefax".into(),
         score_style: gameday::tiles::ScoreStyle::Compact,
+        sort: Default::default(),
     };
     c.save_to(&dir).unwrap();
     let loaded = Config::load_from(&dir).unwrap();
@@ -85,6 +86,7 @@ fn new_league_variants_roundtrip_in_toml() {
         favorites: vec![],
         theme: "broadcast".into(),
         score_style: Default::default(),
+        sort: Default::default(),
     };
     c.save_to(&dir).unwrap();
     let loaded = Config::load_from(&dir).unwrap();
@@ -239,5 +241,21 @@ fn pins_roundtrip() {
     save_pins(&dir, &pins).unwrap();
     let loaded = load_pins(&dir).unwrap();
     assert_eq!(loaded[0].game_id, "9");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+#[ignore = "fields removed in the keys task"]
+fn sort_key_round_trips_and_old_layout_keys_are_ignored() {
+    let dir = tmp("sortkey");
+    fs::write(dir.join("config.toml"),
+        "enabled_tabs = [\"Nfl\"]\nfavorites = []\nsort = \"time\"\nlayout = \"Auto\"\nscore_style = \"big\"\n").unwrap();
+    let c = Config::load_from(&dir).unwrap();
+    assert_eq!(c.sort, gameday::rank::SortKey::Time);
+    // layout/score_style are gone from the struct; unknown keys parse fine.
+    c.save_to(&dir).unwrap();
+    let text = fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert!(text.contains("sort = \"time\""));
+    assert!(!text.contains("layout"), "removed key is not re-written");
     fs::remove_dir_all(&dir).ok();
 }
