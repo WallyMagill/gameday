@@ -380,9 +380,8 @@ impl App {
             View::Board => keymap::FooterCtx::Board,
             View::ConfigView => keymap::FooterCtx::Config,
             View::Zoom { .. } => keymap::FooterCtx::Zoomed,
-            View::PlaysFeed | View::Standings(_) | View::ThemePicker | View::Tv => {
-                keymap::FooterCtx::Feed
-            }
+            View::Tv => keymap::FooterCtx::Tv,
+            View::PlaysFeed | View::Standings(_) | View::ThemePicker => keymap::FooterCtx::Feed,
         };
         // " /kc" steals footer columns, so it counts toward every shed budget
         // below regardless of which legend renders.
@@ -396,7 +395,14 @@ impl App {
                 Style::default().fg(th.star).add_modifier(Modifier::BOLD),
             ));
         }
-        if ctx == keymap::FooterCtx::Board {
+        if ctx == keymap::FooterCtx::Tv {
+            // TV's own legend, in the Board's lowercase style: `space lock
+            // n next  esc board  q quit`, and `unlock` while a game is held.
+            for (key, label) in keymap::tv_legend(self.tv_lock.is_some()) {
+                spans.push(Span::styled(format!(" {key}"), Style::default().fg(th.fg)));
+                spans.push(Span::styled(format!(" {label} "), Style::default().fg(th.muted)));
+            }
+        } else if ctx == keymap::FooterCtx::Board {
             // Spec §1: the Board footer is the fixed A′ legend — lowercase,
             // no brackets, no `NAV:` label. CMD earns no slot here (still
             // reachable via `:` and the help overlay); SORT/TV get real

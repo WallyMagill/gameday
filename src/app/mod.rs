@@ -96,6 +96,13 @@ pub struct App {
     /// Highlighted row in the Zoom Plays feed (j/k); reset when the zoom
     /// opens or its tab changes.
     pub zoom_scroll: usize,
+    /// TV (spec §3): the game filling the screen. Set when `:tv`/`v` opens,
+    /// then moved by `n` or by an EVENT — never by a timer. `None` falls
+    /// back to the board's own hero.
+    pub tv_shown: Option<String>,
+    /// TV: the game `space` locked onto. While it is Some, no event switches
+    /// the screen; `n` still walks (and carries the lock with it).
+    pub tv_lock: Option<String>,
     /// Highlighted row in the global PlaysFeed (`:plays`); reset when the
     /// view opens.
     pub feed_scroll: usize,
@@ -219,6 +226,8 @@ impl App {
             refresh_now: false,
             view: View::Board,
             zoom_scroll: 0,
+            tv_shown: None,
+            tv_lock: None,
             feed_scroll: 0,
             standings_scroll: 0,
             standings_visible: 0,
@@ -511,11 +520,109 @@ impl App {
         }
     }
 
-    /// TV mode (spec §9): Esc/q pop back to the board. Task 12 adds the
-    /// surface's own keys.
+    /// TV mode (spec §3): `space` locks the shown game, `n` walks the slate
+    /// by hand, Esc/`v` pop back to the board. `q` quits — TV is a mode you
+    /// leave the app from (the footer says `esc board  q quit`), unlike the
+    /// read-only views where `q` only pops.
     fn on_key_tv(&mut self, code: KeyCode) {
-        if let KeyCode::Esc | KeyCode::Char('q') = code {
-            self.view = View::Board;
+        match code {
+            KeyCode::Esc | KeyCode::Char('v') => self.view = View::Board,
+            KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Char(' ') => {
+                self.tv_lock = match self.tv_lock {
+                    Some(_) => None,
+                    None => self.tv_game_id(),
+                };
+            }
+            KeyCode::Char('n') => self.tv_step(),
+            _ => {}
+        }
+    }
+
+    /// Open TV on whatever the board is featuring right now, unlocked.
+    pub(crate) fn open_tv(&mut self) {
+        self.view = View::Tv;
+        self.tv_shown = self.derive().hero_id;
+        self.tv_lock = None;
+    }
+
+    /// The game TV is showing: what an event or `n` last put there, falling
+    /// back to the board's hero (`:tv` opened before any event landed, or the
+    /// shown game left every board).
+    pub(crate) fn tv_game_id(&self) -> Option<String> {
+        self.tv_shown_in(&self.derive())
+    }
+
+    /// Same answer against a frame's already-derived lists — the draw path
+    /// takes this one so a TV frame still derives exactly once.
+    pub(crate) fn tv_shown_in(&self, d: &Derived) -> Option<String> {
+        self.tv_shown
+            .clone()
+            .filter(|id| d.selection.iter().any(|g| g.id == *id))
+            .or_else(|| d.hero_id.clone())
+    }
+
+    /// The slate `n` walks: every live game, board order — the shown game
+    /// plus the ALSO LIVE strip, in the order TV draws them.
+    pub(crate) fn tv_slate(d: &Derived) -> Vec<&Game> {
+        d.my_games
+            .iter()
+            .chain(d.in_play.iter())
+            .filter(|g| g.status == Status::Live)
+            .collect()
+    }
+
+    /// `n`: the next live game after the shown one, wrapping. A lock travels
+    /// with it — you asked for this game, so it is the one that holds.
+    fn tv_step(&mut self) {
+        let d = self.derive();
+        let slate = Self::tv_slate(&d);
+        if slate.is_empty() {
+            return;
+        }
+        let at = self
+            .tv_shown_in(&d)
+            .and_then(|id| slate.iter().position(|g| g.id == id))
+            .unwrap_or(0);
+        let next = slate[(at + 1) % slate.len()].id.clone();
+        if self.tv_lock.is_some() {
+            self.tv_lock = Some(next.clone());
+        }
+        self.tv_shown = Some(next);
+    }
+
+    /// The game the next event will cut to, when that isn't the game already
+    /// on screen. The ranking is recomputed here rather than read off the
+    /// frozen order — between events the order is deliberately stale, and
+    /// naming the next cut is the whole point of not switching yet.
+    pub(crate) fn tv_next_cut_in(&self, d: &Derived) -> Option<Game> {
+        if self.tv_lock.is_some() {
+            return None;
+        }
+        let shown = self.tv_shown_in(d);
+        let live = self.live_all();
+        let top = crate::rank::top_id(
+            &live,
+            self.config.sort,
+            &self.config.enabled_tabs,
+            self.now(),
+        )?;
+        if Some(&top) == shown.as_ref() {
+            return None;
+        }
+        self.game_by_id(&top)
+    }
+
+    /// After an event re-derived the order: TV follows the new top. Called
+    /// only from the two `OrderState::on_event` sites, which is what makes
+    /// "switches on the next event, never on a timer" (spec §3) true by
+    /// construction — no timer can reach this.
+    fn tv_follow(&mut self, live: &[Game]) {
+        if !matches!(self.view, View::Tv) || self.tv_lock.is_some() {
+            return;
+        }
+        if let Some(top) = self.order.ordered(live).first() {
+            self.tv_shown = Some(top.id.clone());
         }
     }
 
@@ -863,7 +970,7 @@ impl App {
             // list, so PgDn/PgUp have nothing to page and n/p are free again.
             KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('s') => self.cycle_sort(),
-            KeyCode::Char('v') => self.view = View::Tv,
+            KeyCode::Char('v') => self.open_tv(),
             KeyCode::Char('c') => self.cycle_theme(),
             KeyCode::Char('r') => self.refresh_now = true,
             KeyCode::Char('q') => self.should_quit = true,
@@ -977,6 +1084,7 @@ impl App {
                 now,
                 self.tick,
             );
+            self.tv_follow(&live);
         }
         self.rank_fingerprints = fps;
     }
@@ -995,6 +1103,8 @@ impl App {
             now,
             self.tick,
         );
+        // A new sort key is a new ranking, and TV shows the ranking's top.
+        self.tv_follow(&live);
     }
 
     pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
@@ -1420,7 +1530,10 @@ impl App {
         // the bottom of the frame, gated by the SAME truncation the Board
         // would show at this size: `layout::plan(...).scores_lane`, run
         // against the current tab's counts.
-        let ticker_h = if matches!(self.view, View::Board | View::ThemePicker) {
+        // TV is on the same footing as the Board here for the same reason:
+        // it draws its own bottom strip of everything else that is live, and
+        // a SCORES lane under that would be two lanes saying one thing.
+        let ticker_h = if matches!(self.view, View::Board | View::ThemePicker | View::Tv) {
             0
         } else {
             let d = self.derived();
@@ -2003,6 +2116,96 @@ mod tests {
         assert!(matches!(app.view, View::Tv));
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(app.view, View::Board);
+    }
+
+    #[test]
+    fn tv_auto_cuts_on_event_not_on_timer_and_lock_holds() {
+        // Spec §3: TV switches to the ranking's top on the next EVENT, never
+        // on a timer. The fingerprint gate (R24) is what makes that true —
+        // a clock that merely advanced is not news, so nothing switches.
+        let mut app = app_with(
+            vec![
+                ranked("a", "Q3", "10:00", 20, 17),
+                ranked("b", "Q1", "15:00", 24, 21),
+                ranked("c", "Q1", "15:00", 30, 10),
+            ],
+            vec![],
+        );
+        assert_eq!(ord(&app), vec!["a", "b", "c"], "the late close game leads");
+        app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+        assert_eq!(app.tv_shown.as_deref(), Some("a"), ":tv opens on the hero");
+
+        // "b" walks to Q4 with the same score: watchability rises past "a",
+        // but no score, status or hot flag moved, so it is not an event.
+        app.apply_boards(
+            League::Nfl,
+            vec![
+                ranked("a", "Q3", "10:00", 20, 17),
+                ranked("b", "Q4", "10:00", 24, 21),
+                ranked("c", "Q1", "15:00", 30, 10),
+            ],
+            false,
+        );
+        assert_eq!(app.tv_shown.as_deref(), Some("a"), "no event, no switch");
+        assert_eq!(
+            app.tv_next_cut_in(&app.derive()).map(|g| g.id),
+            Some("b".to_string()),
+            "the screen says who is next instead of switching"
+        );
+
+        // A real event anywhere on the board (c scores) re-derives the order,
+        // and TV cuts to its top.
+        app.apply_boards(
+            League::Nfl,
+            vec![
+                ranked("a", "Q3", "10:00", 20, 17),
+                ranked("b", "Q4", "10:00", 24, 21),
+                ranked("c", "Q1", "15:00", 31, 10),
+            ],
+            false,
+        );
+        assert_eq!(app.tv_shown.as_deref(), Some("b"), "the event cut to b");
+        assert_eq!(
+            app.tv_next_cut_in(&app.derive()).map(|g| g.id),
+            None,
+            "b IS the top now"
+        );
+
+        // space locks the shown game: a later event that puts "c" on top
+        // leaves the screen where it is.
+        app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert_eq!(app.tv_lock.as_deref(), Some("b"), "space locks b");
+        app.apply_boards(
+            League::Nfl,
+            vec![
+                ranked("a", "Q3", "10:00", 20, 17),
+                ranked("b", "Q4", "10:00", 24, 21),
+                ranked("c", "Q4", "5:00", 31, 31),
+            ],
+            false,
+        );
+        assert_eq!(ord(&app), vec!["c", "b", "a"], "the event did reorder");
+        assert_eq!(app.tv_shown.as_deref(), Some("b"), "a locked game holds");
+        // …and space again releases it.
+        app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert_eq!(app.tv_lock, None, "space unlocks");
+    }
+
+    #[test]
+    fn n_walks_the_tv_slate_by_hand_and_wraps() {
+        let mut app = app_with(
+            vec![
+                ranked("a", "Q3", "10:00", 20, 17),
+                ranked("b", "Q1", "15:00", 24, 21),
+                ranked("c", "Q1", "15:00", 30, 10),
+            ],
+            vec![],
+        );
+        app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+        for want in ["b", "c", "a"] {
+            app.on_key(KeyCode::Char('n'), KeyModifiers::NONE);
+            assert_eq!(app.tv_shown.as_deref(), Some(want), "n walks the slate");
+        }
     }
 
     /// A live NFL game with an explicit clock and score — the ordering tests

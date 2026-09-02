@@ -2229,4 +2229,103 @@ fn cuts_are_suppressed_during_prompts_and_startup() {
     assert!(app.bell_pending, "a takeover rings the bell");
 }
 
+// ------------------------------------------------------------------- :tv
+
+/// Six live games with distinct abbrs — TV shows one and strips the rest.
+fn tv_slate() -> Vec<Game> {
+    [
+        ("KC", "TB"),
+        ("DAL", "PHI"),
+        ("GB", "CHI"),
+        ("SF", "LAR"),
+        ("NYJ", "MIA"),
+        ("CIN", "BAL"),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, (away, home))| {
+        // 24-21, the reference frame's score: both digit pairs paint all
+        // eight rows of a `PixelSize::Full` glyph, which is what the band
+        // height is measured off below.
+        let mut game = g(&format!("{}", i + 1), away, home, true);
+        game.away_score = 24;
+        game.home_score = 21;
+        game
+    })
+    .collect()
+}
+
+#[test]
+fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let mut app = mk();
+    app.apply_boards(League::Nfl, tv_slate(), false);
+    app.tab = Tab::League(League::Nfl);
+    app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+
+    // The jumbotron: `PixelSize::Full` digits are 8×8 cells, so the away
+    // score paints eight contiguous rows of the left third in KC's hero
+    // color. A sextant fallback would paint three, the text form one.
+    let th = gameday::theme::current();
+    let (away_color, ..) = gameday::theme::hero_pair(&th, team("KC").color, team("TB").color);
+    let buf = term.backend().buffer();
+    let digit_rows: Vec<u16> = (0..40u16)
+        .filter(|y| (0..40u16).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 8)
+        .collect();
+    assert_eq!(digit_rows.len(), 8, "TV draws 8-row Full digits:\n{text}");
+    assert_eq!(
+        digit_rows[7] - digit_rows[0],
+        7,
+        "the digit band is contiguous: {digit_rows:?}\n{text}"
+    );
+    // The shown game is the ranking's top; both its abbrs are on the hero.
+    assert!(text.contains("KC") && text.contains("TB"), "{text}");
+
+    // Everything else rides the strip, one row each.
+    assert!(text.contains("ALSO LIVE"), "the strip names itself:\n{text}");
+    assert!(text.contains("5 GAMES"), "the strip counts the rest:\n{text}");
+    for abbr in ["DAL", "PHI", "GB", "CHI", "SF", "LAR", "NYJ", "MIA", "CIN", "BAL"] {
+        assert!(text.contains(abbr), "strip is missing {abbr}:\n{text}");
+    }
+    // TV is not the board: no section rules, no off-screen lane.
+    assert!(!text.contains("IN PLAY"), "no board rules in TV:\n{text}");
+    assert!(!text.contains("OFF-SCREEN"), "no lane in TV:\n{text}");
+}
+
+#[test]
+fn tv_never_panics_and_never_blanks_the_score() {
+    // The v3.1 clamping discipline: every slot in TV is derived from the
+    // area, so no size may panic (a debug build catches the underflows) —
+    // and none may leave the jumbotron without a score.
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let mut app = mk();
+    app.apply_boards(League::Nfl, tv_slate(), false);
+    app.tab = Tab::League(League::Nfl);
+    app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+    for (w, h) in [(40, 12), (41, 13), (60, 20), (80, 24), (100, 30), (120, 40), (200, 60)] {
+        let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+        term.draw(|f| app.draw(f)).unwrap();
+        let text = buf_text(&term);
+        assert!(
+            text.contains("24 - 21") || text.contains("████") || text.contains('🬂'),
+            "{w}x{h} must still show a score in some form:\n{text}"
+        );
+    }
+}
+
+#[test]
+fn every_scoring_play_takes_the_screen_in_tv() {
+    // Spec §3: in TV mode the one game on screen is all there is, so every
+    // cut is a takeover — not just a pinned or favorited game's.
+    let mut app = mk();
+    app.tick = 400;
+    app.view = gameday::views::View::Tv;
+    land_a_score(&mut app, false); // unpinned, unfavorited
+    let cut = app.cuts.active(app.tick).expect("the delta fires a cut");
+    assert!(cut.full, "every cut is full in TV, pinned or not");
+}
+
 

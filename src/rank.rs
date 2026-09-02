@@ -329,6 +329,19 @@ fn sorted_ids(
     idx.into_iter().map(|g| g.id.clone()).collect()
 }
 
+/// Who the ranking would put first RIGHT NOW, ignoring the frozen display
+/// order. `:tv` is the only caller: the screen switches on the next event
+/// (spec §3), so between events it has to be able to name the game it will
+/// switch to without moving there. Nothing here reorders anything.
+pub fn top_id(
+    games: &[Game],
+    key: SortKey,
+    enabled: &[League],
+    now: OffsetDateTime,
+) -> Option<String> {
+    sorted_ids(games, key, enabled, now).into_iter().next()
+}
+
 /// Position in the viewer's enabled-tab order. A league that is not enabled
 /// (a pinned game's league, say) sorts after every enabled one.
 fn league_pos(l: League, enabled: &[League]) -> usize {

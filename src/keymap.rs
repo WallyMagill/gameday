@@ -80,14 +80,18 @@ pub enum FooterCtx {
     Zoomed,
     Config,
     Feed,
+    /// TV, which — like the Board — advertises a lowercase legend of its own
+    /// rather than the `NAV:` chord list.
+    Tv,
 }
 
 impl FooterCtx {
-    pub const ALL: [FooterCtx; 4] = [
+    pub const ALL: [FooterCtx; 5] = [
         FooterCtx::Board,
         FooterCtx::Zoomed,
         FooterCtx::Config,
         FooterCtx::Feed,
+        FooterCtx::Tv,
     ];
 }
 
@@ -201,6 +205,21 @@ pub const KEYMAP: &[Binding] = &[
         group: Group::View,
         footer: FooterSlot::Board,
     },
+    // TV's own two keys. They reach the footer through [`TV_LEGEND`], not the
+    // chord list, so their slot is Never — but they still owe the help
+    // overlay a row, like every other binding.
+    Binding {
+        keys: &["SPC"],
+        label: "TV LOCK",
+        group: Group::View,
+        footer: FooterSlot::Never,
+    },
+    Binding {
+        keys: &["N"],
+        label: "TV NEXT",
+        group: Group::View,
+        footer: FooterSlot::Never,
+    },
     Binding {
         keys: &["C"],
         label: "THEME",
@@ -269,6 +288,19 @@ pub const BOARD_LEGEND: &[(&str, &str)] = &[
 /// [`FOOTER_DROP_ORDER`].
 pub const BOARD_LEGEND_DROP_ORDER: &[&str] = &["move", "pin", "filter", "sort", "tv"];
 
+/// TV's legend, same lowercase style as [`BOARD_LEGEND`]: `space lock  n next
+/// esc board  q quit`. The lock label flips to `unlock` while a game is
+/// locked, so the caller passes the label in. Nothing sheds here — the whole
+/// legend is ~34 columns and the app refuses to draw under 40.
+pub fn tv_legend(locked: bool) -> [(&'static str, &'static str); 4] {
+    [
+        ("space", if locked { "unlock" } else { "lock" }),
+        ("n", "next"),
+        ("esc", "board"),
+        ("q", "quit"),
+    ]
+}
+
 /// The footer chord list for the current view: (key, label) pairs in table
 /// order.
 pub fn footer_chords(ctx: FooterCtx) -> Vec<(&'static str, &'static str)> {
@@ -280,6 +312,9 @@ pub fn footer_chords(ctx: FooterCtx) -> Vec<(&'static str, &'static str)> {
             FooterSlot::Board => ctx == FooterCtx::Board,
             FooterSlot::Zoomed => ctx == FooterCtx::Zoomed,
             FooterSlot::Config => ctx == FooterCtx::Config,
+            // TV draws `tv_legend` instead of this list, so it takes no
+            // NotBoard chords either.
+            FooterSlot::NotBoard if ctx == FooterCtx::Tv => false,
             FooterSlot::NotBoard => ctx != FooterCtx::Board,
         })
         .map(|b| (b.keys[0], b.label))
