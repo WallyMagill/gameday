@@ -25,12 +25,14 @@ fn team(
         color,
         alt_color: alt,
         logo_key: format!("{}/{}", league.slug(), abbr.to_lowercase()),
+        rank: None,
     }
 }
 
 fn play(clock: &str, team: &str, text: &str, scoring: bool) -> Play {
     Play {
         clock: clock.into(),
+        period: String::new(),
         team: team.into(),
         text: text.into(),
         scoring,
@@ -48,15 +50,14 @@ pub fn demo_config() -> Config {
 }
 
 pub fn demo_pins() -> Vec<Pin> {
-    ["nfl-live", "nba-live", "mlb-live", "nhl-live"]
-        .into_iter()
-        .zip([League::Nfl, League::Nba, League::Mlb, League::Nhl])
-        .map(|(id, league)| Pin {
-            game_id: id.into(),
-            league,
-            final_at: None,
-        })
-        .collect()
+    // One pin, not four: Home shows every live game on its own now, so pinning
+    // the whole slate only puts a ⚑ on every tile in every capture. KC@TB is
+    // the pin that reads as a choice.
+    vec![Pin {
+        game_id: "nfl-live".into(),
+        league: League::Nfl,
+        final_at: None,
+    }]
 }
 
 /// A box score for the demo `nfl-live` game (KC 27 @ TB 24), shaped like
@@ -151,9 +152,10 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                     play("3:21", "KC", "Mahomes pass to Kelce, 12 yd TOUCHDOWN", true),
                 ],
                 meter: Some(Meter::RedZone { yards_to_goal: 3 }),
-                start_time: None,
+                // Q1..Q4 (away, home) — the zoom overview's linescore row.
+                linescore: vec![(7, 3), (6, 14), (7, 0), (7, 7)],
                 broadcast: Some("CBS".into()),
-                odds: None,
+                ..Game::default()
             },
             Game {
                 id: "nfl-pre".into(),
@@ -168,9 +170,10 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 situation: None,
                 last_plays: vec![],
                 meter: None,
-                start_time: Some("8:20 PM".into()),
+                start: Some(time::macros::datetime!(2026-09-13 20:20 -4)),
                 broadcast: Some("NBC".into()),
                 odds: Some("SF -2.5  O/U 44.5".into()),
+                ..Game::default()
             },
             Game {
                 id: "nfl-final".into(),
@@ -185,9 +188,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 situation: None,
                 last_plays: vec![],
                 meter: None,
-                start_time: None,
                 broadcast: Some("FOX".into()),
-                odds: None,
+                ..Game::default()
             },
         ],
     );
@@ -219,9 +221,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 play("5:45", "BOS", "Jrue Holiday steal", false),
             ],
             meter: Some(Meter::Lead { plus_minus: -7 }),
-            start_time: None,
             broadcast: Some("TNT".into()),
-            odds: None,
+            ..Game::default()
         }],
     );
 
@@ -240,7 +241,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
             period: "BOT 7TH".into(),
             clock: String::new(),
             situation: Some(Situation {
-                down_distance: "2 OUTS  1-2".into(),
+                down_distance: "2 OUT · 1-2".into(),
                 balls: Some(1),
                 strikes: Some(2),
                 outs: Some(2),
@@ -254,9 +255,11 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 play("2:21", "TOR", "Bo Bichette strikes out", false),
             ],
             meter: Some(Meter::Diamond { occupied: [true, false, false] }),
-            start_time: None,
+            // Seven innings played, plus the H/E the MLB linescore row adds.
+            linescore: vec![(0, 1), (2, 0), (0, 0), (1, 1), (0, 0), (2, 1), (0, 0)],
+            extras: Extras::Baseball { hits: Some((9, 7)), errors: Some((0, 1)) },
             broadcast: Some("SN".into()),
-            odds: None,
+            ..Game::default()
         }],
     );
 
@@ -282,9 +285,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 play("5:09", "DAL", "Jamie Benn hit", false),
             ],
             meter: Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 42 }),
-            start_time: None,
             broadcast: Some("ESPN".into()),
-            odds: None,
+            ..Game::default()
         }],
     );
 
@@ -310,12 +312,23 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 play("51'", "ARS", "Declan Rice booked for a late challenge", false),
             ],
             meter: None,
-            start_time: None,
             broadcast: Some("NBC".into()),
-            odds: None,
+            ..Game::default()
         }],
     );
 
+    // The scoring feed (alerts, top plays, ticker, zoom SCORING) reads
+    // `Game.scoring_plays`, oldest-first. The demo authors its plays
+    // newest-first, so mirror the scoring rows into it.
+    for game in boards.values_mut().flatten() {
+        game.scoring_plays = game
+            .last_plays
+            .iter()
+            .filter(|p| p.scoring)
+            .rev()
+            .cloned()
+            .collect();
+    }
     boards
 }
 
@@ -326,8 +339,22 @@ mod tests {
     #[test]
     fn demo_board_has_four_live_leagues_and_pins() {
         let boards = demo_boards();
+        // The four scripted live games are still there; only the pin list shrank.
+        for (league, id) in [
+            (League::Nfl, "nfl-live"),
+            (League::Nba, "nba-live"),
+            (League::Mlb, "mlb-live"),
+            (League::Nhl, "nhl-live"),
+        ] {
+            let board = boards.get(&league).expect("board for live league");
+            let game = board.iter().find(|g| g.id == id).expect("live game");
+            assert_eq!(game.status, Status::Live);
+        }
+        // Home lists every live game unpinned, so the demo pins exactly one —
+        // otherwise every gallery tile wears a ⚑ and the flag says nothing.
         let pins = demo_pins();
-        assert_eq!(pins.len(), 4);
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].game_id, "nfl-live");
         for pin in &pins {
             let board = boards.get(&pin.league).expect("board for pinned league");
             let game = board.iter().find(|g| g.id == pin.game_id).expect("pinned game");

@@ -189,9 +189,7 @@ mod tests {
             situation: None,
             last_plays: vec![],
             meter: None,
-            start_time: None,
-            broadcast: None,
-            odds: None,
+            ..Game::default()
         }
     }
 
@@ -248,6 +246,7 @@ mod tests {
                 team: "KC".into(),
                 text: format!("score number {i}"),
                 scoring: true,
+                ..Default::default()
             })
             .collect();
         let events: Vec<(Game, Play)> = g.last_plays.iter().map(|p| (g.clone(), p.clone())).collect();

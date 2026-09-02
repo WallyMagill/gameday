@@ -1,7 +1,11 @@
 use crate::config::{prune_pins, Favorite, Pin};
-use crate::domain::Game;
+use crate::domain::{Game, Status};
 use time::OffsetDateTime;
 
+/// Home's order, and the only place it is decided: pinned games (those
+/// surviving the prune) first, then favorites' games, then every other live
+/// game — each band in `boards` order. Pre and Final games reach Home only
+/// through a pin or a favorite.
 pub fn home_games<'a>(
     pins: &[Pin],
     favorites: &[Favorite],
@@ -29,6 +33,14 @@ pub fn home_games<'a>(
                     || g.home.abbr.eq_ignore_ascii_case(&fav.team_abbr))
         });
         if matched {
+            out.push(g);
+        }
+    }
+
+    // Everything else that is live: Home is the room with every TV on;
+    // pins and favorites only decide which TV is in front (spec §4).
+    for g in boards {
+        if g.status == Status::Live && !out.iter().any(|x| x.id == g.id) {
             out.push(g);
         }
     }

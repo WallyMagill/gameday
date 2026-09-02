@@ -4,6 +4,7 @@
 
 use crate::app::{App, Tab};
 use crate::domain::Game;
+use crate::app::net::NetChip;
 use crate::text::{leading_surname, truncate};
 use crate::theme::{self, SidebarHeader};
 use crate::tiles::packer::pack;
@@ -11,7 +12,7 @@ use crate::tiles::render_tile;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 /// Team-name column of the sidebar RECORDS rail, in cells.
@@ -49,7 +50,7 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
         .border_style(Style::default().fg(th.border));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let events = app.scoring_events();
+    let events = &app.derived().scoring;
     let w = inner.width as usize;
     let mut lines: Vec<Line> = Vec::new();
 
@@ -124,8 +125,8 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
             .add_modifier(Modifier::BOLD),
     )));
     let mut teams: Vec<&crate::domain::Team> = Vec::new();
-    let games = app.visible_games();
-    for g in &games {
+    let games = &app.derived().visible;
+    for g in games {
         teams.push(&g.away);
         teams.push(&g.home);
     }
@@ -138,7 +139,7 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
             Some((t, win, loss))
         })
         .collect();
-    rows.sort_by(|a, b| b.1.cmp(&a.1));
+    rows.sort_by_key(|r| std::cmp::Reverse(r.1));
     lines.push(Line::from(Span::styled(
         format!("{:<12}{:>3}{:>3}", "TEAM", "W", "L"),
         Style::default().fg(th.muted),
@@ -164,32 +165,89 @@ fn draw_sidebar(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
+/// A two-line block sitting on the vertical middle of `area` — the empty
+/// board's message reads as a centered statement, not a top-left log line.
+fn center_two_lines(area: Rect) -> Rect {
+    let h = 2u16.min(area.height);
+    Rect {
+        y: area.y + (area.height.saturating_sub(h)) / 2,
+        height: h,
+        ..area
+    }
+}
+
 fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
     let th = theme::current();
-    let games = app.mosaic_games();
+    let games = &app.derived().mosaic;
+    let net = app.net.chip(std::time::Instant::now(), app.stale_after());
     match app.tab {
-        // An active filter that matches nothing names the pattern instead
-        // of pretending the board is empty.
+        // An active filter that matches nothing names the pattern, the scope
+        // it searched and where the pattern IS live, instead of pretending
+        // the board is empty. It wraps: the scope is the whole point of the
+        // message, so a narrow board must never chop it off.
         _ if games.is_empty() && app.active_filter().is_some() => {
-            let needle = app.active_filter().unwrap_or_default();
             frame.render_widget(
-                Paragraph::new(format!("no games match \"{needle}\" · esc clears"))
+                Paragraph::new(app.filter_miss_message())
+                    .wrap(Wrap { trim: true })
                     .style(Style::default().fg(th.muted).bg(th.bg))
                     .alignment(Alignment::Center),
                 area,
             );
             return;
         }
+        // An empty board during an outage must never read as "no games
+        // tonight": name the outage and the error that caused it.
+        _ if games.is_empty()
+            && matches!(net, NetChip::Offline { .. } | NetChip::NoDataYet) =>
+        {
+            let detail = match &net {
+                NetChip::Offline { error, .. } => format!("last error: {error}"),
+                _ => "waiting for the first scoreboard…".to_string(),
+            };
+            let headline = net.label().unwrap_or_default();
+            let color = if matches!(net, NetChip::Offline { .. }) {
+                th.live
+            } else {
+                th.muted
+            };
+            frame.render_widget(
+                Paragraph::new(vec![
+                    Line::from(Span::styled(
+                        headline,
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(Span::styled(detail, Style::default().fg(th.muted))),
+                ])
+                .style(Style::default().bg(th.bg))
+                .alignment(Alignment::Center),
+                center_two_lines(area),
+            );
+            return;
+        }
+        // Home carries every live game now, so an empty Home means nothing is
+        // live anywhere — name the next start instead of asking for a pin.
         Tab::Home if games.is_empty() => {
+            let msg = match app.next_start() {
+                Some(g) => format!(
+                    "nothing live · next: {} @ {} {}",
+                    g.away.abbr,
+                    g.home.abbr,
+                    crate::text::fmt_start(
+                        g.start.expect("next_start only returns games with a start"),
+                        app.now()
+                    )
+                ),
+                None => "nothing live on the enabled boards · :config to add leagues".to_string(),
+            };
             frame.render_widget(
-                Paragraph::new("pin a game from nfl (space) · t fav home")
+                Paragraph::new(msg)
                     .style(Style::default().fg(th.muted).bg(th.bg))
                     .alignment(Alignment::Center),
                 area,
             );
             return;
         }
-        Tab::League(_) if app.visible_games().is_empty() => {
+        Tab::League(_) if app.derived().visible.is_empty() => {
             frame.render_widget(
                 Paragraph::new("next kickoff")
                     .style(Style::default().fg(th.muted).bg(th.bg))
@@ -202,12 +260,15 @@ fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
     }
 
     // on_key wraps the page, but the board can shrink between keys.
-    let page = app.page.min(app.page_count() - 1);
-    let packed = pack(&games, area, app.effective_layout(), page);
+    let page = app.page.min(app.page_count_of(games.len()) - 1);
+    let packed = pack(games, area, app.effective_layout(), page);
     let start = packed
         .first()
         .and_then(|tile| games.iter().position(|g| g.id == tile.game.id))
         .unwrap_or(0);
+    // Zones are collected first: `games` borrows the frame cache off `app`,
+    // so `app.hit_zones` can only be touched once that borrow has ended.
+    let mut zones = Vec::with_capacity(packed.len());
     for (i, tile) in packed.iter().enumerate() {
         // Mosaic tiles are the head of selection_list, so the page-global
         // index start+i compares directly against app.selected.
@@ -222,9 +283,9 @@ fn draw_mosaic(app: &mut App, frame: &mut Frame, area: Rect) {
             app.config.score_style,
         );
         // A click anywhere on the tile selects it (same index space as j/k).
-        app.hit_zones
-            .push((tile.area, crate::keymap::Hit::Tile(start + i)));
+        zones.push((tile.area, crate::keymap::Hit::Tile(start + i)));
     }
+    app.hit_zones.extend(zones);
 }
 
 fn draw_slate(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -240,10 +301,12 @@ fn draw_slate(app: &mut App, frame: &mut Frame, area: Rect) {
     frame.render_widget(block, area);
     // Selection continues past the live tiles into these rows; the
     // selected row gets the same star accent as a selected tile border.
-    let live_len = app.live_games().len();
+    let d = app.derived();
+    let live_len = d.live.len();
     let sel = app.selected.checked_sub(live_len);
-    let lines: Vec<Line> = app
-        .slate_games()
+    let now = app.now();
+    let lines: Vec<Line> = d
+        .slate
         .iter()
         .enumerate()
         .map(|(i, g)| {
@@ -251,13 +314,13 @@ fn draw_slate(app: &mut App, frame: &mut Frame, area: Rect) {
                 vec![
                     Span::styled("▸ ", Style::default().fg(th.star)),
                     Span::styled(
-                        slate_line(g),
+                        slate_line(g, now),
                         Style::default().fg(th.star).add_modifier(Modifier::BOLD),
                     ),
                 ]
             } else {
                 vec![Span::styled(
-                    format!("  {}", slate_line(g)),
+                    format!("  {}", slate_line(g, now)),
                     Style::default().fg(th.muted),
                 )]
             };
@@ -276,18 +339,21 @@ fn draw_slate(app: &mut App, frame: &mut Frame, area: Rect) {
         .collect();
     // Each rendered slate row is a click zone; the row index is relative to
     // the slate (on_hit re-adds the live-tile prefix).
-    let visible_rows = app.slate_games().len().min(inner.height as usize);
-    for i in 0..visible_rows {
-        app.hit_zones.push((
-            Rect {
-                x: inner.x,
-                y: inner.y + i as u16,
-                width: inner.width,
-                height: 1,
-            },
-            crate::keymap::Hit::SlateRow(i),
-        ));
-    }
+    let visible_rows = d.slate.len().min(inner.height as usize);
+    let zones: Vec<_> = (0..visible_rows)
+        .map(|i| {
+            (
+                Rect {
+                    x: inner.x,
+                    y: inner.y + i as u16,
+                    width: inner.width,
+                    height: 1,
+                },
+                crate::keymap::Hit::SlateRow(i),
+            )
+        })
+        .collect();
+    app.hit_zones.extend(zones);
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().bg(th.bg).fg(th.muted)),
         inner,
@@ -305,11 +371,13 @@ fn rule(width: usize) -> Line<'static> {
 /// Departure-board slate row (gegen's status grammar): the status token —
 /// start time or FINAL — is a fixed-width first column, then the matchup in
 /// aligned columns, so rows stack like a split-flap board.
-fn slate_line(game: &Game) -> String {
+fn slate_line(game: &Game, now: time::OffsetDateTime) -> String {
     match game.status {
         crate::domain::Status::Pre => format!(
             "{:<9} {:>4} @ {:<4} {}",
-            game.start_time.as_deref().unwrap_or("--:--"),
+            game.start
+                .map(|t| crate::text::fmt_start(t, now))
+                .unwrap_or_else(|| "--:--".into()),
             game.away.abbr,
             game.home.abbr,
             game.broadcast.as_deref().unwrap_or(""),

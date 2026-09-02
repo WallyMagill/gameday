@@ -37,12 +37,27 @@ fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
             team: away.into(),
             text: "Mahomes pass to Kelce for 3 yards".into(),
             scoring: false,
+            ..Default::default()
         }],
         meter: None,
-        start_time: Some("8:20 PM".into()),
+        start: Some(time::macros::datetime!(2026-09-13 20:20 -4)),
         broadcast: Some("CBS".into()),
-        odds: None,
+        ..Game::default()
     }
+}
+
+/// Mirror a fixture's scoring rows into the model's scoring feed
+/// (`Game.scoring_plays`, oldest-first) — what the app itself does from a
+/// score delta or a summary. Fixtures author plays newest-first.
+fn with_scoring(mut game: Game) -> Game {
+    game.scoring_plays = game
+        .last_plays
+        .iter()
+        .filter(|p| p.scoring)
+        .rev()
+        .cloned()
+        .collect();
+    game
 }
 
 fn buf_text(term: &Terminal<TestBackend>) -> String {
@@ -61,19 +76,31 @@ fn buf_text(term: &Terminal<TestBackend>) -> String {
 fn mk() -> App {
     let dir = std::env::temp_dir().join(format!("gd-draw-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
-    App::new(Config::default_all(), vec![], dir)
+    App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC)
 }
 
 #[test]
 fn header_and_tabs_render() {
     let mut app = mk();
-    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
-    t.draw(|f| app.draw(f)).unwrap();
-    let s = buf_text(&t);
+    // Wide enough for the whole header: the FILTER: label and the chips'
+    // brackets are the first two things the shed ladder gives up, so this is
+    // where they have to be checked.
+    let mut wide = Terminal::new(TestBackend::new(180, 24)).unwrap();
+    wide.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&wide);
     assert!(s.contains("GAMEDAY"), "{s}");
     assert!(s.contains("FILTER:"), "{s}");
     assert!(s.contains("[ALL]"), "{s}");
-    assert!(s.contains("NFL"), "{s}");
+    assert!(s.contains("[ NFL ]"), "{s}");
+    // At 120 with ten tabs the label and the brackets shed instead of the
+    // clock (R12), but the wordmark and every tab still render.
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let row = buf_text(&t).lines().next().unwrap().to_string();
+    assert!(row.contains("GAMEDAY"), "{row}");
+    assert!(row.contains("ALL"), "{row}");
+    assert!(row.contains("NFL") && row.contains("MLS"), "{row}");
+    assert!(!row.contains("FILTER:"), "label sheds before the clock: {row}");
 }
 
 #[test]
@@ -206,7 +233,6 @@ fn footer_status_takes_the_clocks_discipline() {
         theme::set_current(name).unwrap();
         let mut app = mk();
         app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
-        app.last_update = Some(std::time::Instant::now());
         let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
         let b = t.backend().buffer();
@@ -256,9 +282,10 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
         team: "KC".into(),
         text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
         scoring: true,
+        ..Default::default()
     }];
     app.config.score_style = gameday::tiles::ScoreStyle::Compact;
-    app.apply_boards(League::Nfl, vec![game], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -297,8 +324,9 @@ fn sidebar_top_plays_are_abbr_surname_clock() {
         team: "KC".into(),
         text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
         scoring: true,
+        ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![game], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -315,12 +343,26 @@ fn sidebar_top_plays_are_abbr_surname_clock() {
 }
 
 #[test]
-fn empty_home_prompt() {
+fn empty_home_with_no_boards_points_at_config() {
     let mut app = mk();
+    // A board actually arrived and carried nothing — before the first fetch
+    // lands the board says NO DATA YET instead, which is a different claim.
+    app.apply_boards(League::Nfl, vec![], false);
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t).to_lowercase();
-    assert!(s.contains("pin a game"), "{s}");
+    assert!(s.contains("nothing live on the enabled boards"), "{s}");
+}
+
+#[test]
+fn empty_home_names_the_next_start() {
+    let mut app = mk();
+    // One scheduled game, nothing live: Home names when the slate opens.
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", false)], false);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t).to_lowercase();
+    assert!(s.contains("nothing live · next: kc @ tb"), "{s}");
 }
 
 #[test]
@@ -455,8 +497,8 @@ fn filter_matching_nothing_names_the_pattern() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     assert!(
-        s.contains("no games match \"zzz\""),
-        "empty filter result must name the pattern: {s}"
+        s.contains("no games match \"zzz\" on NFL"),
+        "empty filter result must name the pattern and the scope it searched: {s}"
     );
 }
 
@@ -512,15 +554,17 @@ fn l_cycles_to_the_plays_tab_and_jk_move_the_highlight() {
             team: "KC".into(),
             text: "Mahomes pass to Kelce, 12 yd TOUCHDOWN".into(),
             scoring: true,
+            ..Default::default()
         },
         Play {
             clock: "2:05".into(),
             team: "TB".into(),
             text: "Evans 8 yard reception".into(),
             scoring: false,
+            ..Default::default()
         },
     ];
-    app.apply_boards(League::Nfl, vec![game], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     gameday::input::handle_key(&mut app, KeyCode::Char('z'), KeyModifiers::NONE);
     gameday::input::handle_key(&mut app, KeyCode::Char('l'), KeyModifiers::NONE);
@@ -655,7 +699,7 @@ fn nba_game(id: &str, away: &str, home: &str) -> Game {
         logo_key: format!("nba/{}", abbr.to_lowercase()),
         ..Default::default()
     };
-    Game {
+    with_scoring(Game {
         id: id.into(),
         league: League::Nba,
         away: t(away),
@@ -671,12 +715,11 @@ fn nba_game(id: &str, away: &str, home: &str) -> Game {
             team: away.into(),
             text: "Tatum pull-up three".into(),
             scoring: true,
+            ..Default::default()
         }],
         meter: None,
-        start_time: None,
-        broadcast: None,
-        odds: None,
-    }
+        ..Game::default()
+    })
 }
 
 #[test]
@@ -689,8 +732,9 @@ fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
         team: "KC".into(),
         text: "Mahomes to Kelce, 12 yd".into(),
         scoring: true,
+        ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
     app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
     app.view = View::PlaysFeed;
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
@@ -726,8 +770,9 @@ fn plays_feed_j_and_k_move_the_marker_and_clamp() {
         team: "KC".into(),
         text: "Mahomes to Kelce, 12 yd".into(),
         scoring: true,
+        ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
     app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
     app.view = View::PlaysFeed;
     assert_eq!(app.feed_scroll, 0);
@@ -767,6 +812,7 @@ fn standings_table() -> gameday::domain::StandingsTable {
     };
     StandingsTable {
         league: League::Nfl,
+        season: None,
         groups: vec![
             StandingsGroup {
                 name: "American Football Conference".into(),
@@ -777,6 +823,7 @@ fn standings_table() -> gameday::domain::StandingsTable {
                 rows: vec![row("PHI", "Eagles", 12, 5, 0), row("DAL", "Cowboys", 9, 8, 0)],
             },
         ],
+        fetched_at: None,
     }
 }
 
@@ -822,6 +869,47 @@ fn standings_view_without_data_says_so_and_esc_pops() {
     gameday::input::handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
     assert_eq!(app.view, View::Board);
     assert!(!app.should_quit);
+}
+
+/// With no CFB table in hand the view points at the per-conference command
+/// rather than saying "no standings yet", which reads as a fetch still in
+/// flight — and never claims ESPN has no FBS table, because it does.
+#[test]
+fn standings_view_for_cfb_names_the_per_conference_workaround() {
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Cfb);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("no FBS standings right now"), "{s}");
+    assert!(s.contains(":standings <conf>"), "the workaround must be named:\n{s}");
+    assert!(!s.contains("no standings yet"), "{s}");
+}
+
+/// The header dates the table: the feed's own season when it sent one, and
+/// otherwise when we took the snapshot — never nothing, which reads as live.
+#[test]
+fn standings_header_carries_the_season_else_when_it_was_fetched() {
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Nfl);
+    app.merge_standings(standings_table());
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let header = s.lines().find(|l| l.contains("STANDINGS")).unwrap();
+    assert!(header.contains("·  updated "), "no updated label:\n{header:?}");
+    assert!(!header.contains("2025-26"), "{header:?}");
+
+    let mut table = standings_table();
+    table.season = Some("2025-26".into());
+    app.merge_standings(table);
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let header = s.lines().find(|l| l.contains("STANDINGS")).unwrap();
+    assert!(header.contains("·  2025-26"), "no season label:\n{header:?}");
+    assert!(!header.contains("updated"), "season wins over the age:\n{header:?}");
 }
 
 #[test]
@@ -873,7 +961,9 @@ fn tall_standings_table() -> gameday::domain::StandingsTable {
     };
     StandingsTable {
         league: League::Nfl,
+        season: None,
         groups: vec![group("American Football Conference", "A"), group("National Football Conference", "N")],
+        fetched_at: None,
     }
 }
 
@@ -976,8 +1066,9 @@ fn plays_feed_marks_its_end_when_the_pane_has_room() {
         team: "KC".into(),
         text: "Mahomes to Kelce, 12 yd".into(),
         scoring: true,
+        ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
     app.view = View::PlaysFeed;
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -1000,7 +1091,7 @@ fn records_rail_shows_the_abbr_instead_of_a_clipped_name() {
     game.away.record = "11-6".into();
     game.home.name = "Buccaneers".into();
     game.home.record = "11-6".into();
-    app.apply_boards(League::Nfl, vec![game], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -1101,7 +1192,7 @@ fn pre_tile_and_slate_show_odds() {
     game.last_plays.clear(); // a pre-game has no plays
     game.situation = None;
     game.odds = Some("KC -3.5  O/U 47.5".into());
-    app.apply_boards(League::Nfl, vec![game], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -1246,8 +1337,9 @@ fn wheel_scrolls_the_plays_feed_and_clamps() {
         team: "KC".into(),
         text: "Mahomes to Kelce, 12 yd".into(),
         scoring: true,
+        ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![nfl], false);
+    app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
     app.apply_boards(League::Nba, vec![nba_game("2", "BOS", "LAL")], false);
     app.view = View::PlaysFeed;
     assert_eq!(app.feed_scroll, 0);
@@ -1300,7 +1392,7 @@ fn type_text(app: &mut App, text: &str) {
 #[test]
 fn config_view_renders_every_section() {
     use gameday::views::View;
-    let mut app = App::new(Config::default_all(), vec![], config_dir("sections"));
+    let mut app = App::new(Config::default_all(), vec![], config_dir("sections"), time::UtcOffset::UTC);
     app.config.favorites.push(gameday::config::Favorite {
         league: League::Nfl,
         team_abbr: "KC".into(),
@@ -1322,7 +1414,7 @@ fn config_space_toggles_a_tab_and_round_trips_config_toml() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
     let dir = config_dir("toggle");
-    let mut app = App::new(Config::default_all(), vec![], dir.clone());
+    let mut app = App::new(Config::default_all(), vec![], dir.clone(), time::UtcOffset::UTC);
     app.view = View::ConfigView;
     // Cursor starts on the first row: the NFL tab toggle.
     key(&mut app, KeyCode::Char(' '));
@@ -1340,7 +1432,7 @@ fn config_enter_adds_a_typed_favorite_and_enter_removes_it() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
     let dir = config_dir("fav");
-    let mut app = App::new(Config::default_all(), vec![], dir.clone());
+    let mut app = App::new(Config::default_all(), vec![], dir.clone(), time::UtcOffset::UTC);
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.view = View::ConfigView;
     // 9 league rows (League::ALL), then the ADD FAVORITE row.
@@ -1368,7 +1460,7 @@ fn config_enter_adds_a_typed_favorite_and_enter_removes_it() {
 fn config_favorite_miss_names_the_abbr_and_the_league_form() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
-    let mut app = App::new(Config::default_all(), vec![], config_dir("favmiss"));
+    let mut app = App::new(Config::default_all(), vec![], config_dir("favmiss"), time::UtcOffset::UTC);
     app.view = View::ConfigView;
     for _ in 0..League::ALL.len() {
         key(&mut app, KeyCode::Char('j'));
@@ -1396,7 +1488,7 @@ fn config_h_l_cycle_score_and_layout_and_persist() {
     use gameday::tiles::ScoreStyle;
     use gameday::views::View;
     let dir = config_dir("cycle");
-    let mut app = App::new(Config::default_all(), vec![], dir.clone());
+    let mut app = App::new(Config::default_all(), vec![], dir.clone(), time::UtcOffset::UTC);
     app.view = View::ConfigView;
     // Rows: 9 tabs, ADD FAVORITE, THEME, SCORE, LAYOUT.
     for _ in 0..League::ALL.len() + 2 {
@@ -1418,7 +1510,7 @@ fn config_h_l_cycle_score_and_layout_and_persist() {
 fn config_esc_pops_but_cancels_an_open_edit_first() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
-    let mut app = App::new(Config::default_all(), vec![], config_dir("escpop"));
+    let mut app = App::new(Config::default_all(), vec![], config_dir("escpop"), time::UtcOffset::UTC);
     app.view = View::ConfigView;
     for _ in 0..League::ALL.len() {
         key(&mut app, KeyCode::Char('j'));
@@ -1435,4 +1527,274 @@ fn config_esc_pops_but_cancels_an_open_edit_first() {
     key(&mut app, KeyCode::Char('q'));
     assert_eq!(app.view, View::Board);
     assert!(!app.should_quit);
+}
+
+#[test]
+fn pregame_tile_and_slate_show_local_start_never_iso() {
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::from_hms(-4, 0, 0).unwrap(),
+    );
+    app.now_override = Some(time::macros::datetime!(2026-09-10 12:00 -4));
+    let mut pre = g("1", "NE", "SEA", false);
+    pre.start = Some(time::macros::datetime!(2026-09-10 20:20 -4));
+    app.apply_boards(League::Nfl, vec![pre], false);
+    app.tab = Tab::League(League::Nfl);
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("8:20 PM"), "{text}");
+    assert!(!text.contains("2026-"), "raw ISO leaked: {text}");
+}
+
+#[test]
+fn pinned_and_favorited_tiles_carry_a_glyph_in_the_title() {
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::UTC,
+    );
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.on_key(
+        crossterm::event::KeyCode::Char(' '),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("⚑"), "pin glyph missing: {text}");
+    assert!(text.contains("pinned KC@TB"), "toast missing: {text}");
+    app.on_key(
+        crossterm::event::KeyCode::Char('t'),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("★"), "favorite glyph missing: {text}");
+}
+
+#[test]
+fn baseball_play_rows_show_the_inning_not_a_dash_clock() {
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::UTC,
+    );
+    let mut mlb = g("1", "SEA", "BOS", true);
+    mlb.league = League::Mlb;
+    mlb.period = "BOT 9TH".into();
+    mlb.clock = String::new();
+    mlb.last_plays = vec![Play {
+        period: "B9".into(),
+        team: "SEA".into(),
+        text: "Rodríguez singles".into(),
+        ..Default::default()
+    }];
+    app.apply_boards(League::Mlb, vec![mlb], false);
+    app.tab = Tab::League(League::Mlb);
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("[B9]"), "{text}");
+    assert!(!text.contains("[-:--]"), "{text}");
+}
+
+#[test]
+fn long_names_keep_their_record_as_the_abbr_form() {
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::UTC,
+    );
+    let games: Vec<Game> = (0..4)
+        .map(|i| {
+            let mut game = g(&format!("{i}"), "SEA", "BOS", true);
+            game.away.name = "Mariners".into();
+            game.away.record = "64-73".into();
+            game.home.name = "Red Sox".into();
+            game.home.record = "74-63".into();
+            game
+        })
+        .collect();
+    app.apply_boards(League::Nfl, games, false); // 2x2 => narrow tiles
+    app.tab = Tab::League(League::Nfl);
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(
+        text.contains("64-73") && text.contains("74-63"),
+        "records dropped: {text}"
+    );
+}
+
+#[test]
+fn zoom_overview_carries_the_linescore_with_hits_and_errors() {
+    use gameday::views::{View, ZoomTab};
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::UTC,
+    );
+    let mut mlb = g("1", "SEA", "BOS", true);
+    mlb.league = League::Mlb;
+    mlb.away_score = 3;
+    mlb.home_score = 2;
+    mlb.linescore = vec![(1, 0), (0, 2), (2, 0)];
+    mlb.extras = Extras::Baseball {
+        hits: Some((8, 5)),
+        errors: Some((0, 1)),
+    };
+    app.apply_boards(League::Mlb, vec![mlb], false);
+    app.tab = Tab::League(League::Mlb);
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    let lines: Vec<&str> = text.lines().collect();
+    let i = lines
+        .iter()
+        .position(|l| l.contains("  1  2  3"))
+        .unwrap_or_else(|| panic!("period header missing:\n{text}"));
+    let head = lines[i];
+    assert!(head.contains('R') && head.contains('H') && head.contains('E'), "{head:?}");
+    // Away row: per-inning runs, then R H E — R is the game score, not a sum.
+    let away = lines[i + 1];
+    assert!(away.trim_start().starts_with("SEA"), "away row: {away:?}");
+    assert!(away.contains("  1  0  2   3  8  0"), "away R H E: {away:?}");
+    assert!(lines[i + 2].contains("  0  2  0   2  5  1"), "home R H E: {:?}", lines[i + 2]);
+    // A short pane keeps the tile whole instead of a headless strip.
+    let mut short = Terminal::new(TestBackend::new(120, 19)).unwrap();
+    short.draw(|f| app.draw(f)).unwrap();
+    assert!(
+        !buf_text(&short).contains("  1  2  3"),
+        "linescore should be skipped under 20 rows"
+    );
+}
+
+#[test]
+fn header_chip_is_its_own_cell_and_offline_names_the_error() {
+    let mut app = mk();
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("NO DATA YET"), "{text}");
+    app.note_failure(
+        League::Nfl,
+        "ESPN 403 nfl scoreboard".into(),
+        Some(std::time::Duration::from_secs(40)),
+    );
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(text.contains("OFFLINE"), "{text}");
+    assert!(
+        text.contains("ESPN 403 nfl scoreboard"),
+        "board area names the error: {text}"
+    );
+    assert!(text.contains("retry 40s"), "{text}");
+    assert!(
+        !text.contains("OFFLINEMON") && !text.contains("STALEMON"),
+        "chip glued to the date: {text}"
+    );
+    // Wide enough for the whole header: chip, date and clock all fit, and
+    // the chip's padding keeps it off the date.
+    let mut wide = Terminal::new(TestBackend::new(180, 40)).unwrap();
+    wide.draw(|f| app.draw(f)).unwrap();
+    let row: String = {
+        let b = wide.backend().buffer();
+        (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect()
+    };
+    assert!(row.contains("OFFLINE · retry 40s  "), "chip padded: {row:?}");
+    let chip_end = row.find("retry 40s").unwrap() + "retry 40s".len();
+    assert!(
+        row[chip_end..].trim_start().len() > 8,
+        "date and clock still render after the chip: {row:?}"
+    );
+}
+
+#[test]
+fn a_narrow_header_shortens_the_chip_instead_of_chopping_it() {
+    // Every league enabled at 50 cols: even with the left side shed all the
+    // way down (no FILTER: label, no brackets, one tab, "GD"), the padded
+    // "OFFLINE · retry 40s" cannot fit, so the chip degrades to its bare
+    // state word. A chopped "OFFLINE · retry 4" would be a lie about the
+    // retry.
+    let mut app = mk();
+    app.note_failure(
+        League::Nfl,
+        "ESPN 403 nfl scoreboard".into(),
+        Some(std::time::Duration::from_secs(40)),
+    );
+    let mut t = Terminal::new(TestBackend::new(50, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let b = t.backend().buffer();
+    let row: String = (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect();
+    assert!(row.contains("OFFLINE"), "chip survives a narrow header: {row:?}");
+    assert!(!row.contains("retry 4"), "chopped retry tail: {row:?}");
+}
+
+#[test]
+fn header_keeps_the_clock_with_ten_chips_at_120_columns() {
+    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
+    app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let first = buf_text(&term).lines().next().unwrap().to_string();
+    assert!(first.contains("9:37:05 PM"), "clock clipped: {first}");
+}
+
+#[test]
+fn header_keeps_the_clock_and_the_selected_tab_at_eighty_columns() {
+    // Ten chips at 80 cols: the shed ladder runs out of league tabs long
+    // before it touches the right side. The selected tab is the one chip
+    // that never sheds, and the clock is never clipped.
+    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
+    app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
+    app.tab = Tab::League(League::Nfl);
+    let mut term = Terminal::new(TestBackend::new(80, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let first = buf_text(&term).lines().next().unwrap().to_string();
+    assert!(first.contains("9:37:05 PM"), "clock clipped: {first}");
+    assert!(first.contains("NFL"), "selected tab shed: {first}");
+}
+
+#[test]
+fn the_clock_survives_every_width_the_board_will_draw_at() {
+    // R12's rule swept: from the narrowest board the app will render (40)
+    // up, the clock is always whole and the status chip is never glued to
+    // whatever follows it. Caught a clipped "9:37:05" at 40 and an
+    // "OFFLINE9:37:05 PM" at 60.
+    for width in 40u16..=180 {
+        for tab in [Tab::Home, Tab::League(League::Mls)] {
+            let mut app = mk();
+            app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
+            app.tab = tab;
+            let mut t = Terminal::new(TestBackend::new(width, 40)).unwrap();
+            t.draw(|f| app.draw(f)).unwrap();
+            let b = t.backend().buffer();
+            let row: String = (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect();
+            assert!(row.contains("9:37:05 PM"), "clock clipped at {width}: {row:?}");
+            assert!(!row.contains("YET9") && !row.contains("YETMON"), "chip glued at {width}: {row:?}");
+        }
+    }
+}
+
+#[test]
+fn command_completion_shows_the_candidates_in_the_footer() {
+    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
+    for c in [':', 'n'] { gameday::input::handle_key(&mut app, crossterm::event::KeyCode::Char(c), crossterm::event::KeyModifiers::NONE); }
+    gameday::input::handle_key(&mut app, crossterm::event::KeyCode::Tab, crossterm::event::KeyModifiers::NONE);
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let last = buf_text(&term).lines().last().unwrap().to_string();
+    assert!(last.contains(":nfl") && last.contains("nba") && last.contains("nhl"), "{last}");
 }

@@ -1,6 +1,16 @@
+//! App state, the key handlers, and the shared chrome. `net` (connection
+//! truth), `chrome` (header/footer/help) and `derive` (the per-frame game
+//! lists) are children of this module — everything they touch lives on `App`.
+
+mod chrome;
+mod derive;
+pub mod net;
+
+pub use derive::Derived;
+
+use crate::app::net::NetStatus;
 use crate::config::{prune_pins, save_pins, Config, Favorite, Pin};
 use crate::domain::{Game, GameStats, League, StandingsTable, Status, Summary};
-use crate::home::home_games;
 use crate::input::{CompletionState, InputMode};
 use crate::keymap;
 use crate::theme;
@@ -10,13 +20,12 @@ use crate::tiles::TileFx;
 use crate::views::{self, View, ZoomTab};
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::style::Style;
+use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +50,7 @@ const FEED_PAGE_JUMP: isize = 10;
 /// LIVE chip pulse phase, pure in the tick: ~1s bright then ~1s dim at the
 /// 10 ticks/s live cadence. A luminance step, never a hue change.
 pub fn live_pulse_bright(tick: u64) -> bool {
-    (tick / 10) % 2 == 0
+    (tick / 10).is_multiple_of(2)
 }
 
 /// How far `[`/`]` can step the viewed slate from today, in days (the spec's
@@ -59,24 +68,6 @@ pub fn date_label(d: time::Date) -> String {
     )
 }
 
-/// Local calendar date, the anchor date travel steps from.
-fn today_local() -> time::Date {
-    OffsetDateTime::now_local()
-        .unwrap_or_else(|_| OffsetDateTime::now_utc())
-        .date()
-}
-
-/// Does either team match the `/` filter? Case-insensitive substring on
-/// abbr ("KC"), location ("KANSAS CITY"), and name ("Chiefs").
-fn game_matches(game: &Game, needle: &str) -> bool {
-    let needle = needle.to_lowercase();
-    [&game.away, &game.home].into_iter().any(|t| {
-        t.abbr.to_lowercase().contains(&needle)
-            || t.location.to_lowercase().contains(&needle)
-            || t.name.to_lowercase().contains(&needle)
-    })
-}
-
 pub struct App {
     pub tab: Tab,
     pub page: usize,
@@ -91,7 +82,9 @@ pub struct App {
     /// cache in the provider). At most one small table per league — no
     /// pruning needed.
     pub standings: HashMap<League, StandingsTable>,
-    pub stale: bool,
+    /// Connection truth: what the header chip, the footer's UPD age and the
+    /// board's offline message all read, so they can never disagree.
+    pub net: NetStatus,
     pub should_quit: bool,
     pub refresh_now: bool,
     /// Which full-screen surface the body renders; Board is the mosaic.
@@ -146,10 +139,18 @@ pub struct App {
     pub completion: Option<CompletionState>,
     /// '?' overlay. Modal: Esc closes it before Esc touches focus.
     pub help_open: bool,
-    /// Wall-clock moment of the last successful `apply_boards` — drives the
-    /// footer's "UPD 12s" freshness age.
-    pub last_update: Option<Instant>,
     pub config_dir: PathBuf,
+    /// Set when the config or pins on disk could not be parsed. While it is
+    /// Some, every `persist_*` is a no-op that re-arms the status line — a
+    /// typo is never silently overwritten with defaults.
+    pub config_error: Option<String>,
+    /// The last error from an on-demand fetch, per (league, what) — `what` is
+    /// the request kind ("standings", "dated", "summary", "stats"). Scoreboard
+    /// failures live in `net`, which the header chip reads; these have no chip
+    /// of their own, so the view that asked for the fetch shows the error
+    /// instead of pretending the answer is still on its way. Cleared by the
+    /// next success for the same key.
+    pub aux_errors: HashMap<(League, &'static str), String>,
     /// Monotonic render tick (~10/s while live, ~1/s idle). Every animation
     /// is a pure function of this counter plus app state — keyboard input
     /// redraws but never advances it, so keys can't animate anything.
@@ -172,10 +173,27 @@ pub struct App {
     /// resolves against the LAST frame's zones — stale for at most one
     /// render tick.
     pub hit_zones: Vec<(Rect, keymap::Hit)>,
+    /// The local UTC offset, read once on the main thread at startup
+    /// (`text::startup_offset`). Every clock the app renders goes through
+    /// [`App::now`] so nothing calls `now_local()` off the main thread.
+    pub offset: time::UtcOffset,
+    /// Frozen clock: when set, [`App::now`] returns this instead of reading
+    /// the wall clock. Dumps and draw tests set it so a capture of the same
+    /// tick is the same pixels every run; the real app leaves it None.
+    pub now_override: Option<OffsetDateTime>,
+    /// This frame's derived lists — Some only between the first and last
+    /// lines of [`App::draw`]. Widgets read it through `derived()`; nothing
+    /// outside a draw may, which is why it is private and cleared.
+    frame_cache: Option<Derived>,
 }
 
 impl App {
-    pub fn new(config: Config, pins: Vec<Pin>, config_dir: PathBuf) -> Self {
+    pub fn new(
+        config: Config,
+        pins: Vec<Pin>,
+        config_dir: PathBuf,
+        offset: time::UtcOffset,
+    ) -> Self {
         Self {
             tab: Tab::Home,
             page: 0,
@@ -185,7 +203,7 @@ impl App {
             boards: HashMap::new(),
             stats: HashMap::new(),
             standings: HashMap::new(),
-            stale: false,
+            net: NetStatus::default(),
             should_quit: false,
             refresh_now: false,
             view: View::Board,
@@ -204,8 +222,9 @@ impl App {
             dated_boards: HashMap::new(),
             completion: None,
             help_open: false,
-            last_update: None,
             config_dir,
+            config_error: None,
+            aux_errors: HashMap::new(),
             tick: 0,
             last_scores: HashMap::new(),
             flashes: HashMap::new(),
@@ -213,7 +232,63 @@ impl App {
             active_alert: None,
             bell_pending: false,
             hit_zones: Vec::new(),
+            offset,
+            now_override: None,
+            frame_cache: None,
         }
+    }
+
+    /// The only place config.toml is written. A config we could not parse is
+    /// never overwritten: the save is skipped and the footer says why, every
+    /// time, so the user can go fix the file.
+    pub fn persist_config(&mut self) {
+        if let Some(err) = &self.config_error {
+            self.status_line = Some(format!("not saving: {err}"));
+            return;
+        }
+        if let Err(e) = self.config.save_to(&self.config_dir) {
+            self.status_line = Some(format!("config save failed: {e}"));
+        }
+    }
+
+    /// The only place pins.json is written from a key the user pressed; same
+    /// refusal as `persist_config`, and it says so.
+    pub fn persist_pins(&mut self) {
+        if let Some(err) = &self.config_error {
+            self.status_line = Some(format!("not saving: {err}"));
+            return;
+        }
+        self.persist_pins_quiet();
+    }
+
+    /// The same write from a background path (the prune inside `apply_boards`,
+    /// which runs on every poll). A broken config skips it in silence: the
+    /// startup status line already says saving is off, and re-toasting it
+    /// every merge would stomp whatever the user's last key said.
+    pub fn persist_pins_quiet(&mut self) {
+        if self.config_error.is_some() {
+            return;
+        }
+        if let Err(e) = save_pins(&self.config_dir, &self.pins) {
+            self.status_line = Some(format!("pins save failed: {e}"));
+        }
+    }
+
+    /// Record a config/pins parse failure: it blocks every save and takes the
+    /// footer once, at startup, so the reason is on screen and not only on the
+    /// stderr that the alternate screen swallowed.
+    pub fn set_config_error(&mut self, err: Option<String>) {
+        self.status_line = err
+            .as_ref()
+            .map(|e| format!("config error: {e} — not saving until fixed"));
+        self.config_error = err;
+    }
+
+    /// Now, in the user's local offset — or the frozen clock when one is set.
+    /// The one clock the app reads.
+    pub fn now(&self) -> OffsetDateTime {
+        self.now_override
+            .unwrap_or_else(|| OffsetDateTime::now_utc().to_offset(self.offset))
     }
 
     /// The registered hit under `pos`, last-drawn zone winning (later
@@ -311,52 +386,13 @@ impl App {
             .unwrap_or(0)
     }
 
-    pub fn visible_games(&self) -> Vec<Game> {
-        let games = match self.tab {
-            Tab::Home => {
-                let concat = self.concat_boards();
-                home_games(
-                    &self.pins,
-                    &self.config.favorites,
-                    &concat,
-                    OffsetDateTime::now_utc(),
-                )
-                .into_iter()
-                .cloned()
-                .collect()
-            }
-            Tab::League(league) => self.league_games(league),
-        };
-        match self.active_filter() {
-            Some(needle) => games
-                .into_iter()
-                .filter(|g| game_matches(g, needle))
-                .collect(),
-            None => games,
-        }
-    }
-
-    /// One league's board as the tab shows it: today's live board, or — while
-    /// date-traveled — the fetched slate for the viewed date (empty until the
-    /// on-demand fetch answers).
-    fn league_games(&self, league: League) -> Vec<Game> {
-        match self.viewed_date(league) {
-            Some(date) => self
-                .dated_boards
-                .get(&(league, date))
-                .cloned()
-                .unwrap_or_default(),
-            None => self.boards.get(&league).cloned().unwrap_or_default(),
-        }
-    }
-
     /// The date `league`'s tab is viewing, None when it's live today.
     pub fn viewed_date(&self, league: League) -> Option<time::Date> {
         let off = self.viewed_date_offset.get(&league).copied().unwrap_or(0);
         if off == 0 {
             return None;
         }
-        today_local().checked_add(time::Duration::days(off as i64))
+        self.now().date().checked_add(time::Duration::days(off as i64))
     }
 
     /// `[`/`]` on the board: step the current league tab's viewed date,
@@ -385,6 +421,7 @@ impl App {
     /// snapshot) and never touches flash/score state — traveled slates are
     /// read-only history/preview, not live data.
     pub fn merge_dated_board(&mut self, league: League, date: time::Date, games: Vec<Game>) {
+        self.clear_aux_error(league, "dated");
         self.dated_boards.insert((league, date), games);
         self.clamp_selected();
     }
@@ -398,36 +435,19 @@ impl App {
         self.filter.as_deref()
     }
 
-    pub fn live_games(&self) -> Vec<Game> {
-        self.visible_games()
-            .into_iter()
-            .filter(|g| g.status == Status::Live)
-            .collect()
-    }
-
-    pub fn slate_games(&self) -> Vec<Game> {
-        match self.tab {
-            Tab::Home => vec![],
-            Tab::League(_) => self
-                .visible_games()
-                .into_iter()
-                .filter(|g| g.status == Status::Pre || g.status == Status::Final)
-                .collect(),
-        }
-    }
-
     pub fn on_key(&mut self, code: KeyCode, mods: KeyModifiers) {
         // Raw mode swallows SIGINT, so Ctrl+C must be an explicit quit.
         if mods.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('c') {
             self.should_quit = true;
             return;
         }
-        // Help is modal: Esc closes the topmost layer (help before views),
-        // '?' toggles, q still quits; everything else is inert while open.
+        // Help is modal: Esc, '?' and 'q' all close it — 'q' inside help
+        // dismisses the overlay, never the app (quitting from behind a
+        // modal you opened by accident is the wrong surprise). Ctrl+C above
+        // is still the escape hatch. Everything else is inert while open.
         if self.help_open {
             match code {
-                KeyCode::Esc | KeyCode::Char('?') => self.help_open = false,
-                KeyCode::Char('q') => self.should_quit = true,
+                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => self.help_open = false,
                 _ => {}
             }
             return;
@@ -469,7 +489,7 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up => self.move_theme_cursor(-1),
             KeyCode::Enter => {
                 self.config.theme = theme::current_name();
-                let _ = self.config.save_to(&self.config_dir);
+                self.persist_config();
                 self.view = View::Board;
             }
             KeyCode::Esc | KeyCode::Char('q') => {
@@ -571,10 +591,13 @@ impl App {
         self.config_cursor = next.clamp(0, n as isize - 1) as usize;
     }
 
-    /// Space on a TABS row: toggle the league in `enabled_tabs` (appended at
-    /// the end when re-enabled — the list's order is the tab order). If the
-    /// current tab was just disabled, fall back to Home.
-    fn config_toggle_tab(&mut self, league: League) {
+    /// Space on a TABS row: toggle the league in `enabled_tabs`. The list is
+    /// always re-sorted into `League::ALL` order, so toggling a league off
+    /// and back on returns it to its place in the bar instead of parking it
+    /// at the end — the tab order is a property of the league, not of the
+    /// order you happened to click. If the current tab was just disabled,
+    /// fall back to Home.
+    pub(crate) fn config_toggle_tab(&mut self, league: League) {
         if let Some(i) = self.config.enabled_tabs.iter().position(|l| *l == league) {
             self.config.enabled_tabs.remove(i);
             if self.tab == Tab::League(league) {
@@ -583,13 +606,16 @@ impl App {
         } else {
             self.config.enabled_tabs.push(league);
         }
-        let _ = self.config.save_to(&self.config_dir);
+        self.config
+            .enabled_tabs
+            .sort_by_key(|l| League::ALL.iter().position(|x| x == l));
+        self.persist_config();
     }
 
     fn config_remove_favorite(&mut self, i: usize) {
         if i < self.config.favorites.len() {
             self.config.favorites.remove(i);
-            let _ = self.config.save_to(&self.config_dir);
+            self.persist_config();
         }
         self.move_config_cursor(0); // re-clamp against the shrunk row list
     }
@@ -659,7 +685,7 @@ impl App {
             league,
             team_abbr: abbr,
         });
-        let _ = self.config.save_to(&self.config_dir);
+        self.persist_config();
     }
 
     /// h/l on a display row: cycle its value and persist. No-op on rows that
@@ -689,7 +715,7 @@ impl App {
             }
             ConfigRow::Tab(_) | ConfigRow::Favorite(_) | ConfigRow::AddFavorite => return,
         }
-        let _ = self.config.save_to(&self.config_dir);
+        self.persist_config();
     }
 
     /// Keys in the Standings view: j/k scroll the table one line, PgUp/PgDn
@@ -854,15 +880,39 @@ impl App {
         self.zoom_scroll = next.clamp(0, len as isize - 1) as usize;
     }
 
-    pub fn apply_boards(&mut self, league: League, games: Vec<Game>, stale: bool) {
+    pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
         let now = OffsetDateTime::now_utc();
+        let prev_board = self.boards.get(&league).cloned().unwrap_or_default();
         // Score-change flash fires ONLY here — from data. A first sighting
         // (startup, new game) seeds last_scores without flashing.
-        for g in &games {
+        for g in &mut games {
+            // Carry the accumulated scoring plays across the wholesale replace.
+            if g.scoring_plays.is_empty() {
+                if let Some(prev) = prev_board.iter().find(|p| p.id == g.id) {
+                    g.scoring_plays = prev.scoring_plays.clone();
+                }
+            }
+            // A cached payload is an OLDER snapshot, not news: its diff
+            // against the last fresh scores is backwards and its lastPlay is
+            // whatever was on screen then. Capturing that would write a bogus
+            // scoring play that outlives the outage, so a stale apply is
+            // scores-only — no flash, no capture, no last_scores rewrite.
+            if stale {
+                continue;
+            }
             let score = (g.away_score, g.home_score);
             if let Some(prev) = self.last_scores.get(&g.id) {
                 if *prev != score {
                     self.flashes.insert(g.id.clone(), self.tick);
+                    // The scoreboard's lastPlay at the moment the score moved
+                    // IS the scoring play (spec §1); dedupe on text.
+                    if let Some(p) = g.last_plays.first() {
+                        if !g.scoring_plays.iter().any(|s| s.text == p.text) {
+                            let mut p = p.clone();
+                            p.scoring = true;
+                            g.scoring_plays.push(p);
+                        }
+                    }
                 }
             }
             self.last_scores.insert(g.id.clone(), score);
@@ -878,13 +928,19 @@ impl App {
         }
         self.boards.insert(league, games);
         // Favorite-score alerts diff the freshly merged boards; a hit starts
-        // the header banner and queues the bell for main to ring.
-        if let Some(alert) =
-            self.alerts
-                .check(&self.config.favorites, &self.boards, self.tick)
-        {
-            self.active_alert = Some(alert);
-            self.bell_pending = true;
+        // the header banner and queues the bell for main to ring. A cached
+        // payload is skipped whole — not checked and discarded: AlertState
+        // diffs on inequality, so an older snapshot reads as a score change
+        // (a banner and a bell for a score going backwards), and consuming
+        // its delta would swallow the real one when the fresh board lands.
+        if !stale {
+            if let Some(alert) =
+                self.alerts
+                    .check(&self.config.favorites, &self.boards, self.tick)
+            {
+                self.active_alert = Some(alert);
+                self.bell_pending = true;
+            }
         }
         // Drop score memory for games no board carries any more: unbounded
         // growth over a days-long session, and a recycled id would flash on
@@ -895,28 +951,53 @@ impl App {
         let mut stats = std::mem::take(&mut self.stats);
         stats.retain(|id, _| self.boards.values().flatten().any(|g| g.id == *id));
         self.stats = stats;
-        self.stale = stale;
-        self.last_update = Some(Instant::now());
+        self.net.ok(Instant::now(), stale);
         self.pins = prune_pins(std::mem::take(&mut self.pins), now);
-        let _ = save_pins(&self.config_dir, &self.pins);
+        self.persist_pins_quiet();
         self.clamp_selected();
     }
 
     pub fn merge_summary(&mut self, game_id: &str, summary: Summary) {
-        // Non-football summaries carry no "drives", so they map to zero plays;
-        // keep the scoreboard's lastPlay instead of blanking the tile.
-        if summary.last_plays.is_empty() {
+        if let Some(league) = self.league_of(game_id) {
+            self.clear_aux_error(league, "summary");
+        }
+        // Non-football summaries carry no "drives", so they can map to zero
+        // plays; keep the scoreboard's lastPlay instead of blanking the tile.
+        if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
             return;
         }
         for board in self.boards.values_mut() {
             if let Some(game) = board.iter_mut().find(|g| g.id == game_id) {
-                let mut last_plays = summary.last_plays;
-                for play in &mut last_plays {
-                    if summary.scoring_plays.iter().any(|s| s.text == play.text) {
-                        play.scoring = true;
+                if !summary.scoring_plays.is_empty() {
+                    // Summary order differs by source: football's
+                    // `scoringPlays` is oldest-first, a list derived from the
+                    // play-by-play is newest-first. Normalize to oldest-first
+                    // by asking `last_plays` (newest-first) where the ends of
+                    // the list sit — a smaller index means newer.
+                    let mut sp = summary.scoring_plays.clone();
+                    let newest_first = sp.len() > 1 && {
+                        let pos = |t: &str| summary.last_plays.iter().position(|p| p.text == t);
+                        match (pos(&sp[0].text), pos(&sp[sp.len() - 1].text)) {
+                            (Some(a), Some(b)) => a < b,
+                            // Nothing to compare against: ESPN's own
+                            // `scoringPlays` is oldest-first already.
+                            _ => false,
+                        }
+                    };
+                    if newest_first {
+                        sp.reverse();
                     }
+                    game.scoring_plays = sp;
                 }
-                game.last_plays = last_plays;
+                if !summary.last_plays.is_empty() {
+                    let mut last_plays = summary.last_plays;
+                    for play in &mut last_plays {
+                        if summary.scoring_plays.iter().any(|s| s.text == play.text) {
+                            play.scoring = true;
+                        }
+                    }
+                    game.last_plays = last_plays;
+                }
                 return;
             }
         }
@@ -928,18 +1009,29 @@ impl App {
         self.zoomed_game().map(|g| (g.league, g.id))
     }
 
-    pub fn poll_plan(&self) -> crate::poll::PollPlan {
-        crate::poll::plan(
-            &self.visible_for_poll(),
-            &self.config.enabled_tabs,
-            self.stats_target(),
-        )
-    }
-
     /// Latest box score for `game_id`, from the stats poll (or a fixture in
     /// tests/dump). Replaces wholesale — rows are a snapshot, not a delta.
     pub fn merge_stats(&mut self, game_id: &str, stats: GameStats) {
+        if let Some(league) = self.league_of(game_id) {
+            self.clear_aux_error(league, "stats");
+        }
         self.stats.insert(game_id.to_string(), stats);
+    }
+
+    /// Record a failed scoreboard fetch: which league, the provider's short
+    /// error (`ESPN 403 nfl scoreboard`), and how long until the scheduler
+    /// retries. The chip and the board message read it through `net`.
+    pub fn note_failure(&mut self, league: League, error: String, retry_in: Option<Duration>) {
+        self.net.failed(Instant::now(), error.clone(), retry_in);
+        // A populated board keeps its scores and the header chip says the
+        // rest — a toast on top would nag. With nothing on the board, the
+        // failure IS the news, so it also gets the footer line.
+        if !self.boards.values().any(|b| !b.is_empty()) {
+            self.status_line = Some(match retry_in {
+                Some(d) => format!("{} · {} · retry in {}s", league.slug(), error, d.as_secs()),
+                None => format!("{} · {error}", league.slug()),
+            });
+        }
     }
 
     /// The league the Standings view wants a table for — the on-demand
@@ -953,8 +1045,52 @@ impl App {
 
     /// Latest standings for one league, from the on-demand fetch (or a
     /// fixture in tests/dump). Replaces wholesale — a table is a snapshot.
-    pub fn merge_standings(&mut self, table: StandingsTable) {
+    /// Stamped with the moment we took it: a table the feed doesn't label
+    /// with a season is labeled with its own age instead, so it never reads
+    /// as live when it isn't.
+    /// How old the last fresh board may get before the header stops claiming
+    /// the numbers are live — derived from the cadence actually in use, so
+    /// the chip can never contradict the scheduler. Live: 3 × the 15 s live
+    /// cadence (one missed poll is noise, three in a row is a problem). Idle:
+    /// one 60 s cadence plus one live window, because at a minute between
+    /// polls a 45 s cutoff would call every healthy board stale.
+    pub fn stale_after(&self) -> Duration {
+        if self.any_live() {
+            3 * crate::poll::SCOREBOARD_LIVE
+        } else {
+            crate::poll::SCOREBOARD_IDLE + crate::poll::SCOREBOARD_LIVE
+        }
+    }
+
+    pub fn merge_standings(&mut self, mut table: StandingsTable) {
+        table.fetched_at = Some(self.now());
+        self.clear_aux_error(table.league, "standings");
         self.standings.insert(table.league, table);
+    }
+
+    /// An on-demand fetch failed. `what` names the request kind, so the view
+    /// that asked can say which fetch is missing rather than showing an empty
+    /// pane that reads like "no data exists".
+    pub fn note_aux_failure(&mut self, league: League, what: &'static str, error: String) {
+        self.aux_errors.insert((league, what), error);
+    }
+
+    /// The matching success: the error stops being true the moment data lands.
+    pub fn clear_aux_error(&mut self, league: League, what: &'static str) {
+        self.aux_errors.remove(&(league, what));
+    }
+
+    pub fn aux_error(&self, league: League, what: &'static str) -> Option<&str> {
+        self.aux_errors.get(&(league, what)).map(|s| s.as_str())
+    }
+
+    /// Which board carries `game_id` — the zoom-driven fetches (summary,
+    /// stats) are addressed by game id, and `aux_errors` is keyed by league.
+    fn league_of(&self, game_id: &str) -> Option<League> {
+        self.boards
+            .iter()
+            .find(|(_, games)| games.iter().any(|g| g.id == game_id))
+            .map(|(league, _)| *league)
     }
 
     pub fn effective_layout(&self) -> LayoutPref {
@@ -963,41 +1099,6 @@ impl App {
         } else {
             self.config.layout
         }
-    }
-
-    fn concat_boards(&self) -> Vec<Game> {
-        let mut out = Vec::new();
-        for league in &self.config.enabled_tabs {
-            if let Some(games) = self.boards.get(league) {
-                out.extend(games.iter().cloned());
-            }
-        }
-        out
-    }
-
-    fn visible_for_poll(&self) -> Vec<Game> {
-        match self.tab {
-            Tab::Home => self.visible_games(),
-            Tab::League(league) => self.boards.get(&league).cloned().unwrap_or_default(),
-        }
-    }
-
-    /// Everything j/k can land on. On a league tab the selection runs through
-    /// the live mosaic tiles first, then continues into the slate rows below.
-    fn selection_list(&self) -> Vec<Game> {
-        match self.tab {
-            Tab::Home => self.visible_games(),
-            Tab::League(_) => {
-                let mut list = self.live_games();
-                list.extend(self.slate_games());
-                list
-            }
-        }
-    }
-
-    fn selected_game(&self) -> Option<Game> {
-        let list = self.selection_list();
-        list.get(self.selected).cloned()
     }
 
     fn clamp_selected(&mut self) {
@@ -1013,13 +1114,23 @@ impl App {
 
     /// Tiles per mosaic page under the current layout.
     fn page_len(&self) -> usize {
-        page_size(self.effective_layout(), self.mosaic_games().len().max(1))
+        self.page_len_of(self.mosaic_games().len())
     }
 
     /// Number of mosaic pages, always >= 1.
     pub fn page_count(&self) -> usize {
-        let n = self.mosaic_games().len();
-        n.max(1).div_ceil(self.page_len())
+        self.page_count_of(self.mosaic_games().len())
+    }
+
+    /// The same two numbers for a mosaic already in hand — what a draw uses,
+    /// so a frame that has derived its lists never re-derives them to count
+    /// its pages.
+    pub(crate) fn page_len_of(&self, mosaic_len: usize) -> usize {
+        page_size(self.effective_layout(), mosaic_len.max(1))
+    }
+
+    pub(crate) fn page_count_of(&self, mosaic_len: usize) -> usize {
+        mosaic_len.max(1).div_ceil(self.page_len_of(mosaic_len))
     }
 
     /// n/p and PgDn/PgUp: wrap around the known page count (never a blank
@@ -1067,16 +1178,19 @@ impl App {
         let Some(game) = self.selected_game() else {
             return;
         };
+        let matchup = format!("{}@{}", game.away.abbr, game.home.abbr);
         if let Some(idx) = self.pins.iter().position(|p| p.game_id == game.id) {
             self.pins.remove(idx);
+            self.status_line = Some(format!("unpinned {matchup}"));
         } else {
             self.pins.push(Pin {
                 game_id: game.id,
                 league: game.league,
                 final_at: None,
             });
+            self.status_line = Some(format!("pinned {matchup}"));
         }
-        let _ = save_pins(&self.config_dir, &self.pins);
+        self.persist_pins();
         self.clamp_selected();
     }
 
@@ -1092,19 +1206,36 @@ impl App {
             .position(|f| f.league == game.league && f.team_abbr.eq_ignore_ascii_case(&abbr))
         {
             self.config.favorites.remove(idx);
+            self.status_line =
+                Some(format!("unfavorited {} {abbr}", game.league.slug().to_uppercase()));
         } else {
+            self.status_line =
+                Some(format!("favorited {} {abbr}", game.league.slug().to_uppercase()));
             self.config.favorites.push(Favorite {
                 league: game.league,
                 team_abbr: abbr,
             });
         }
-        let _ = self.config.save_to(&self.config_dir);
+        self.persist_config();
         self.clamp_selected();
     }
 
+    /// 1/2/4/S: change the mosaic layout and keep looking at the same game.
+    /// The selection is an index into a list whose length doesn't change, but
+    /// the page that holds it does — so the index is restored by game id and
+    /// the page is recomputed from it. Without this, switching to [1] from
+    /// page 2 dropped you back on game 1.
     fn set_layout(&mut self, layout: LayoutPref) {
+        let sel = self.selected_game().map(|g| g.id);
         self.config.layout = layout;
-        let _ = self.config.save_to(&self.config_dir);
+        if let Some(id) = sel {
+            if let Some(i) = self.selection_list().iter().position(|g| g.id == id) {
+                self.selected = i;
+            }
+        }
+        self.page = self.selected / self.page_len();
+        self.clamp_selected();
+        self.persist_config();
     }
 
     /// 'c': step to the next loaded theme in picker order (built-ins, then
@@ -1112,11 +1243,32 @@ impl App {
     fn cycle_theme(&mut self) {
         let next = theme::next_name(&theme::current_name(), 1);
         let _ = theme::set_current(&next);
-        self.config.theme = next;
-        let _ = self.config.save_to(&self.config_dir);
+        self.config.theme = next.clone();
+        // One keypress, one line. `persist_config` writes its own refusal
+        // toast, and the old order let "theme X" overwrite it — so the toast
+        // is composed here, after the save, and says both halves.
+        self.status_line = None;
+        self.persist_config();
+        let save_error = self.status_line.take();
+        self.status_line = Some(match (&self.config_error, save_error) {
+            (Some(_), _) => format!("theme {next} · not saving (config error)"),
+            (None, Some(err)) => err,
+            (None, None) => format!("theme {next}"),
+        });
     }
 
+    /// One frame. The game lists are derived ONCE here and parked in
+    /// `frame_cache`; every widget below reads them through `derived()`
+    /// instead of re-walking the boards. The cache is dropped again on the
+    /// way out — a list read outside a draw is a stale list, so `derived()`
+    /// panics there rather than answering.
     pub fn draw(&mut self, frame: &mut Frame) {
+        self.frame_cache = Some(self.derive());
+        self.draw_frame(frame);
+        self.frame_cache = None;
+    }
+
+    fn draw_frame(&mut self, frame: &mut Frame) {
         // Mouse zones are rebuilt from scratch every frame: whatever this
         // draw doesn't register is not clickable.
         self.hit_zones.clear();
@@ -1155,113 +1307,6 @@ impl App {
         }
     }
 
-    fn draw_header(&mut self, frame: &mut Frame, area: Rect) {
-        let th = theme::current();
-        let mut spans = vec![
-            Span::styled(
-                " GAMEDAY ",
-                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("  FILTER: ", Style::default().fg(th.muted)),
-        ];
-        for tab in self.tab_list() {
-            let label = match tab {
-                Tab::Home => "ALL".to_string(),
-                Tab::League(league) => league.slug().to_uppercase(),
-            };
-            let chip = if tab == self.tab {
-                Span::styled(
-                    format!("[{label}]"),
-                    Style::default()
-                        .fg(th.bg)
-                        .bg(th.star)
-                        .add_modifier(Modifier::BOLD),
-                )
-            } else {
-                Span::styled(format!("[ {label} ]"), Style::default().fg(th.muted))
-            };
-            // Register the chip as a click zone at its rendered columns (the
-            // header is all single-width chars, so chars == cells).
-            let x: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-            let w = chip.content.chars().count();
-            if x + w <= area.width as usize {
-                self.hit_zones.push((
-                    Rect {
-                        x: area.x + x as u16,
-                        y: area.y,
-                        width: w as u16,
-                        height: 1,
-                    },
-                    keymap::Hit::TabChip(tab),
-                ));
-            }
-            spans.push(chip);
-            spans.push(Span::raw(" "));
-        }
-        if self.stale {
-            spans.push(Span::styled(" STALE", Style::default().fg(th.star)));
-        }
-        // Favorite-score banner: earned red — the live role, spec's color
-        // discipline — for its short lifetime, then advance_tick drops it.
-        if let Some(alert) = &self.active_alert {
-            spans.push(Span::raw("  "));
-            spans.push(Span::styled(
-                alert.text.clone(),
-                Style::default().fg(th.live).add_modifier(Modifier::BOLD),
-            ));
-        }
-        let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
-        // While the current tab is date-traveled the viewed date replaces the
-        // live one, marked ‹ › so a past/future slate can't pass for today.
-        let traveled = match self.tab {
-            Tab::League(league) => self.viewed_date(league),
-            Tab::Home => None,
-        };
-        let (date, date_style) = match traveled {
-            Some(d) => (
-                format!("‹ {} ›", date_label(d)),
-                Style::default().fg(th.star).add_modifier(Modifier::BOLD),
-            ),
-            None => (
-                format!("{} {}", date_label(now.date()), now.year()),
-                Style::default().fg(th.green).add_modifier(Modifier::BOLD),
-            ),
-        };
-        let (h12, ampm) = match now.hour() {
-            0 => (12, "AM"),
-            h if h < 12 => (h, "AM"),
-            12 => (12, "PM"),
-            h => (h - 12, "PM"),
-        };
-        let clock = format!("{}:{:02}:{:02} {}", h12, now.minute(), now.second(), ampm);
-        let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-        let right_len = date.chars().count() + 2 + clock.len() + 1;
-        let spacer = (area.width as usize).saturating_sub(left_len + right_len);
-        spans.push(Span::raw(" ".repeat(spacer)));
-        spans.push(Span::styled(date, date_style));
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(clock, Style::default().fg(th.clock()).add_modifier(Modifier::BOLD)));
-        spans.push(Span::raw(" "));
-        frame.render_widget(
-            Paragraph::new(Line::from(spans)).style(Style::default().bg(th.bg)),
-            area,
-        );
-    }
-
-    /// Scoring plays across every visible board, newest-ish first: (game, play).
-    pub(crate) fn scoring_events(&self) -> Vec<(Game, crate::domain::Play)> {
-        let mut out = Vec::new();
-        for game in self.concat_boards() {
-            if game.status != Status::Live {
-                continue;
-            }
-            for play in game.last_plays.iter().filter(|p| p.scoring) {
-                out.push((game.clone(), play.clone()));
-            }
-        }
-        out
-    }
-
     /// Color for a team abbr on a play/event row: the team's color when the
     /// theme's discipline allows color on play text, else `fg`.
     pub(crate) fn team_color(game: &Game, abbr: &str) -> ratatui::style::Color {
@@ -1272,23 +1317,6 @@ impl App {
             th.team_text(game.home.color)
         } else {
             th.fg
-        }
-    }
-
-    /// Games shown as mosaic tiles. With no live games on a league tab the
-    /// slate games fill the mosaic as tiles — never a blank pane — while the
-    /// slate strip below still lists them departure-board style.
-    pub(crate) fn mosaic_games(&self) -> Vec<Game> {
-        match self.tab {
-            Tab::Home => self.visible_games(),
-            Tab::League(_) => {
-                let live = self.live_games();
-                if !live.is_empty() {
-                    live
-                } else {
-                    self.slate_games()
-                }
-            }
         }
     }
 
@@ -1323,222 +1351,16 @@ impl App {
         TileFx {
             flash: self.flash_active(&game.id),
             live_bright: live_pulse_bright(self.tick),
+            pinned: self.pins.iter().any(|p| p.game_id == game.id),
+            favorite: self.config.favorites.iter().any(|f| {
+                f.league == game.league
+                    && (f.team_abbr.eq_ignore_ascii_case(&game.away.abbr)
+                        || f.team_abbr.eq_ignore_ascii_case(&game.home.abbr))
+            }),
+            now: self.now(),
         }
     }
 
-    /// Every live game across the enabled boards, league order — the ticker
-    /// covers what the visible tab (or a traveled date) does not. A typed
-    /// filter is explicit intent, so it narrows the ticker too.
-    fn ticker_live(&self) -> Vec<Game> {
-        let needle = self.active_filter();
-        self.concat_boards()
-            .into_iter()
-            .filter(|g| g.status == Status::Live)
-            .filter(|g| needle.is_none_or(|n| game_matches(g, n)))
-            .collect()
-    }
-
-    /// Scoring plays of the ticker's live games, board order.
-    fn ticker_events(&self) -> Vec<(Game, crate::domain::Play)> {
-        let live = self.ticker_live();
-        self.scoring_events()
-            .into_iter()
-            .filter(|(g, _)| live.iter().any(|l| l.id == g.id))
-            .collect()
-    }
-
-    fn draw_ticker(&self, frame: &mut Frame, area: Rect) {
-        ticker::draw(frame, area, &self.ticker_live(), &self.ticker_events(), self.tick);
-    }
-
-    /// Context-aware footer: the TOP chords from the keymap table (the full
-    /// set lives in the '?' overlay) plus position + freshness on the right.
-    fn draw_footer(&self, frame: &mut Frame, area: Rect) {
-        let th = theme::current();
-        // An open prompt owns the whole footer row; a status line (command
-        // error, pin result) owns it until the next keypress dismisses it.
-        let prompt = match &self.mode {
-            InputMode::Command { buf } => Some((':', buf)),
-            InputMode::Filter { buf } => Some(('/', buf)),
-            InputMode::Normal => None,
-        };
-        if let Some((sigil, buf)) = prompt {
-            let line = Line::from(vec![
-                Span::styled(
-                    format!(" {sigil}"),
-                    Style::default().fg(th.star).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(buf.clone(), Style::default().fg(th.bright)),
-                Span::styled("▌", Style::default().fg(th.star)),
-            ]);
-            frame.render_widget(
-                Paragraph::new(line).style(Style::default().bg(th.bg)),
-                area,
-            );
-            return;
-        }
-        if let Some(status) = &self.status_line {
-            frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    format!(" {status}"),
-                    Style::default().fg(th.star),
-                )))
-                .style(Style::default().bg(th.bg)),
-                area,
-            );
-            return;
-        }
-        // Footer chords follow the view: the board advertises zoom + quit,
-        // every other view advertises the way back (zoom its tab cycle, the
-        // config editor its toggle/edit/cycle verbs, the feeds just the
-        // shared chords — they have no tabs to cycle).
-        let zoomed = self.view != View::Board;
-        let ctx = match self.view {
-            View::Board => keymap::FooterCtx::Board,
-            View::ConfigView => keymap::FooterCtx::Config,
-            View::Zoom { .. } => keymap::FooterCtx::Zoomed,
-            View::PlaysFeed | View::Standings(_) | View::ThemePicker => keymap::FooterCtx::Feed,
-        };
-        // Narrow terminals can't hold every chord: shed the low-value ones in
-        // keymap's declared order so HELP and QUIT are never the ones clipped.
-        let mut chords = keymap::footer_chords(ctx);
-        // " /kc" steals footer columns, so it counts toward the shed budget.
-        let filter_width = self.filter.as_ref().map_or(0, |f| f.chars().count() + 2);
-        let chords_width = |cs: &[(&str, &str)]| -> usize {
-            filter_width
-                + 5
-                + cs.iter()
-                    .map(|(k, a)| 4 + k.chars().count() + a.chars().count())
-                    .sum::<usize>()
-        };
-        for drop in keymap::FOOTER_DROP_ORDER {
-            if chords_width(&chords) < area.width as usize {
-                break;
-            }
-            chords.retain(|(_, a)| a != drop);
-        }
-        let mut spans = Vec::new();
-        // An active committed filter stays visible so a narrowed board is
-        // never mistaken for a quiet one.
-        if let Some(f) = &self.filter {
-            spans.push(Span::styled(
-                format!(" /{f}"),
-                Style::default().fg(th.star).add_modifier(Modifier::BOLD),
-            ));
-        }
-        spans.push(Span::styled(
-            " NAV:",
-            Style::default().fg(th.fg).add_modifier(Modifier::BOLD),
-        ));
-        for (key, action) in chords {
-            spans.push(Span::styled(format!(" [{key}]"), Style::default().fg(th.fg)));
-            spans.push(Span::styled(format!(" {action}"), Style::default().fg(th.muted)));
-        }
-
-        // Right side, dropped piecewise if the row runs out of columns:
-        // GAME 3/8 goes first, PAGE and UPD stay.
-        let mut right: Vec<String> = Vec::new();
-        if zoomed {
-            if let Some(g) = self.zoomed_game() {
-                right.push(format!("FOCUS {}@{}", g.away.abbr, g.home.abbr));
-            }
-        } else {
-            let sel_len = self.selection_list().len();
-            if sel_len > 1 {
-                right.push(format!("GAME {}/{}", self.selected + 1, sel_len));
-            }
-        }
-        let pages = self.page_count();
-        if pages > 1 && !zoomed {
-            right.push(format!("PAGE {}/{}", self.page.min(pages - 1) + 1, pages));
-        }
-        if let Some(upd) = self.last_update.map(|t| age_label(t.elapsed().as_secs())) {
-            right.push(upd);
-        }
-        let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-        let width = area.width as usize;
-        while !right.is_empty() && left_len + right.join("  ").chars().count() + 2 > width {
-            right.remove(0);
-        }
-        if !right.is_empty() {
-            let text = right.join("  ");
-            let spacer = width.saturating_sub(left_len + text.chars().count() + 1);
-            spans.push(Span::raw(" ".repeat(spacer)));
-            // GAME/PAGE/UPD is status, clock-shaped: it takes the clocks
-            // discipline (cyan on broadcast, muted on studio), never raw cyan.
-            spans.push(Span::styled(text, Style::default().fg(th.clock())));
-        }
-        frame.render_widget(
-            Paragraph::new(Line::from(spans)).style(Style::default().bg(th.bg)),
-            area,
-        );
-    }
-
-    /// '?': every chord, grouped, over a luminance-dimmed board. Generated
-    /// from the same keymap table as the footer.
-    fn draw_help(&self, frame: &mut Frame, area: Rect) {
-        let th = theme::current();
-        let buf = frame.buffer_mut();
-        for y in area.top()..area.bottom() {
-            for x in area.left()..area.right() {
-                let cell = &mut buf[(x, y)];
-                cell.fg = theme::dimmed(cell.fg);
-                cell.bg = theme::dimmed(cell.bg);
-            }
-        }
-        let mut lines: Vec<Line> = Vec::new();
-        for group in keymap::Group::ALL {
-            if !lines.is_empty() {
-                lines.push(Line::from(""));
-            }
-            lines.push(Line::from(Span::styled(
-                group.title(),
-                Style::default().fg(th.star).add_modifier(Modifier::BOLD),
-            )));
-            for (keys, label) in keymap::help_rows(group) {
-                lines.push(Line::from(vec![
-                    Span::styled(format!("  {keys:<22}"), Style::default().fg(th.fg)),
-                    Span::styled(label, Style::default().fg(th.muted)),
-                ]));
-            }
-        }
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "ESC/? CLOSES",
-            Style::default().fg(th.dim),
-        )));
-        let w = 40u16.min(area.width.saturating_sub(4));
-        let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
-        let panel = Rect {
-            x: area.x + (area.width - w) / 2,
-            y: area.y + (area.height - h) / 2,
-            width: w,
-            height: h,
-        };
-        frame.render_widget(Clear, panel);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(th.star))
-            .title(Span::styled(
-                " KEYS ",
-                Style::default().fg(th.star).add_modifier(Modifier::BOLD),
-            ));
-        frame.render_widget(
-            Paragraph::new(lines)
-                .block(block)
-                .style(Style::default().bg(th.bg).fg(th.fg)),
-            panel,
-        );
-    }
-}
-
-/// "UPD 12s" freshness age for the footer; minutes past 60s.
-fn age_label(secs: u64) -> String {
-    if secs < 60 {
-        format!("UPD {secs}s")
-    } else {
-        format!("UPD {}m", secs / 60)
-    }
 }
 
 #[cfg(test)]
@@ -1560,7 +1382,7 @@ mod tests {
         }
     }
 
-    fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
+    pub(crate) fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
         Game {
             id: id.into(),
             league: League::Nfl,
@@ -1574,32 +1396,30 @@ mod tests {
             situation: None,
             last_plays: vec![],
             meter: None,
-            start_time: None,
-            broadcast: None,
-            odds: None,
+            ..Game::default()
         }
     }
 
-    fn app_with(games: Vec<Game>, pins: Vec<Pin>) -> App {
+    pub(crate) fn app_with(games: Vec<Game>, pins: Vec<Pin>) -> App {
         let dir = std::env::temp_dir().join(format!("gd-app-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), pins, dir);
+        let mut app = App::new(Config::default_all(), pins, dir, time::UtcOffset::UTC);
         app.apply_boards(League::Nfl, games, false);
         app
     }
 
     #[test]
-    fn home_shows_only_pinned() {
+    fn home_shows_pinned_first_then_live() {
         let app = app_with(
             vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
             vec![Pin {
-                game_id: "1".into(),
+                game_id: "2".into(),
                 league: League::Nfl,
                 final_at: None,
             }],
         );
         let ids: Vec<_> = app.visible_games().into_iter().map(|x| x.id).collect();
-        assert_eq!(ids, vec!["1"]);
+        assert_eq!(ids, vec!["2", "1"]);
     }
 
     #[test]
@@ -1651,6 +1471,117 @@ mod tests {
         assert_eq!(app.live_games().len(), 2);
     }
 
+    /// A broken config turns saving off, but the poll loop must not keep
+    /// saying so: the prune inside `apply_boards` runs every merge and would
+    /// stomp whatever the user's last key put in the footer. Only a key the
+    /// user pressed re-arms the message.
+    #[test]
+    fn a_broken_config_silences_the_prune_but_still_answers_a_keypress() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.tab = Tab::League(League::Nfl);
+        app.set_config_error(Some("config.toml:1: unknown variant `NFLL`".into()));
+        app.status_line = Some("filter cleared".into());
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        assert_eq!(
+            app.status_line.as_deref(),
+            Some("filter cleared"),
+            "the background prune must not toast"
+        );
+        // Space is the user asking for a save; that one has to answer.
+        app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert!(
+            app.status_line.as_deref().unwrap_or("").contains("not saving"),
+            "{:?}",
+            app.status_line
+        );
+    }
+
+    /// A failed standings fetch has no header chip of its own, so the view
+    /// that asked for it has to say so — an empty table otherwise reads as
+    /// "ESPN has no standings for this league".
+    #[test]
+    fn a_failed_standings_fetch_shows_the_error_where_the_table_would_be() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.view = View::Standings(League::Cfb);
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 30)).unwrap();
+        let screen = |t: &mut ratatui::Terminal<ratatui::backend::TestBackend>,
+                      app: &mut App| {
+            t.draw(|f| app.draw(f)).unwrap();
+            t.backend()
+                .buffer()
+                .content()
+                .iter()
+                .map(|c| c.symbol())
+                .collect::<String>()
+        };
+        assert!(
+            !screen(&mut term, &mut app).contains("standings unavailable"),
+            "nothing has failed yet"
+        );
+        app.note_aux_failure(League::Cfb, "standings", "ESPN 503 cfb standings".into());
+        let s = screen(&mut term, &mut app);
+        assert!(
+            s.contains("standings unavailable") && s.contains("503") && s.contains("retrying"),
+            "the empty state names the failure and promises the retry: {s:?}"
+        );
+        // The next success is the error's end.
+        app.merge_standings(crate::domain::StandingsTable {
+            league: League::Cfb,
+            season: None,
+            groups: vec![],
+            fetched_at: None,
+        });
+        assert_eq!(app.aux_error(League::Cfb, "standings"), None);
+    }
+
+    /// One keypress writes one status line: `t` under a broken config used to
+    /// toast "not saving: …" and then immediately overwrite it with "theme X",
+    /// so the refusal never reached the user's eye.
+    #[test]
+    fn cycling_the_theme_with_a_broken_config_says_both_halves_in_one_line() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
+        let healthy = app.status_line.clone().unwrap_or_default();
+        assert!(healthy.starts_with("theme ") && !healthy.contains("not saving"), "{healthy}");
+        app.set_config_error(Some("config.toml:7: unknown variant `NFLL`".into()));
+        app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
+        let line = app.status_line.clone().unwrap_or_default();
+        assert!(
+            line.starts_with("theme ") && line.ends_with("· not saving (config error)"),
+            "one line, both halves: {line:?}"
+        );
+    }
+
+    /// The stderr note is gone the instant the alternate screen opens, so the
+    /// parse error has to be on the board itself.
+    #[test]
+    fn the_parse_error_is_in_the_footer_at_startup() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.set_config_error(Some("config.toml:7: unknown variant `NFLL`".into()));
+        assert_eq!(
+            app.config_error.as_deref(),
+            Some("config.toml:7: unknown variant `NFLL`")
+        );
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 30)).unwrap();
+        term.draw(|f| app.draw(f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let screen: String = (0..30)
+            .map(|y| {
+                (0..120)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            screen.contains("config.toml:7") && screen.contains("not saving until fixed"),
+            "{screen}"
+        );
+    }
+
     #[test]
     fn space_toggles_pin() {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
@@ -1669,7 +1600,7 @@ mod tests {
             clock: "1:27".into(),
             team: "KC".into(),
             text: "from scoreboard".into(),
-            scoring: false,
+            ..Default::default()
         }];
         let mut app = app_with(vec![game], vec![]);
         // MLB/NBA summaries have no drives => zero mapped plays; don't blank the tile.
@@ -1677,13 +1608,15 @@ mod tests {
         let board = &app.boards[&League::Nfl];
         assert_eq!(board[0].last_plays[0].text, "from scoreboard");
         // A real summary still replaces them.
-        let mut s = crate::domain::Summary::default();
-        s.last_plays = vec![crate::domain::Play {
-            clock: "0:55".into(),
-            team: "TB".into(),
-            text: "from summary".into(),
-            scoring: false,
-        }];
+        let s = crate::domain::Summary {
+            last_plays: vec![crate::domain::Play {
+                clock: "0:55".into(),
+                team: "TB".into(),
+                text: "from summary".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
         app.merge_summary("1", s);
         assert_eq!(app.boards[&League::Nfl][0].last_plays[0].text, "from summary");
     }
@@ -1743,7 +1676,7 @@ mod tests {
     }
 
     #[test]
-    fn tab_pops_zoom_and_home_hides_unpinned() {
+    fn tab_pops_zoom_and_home_carries_the_live_game() {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.config.enabled_tabs = vec![League::Nfl];
         app.tab = Tab::League(League::Nfl);
@@ -1753,15 +1686,16 @@ mod tests {
         assert_eq!(app.tab, Tab::Home);
         assert_eq!(app.view, View::Board);
         let ids: Vec<_> = app.visible_games().into_iter().map(|g| g.id).collect();
-        assert!(!ids.iter().any(|id| id == "1"));
+        // Home is every live game now, pinned or not.
+        assert_eq!(ids, vec!["1"]);
     }
 
     #[test]
     fn zoom_tabs_cycle_with_hl_and_brackets_and_jk_clamp() {
         let mut game = g("1", "KC", "TB", true);
         game.last_plays = vec![
-            Play { clock: "1:00".into(), team: "KC".into(), text: "a".into(), scoring: false },
-            Play { clock: "2:00".into(), team: "TB".into(), text: "b".into(), scoring: false },
+            Play { clock: "1:00".into(), team: "KC".into(), text: "a".into(), ..Default::default() },
+            Play { clock: "2:00".into(), team: "TB".into(), text: "b".into(), ..Default::default() },
         ];
         let mut app = app_with(vec![game], vec![]);
         app.tab = Tab::League(League::Nfl);
@@ -1811,7 +1745,7 @@ mod tests {
         // Own dir: app_with's shared dir is also written by other tests' saves.
         let dir = std::env::temp_dir().join(format!("gd-theme-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), vec![], dir);
+        let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
         assert_eq!(theme::current_name(), "studio");
         assert_eq!(app.config.theme, "studio");
@@ -1897,7 +1831,7 @@ mod tests {
             theme: "broadcast".into(),
             score_style: Default::default(),
         };
-        let app = App::new(cfg, vec![], dir);
+        let app = App::new(cfg, vec![], dir, time::UtcOffset::UTC);
         assert_eq!(
             app.tab_list(),
             vec![
@@ -1929,6 +1863,93 @@ mod tests {
         app.apply_boards(League::Nfl, vec![scored], false);
         app.advance_tick();
         assert!(!app.flash_active("1"));
+    }
+
+    #[test]
+    fn a_score_delta_captures_the_scoreboard_last_play_as_a_scoring_play() {
+        let mut app = app_with(vec![], vec![]);
+        let mut g1 = g("1", "SEA", "BOS", true);
+        g1.away_score = 7;
+        g1.home_score = 7;
+        g1.last_plays = vec![Play {
+            text: "Raleigh flies out".into(),
+            team: "SEA".into(),
+            ..Default::default()
+        }];
+        app.apply_boards(League::Nfl, vec![g1.clone()], false);
+        assert!(app.scoring_events().is_empty(), "first sighting seeds silently");
+        let mut g2 = g1.clone();
+        g2.away_score = 8;
+        g2.last_plays = vec![Play {
+            text: "Rodríguez homers to left (18)".into(),
+            team: "SEA".into(),
+            ..Default::default()
+        }];
+        app.apply_boards(League::Nfl, vec![g2], false);
+        let ev = app.scoring_events();
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].1.text, "Rodríguez homers to left (18)");
+        assert!(ev[0].1.scoring);
+        // The next poll (no delta) keeps it — boards are replaced wholesale.
+        let mut g3 = g1.clone();
+        g3.away_score = 8;
+        app.apply_boards(League::Nfl, vec![g3], false);
+        assert_eq!(
+            app.scoring_events().len(),
+            1,
+            "carried across the board replacement"
+        );
+    }
+
+    #[test]
+    fn summary_scoring_plays_replace_the_delta_derived_list_and_survive_truncation() {
+        let mut app = app_with(vec![g("1", "SEA", "BOS", true)], vec![]);
+        let plays: Vec<Play> = (0..20)
+            .map(|i| Play {
+                text: format!("play {i}"),
+                team: "SEA".into(),
+                scoring: i == 3,
+                ..Default::default()
+            })
+            .collect();
+        let summary = Summary {
+            last_plays: plays.clone(),
+            scoring_plays: vec![plays[3].clone()],
+            meter: None,
+        };
+        app.merge_summary("1", summary);
+        let ev = app.scoring_events();
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].1.text, "play 3");
+        assert_eq!(
+            app.game_by_id("1").unwrap().last_plays.len(),
+            20,
+            "no 8-row truncation in the model"
+        );
+    }
+
+    #[test]
+    fn final_games_keep_their_scoring_plays_on_the_board() {
+        let mut app = app_with(vec![], vec![]);
+        let mut g1 = g("1", "SEA", "BOS", true);
+        g1.away_score = 0;
+        app.apply_boards(League::Nfl, vec![g1.clone()], false);
+        let mut g2 = g1.clone();
+        g2.away_score = 7;
+        g2.last_plays = vec![Play {
+            text: "TD".into(),
+            team: "SEA".into(),
+            ..Default::default()
+        }];
+        app.apply_boards(League::Nfl, vec![g2.clone()], false);
+        let mut g3 = g2.clone();
+        g3.status = Status::Final;
+        app.apply_boards(League::Nfl, vec![g3], false);
+        assert_eq!(
+            app.scoring_events().len(),
+            1,
+            "a final's TD is still on the ticker"
+        );
     }
 
     #[test]
@@ -2034,7 +2055,48 @@ mod tests {
         assert!(!app.help_open);
     }
 
-    fn six_live() -> Vec<Game> {
+    #[test]
+    fn q_inside_help_closes_help_not_the_app() {
+        let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+        app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char('q'), KeyModifiers::NONE);
+        assert!(!app.help_open && !app.should_quit);
+    }
+
+    #[test]
+    fn toggling_a_league_off_and_on_keeps_canonical_tab_order() {
+        let mut app = app_with(vec![], vec![]);
+        app.config_toggle_tab(League::Nfl);
+        app.config_toggle_tab(League::Nfl);
+        assert_eq!(app.config.enabled_tabs, League::ALL.to_vec());
+    }
+
+    #[test]
+    fn layout_change_keeps_the_selected_game() {
+        let mut app = app_with(six_live(), vec![]);
+        app.tab = Tab::League(League::Nfl);
+        app.selected = 4;
+        app.set_layout(LayoutPref::One);
+        assert_eq!(app.selected, 4);
+        assert_eq!(app.page, 4, "page follows the selection under the new layout");
+    }
+
+    #[test]
+    fn filter_miss_names_its_scope_and_the_ticker_match() {
+        let mut app = app_with(vec![], vec![]);
+        let mut sea = g("9", "SEA", "BOS", true);
+        sea.league = League::Mlb;
+        app.apply_boards(League::Mlb, vec![sea], false);
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        app.tab = Tab::League(League::Nfl);
+        app.filter = Some("sea".into());
+        assert_eq!(
+            app.filter_miss_message(),
+            "no games match \"sea\" on NFL · ticker matches SEA@BOS · esc clears"
+        );
+    }
+
+    pub(crate) fn six_live() -> Vec<Game> {
         (0..6)
             .map(|i| g(&format!("g{i}"), "KC", "TB", true))
             .collect()
@@ -2154,24 +2216,113 @@ mod tests {
     }
 
     #[test]
-    fn r_requests_refresh_and_upd_age_formats() {
+    fn r_requests_refresh() {
         let mut app = app_with(vec![], vec![]);
         app.on_key(KeyCode::Char('r'), KeyModifiers::NONE);
         assert!(app.refresh_now);
-        assert_eq!(age_label(0), "UPD 0s");
-        assert_eq!(age_label(12), "UPD 12s");
-        assert_eq!(age_label(59), "UPD 59s");
-        assert_eq!(age_label(60), "UPD 1m");
-        assert_eq!(age_label(150), "UPD 2m");
     }
 
     #[test]
-    fn apply_boards_stamps_last_update() {
+    fn a_cached_board_never_rings_the_bell() {
+        // A cached 14-10 -> 7-10 is a score going BACKWARDS. AlertState
+        // diffs on inequality, so without the guard it banners "KC SCORES
+        // 7-10" and rings — then rings again when the real board returns.
         let mut app = app_with(vec![], vec![]);
-        assert!(app.last_update.is_some(), "app_with applies a board");
-        app.last_update = None;
-        app.apply_boards(League::Nba, vec![], false);
-        assert!(app.last_update.is_some());
+        app.config.favorites = vec![Favorite {
+            league: League::Nfl,
+            team_abbr: "KC".into(),
+        }];
+        let mut first = g("1", "KC", "TB", true);
+        first.away_score = 14;
+        first.home_score = 10;
+        app.apply_boards(League::Nfl, vec![first.clone()], false);
+        app.active_alert = None;
+        app.bell_pending = false;
+
+        let mut cached = first.clone();
+        cached.away_score = 7;
+        app.apply_boards(League::Nfl, vec![cached], true);
+        assert!(app.active_alert.is_none(), "no banner from a cached payload");
+        assert!(!app.bell_pending, "no bell from a cached payload");
+
+        let mut next = first.clone();
+        next.away_score = 21;
+        app.apply_boards(League::Nfl, vec![next], false);
+        assert!(
+            app.active_alert.is_some(),
+            "the real score change still alerts"
+        );
+        assert!(app.bell_pending);
+    }
+
+    #[test]
+    fn apply_boards_marks_the_connection_live() {
+        let mut app = app_with(vec![], vec![]);
+        let now = std::time::Instant::now();
+        assert!(matches!(app.net.chip(now, app.stale_after()), crate::app::net::NetChip::Live));
+        assert!(app.net.upd_label(now, app.stale_after()).is_some(), "app_with applies a board");
+        app.apply_boards(League::Nba, vec![], true);
+        assert!(
+            matches!(app.net.chip(now, app.stale_after()), crate::app::net::NetChip::Stale { .. }),
+            "a cached apply is stale on arrival"
+        );
+    }
+
+    #[test]
+    fn a_cached_board_never_writes_a_scoring_play() {
+        // A stale payload is an OLDER snapshot: its "delta" against the last
+        // fresh scores is backwards, and the lastPlay it carries is not a
+        // scoring play. Capturing it would put a bogus TD in the rail
+        // forever, so the whole delta block is skipped when stale.
+        let mut scored = g("1", "KC", "TB", true);
+        scored.away_score = 14;
+        scored.home_score = 10;
+        scored.last_plays = vec![Play {
+            clock: "5:00".into(),
+            team: "KC".into(),
+            text: "Mahomes 20 yd TD pass".into(),
+            scoring: false,
+            ..Default::default()
+        }];
+        let mut app = app_with(vec![scored.clone()], vec![]);
+        app.advance_tick();
+        assert_eq!(app.boards[&League::Nfl][0].scoring_plays.len(), 0);
+
+        let mut cached = scored.clone();
+        cached.away_score = 7; // an older, cached snapshot
+        cached.last_plays = vec![Play {
+            clock: "9:00".into(),
+            team: "KC".into(),
+            text: "Pacheco run for 3 yards".into(),
+            scoring: false,
+            ..Default::default()
+        }];
+        app.apply_boards(League::Nfl, vec![cached], true);
+        assert!(!app.flash_active("1"), "a cached payload must not flash");
+        assert_eq!(
+            app.boards[&League::Nfl][0].scoring_plays.len(),
+            0,
+            "no scoring play from a cached payload"
+        );
+        assert_eq!(
+            app.last_scores.get("1"),
+            Some(&(14, 10)),
+            "the fresh scores survive a cached apply"
+        );
+
+        let mut next = scored.clone();
+        next.away_score = 21;
+        next.last_plays = vec![Play {
+            clock: "1:00".into(),
+            team: "KC".into(),
+            text: "Kelce 8 yd TD pass".into(),
+            scoring: false,
+            ..Default::default()
+        }];
+        app.apply_boards(League::Nfl, vec![next], false);
+        let plays = &app.boards[&League::Nfl][0].scoring_plays;
+        assert_eq!(plays.len(), 1, "exactly one scoring play: {plays:?}");
+        assert!(plays[0].text.contains("Kelce"));
     }
 
     #[test]
@@ -2188,6 +2339,7 @@ mod tests {
             },
             vec![],
             dir,
+            time::UtcOffset::UTC,
         );
         let mut game = g("c1", "ALA", "UGA", true);
         game.league = League::Cfb;

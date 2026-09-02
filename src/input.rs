@@ -4,7 +4,7 @@
 
 use crate::app::{App, Tab};
 use crate::command::{self, Cmd};
-use crate::config::{save_pins, Pin};
+use crate::config::Pin;
 use crate::domain::League;
 use crate::theme;
 use crate::views::View;
@@ -185,17 +185,17 @@ fn apply(app: &mut App, cmd: Cmd) {
         Cmd::Theme(Some(name)) => match theme::set_current(&name) {
             Ok(canonical) => {
                 app.config.theme = canonical;
-                let _ = app.config.save_to(&app.config_dir);
+                app.persist_config();
             }
             Err(err) => app.status_line = Some(err),
         },
         Cmd::Score(style) => {
             app.config.score_style = style;
-            let _ = app.config.save_to(&app.config_dir);
+            app.persist_config();
         }
         Cmd::Layout(pref) => {
             app.config.layout = pref;
-            let _ = app.config.save_to(&app.config_dir);
+            app.persist_config();
         }
         Cmd::Pin(abbr) => pin_team(app, &abbr),
         Cmd::Quit => app.should_quit = true,
@@ -241,7 +241,7 @@ fn pin_team(app: &mut App, abbr: &str) {
             league,
             final_at: None,
         });
-        let _ = save_pins(&app.config_dir, &app.pins);
+        app.persist_pins();
     }
     app.status_line = Some(label);
 }
@@ -277,16 +277,14 @@ mod tests {
             situation: None,
             last_plays: vec![],
             meter: None,
-            start_time: None,
-            broadcast: None,
-            odds: None,
+            ..Game::default()
         }
     }
 
     fn mk() -> App {
         let dir = std::env::temp_dir().join(format!("gd-input-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), vec![], dir);
+        let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         app.apply_boards(League::Nfl, vec![g("1", "KC", "TB")], false);
         app
     }
@@ -380,7 +378,7 @@ mod tests {
         theme::set_current("broadcast").unwrap();
         let dir = std::env::temp_dir().join(format!("gd-input-theme-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), vec![], dir);
+        let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "theme phosphor");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
@@ -403,7 +401,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("gd-input-picker-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), vec![], dir);
+        let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "theme");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
@@ -452,7 +450,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("gd-input-modal-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
-        let mut app = App::new(Config::default_all(), vec![], dir);
+        let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "theme");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);

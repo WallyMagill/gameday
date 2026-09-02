@@ -14,7 +14,7 @@ use ratatui::Frame;
 
 pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     let th = theme::current();
-    let events = app.scoring_events();
+    let events = &app.derived().scoring;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(1)])

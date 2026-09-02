@@ -2,6 +2,9 @@
 //! through [`truncate`] so nothing ever hard-clips mid-word without a visible
 //! ellipsis.
 
+use time::format_description::well_known::Rfc3339;
+use time::{OffsetDateTime, UtcOffset};
+
 /// Fit `s` into `width` cells: unchanged when it fits, otherwise cut one
 /// short and finished with `…`. Char-based (the UI is single-width text).
 pub fn truncate(s: &str, width: usize) -> String {
@@ -32,6 +35,87 @@ pub fn leading_surname(text: &str) -> String {
         format!("{} {last}", words[run - 2])
     } else {
         last.to_string()
+    }
+}
+
+/// ESPN's `date` fields are RFC 3339 with a `Z` and no seconds
+/// (`2026-09-01T01:38Z`) on the scoreboard, and full `…:00.000+00:00` on some
+/// summaries. `Rfc3339` needs seconds, so the short form is padded first.
+pub fn local_time(iso: &str, offset: UtcOffset) -> Option<OffsetDateTime> {
+    let iso = iso.trim();
+    if iso.is_empty() {
+        return None;
+    }
+    // "YYYY-MM-DDTHH:MMZ" -> "YYYY-MM-DDTHH:MM:00Z"
+    let padded;
+    // `is_char_boundary(16)` guards the slice below: every byte index here is
+    // a byte index, not a char index, and a 17-byte string is not necessarily
+    // 17 characters.
+    let s = if iso.len() == 17
+        && iso.ends_with('Z')
+        && iso.as_bytes()[13] == b':'
+        && iso.is_char_boundary(16)
+    {
+        padded = format!("{}:00Z", &iso[..16]);
+        padded.as_str()
+    } else {
+        iso
+    };
+    OffsetDateTime::parse(s, &Rfc3339).ok().map(|t| t.to_offset(offset))
+}
+
+/// Start-time label relative to `now` (same offset as `start`):
+/// today → `9:38 PM`; within the next six days → `THU 8:20 PM`; otherwise
+/// `SEP 13 1:00 PM`. Six days keeps a bare weekday unambiguous.
+pub fn fmt_start(start: OffsetDateTime, now: OffsetDateTime) -> String {
+    let clock = fmt_hm12(start);
+    let days = (start.date() - now.date()).whole_days();
+    if days == 0 {
+        clock
+    } else if (1..=6).contains(&days) {
+        format!("{} {clock}", &format!("{:?}", start.weekday()).to_uppercase()[..3])
+    } else {
+        format!(
+            "{} {} {clock}",
+            &format!("{:?}", start.month()).to_uppercase()[..3],
+            start.day()
+        )
+    }
+}
+
+/// Header wall clock: `9:30:01 PM`.
+pub fn fmt_clock12(t: OffsetDateTime) -> String {
+    let (h, ampm) = h12(t.hour());
+    format!("{h}:{:02}:{:02} {ampm}", t.minute(), t.second())
+}
+
+/// Clock without seconds: `9:41 PM`. The seconds in `fmt_clock12` are for a
+/// header that ticks; a timestamp that doesn't tick shouldn't carry them.
+pub fn fmt_hm12(t: OffsetDateTime) -> String {
+    let (h, ampm) = h12(t.hour());
+    format!("{h}:{:02} {ampm}", t.minute())
+}
+
+fn h12(hour: u8) -> (u8, &'static str) {
+    match hour {
+        0 => (12, "AM"),
+        h if h < 12 => (h, "AM"),
+        12 => (12, "PM"),
+        h => (h - 12, "PM"),
+    }
+}
+
+/// The local UTC offset, read ONCE on the main thread before any other thread
+/// exists: `time` refuses to read the TZ database from a multi-threaded
+/// process on Unix (it returns Err), and the old per-call
+/// `now_local().unwrap_or_else(now_utc)` silently printed UTC in that case.
+pub fn startup_offset() -> UtcOffset {
+    match UtcOffset::current_local_offset() {
+        Ok(off) => off,
+        Err(e) => {
+            eprintln!("gameday: local UTC offset unavailable ({e}); times will show in UTC — set TZ to fix");
+            UtcOffset::UTC
+        }
     }
 }
 
@@ -87,5 +171,59 @@ mod surname_tests {
     fn leading_surname_falls_back_to_the_first_word() {
         assert_eq!(leading_surname("TOUCHDOWN"), "TOUCHDOWN");
         assert_eq!(leading_surname(""), "");
+    }
+}
+
+#[cfg(test)]
+mod time_tests {
+    use super::*;
+    use time::macros::datetime;
+    use time::UtcOffset;
+
+    #[test]
+    fn local_time_parses_espn_iso_and_applies_offset() {
+        let la = UtcOffset::from_hms(-7, 0, 0).unwrap();
+        let t = local_time("2026-09-01T01:38Z", la).unwrap();
+        // 01:38 UTC on Sep 1 is 6:38 PM on Aug 31 in Los Angeles.
+        assert_eq!(t, datetime!(2026-08-31 18:38 -7));
+        let london = UtcOffset::from_hms(1, 0, 0).unwrap();
+        assert_eq!(local_time("2026-09-01T01:38Z", london).unwrap(), datetime!(2026-09-01 02:38 +1));
+        // ESPN also sends full offsets and fractional seconds on some feeds.
+        assert!(local_time("2026-09-13T17:00:00Z", la).is_some());
+        assert!(local_time("2026-09-13T17:00:00.000+00:00", la).is_some());
+        assert_eq!(local_time("not a date", la), None);
+        assert_eq!(local_time("", la), None);
+        // 17 BYTES, not 17 chars: the short-form branch slices at byte 16, so
+        // a multi-byte char anywhere near the tail must decline, not panic.
+        for s in ["2026-09-01T01:3é", "2é6-09-01T01:38Z"] {
+            assert_eq!(s.len(), 17, "{s:?} must be 17 bytes to reach the branch");
+            assert_eq!(local_time(s, la), None, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn fmt_start_is_clock_today_and_day_clock_within_the_week() {
+        let now = datetime!(2026-08-31 21:30 -4);
+        assert_eq!(fmt_start(datetime!(2026-08-31 21:38 -4), now), "9:38 PM");
+        assert_eq!(fmt_start(datetime!(2026-09-03 20:20 -4), now), "THU 8:20 PM");
+        assert_eq!(fmt_start(datetime!(2026-09-06 13:00 -4), now), "SUN 1:00 PM");
+        // A week or more out: the date, never a bare weekday that could mean two days.
+        assert_eq!(fmt_start(datetime!(2026-09-13 13:00 -4), now), "SEP 13 1:00 PM");
+        // Midnight and noon edges.
+        assert_eq!(fmt_start(datetime!(2026-08-31 00:05 -4), now), "12:05 AM");
+        assert_eq!(fmt_start(datetime!(2026-08-31 12:00 -4), now), "12:00 PM");
+    }
+
+    #[test]
+    fn fmt_clock12_has_seconds_and_meridiem() {
+        assert_eq!(fmt_clock12(datetime!(2026-08-31 21:30:01 -4)), "9:30:01 PM");
+        assert_eq!(fmt_clock12(datetime!(2026-08-31 00:00:00 -4)), "12:00:00 AM");
+    }
+
+    #[test]
+    fn fmt_hm12_drops_the_seconds() {
+        assert_eq!(fmt_hm12(datetime!(2026-08-31 21:41:59 -4)), "9:41 PM");
+        assert_eq!(fmt_hm12(datetime!(2026-08-31 00:05:00 -4)), "12:05 AM");
+        assert_eq!(fmt_hm12(datetime!(2026-08-31 12:00:00 -4)), "12:00 PM");
     }
 }

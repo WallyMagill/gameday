@@ -11,6 +11,12 @@ pub struct MemoryProvider {
     pub standings: HashMap<League, StandingsTable>,
 }
 
+impl Default for MemoryProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryProvider {
     pub fn new() -> Self {
         Self {
@@ -41,12 +47,15 @@ impl SportsProvider for MemoryProvider {
             .get(&(league, date))
             .cloned()
             .map(|g| (g, false))
-            .ok_or_else(|| {
-                ProviderError::Http(format!(
+            .ok_or_else(|| ProviderError::Http {
+                status: 0,
+                key: format!("{}-scoreboard", league.slug()),
+                url: String::new(),
+                detail: format!(
                     "no dated board seeded for league={:?} date={date}, have: {:?}",
                     league.slug(),
                     self.dated_boards.keys().collect::<Vec<_>>()
-                ))
+                ),
             })
     }
 
@@ -55,7 +64,12 @@ impl SportsProvider for MemoryProvider {
             .get(game_id)
             .cloned()
             .map(|s| (s, false))
-            .ok_or_else(|| ProviderError::Http("missing summary".into()))
+            .ok_or_else(|| ProviderError::Http {
+                status: 0,
+                key: format!("{game_id}-summary"),
+                url: String::new(),
+                detail: format!("no summary seeded for game_id={game_id:?}"),
+            })
     }
 
     fn stats(&self, _league: League, game_id: &str) -> Result<(GameStats, bool), ProviderError> {
@@ -63,11 +77,14 @@ impl SportsProvider for MemoryProvider {
             .get(game_id)
             .cloned()
             .map(|s| (s, false))
-            .ok_or_else(|| {
-                ProviderError::Http(format!(
+            .ok_or_else(|| ProviderError::Http {
+                status: 0,
+                key: format!("{game_id}-stats"),
+                url: String::new(),
+                detail: format!(
                     "no stats seeded for game_id={game_id:?}, have: {:?}",
                     self.stats.keys().collect::<Vec<_>>()
-                ))
+                ),
             })
     }
 
@@ -76,12 +93,15 @@ impl SportsProvider for MemoryProvider {
             .get(&league)
             .cloned()
             .map(|t| (t, false))
-            .ok_or_else(|| {
-                ProviderError::Http(format!(
+            .ok_or_else(|| ProviderError::Http {
+                status: 0,
+                key: format!("{}-standings", league.slug()),
+                url: String::new(),
+                detail: format!(
                     "no standings seeded for league={:?}, have: {:?}",
                     league.slug(),
                     self.standings.keys().map(|l| l.slug()).collect::<Vec<_>>()
-                ))
+                ),
             })
     }
 }
@@ -113,9 +133,7 @@ mod tests {
             situation: None,
             last_plays: vec![],
             meter: None,
-            start_time: None,
-            broadcast: None,
-            odds: None,
+            ..Game::default()
         }
     }
 

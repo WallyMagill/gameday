@@ -1,10 +1,17 @@
 use gameday::domain::{League, Meter, Status};
-use gameday::provider::map::{map_scoreboard, map_summary};
+use gameday::provider::map::{map_scoreboard, map_standings, map_summary};
+use time::UtcOffset;
+
+/// Every mapper call in this file pins the same offset so `start` assertions
+/// don't depend on the machine's timezone.
+fn et() -> UtcOffset {
+    UtcOffset::from_hms(-4, 0, 0).unwrap()
+}
 
 #[test]
 fn maps_live_nfl_scoreboard() {
     let json = include_str!("../fixtures/nfl_scoreboard.json");
-    let games = map_scoreboard(League::Nfl, json).unwrap();
+    let games = map_scoreboard(League::Nfl, json, et()).unwrap();
     assert_eq!(games.len(), 1);
     let g = &games[0];
     assert_eq!(g.id, "401873001");
@@ -33,7 +40,7 @@ fn maps_pre_and_final_states() {
       {"homeAway":"away","score":"0","team":{"id":"1","abbreviation":"NE","displayName":"Patriots","color":"002244","alternateColor":"c60c30"}},
       {"homeAway":"home","score":"0","team":{"id":"2","abbreviation":"SEA","displayName":"Seahawks","color":"002244","alternateColor":"69be28"}}
     ],"broadcasts":[{"names":["NBC"]}]}]}]}"#;
-    let g = &map_scoreboard(League::Nfl, pre).unwrap()[0];
+    let g = &map_scoreboard(League::Nfl, pre, et()).unwrap()[0];
     assert_eq!(g.status, Status::Pre);
     assert_eq!(g.broadcast.as_deref(), Some("NBC"));
 
@@ -41,7 +48,7 @@ fn maps_pre_and_final_states() {
       {"homeAway":"away","score":"21","team":{"id":"1","abbreviation":"NE","displayName":"Patriots","color":"002244","alternateColor":"c60c30"}},
       {"homeAway":"home","score":"17","team":{"id":"2","abbreviation":"SEA","displayName":"Seahawks","color":"002244","alternateColor":"69be28"}}
     ]}]}]}"#;
-    let g = &map_scoreboard(League::Nfl, post).unwrap()[0];
+    let g = &map_scoreboard(League::Nfl, post, et()).unwrap()[0];
     assert_eq!(g.status, Status::Final);
     assert_eq!(g.away_score, 21);
 }
@@ -59,7 +66,7 @@ fn maps_summary_scoring_plays_newest_first() {
 #[test]
 fn maps_wnba_scoreboard_with_total_records() {
     let json = include_str!("../fixtures/wnba_scoreboard.json");
-    let games = map_scoreboard(League::Wnba, json).unwrap();
+    let games = map_scoreboard(League::Wnba, json, et()).unwrap();
     let g = games.iter().find(|g| g.id == "401857184").unwrap();
     assert_eq!(g.status, Status::Final);
     assert_eq!(g.home.abbr, "NY");
@@ -80,7 +87,7 @@ fn maps_wnba_scoreboard_with_total_records() {
 #[test]
 fn maps_live_mlb_inning_count_and_diamond() {
     let json = include_str!("../fixtures/mlb_scoreboard.json");
-    let games = map_scoreboard(League::Mlb, json).unwrap();
+    let games = map_scoreboard(League::Mlb, json, et()).unwrap();
     let g = games.iter().find(|g| g.id == "401816718").unwrap();
     assert_eq!(g.status, Status::Live);
     // ESPN's shortDetail ("Bot 7th") beats the bare period number, and the
@@ -92,7 +99,7 @@ fn maps_live_mlb_inning_count_and_diamond() {
     assert_eq!(sit.strikes, Some(2));
     assert_eq!(sit.outs, Some(2));
     assert_eq!(sit.on_base, Some([true, false, true]));
-    assert_eq!(sit.down_distance, "2 OUTS  4-2");
+    assert_eq!(sit.down_distance, "2 OUT · 4-2");
     assert_eq!(g.meter, Some(Meter::Diamond { occupied: [true, false, true] }));
     // Play attributed to the team on the payload (id 27 = COL), not possession.
     assert_eq!(g.last_plays[0].team, "COL");
@@ -108,7 +115,7 @@ fn maps_live_mlb_inning_count_and_diamond() {
 #[test]
 fn maps_epl_full_time_scoreboard() {
     let json = include_str!("../fixtures/epl_scoreboard.json");
-    let games = map_scoreboard(League::Epl, json).unwrap();
+    let games = map_scoreboard(League::Epl, json, et()).unwrap();
     let g = games.iter().find(|g| g.id == "401879314").unwrap();
     assert_eq!(g.status, Status::Final);
     assert_eq!(g.home.abbr, "LIV");
@@ -134,7 +141,7 @@ fn one_game(state: &str, period: i64, clock: &str, away: u16, home: u16) -> Stri
 #[test]
 fn live_soccer_period_is_the_match_minute() {
     let json = one_game("in", 2, "90'+3'", 1, 1);
-    let g = &map_scoreboard(League::Mls, &json).unwrap()[0];
+    let g = &map_scoreboard(League::Mls, &json, et()).unwrap()[0];
     assert_eq!(g.period, "90'+3'");
     assert_eq!(g.clock, "");
 }
@@ -143,11 +150,11 @@ fn live_soccer_period_is_the_match_minute() {
 fn live_basketball_lead_meter_signs_per_side() {
     // Home up 80-74 => +6.
     let json = one_game("in", 3, "4:20", 74, 80);
-    let g = &map_scoreboard(League::Wnba, &json).unwrap()[0];
+    let g = &map_scoreboard(League::Wnba, &json, et()).unwrap()[0];
     assert_eq!(g.meter, Some(Meter::Lead { plus_minus: 6 }));
     // Away up 90-81 => -9.
     let json = one_game("in", 4, "1:00", 90, 81);
-    let g = &map_scoreboard(League::Nba, &json).unwrap()[0];
+    let g = &map_scoreboard(League::Nba, &json, et()).unwrap()[0];
     assert_eq!(g.meter, Some(Meter::Lead { plus_minus: -9 }));
 }
 
@@ -165,7 +172,7 @@ fn period_labels_per_league_from_period_number() {
         (League::Wnba, 5, "OT"),
     ] {
         let json = one_game("in", period, "5:00", 0, 0);
-        let g = &map_scoreboard(league, &json).unwrap()[0];
+        let g = &map_scoreboard(league, &json, et()).unwrap()[0];
         assert_eq!(g.period, want, "league {:?} period {period}", league);
     }
 }
@@ -176,7 +183,7 @@ fn record_prefers_type_total_over_first_entry() {
       {"homeAway":"away","score":"0","records":[{"type":"home","summary":"9-9"},{"type":"total","summary":"20-11"}],"team":{"id":"1","abbreviation":"AAA","displayName":"Aaa"}},
       {"homeAway":"home","score":"0","records":[{"type":"road","summary":"5-5"}],"team":{"id":"2","abbreviation":"HHH","displayName":"Hhh"}}
     ]}]}]}"#;
-    let g = &map_scoreboard(League::Cbb, json).unwrap()[0];
+    let g = &map_scoreboard(League::Cbb, json, et()).unwrap()[0];
     assert_eq!(g.away.record, "20-11", "type=total wins over first entry");
     assert_eq!(g.home.record, "5-5", "falls back to first when no total");
 }
@@ -215,7 +222,8 @@ fn maps_basketball_summary_flat_plays_array() {
     // (fixture: tail of the real 2026-08-29 CHI@NY WNBA payload).
     let json = include_str!("../fixtures/wnba_summary.json");
     let s = map_summary(json).unwrap();
-    assert_eq!(s.last_plays.len(), 8, "capped at 8, like drives");
+    // Every play in the fixture, uncapped — the display cap is the tile's job.
+    assert_eq!(s.last_plays.len(), 10, "the whole fixture list, not a cap");
     // Newest first.
     assert_eq!(s.last_plays[0].text, "End of Game");
     // Team ids resolve to abbrs through the header (9 = NY, 19 = CHI).
@@ -296,7 +304,7 @@ fn maps_dated_scoreboard_odds() {
     // slate is the honest capture that actually carries odds). Values
     // asserted are exact strings from that payload.
     let json = include_str!("../fixtures/nfl_scoreboard_dated.json");
-    let games = map_scoreboard(League::Nfl, json).unwrap();
+    let games = map_scoreboard(League::Nfl, json, et()).unwrap();
     assert_eq!(games.len(), 3);
     let cin = games
         .iter()
@@ -310,7 +318,399 @@ fn maps_dated_scoreboard_odds() {
     assert_eq!(det.odds.as_deref(), Some("DET -7  O/U 49.5"));
     // The live scoreboard fixture carries no odds objects: mapped as None,
     // never an empty string.
-    let live = map_scoreboard(League::Nfl, include_str!("../fixtures/nfl_scoreboard.json")).unwrap();
+    let live = map_scoreboard(League::Nfl, include_str!("../fixtures/nfl_scoreboard.json"), et()).unwrap();
     assert!(!live.is_empty());
     assert!(live.iter().all(|g| g.odds.is_none()));
+}
+
+#[test]
+fn a_malformed_event_is_skipped_not_fatal() {
+    // Second event has no competitors (ESPN ships placeholder rows in preseason).
+    let json = r#"{"events":[
+      {"id":"1","date":"2026-09-10T00:20Z","competitions":[{"status":{"type":{"state":"pre"}},"competitors":[
+        {"homeAway":"away","score":"0","team":{"id":"1","abbreviation":"NE"}},
+        {"homeAway":"home","score":"0","team":{"id":"2","abbreviation":"SEA"}}]}]},
+      {"id":"2","date":"2026-09-10T00:20Z","competitions":[{"status":{"type":{"state":"pre"}}}]}
+    ]}"#;
+    let games = map_scoreboard(League::Nfl, json, et()).unwrap();
+    assert_eq!(games.len(), 1, "the good event survives the bad one");
+    assert_eq!(games[0].id, "1");
+}
+
+#[test]
+fn all_events_unmappable_is_an_error_not_an_empty_board() {
+    // Schema drift, not a quiet day: every event fails. The provider caches a
+    // body only after it maps, so Ok(empty) here would evict last-good cache.
+    let json = r#"{"events":[
+      {"id":"1","date":"2026-09-10T00:20Z","competitions":[{"status":{"type":{"state":"pre"}}}]},
+      {"id":"2","date":"2026-09-10T00:20Z","competitions":[{"status":{"type":{"state":"pre"}}}]}
+    ]}"#;
+    assert!(map_scoreboard(League::Nfl, json, et()).is_err());
+    // A genuinely empty slate is still a good map.
+    let empty = map_scoreboard(League::Nfl, r#"{"events":[]}"#, et()).unwrap();
+    assert!(empty.is_empty());
+}
+
+#[test]
+fn start_is_local_and_never_a_raw_string() {
+    let games =
+        map_scoreboard(League::Wnba, include_str!("../fixtures/wnba_scoreboard.json"), et())
+            .unwrap();
+    let pre = games
+        .iter()
+        .find(|g| g.status == Status::Pre)
+        .expect("fixture has a pre game");
+    let start = pre.start.expect("start parsed");
+    assert_eq!(start.offset(), et());
+}
+
+#[test]
+fn mlb_maps_linescore_hits_errors_matchup_and_play_period() {
+    let games =
+        map_scoreboard(League::Mlb, include_str!("../fixtures/mlb_scoreboard.json"), et()).unwrap();
+    let g = games.iter().find(|g| g.id == "401816718").unwrap();
+    assert!(g.linescore.len() >= 7, "per-inning linescore, got {:?}", g.linescore);
+    match &g.extras {
+        gameday::domain::Extras::Baseball { hits, errors } => {
+            assert!(
+                hits.is_some() && errors.is_some(),
+                "hits/errors are on every MLB competitor"
+            );
+        }
+        other => panic!("expected Baseball extras, got {other:?}"),
+    }
+    let sit = g.situation.as_ref().unwrap();
+    assert!(
+        sit.pitcher.is_some() && sit.batter.is_some(),
+        "situation.pitcher/batter present live"
+    );
+    // The scoreboard lastPlay is a pitch ("Pitch 6 : Ball 3"); the tile wants
+    // the human label plus the batter, and the inning where the clock would be.
+    let p = &g.last_plays[0];
+    assert_eq!(p.text, "Walk — A. Riley");
+    assert_eq!(p.period, "B7");
+    assert_eq!(p.clock, "");
+}
+
+#[test]
+fn soccer_details_become_match_events() {
+    let games =
+        map_scoreboard(League::Epl, include_str!("../fixtures/epl_scoreboard.json"), et()).unwrap();
+    let g = games.iter().find(|g| g.id == "401879314").unwrap();
+    let gameday::domain::Extras::Soccer { events } = &g.extras else {
+        panic!("soccer extras")
+    };
+    assert!(!events.is_empty());
+    let goal = events
+        .iter()
+        .find(|e| e.kind == gameday::domain::EventKind::Goal)
+        .unwrap();
+    assert!(goal.minute.ends_with('\''), "{}", goal.minute);
+    assert!(!goal.player.is_empty());
+}
+
+#[test]
+fn cfb_rank_comes_from_curated_rank() {
+    let json = r#"{"events":[{"id":"1","date":"2026-08-29T23:30Z","competitions":[{"status":{"type":{"state":"post"},"period":4},"competitors":[
+      {"homeAway":"away","score":"26","curatedRank":{"current":99},"team":{"id":"1","abbreviation":"SJSU"}},
+      {"homeAway":"home","score":"42","curatedRank":{"current":14},"team":{"id":"2","abbreviation":"USC"}}]}]}]}"#;
+    let g = &map_scoreboard(League::Cfb, json, et()).unwrap()[0];
+    assert_eq!(g.home.rank, Some(14));
+    assert_eq!(g.away.rank, None, "ESPN uses 99 for unranked");
+}
+
+#[test]
+fn football_timeouts_map_from_situation() {
+    let json = r#"{"events":[{"id":"1","date":"2026-09-13T17:00Z","competitions":[{"status":{"type":{"state":"in"},"period":4,"displayClock":"1:27"},
+      "situation":{"awayTimeouts":1,"homeTimeouts":3,"downDistanceText":"1st & Goal","possessionText":"TB 3","possession":"1"},
+      "competitors":[{"homeAway":"away","score":"27","team":{"id":"1","abbreviation":"KC"}},{"homeAway":"home","score":"24","team":{"id":"2","abbreviation":"TB"}}]}]}]}"#;
+    let g = &map_scoreboard(League::Nfl, json, et()).unwrap()[0];
+    assert_eq!(g.timeouts, Some((1, 3)));
+}
+
+use gameday::provider::map::map_stats;
+
+#[test]
+fn mlb_summary_keeps_only_at_bat_results_and_scoring_and_tags_the_inning() {
+    let s = map_summary(include_str!("../fixtures/mlb_summary_min.json")).unwrap();
+    let texts: Vec<&str> = s.last_plays.iter().map(|p| p.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        vec![
+            "Rodríguez singles to right, Crawford to third",
+            "Raleigh struck out swinging.",
+            "Devers homered to right (24)",
+        ],
+        "pitches (P) and inning markers (I) are dropped; newest first"
+    );
+    assert_eq!(s.last_plays[0].period, "T9");
+    assert_eq!(s.last_plays[2].period, "B3");
+    assert_eq!(s.scoring_plays.len(), 1);
+    assert_eq!(s.scoring_plays[0].team, "BOS");
+}
+
+#[test]
+fn summary_is_not_truncated_to_eight() {
+    // 20 flat plays with the scoring play at index 3 — the old split_off(len-8)
+    // dropped it and every scoring surface went blank (review finding #2).
+    let mut plays = String::new();
+    for i in 0..20 {
+        if i > 0 {
+            plays.push(',');
+        }
+        let scoring = i == 3;
+        plays.push_str(&format!(
+            r#"{{"text":"play {i}","scoringPlay":{scoring},"team":{{"id":"1"}},"clock":{{"displayValue":"{}:00"}}}}"#,
+            12 - (i % 12)
+        ));
+    }
+    let json = format!(
+        r#"{{"header":{{"competitions":[{{"competitors":[{{"team":{{"id":"1","abbreviation":"DEN"}}}}]}}]}},"plays":[{plays}]}}"#
+    );
+    let s = map_summary(&json).unwrap();
+    assert_eq!(s.last_plays.len(), 20);
+    assert_eq!(s.scoring_plays.len(), 1);
+    assert_eq!(s.scoring_plays[0].text, "play 3");
+    assert!(s.last_plays.iter().any(|p| p.scoring && p.text == "play 3"));
+}
+
+#[test]
+fn a_competitor_with_an_unknown_home_away_skips_the_event() {
+    // Schema drift, not an away team: writing a third side into `away` would
+    // render a tile that claims two home teams played each other.
+    let drift = r#"{"events":[{"id":"9","competitions":[{"status":{"displayClock":"0:00","period":0,"type":{"state":"pre","completed":false}},"competitors":[
+      {"homeAway":"home","score":"0","team":{"id":"1","abbreviation":"NE","displayName":"Patriots","color":"002244","alternateColor":"c60c30"}},
+      {"homeAway":"neutral","score":"0","team":{"id":"2","abbreviation":"SEA","displayName":"Seahawks","color":"002244","alternateColor":"69be28"}}]}]}]}"#;
+    let ev: serde_json::Value = serde_json::from_str(drift).unwrap();
+    let err = gameday::provider::map::map_event(League::Nfl, &ev["events"][0], et()).unwrap_err();
+    assert!(
+        format!("{err}").contains("homeAway"),
+        "the skip names the field that drifted: {err}"
+    );
+    // The whole slate is that one event, so nothing maps.
+    assert!(map_scoreboard(League::Nfl, drift, et()).is_err());
+    // The same payload with a real away side maps fine.
+    let ok = drift.replace("\"neutral\"", "\"away\"");
+    assert_eq!(map_scoreboard(League::Nfl, &ok, et()).unwrap().len(), 1);
+}
+
+#[test]
+fn sports_with_no_extra_source_map_to_extras_none() {
+    // Football drive text and NHL shots have no scoreboard source; they carry
+    // no half-built variant until sub-project 3 gives them one.
+    let json = include_str!("../fixtures/nfl_scoreboard.json");
+    let g = &map_scoreboard(League::Nfl, json, et()).unwrap()[0];
+    assert_eq!(g.extras, gameday::domain::Extras::None);
+}
+
+#[test]
+fn grouped_box_score_maps_and_missing_leaders_is_empty_not_error() {
+    let stats = map_stats(include_str!("../fixtures/mlb_summary_min.json")).unwrap();
+    let hits = stats
+        .rows
+        .iter()
+        .find(|r| r.label == "H")
+        .expect("grouped stats flattened");
+    assert_eq!((hits.away.as_str(), hits.home.as_str()), ("11", "9"));
+    assert!(stats.leaders.is_empty());
+}
+
+#[test]
+fn standings_rows_are_sorted_by_win_pct_then_wins_then_name() {
+    let t = map_standings(League::Nfl, include_str!("../fixtures/nfl_standings.json")).unwrap();
+    for g in &t.groups {
+        let pct = |r: &gameday::domain::StandingRow| {
+            let gp = r.wins + r.losses + r.third.unwrap_or(0);
+            if gp == 0 {
+                0.0
+            } else {
+                (r.wins as f64 + 0.5 * r.third.unwrap_or(0) as f64) / gp as f64
+            }
+        };
+        for w in g.rows.windows(2) {
+            assert!(
+                pct(&w[0]) >= pct(&w[1]) - 1e-9,
+                "{} before {} in {}",
+                w[0].abbr,
+                w[1].abbr,
+                g.name
+            );
+        }
+    }
+}
+
+#[test]
+fn standings_label_is_the_season_when_present_else_none() {
+    let t = map_standings(League::Nfl, include_str!("../fixtures/nfl_standings.json")).unwrap();
+    assert_eq!(t.season, None, "this fixture carries no season key");
+    let json = r#"{"name":"X","season":{"displayName":"2025-26"},"children":[{"name":"East","standings":{"entries":[{"team":{"abbreviation":"BOS","name":"Celtics"},"stats":[{"type":"wins","value":58},{"type":"losses","value":24}]}]}}]}"#;
+    let t = map_standings(League::Nba, json).unwrap();
+    assert_eq!(t.season.as_deref(), Some("2025-26"));
+}
+
+#[test]
+fn ties_column_only_when_the_sport_has_one() {
+    let json = r#"{"name":"MLB","children":[{"name":"AL","standings":{"entries":[{"team":{"abbreviation":"TB","name":"Rays"},"stats":[{"type":"wins","value":82},{"type":"losses","value":55},{"type":"ties","value":0}]}]}}]}"#;
+    let t = map_standings(League::Mlb, json).unwrap();
+    assert_eq!(
+        t.groups[0].rows[0].third, None,
+        "MLB sends ties=0 for every team; drop the column"
+    );
+}
+
+/// The live FBS payload's two awkward shapes, both checked 2026-08-31 against
+/// `…/college-football/standings?group=80`: the Sun Belt nests its divisions
+/// as grandchildren, and a stat worth zero is simply absent — a 1-0 team
+/// carries `wins` and no `losses`. Requiring both dropped every undefeated
+/// team, which in preseason is the entire table.
+#[test]
+fn cfb_divisions_become_their_own_groups_and_an_absent_zero_stat_is_zero() {
+    let json = r#"{"id":"80","name":"FBS","season":{"displayName":"2026"},"children":[
+        {"name":"Big Ten Conference","standings":{"entries":[
+            {"team":{"abbreviation":"OSU","name":"Buckeyes"},"stats":[{"type":"wins","value":1}]},
+            {"team":{"abbreviation":"MICH","name":"Wolverines"},"stats":[{"type":"losses","value":1}]}]}},
+        {"name":"Sun Belt Conference","children":[
+            {"name":"Sun Belt - East","standings":{"entries":[
+                {"team":{"abbreviation":"APP","name":"Mountaineers"},"stats":[{"type":"wins","value":1}]}]}},
+            {"name":"Sun Belt - West","standings":{"entries":[
+                {"team":{"abbreviation":"TROY","name":"Trojans"},"stats":[{"type":"losses","value":1}]}]}}]}]}"#;
+    let t = map_standings(League::Cfb, json).unwrap();
+    assert_eq!(t.season.as_deref(), Some("2026"));
+    let names: Vec<&str> = t.groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["Big Ten Conference", "Sun Belt Conference · Sun Belt - East", "Sun Belt Conference · Sun Belt - West"]
+    );
+    let osu = &t.groups[0].rows[0];
+    assert_eq!((osu.abbr.as_str(), osu.wins, osu.losses), ("OSU", 1, 0), "1-0 sorts first");
+    let mich = &t.groups[0].rows[1];
+    assert_eq!((mich.abbr.as_str(), mich.wins, mich.losses), ("MICH", 0, 1));
+    assert_eq!(osu.third, None, "no ties stat, no ties column");
+}
+
+/// The zero-stat rule has a floor: one of wins/losses is the zero the feed
+/// didn't send, but *neither* is not a 0-0 team — it's an entry we can't read,
+/// and inventing an 0-0 record for it would put a phantom in the table.
+#[test]
+fn an_entry_with_neither_wins_nor_losses_is_dropped_not_read_as_0_0() {
+    let json = r#"{"name":"FBS","children":[{"name":"Big Ten Conference","standings":{"entries":[
+        {"team":{"abbreviation":"OSU","name":"Buckeyes"},"stats":[{"type":"wins","value":3}]},
+        {"team":{"abbreviation":"PUR","name":"Boilermakers"},"stats":[{"type":"losses","value":2}]},
+        {"team":{"abbreviation":"GHOST","name":"Nobody"},"stats":[{"type":"playoffseed","value":7},{"type":"streak","value":1}]}]}}]}"#;
+    let t = map_standings(League::Cfb, json).unwrap();
+    let rows = &t.groups[0].rows;
+    let abbrs: Vec<&str> = rows.iter().map(|r| r.abbr.as_str()).collect();
+    assert_eq!(abbrs, ["OSU", "PUR"], "an entry with no W and no L is not a row");
+    assert_eq!((rows[0].wins, rows[0].losses), (3, 0), "wins only maps as W-0");
+    assert_eq!((rows[1].wins, rows[1].losses), (0, 2), "losses only maps as 0-L");
+}
+
+/// The truth test: real, untrimmed scoreboards and summaries from all nine
+/// leagues, captured once by `scripts/capture-fixtures.sh` and frozen here.
+/// Hand-written fixtures only prove the mapper reads what we imagined; these
+/// prove it reads what ESPN actually sends. Every event that carries two
+/// competitors must map — a skip means a real game would vanish from the
+/// board. (Events with fewer than two competitors are ESPN's own placeholder
+/// rows; the per-event skip exists precisely for them.)
+#[test]
+fn every_league_maps_its_full_scoreboard_and_summary_with_no_skips() {
+    let cases: [(League, &str, &str); 9] = [
+        (
+            League::Nfl,
+            include_str!("../fixtures/nfl_scoreboard_full.json"),
+            include_str!("../fixtures/nfl_summary_full.json"),
+        ),
+        (
+            League::Cfb,
+            include_str!("../fixtures/cfb_scoreboard_full.json"),
+            include_str!("../fixtures/cfb_summary_full.json"),
+        ),
+        (
+            League::Cbb,
+            include_str!("../fixtures/cbb_scoreboard_full.json"),
+            include_str!("../fixtures/cbb_summary_full.json"),
+        ),
+        (
+            League::Nba,
+            include_str!("../fixtures/nba_scoreboard_full.json"),
+            include_str!("../fixtures/nba_summary_full.json"),
+        ),
+        (
+            League::Wnba,
+            include_str!("../fixtures/wnba_scoreboard_full.json"),
+            include_str!("../fixtures/wnba_summary_full.json"),
+        ),
+        (
+            League::Nhl,
+            include_str!("../fixtures/nhl_scoreboard_full.json"),
+            include_str!("../fixtures/nhl_summary_full.json"),
+        ),
+        (
+            League::Mlb,
+            include_str!("../fixtures/mlb_scoreboard_full.json"),
+            include_str!("../fixtures/mlb_summary_full.json"),
+        ),
+        (
+            League::Epl,
+            include_str!("../fixtures/epl_scoreboard_full.json"),
+            include_str!("../fixtures/epl_summary_full.json"),
+        ),
+        (
+            League::Mls,
+            include_str!("../fixtures/mls_scoreboard_full.json"),
+            include_str!("../fixtures/mls_summary_full.json"),
+        ),
+    ];
+    for (league, sb, sm) in cases {
+        let raw: serde_json::Value = serde_json::from_str(sb).unwrap();
+        let mappable = raw["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| {
+                e["competitions"][0]["competitors"]
+                    .as_array()
+                    .is_some_and(|c| c.len() >= 2)
+            })
+            .count();
+        let games = map_scoreboard(league, sb, et()).unwrap();
+        assert_eq!(
+            games.len(),
+            mappable,
+            "{}: every event with two competitors maps (none skipped)",
+            league.slug()
+        );
+        for g in &games {
+            assert!(g.start.is_some(), "{}: {} has no start", league.slug(), g.id);
+            if g.status != Status::Pre {
+                assert!(
+                    !g.linescore.is_empty() || matches!(league, League::Epl | League::Mls),
+                    "{}: {} linescore",
+                    league.slug(),
+                    g.id
+                );
+            }
+        }
+        let s = map_summary(sm).unwrap();
+        assert!(!s.last_plays.is_empty(), "{}: summary plays", league.slug());
+        if league == League::Mlb {
+            assert!(
+                s.last_plays.iter().all(|p| !p.text.starts_with("Pitch ")),
+                "MLB pitch rows leaked"
+            );
+        }
+        if !s.scoring_plays.is_empty() {
+            assert!(
+                s.last_plays.iter().any(|p| p.scoring),
+                "{}: scoring flag lost",
+                league.slug()
+            );
+        }
+        let stats = map_stats(sm).unwrap();
+        assert!(
+            !stats.rows.is_empty(),
+            "{}: box score rows (grouped or flat)",
+            league.slug()
+        );
+    }
 }

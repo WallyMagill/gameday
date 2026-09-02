@@ -1,5 +1,6 @@
 use crate::domain::*;
 use serde_json::Value;
+use time::UtcOffset;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MapError {
@@ -7,6 +8,10 @@ pub enum MapError {
     Json(#[from] serde_json::Error),
     #[error("missing field {0}")]
     Missing(&'static str),
+    /// One event in a scoreboard couldn't be mapped. Carries the event id so
+    /// the skip line names which row was dropped and which path was missing.
+    #[error("event {id}: missing {path}")]
+    Event { id: String, path: &'static str },
 }
 
 fn hex_color(s: &str) -> [u8; 3] {
@@ -94,7 +99,9 @@ fn period_label(
     }
 }
 
-fn team_from(league: League, v: &Value) -> Option<Team> {
+/// `rank` is the competitor's `curatedRank` (AP/coaches poll), which sits on
+/// the competitor, not on `team`.
+fn team_from(league: League, v: &Value, rank: &Value) -> Option<Team> {
     let id = v.get("id")?.as_str()?.to_string();
     let abbr = v.get("abbreviation")?.as_str()?.to_string();
     Some(Team {
@@ -111,6 +118,8 @@ fn team_from(league: League, v: &Value) -> Option<Team> {
         color: hex_color(v.get("color").and_then(|x| x.as_str()).unwrap_or("")),
         alt_color: hex_color(v.get("alternateColor").and_then(|x| x.as_str()).unwrap_or("")),
         abbr,
+        // ESPN sends 99 for "unranked"; only 1..=25 is a real poll rank.
+        rank: rank["current"].as_u64().filter(|&n| (1..=25).contains(&n)).map(|n| n as u8),
     })
 }
 
@@ -195,127 +204,316 @@ fn odds_from(odds: &Value) -> Option<String> {
     }
 }
 
-pub fn map_scoreboard(league: League, json: &str) -> Result<Vec<Game>, MapError> {
+pub fn map_scoreboard(league: League, json: &str, offset: UtcOffset) -> Result<Vec<Game>, MapError> {
     let v: Value = serde_json::from_str(json)?;
     let events = v.get("events").and_then(|e| e.as_array()).ok_or(MapError::Missing("events"))?;
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(events.len());
     for ev in events {
-        let id = ev.get("id").and_then(|x| x.as_str()).ok_or(MapError::Missing("id"))?.to_string();
-        let start_time = ev.get("date").and_then(|x| x.as_str()).map(|s| s.to_string());
-        let comp = ev.get("competitions").and_then(|c| c.as_array()).and_then(|a| a.first())
-            .ok_or(MapError::Missing("competitions"))?;
-        let st = &comp["status"];
-        let status = status_from(st["type"]["state"].as_str().unwrap_or("pre"));
-        let display_clock = st["displayClock"].as_str().unwrap_or("");
-        let period = period_label(
-            league,
-            status,
-            st["period"].as_i64().unwrap_or(0),
-            st["type"]["shortDetail"].as_str().unwrap_or(""),
-            display_clock,
-        );
-        // Baseball has no game clock and soccer's minute already lives in the
-        // period label; a raw "0:00" next to them is noise. A final's
-        // displayClock is whatever ESPN left behind (a WNBA final probed
-        // 2026-08-30 carried "10:00" — the fixture keeps one), so it's dropped
-        // too: nothing is on the clock once the game is over.
-        let clock = match league {
-            League::Mlb | League::Epl | League::Mls => String::new(),
-            _ if status == Status::Final => String::new(),
-            _ => display_clock.to_string(),
-        };
-        let comps = comp.get("competitors").and_then(|c| c.as_array()).ok_or(MapError::Missing("competitors"))?;
-        let mut home = None;
-        let mut away = None;
-        let mut home_score = 0u16;
-        let mut away_score = 0u16;
-        for c in comps {
-            let mut team = team_from(league, &c["team"]).ok_or(MapError::Missing("team"))?;
-            team.record = record_from(c);
-            // NHL shots on goal: skipped — no NHL fixture exists and the live
-            // scoreboard (2026-08-29, all preseason `pre`) had competitors
-            // with `statistics: []`, so the field name couldn't be verified.
-            let score = c["score"].as_str().unwrap_or("0").parse().unwrap_or(0);
-            match c["homeAway"].as_str() {
-                Some("home") => { home_score = score; home = Some(team); }
-                _ => { away_score = score; away = Some(team); }
+        match map_event(league, ev, offset) {
+            Ok(g) => out.push(g),
+            Err(e) => {
+                // One placeholder row must not erase the league (spec §2).
+                // Once per (league, event): the same bad row is in every
+                // poll, so repeating it would be noise, not news.
+                crate::log::note_once(
+                    &format!("{}:{e}", league.slug()),
+                    &format!("gameday: {} scoreboard: skipped {e}", league.slug()),
+                );
             }
         }
-        let home = home.ok_or(MapError::Missing("home"))?;
-        let away = away.ok_or(MapError::Missing("away"))?;
-        let sit_v = &comp["situation"];
-        let abbr_for_id = |tid: Option<&str>| -> Option<String> {
-            tid.and_then(|tid| {
-                if home.id == tid { Some(home.abbr.clone()) }
-                else if away.id == tid { Some(away.abbr.clone()) }
-                else { None }
-            })
-        };
-        let situation = if sit_v.is_object() {
-            let possession = abbr_for_id(sit_v["possession"].as_str());
-            let mut sit = Situation {
-                down_distance: sit_v["downDistanceText"].as_str().unwrap_or("").to_string(),
-                possession,
-                ball_on: sit_v["possessionText"].as_str().map(|s| s.to_string()),
-                ..Default::default()
-            };
-            if league == League::Mlb {
-                sit.balls = sit_v["balls"].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
-                sit.strikes = sit_v["strikes"].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
-                sit.outs = sit_v["outs"].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
-                sit.on_base = Some([
-                    sit_v["onFirst"].as_bool().unwrap_or(false),
-                    sit_v["onSecond"].as_bool().unwrap_or(false),
-                    sit_v["onThird"].as_bool().unwrap_or(false),
-                ]);
-                // Compose the headline: "2 OUTS  1-2".
-                if let Some(headline) = sit.mlb_count_headline() {
-                    sit.down_distance = headline;
-                }
-            }
-            // shot_clock stays None: no shot-clock field exists under
-            // situation/status in the wnba fixture or the live NBA/WNBA
-            // scoreboards (checked 2026-08-29). The tile chip renders only
-            // when a value is present, so real data simply shows no chip.
-            Some(sit)
-        } else {
-            None
-        };
-        let mut last_plays = Vec::new();
-        if let Some(text) = sit_v["lastPlay"]["text"].as_str() {
-            // Attribute to the team ESPN credits on the play; fall back to
-            // the possessing team when the play carries no team.
-            let team = abbr_for_id(sit_v["lastPlay"]["team"]["id"].as_str())
-                .or_else(|| situation.as_ref().and_then(|s| s.possession.clone()))
-                .unwrap_or_default();
-            last_plays.push(Play {
-                clock: sit_v["lastPlay"]["clock"]["displayValue"].as_str().unwrap_or(&clock).to_string(),
-                team,
-                text: text.to_string(),
-                scoring: false,
-            });
-        }
-        let odds = odds_from(&comp["odds"]);
-        let broadcast = comp["broadcasts"].as_array()
-            .and_then(|b| b.first())
-            .and_then(|b| b["names"].as_array())
-            .and_then(|n| n.first())
-            .and_then(|n| n.as_str())
-            .map(|s| s.to_string());
-        let meter = meter_from(
-            league,
-            status,
-            sit_v,
-            situation.as_ref().and_then(|s| s.possession.as_deref()),
-            home_score,
-            away_score,
-        );
-        out.push(Game {
-            id, league, home, away, home_score, away_score, status, period, clock,
-            situation, last_plays, meter, start_time, broadcast, odds,
-        });
+    }
+    // ...but a slate where NOTHING maps is schema drift, not a quiet day. The
+    // provider caches a body only after it maps (spec §3), so returning Ok here
+    // would let a drifted payload evict the last-good cache. A genuinely empty
+    // `events: []` is still Ok — there just are no games.
+    if out.is_empty() && !events.is_empty() {
+        // Not deduped: a whole league going unmappable is a live incident,
+        // and each occurrence is a data point about when it started.
+        crate::log::note(&format!(
+            "gameday: {} scoreboard: {} events, none mappable",
+            league.slug(),
+            events.len()
+        ));
+        return Err(MapError::Missing("events[*] (no event mapped)"));
     }
     Ok(out)
+}
+
+/// One `events[]` entry -> `Game`. Fallible per event so a malformed row is a
+/// skipped tile, not a dead league.
+pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, MapError> {
+    let id = ev.get("id").and_then(|x| x.as_str()).ok_or(MapError::Missing("id"))?.to_string();
+    let miss = |path: &'static str| MapError::Event { id: id.clone(), path };
+    let start = ev.get("date").and_then(|x| x.as_str()).and_then(|s| crate::text::local_time(s, offset));
+    let comp = ev
+        .get("competitions")
+        .and_then(|c| c.as_array())
+        .and_then(|a| a.first())
+        .ok_or_else(|| miss("competitions[0]"))?;
+    let st = &comp["status"];
+    let status = status_from(st["type"]["state"].as_str().unwrap_or("pre"));
+    let display_clock = st["displayClock"].as_str().unwrap_or("");
+    let period = period_label(
+        league,
+        status,
+        st["period"].as_i64().unwrap_or(0),
+        st["type"]["shortDetail"].as_str().unwrap_or(""),
+        display_clock,
+    );
+    // Baseball has no game clock and soccer's minute already lives in the
+    // period label; a raw "0:00" next to them is noise. A final's
+    // displayClock is whatever ESPN left behind (a WNBA final probed
+    // 2026-08-30 carried "10:00" — the fixture keeps one), so it's dropped
+    // too: nothing is on the clock once the game is over.
+    let clock = match league {
+        League::Mlb | League::Epl | League::Mls => String::new(),
+        _ if status == Status::Final => String::new(),
+        _ => display_clock.to_string(),
+    };
+    let comps = comp
+        .get("competitors")
+        .and_then(|c| c.as_array())
+        .ok_or_else(|| miss("competitors"))?;
+    let mut home = None;
+    let mut away = None;
+    let mut home_score = 0u16;
+    let mut away_score = 0u16;
+    let mut linescore_away: Vec<u16> = vec![];
+    let mut linescore_home: Vec<u16> = vec![];
+    let mut hits: (Option<u16>, Option<u16>) = (None, None);
+    let mut errors: (Option<u16>, Option<u16>) = (None, None);
+    for c in comps {
+        let mut team =
+            team_from(league, &c["team"], &c["curatedRank"]).ok_or_else(|| miss("competitors[].team"))?;
+        team.record = record_from(c);
+        // NHL shots on goal: skipped — no NHL fixture exists and the live
+        // scoreboard (2026-08-29, all preseason `pre`) had competitors
+        // with `statistics: []`, so the field name couldn't be verified.
+        let score = c["score"].as_str().unwrap_or("0").parse().unwrap_or(0);
+        let ls: Vec<u16> = c["linescores"]
+            .as_array()
+            .map(|a| a.iter().map(|p| p["value"].as_f64().unwrap_or(0.0) as u16).collect())
+            .unwrap_or_default();
+        let h = c["hits"].as_u64().map(|n| n.min(u16::MAX as u64) as u16);
+        let e = c["errors"].as_u64().map(|n| n.min(u16::MAX as u64) as u16);
+        match c["homeAway"].as_str() {
+            Some("home") => {
+                home_score = score;
+                home = Some(team);
+                linescore_home = ls;
+                hits.1 = h;
+                errors.1 = e;
+            }
+            Some("away") => {
+                away_score = score;
+                away = Some(team);
+                linescore_away = ls;
+                hits.0 = h;
+                errors.0 = e;
+            }
+            // Anything else is schema drift, not an away team: writing it
+            // into `away` would render a two-home-team tile as if it were
+            // real. Skip the event and let the rest of the slate stand.
+            _ => return Err(miss("competitors[].homeAway")),
+        }
+    }
+    let home = home.ok_or_else(|| miss("competitors[homeAway=home]"))?;
+    let away = away.ok_or_else(|| miss("competitors[homeAway=away]"))?;
+    // Pair only the periods both sides have played: a bottom half that hasn't
+    // happened yet is not a zero.
+    let n = linescore_away.len().min(linescore_home.len());
+    let linescore: Vec<(u16, u16)> = (0..n).map(|i| (linescore_away[i], linescore_home[i])).collect();
+    let sit_v = &comp["situation"];
+    let abbr_for_id = |tid: Option<&str>| -> Option<String> {
+        tid.and_then(|tid| {
+            if home.id == tid { Some(home.abbr.clone()) }
+            else if away.id == tid { Some(away.abbr.clone()) }
+            else { None }
+        })
+    };
+    let situation = if sit_v.is_object() {
+        let possession = abbr_for_id(sit_v["possession"].as_str());
+        let mut sit = Situation {
+            down_distance: sit_v["downDistanceText"].as_str().unwrap_or("").to_string(),
+            possession,
+            ball_on: sit_v["possessionText"].as_str().map(|s| s.to_string()),
+            ..Default::default()
+        };
+        if league == League::Mlb {
+            sit.balls = sit_v["balls"].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
+            sit.strikes = sit_v["strikes"].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
+            sit.outs = sit_v["outs"].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
+            sit.on_base = Some([
+                sit_v["onFirst"].as_bool().unwrap_or(false),
+                sit_v["onSecond"].as_bool().unwrap_or(false),
+                sit_v["onThird"].as_bool().unwrap_or(false),
+            ]);
+            sit.pitcher = sit_v["pitcher"]["athlete"]["shortName"].as_str().map(str::to_string);
+            sit.batter = sit_v["batter"]["athlete"]["shortName"].as_str().map(str::to_string);
+            sit.due_up = sit_v["dueUp"]
+                .as_array()
+                .map(|a| a.iter().filter_map(due_up_line).collect())
+                .unwrap_or_default();
+            // Compose the headline: "2 OUT · 1-2".
+            if let Some(headline) = sit.mlb_count_headline() {
+                sit.down_distance = headline;
+            }
+        }
+        // shot_clock stays None: no shot-clock field exists under
+        // situation/status in the wnba fixture or the live NBA/WNBA
+        // scoreboards (checked 2026-08-29). The tile chip renders only
+        // when a value is present, so real data simply shows no chip.
+        Some(sit)
+    } else {
+        None
+    };
+    // Timeouts ride on `situation`, so they're live-only — pre/post games
+    // carry none and the tile shows no pips.
+    let timeouts = match (sit_v["awayTimeouts"].as_u64(), sit_v["homeTimeouts"].as_u64()) {
+        (Some(a), Some(h)) => Some((a.min(9) as u8, h.min(9) as u8)),
+        _ => None,
+    };
+    let mut last_plays = Vec::new();
+    if let Some(text) = sit_v["lastPlay"]["text"].as_str() {
+        // Attribute to the team ESPN credits on the play; fall back to
+        // the possessing team when the play carries no team.
+        let team = abbr_for_id(sit_v["lastPlay"]["team"]["id"].as_str())
+            .or_else(|| situation.as_ref().and_then(|s| s.possession.clone()))
+            .unwrap_or_default();
+        // MLB's lastPlay is a pitch row; take the human label plus the batter,
+        // and put the inning where the (nonexistent) clock would go.
+        let text = if league == League::Mlb {
+            mlb_last_play_text(&sit_v["lastPlay"]).unwrap_or_else(|| text.to_string())
+        } else {
+            text.to_string()
+        };
+        last_plays.push(Play {
+            clock: if league == League::Mlb {
+                String::new()
+            } else {
+                sit_v["lastPlay"]["clock"]["displayValue"].as_str().unwrap_or(&clock).to_string()
+            },
+            period: if league == League::Mlb { mlb_inning_tag(&period) } else { String::new() },
+            team,
+            text,
+            scoring: false,
+        });
+    }
+    let extras = match league {
+        League::Mlb => Extras::Baseball {
+            hits: hits.0.zip(hits.1),
+            errors: errors.0.zip(errors.1),
+        },
+        League::Epl | League::Mls => Extras::Soccer {
+            events: details_from(&comp["details"], &abbr_for_id),
+        },
+        // Football drive text lives on the summary, not the scoreboard, and
+        // shots on goal weren't confirmable without a live NHL feed — neither
+        // has a source here, so neither gets a variant until one does.
+        _ => Extras::None,
+    };
+    let odds = odds_from(&comp["odds"]);
+    let broadcast = comp["broadcasts"].as_array()
+        .and_then(|b| b.first())
+        .and_then(|b| b["names"].as_array())
+        .and_then(|n| n.first())
+        .and_then(|n| n.as_str())
+        .map(|s| s.to_string());
+    let meter = meter_from(
+        league,
+        status,
+        sit_v,
+        situation.as_ref().and_then(|s| s.possession.as_deref()),
+        home_score,
+        away_score,
+    );
+    Ok(Game {
+        id, league, home, away, home_score, away_score, status, period, clock,
+        situation, last_plays, meter, start, broadcast, odds,
+        scoring_plays: vec![], linescore, timeouts, extras,
+    })
+}
+
+/// "BOT 7TH" -> "B7", "TOP 9TH" -> "T9", "MID 5TH"/"END 8TH" -> "M5"/"E8".
+fn mlb_inning_tag(period: &str) -> String {
+    let mut it = period.split_whitespace();
+    let (Some(half), Some(num)) = (it.next(), it.next()) else { return String::new() };
+    let digits: String = num.chars().take_while(|c| c.is_ascii_digit()).collect();
+    match half.chars().next() {
+        Some(c) => format!("{c}{digits}"),
+        None => String::new(),
+    }
+}
+
+/// A play's own `period` object — `{"type":"Top","number":9}` -> "T9".
+/// Empty when the play carries no period (football drives, soccer keyEvents).
+fn inning_tag(period: &Value) -> String {
+    // First char, not a byte slice: a non-ASCII type would panic on `&t[..1]`.
+    match (period["type"].as_str().and_then(|t| t.chars().next()), period["number"].as_u64()) {
+        (Some(c), Some(n)) => format!("{}{n}", c.to_uppercase()),
+        _ => String::new(),
+    }
+}
+
+/// `lastPlay.type.alternativeText` ("Walk", "Strikeout") + the batter — the
+/// `text` field is the pitch ("Pitch 6 : Ball 3"), which nobody wants.
+fn mlb_last_play_text(lp: &Value) -> Option<String> {
+    let label = lp["type"]["alternativeText"].as_str().or(lp["type"]["text"].as_str())?;
+    let batter = lp["athletesInvolved"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|a| a["shortName"].as_str());
+    Some(match batter {
+        Some(b) => format!("{label} — {b}"),
+        None => label.to_string(),
+    })
+}
+
+/// One `situation.dueUp[]` entry: "A. Riley (2-3, HR)".
+fn due_up_line(v: &Value) -> Option<String> {
+    let name = v["athlete"]["shortName"].as_str()?;
+    Some(match v["summary"].as_str() {
+        Some(s) if !s.is_empty() => format!("{name} ({s})"),
+        _ => name.to_string(),
+    })
+}
+
+/// Soccer `competition.details[]`: goals/cards/subs with minute and player.
+/// Anything else in the array (VAR reviews, kickoff markers) is dropped.
+fn details_from(details: &Value, abbr_for_id: &dyn Fn(Option<&str>) -> Option<String>) -> Vec<MatchEvent> {
+    let Some(arr) = details.as_array() else { return vec![] };
+    arr.iter()
+        .filter_map(|d| {
+            let kind = if d["scoringPlay"].as_bool() == Some(true) {
+                if d["ownGoal"].as_bool() == Some(true) {
+                    EventKind::OwnGoal
+                } else if d["penaltyKick"].as_bool() == Some(true) {
+                    EventKind::Penalty
+                } else {
+                    EventKind::Goal
+                }
+            } else if d["redCard"].as_bool() == Some(true) {
+                EventKind::Red
+            } else if d["yellowCard"].as_bool() == Some(true) {
+                EventKind::Yellow
+            } else if d["type"]["text"].as_str().is_some_and(|t| t.eq_ignore_ascii_case("Substitution")) {
+                EventKind::Sub
+            } else {
+                return None;
+            };
+            Some(MatchEvent {
+                minute: d["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+                kind,
+                team: abbr_for_id(d["team"]["id"].as_str()).unwrap_or_default(),
+                player: d["athletesInvolved"]
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(|a| a["shortName"].as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            })
+        })
+        .collect()
 }
 
 pub fn map_summary(json: &str) -> Result<Summary, MapError> {
@@ -344,6 +542,7 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
         .filter_map(|p| {
             Some(Play {
                 clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+                period: String::new(),
                 team: team_of(p),
                 text: p["text"].as_str()?.to_string(),
                 scoring: true,
@@ -360,6 +559,7 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                     if let Some(text) = p["text"].as_str() {
                         plays.push(Play {
                             clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+                            period: String::new(),
                             team: drive_team.to_string(),
                             text: text.to_string(),
                             scoring: p["scoringPlay"].as_bool().unwrap_or(false),
@@ -380,11 +580,28 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                 let Some(text) = p["text"].as_str().filter(|t| !t.is_empty()) else {
                     continue; // delay/period markers carry no text
                 };
+                // MLB tags rows: P pitch, N at-bat narrative, S scoring, I
+                // inning marker, A batter/pitcher start, C substitution. Only
+                // N and S are the feed a fan reads (verified 2026-08-31 on a
+                // live MLB summary: 285 P vs 74 N + 11 S).
+                if matches!(p["summaryType"].as_str(), Some("P") | Some("I") | Some("A") | Some("C"))
+                {
+                    continue;
+                }
+                let scoring = p["scoringPlay"].as_bool().unwrap_or(false);
+                // NHL power-play goal: strength id "702" (verified on live NHL
+                // goals 2026-08-31). No other NHL strength field is trusted.
+                let text = if scoring && p["strength"]["id"].as_str() == Some("702") {
+                    format!("PP · {text}")
+                } else {
+                    text.to_string()
+                };
                 plays.push(Play {
                     clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+                    period: inning_tag(&p["period"]),
                     team: team_of(p),
-                    text: text.to_string(),
-                    scoring: p["scoringPlay"].as_bool().unwrap_or(false),
+                    text,
+                    scoring,
                 });
             }
             if !plays.is_empty() {
@@ -397,14 +614,40 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
             scoring_plays = plays.iter().filter(|p| p.scoring).rev().cloned().collect();
         }
     }
-    if plays.len() > 8 {
-        plays = plays.split_off(plays.len() - 8);
-    }
+    // No truncation here: the full list is newest-first and the display cap
+    // belongs to the tile that renders it.
     plays.reverse();
     // Meter stays None here on purpose: the scoreboard mapping owns meters and
     // App::merge_summary never reads a summary meter, so mapping one would be
     // dead data pretending to be live.
     Ok(Summary { last_plays: plays, scoring_plays, meter: None })
+}
+
+/// One box-score side's stats, flat (`[{name, displayValue}]`) or grouped
+/// (`[{name, stats:[{name, displayValue}]}]`, MLB) — both become
+/// (name, label, displayValue) triples.
+fn stat_rows(side: &Value) -> Vec<(String, String, String)> {
+    let mut out = Vec::new();
+    for s in side["statistics"].as_array().cloned().unwrap_or_default() {
+        if let Some(group) = s["stats"].as_array() {
+            for g in group {
+                if let (Some(n), Some(v)) = (g["name"].as_str(), g["displayValue"].as_str()) {
+                    out.push((
+                        n.to_string(),
+                        g["label"].as_str().unwrap_or(n).to_string(),
+                        v.to_string(),
+                    ));
+                }
+            }
+        } else if let (Some(n), Some(v)) = (s["name"].as_str(), s["displayValue"].as_str()) {
+            out.push((
+                n.to_string(),
+                s["label"].as_str().unwrap_or(n).to_string(),
+                v.to_string(),
+            ));
+        }
+    }
+    out
 }
 
 /// Box score from the same summary payload `map_summary` reads:
@@ -422,23 +665,17 @@ pub fn map_stats(json: &str) -> Result<GameStats, MapError> {
     };
     let away = side("away").ok_or(MapError::Missing("boxscore.teams[homeAway=away]"))?;
     let home = side("home").ok_or(MapError::Missing("boxscore.teams[homeAway=home]"))?;
-    let home_stats = home["statistics"].as_array().cloned().unwrap_or_default();
+    let home_stats = stat_rows(home);
     let mut rows = Vec::new();
-    for s in away["statistics"].as_array().cloned().unwrap_or_default() {
-        let Some(name) = s["name"].as_str() else { continue };
-        let Some(away_val) = s["displayValue"].as_str() else { continue };
+    for (name, label, away_val) in stat_rows(away) {
         // Pair by stat name, not position — order is a payload accident.
-        let Some(home_val) = home_stats
-            .iter()
-            .find(|h| h["name"].as_str() == Some(name))
-            .and_then(|h| h["displayValue"].as_str())
-        else {
+        let Some((_, _, home_val)) = home_stats.iter().find(|(n, _, _)| *n == name) else {
             continue; // one-sided stat: skip rather than render a blank cell
         };
         rows.push(StatRow {
-            label: s["label"].as_str().unwrap_or(name).to_string(),
-            away: away_val.to_string(),
-            home: home_val.to_string(),
+            label,
+            away: away_val,
+            home: home_val.clone(),
         });
     }
     let mut leaders = Vec::new();
@@ -466,10 +703,14 @@ pub fn map_stats(json: &str) -> Result<GameStats, MapError> {
 }
 
 /// One standings entry -> row. Wins/losses come from the `stats[]` entries
-/// with `type: "wins"`/`"losses"` (numeric `value`); the third column is
-/// `"ties"` (football, label "T") or `"otlosses"` (hockey, label "OTL") —
-/// both type names verified against the real NFL and NHL payloads 2026-08-30.
-fn standing_row_from(entry: &Value) -> Option<StandingRow> {
+/// with `type: "wins"`/`"losses"` (numeric `value`); the third column is the
+/// one the *sport* actually keeps — ties for football and soccer (label "T"),
+/// overtime losses for hockey ("OTL"), nothing for everyone else. ESPN sends
+/// `ties: 0` for all 30 MLB teams and all 30 NBA teams, so trusting the feed
+/// alone prints a column of zeroes for a record baseball hasn't kept since
+/// 2016; the league decides instead. Type names verified against the real NFL
+/// and NHL payloads 2026-08-30.
+fn standing_row_from(league: League, entry: &Value) -> Option<StandingRow> {
     let team = &entry["team"];
     let abbr = team["abbreviation"].as_str()?.to_string();
     let stats = entry["stats"].as_array()?;
@@ -480,13 +721,27 @@ fn standing_row_from(entry: &Value) -> Option<StandingRow> {
             .and_then(|s| s["value"].as_f64())
             .map(|v| v as u32)
     };
-    let (third, third_label) = match stat("ties") {
-        Some(t) => (Some(t), "T"),
-        None => match stat("otlosses") {
+    let (third, third_label) = match league {
+        League::Nfl | League::Cfb | League::Epl | League::Mls => match stat("ties") {
+            Some(t) => (Some(t), "T"),
+            None => (None, ""),
+        },
+        League::Nhl => match stat("otlosses") {
             Some(otl) => (Some(otl), "OTL"),
             None => (None, ""),
         },
+        _ => (None, ""),
     };
+    // The college-football feed omits a stat whose value is zero, so a 1-0
+    // team carries `wins` and no `losses` (verified against the live FBS
+    // payload 2026-08-31: 138 entries, zero of them with a `losses` stat).
+    // Requiring both dropped every undefeated team — and, in preseason, the
+    // whole table. One of the two is enough; the missing one is the zero the
+    // feed didn't bother to send. An entry with neither is still not a row.
+    let (wins, losses) = (stat("wins"), stat("losses"));
+    if wins.is_none() && losses.is_none() {
+        return None;
+    }
     Some(StandingRow {
         name: team["name"]
             .as_str()
@@ -494,8 +749,8 @@ fn standing_row_from(entry: &Value) -> Option<StandingRow> {
             .unwrap_or(&abbr)
             .to_string(),
         abbr,
-        wins: stat("wins")?,
-        losses: stat("losses")?,
+        wins: wins.unwrap_or(0),
+        losses: losses.unwrap_or(0),
         third,
         third_label,
     })
@@ -505,32 +760,110 @@ fn standing_row_from(entry: &Value) -> Option<StandingRow> {
 /// worked directly (NFL + NHL, checked 2026-08-30); the plan's
 /// `apis/site/v2` fallback was never needed. Shape: `children[]` (one per
 /// conference) each carrying `standings.entries[]`; a league that sends no
-/// children gets its root `standings` mapped as a single group.
+/// children gets its root `standings` mapped as a single group. A child that
+/// carries its own `children[]` (divisions under a conference) contributes one
+/// group per grandchild, named "conference · division".
+///
+/// Rows come out of the feed in ESPN's own order, which is not standings
+/// order; every group is sorted here — win pct desc, wins desc, name asc — so
+/// a table headed STANDINGS actually stands them.
 pub fn map_standings(league: League, json: &str) -> Result<StandingsTable, MapError> {
     let v: Value = serde_json::from_str(json)?;
-    let group_from = |name: &Value, standings: &Value| -> Option<StandingsGroup> {
-        let rows: Vec<StandingRow> = standings["entries"]
+    let group_from = |name: String, standings: &Value| -> Option<StandingsGroup> {
+        let mut rows: Vec<StandingRow> = standings["entries"]
             .as_array()?
             .iter()
-            .filter_map(standing_row_from)
+            .filter_map(|e| standing_row_from(league, e))
             .collect();
         if rows.is_empty() {
             return None; // a group with no mappable rows is noise, not data
         }
-        Some(StandingsGroup {
-            name: name.as_str().unwrap_or("").to_string(),
-            rows,
-        })
+        rows.sort_by(|a, b| {
+            win_pct(b)
+                .total_cmp(&win_pct(a))
+                .then(b.wins.cmp(&a.wins))
+                .then(a.name.cmp(&b.name))
+        });
+        Some(StandingsGroup { name, rows })
     };
+    let name_of = |v: &Value| v["name"].as_str().unwrap_or("").to_string();
     let mut groups = Vec::new();
     for c in v["children"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
-        groups.extend(group_from(&c["name"], &c["standings"]));
+        let conference = name_of(c);
+        let divisions = c["children"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        if divisions.is_empty() {
+            groups.extend(group_from(conference, &c["standings"]));
+        } else {
+            for d in divisions {
+                let name = format!("{conference} · {}", name_of(d));
+                groups.extend(group_from(name, &d["standings"]));
+            }
+        }
     }
     if groups.is_empty() {
-        groups.extend(group_from(&v["name"], &v["standings"]));
+        groups.extend(group_from(name_of(&v), &v["standings"]));
     }
     if groups.is_empty() {
         return Err(MapError::Missing("children[].standings.entries"));
     }
-    Ok(StandingsTable { league, groups })
+    // The season label the feed prints on itself ("2025-26"): NBA/NHL/CBB
+    // serve last season's table all summer, and an unlabeled one reads as
+    // today's.
+    let season = v["season"]["displayName"]
+        .as_str()
+        .or_else(|| v["seasonDisplayName"].as_str())
+        .map(str::to_string);
+    Ok(StandingsTable {
+        league,
+        season,
+        groups,
+        fetched_at: None,
+    })
+}
+
+/// Winning percentage, the sort key: the third column is worth half a win and
+/// a full game played, for every league that keeps one. For the NHL that is
+/// points percentage — an overtime loss banks a point, so a 40-20-20 team
+/// (100 pts, .500) stands above a 41-39-0 one (82 pts, .5125 by wins alone),
+/// which is the order the league's own table uses.
+fn win_pct(r: &StandingRow) -> f64 {
+    let third = r.third.unwrap_or(0);
+    let played = r.wins + r.losses + third;
+    if played == 0 {
+        return 0.0;
+    }
+    (r.wins as f64 + 0.5 * third as f64) / played as f64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(wins: u32, losses: u32, third: Option<u32>) -> StandingRow {
+        StandingRow {
+            abbr: "XX".into(),
+            name: "Team".into(),
+            wins,
+            losses,
+            third,
+            third_label: if third.is_some() { "OTL" } else { "" },
+        }
+    }
+
+    #[test]
+    fn win_pct_counts_the_third_column_as_half_a_win() {
+        // The NHL's own table: 40-20-20 is 100 points in 80 games (.625 of
+        // the points available); 41-39-0 is 82 in 80. Sorting on wins alone
+        // would flip them (.5125 > .500) and stand a worse team higher.
+        let otl = row(40, 20, Some(20));
+        let none = row(41, 39, Some(0));
+        assert_eq!(win_pct(&otl), 0.625);
+        assert_eq!(win_pct(&none), 0.5125);
+        assert!(win_pct(&otl) > win_pct(&none), "100 points must stand above 82");
+        // Baseball/basketball keep no third column: plain wins over games.
+        assert_eq!(win_pct(&row(81, 81, None)), 0.5);
+        assert_eq!(win_pct(&row(58, 24, None)), 58.0 / 82.0);
+        // Nobody has played: no divide by zero, no fake .000 ordering games.
+        assert_eq!(win_pct(&row(0, 0, None)), 0.0);
+    }
 }

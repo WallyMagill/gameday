@@ -105,6 +105,7 @@ fn push_play(g: &mut Game, team: &str, text: &str, scoring: bool) {
         0,
         Play {
             clock,
+            period: String::new(),
             team: team.into(),
             text: text.into(),
             scoring,
@@ -217,7 +218,7 @@ fn step_mlb(g: &mut Game, t: u64) {
                 strikes: Some(0),
                 outs: Some(0),
                 on_base: Some([false; 3]),
-                down_distance: "0 OUTS  0-0".into(),
+                down_distance: "0 OUT · 0-0".into(),
                 ..Default::default()
             });
             g.meter = Some(Meter::Diamond { occupied: [false; 3] });

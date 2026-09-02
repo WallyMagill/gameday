@@ -131,6 +131,15 @@ pub const KEYMAP: &[Binding] = &[
         footer: FooterSlot::Board,
     },
     Binding {
+        // Slate time travel: step the viewed date back/forward a day. Board
+        // only, and never in the footer — the header's ‹ date › says when
+        // it is in use.
+        keys: &["[/]"],
+        label: "DATE",
+        group: Group::Navigation,
+        footer: FooterSlot::Never,
+    },
+    Binding {
         keys: &["J/K", "↓/↑"],
         label: "MOVE",
         group: Group::Selection,
@@ -286,6 +295,42 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Every key the Board handler reacts to must be advertised somewhere.
+    /// Drives a fresh App with one live game and diffs observable state.
+    #[test]
+    fn every_handled_board_key_is_a_binding() {
+        use crate::app::App;
+        use crate::config::Config;
+        use crate::domain::*;
+        use crossterm::event::{KeyCode, KeyModifiers};
+        let mk = || {
+            let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir().join(format!("gd-km-{}", std::process::id())), time::UtcOffset::UTC);
+            let g = |id: &str| Game { id: id.into(), status: Status::Live, away: Team { abbr: "KC".into(), ..Default::default() }, home: Team { abbr: "TB".into(), ..Default::default() }, ..Default::default() };
+            app.apply_boards(League::Nfl, vec![g("1"), g("2"), g("3"), g("4"), g("5")], false);
+            app.tab = crate::app::Tab::League(League::Nfl);
+            app
+        };
+        let snapshot = |a: &App| format!("{:?}|{}|{}|{}|{:?}|{}|{}|{}|{:?}|{:?}|{:?}|{}|{:?}",
+            a.tab, a.page, a.selected, a.pins.len(), a.view, a.help_open, a.should_quit, a.refresh_now,
+            a.filter, a.config.layout, a.config.theme, a.config.favorites.len(), a.viewed_date_offset);
+        let chord_for = |c: char| -> String { match c {
+            ' ' => "SPC".into(), '[' | ']' => "[/]".into(), '?' => "?".into(), ':' => ":".into(), '/' => "/".into(),
+            '1' | '2' | '4' => "1/2/4/S".into(), 's' => "1/2/4/S".into(),
+            other => other.to_ascii_uppercase().to_string(),
+        }};
+        let mut unadvertised = vec![];
+        for c in (b' '..=b'~').map(char::from) {
+            let mut app = mk();
+            let before = snapshot(&app);
+            app.on_key(KeyCode::Char(c), KeyModifiers::NONE);
+            if snapshot(&app) == before { continue; }
+            let chord = chord_for(c);
+            let advertised = KEYMAP.iter().any(|b| b.keys.iter().any(|k| k.split('/').any(|part| part == chord) || *k == chord));
+            if !advertised { unadvertised.push(c); }
+        }
+        assert!(unadvertised.is_empty(), "keys that change state but appear in no Binding: {unadvertised:?}");
     }
 
     #[test]

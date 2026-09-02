@@ -1,6 +1,6 @@
 //! View dispatch: `App.view` names the full-screen surface the body renders;
 //! each surface draws from its own module. Header/ticker/footer stay in
-//! `app.rs` — they are shared chrome, identical across views.
+//! `app/chrome.rs` — they are shared chrome, identical across views.
 
 pub mod board;
 pub mod config_view;
