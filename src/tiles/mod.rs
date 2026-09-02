@@ -5,7 +5,7 @@ use crate::domain::{Game, League, Meter, Status, Team};
 use crate::text::truncate;
 use crate::theme;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
@@ -282,14 +282,48 @@ fn render_identity(frame: &mut Frame, area: Rect, game: &Game, flash: bool) {
 /// drawing when the digits don't fit `center` — every slot is also clamped to
 /// the rect so a wider-than-expected glyph can never index past the buffer
 /// (3-digit scores in narrow tiles panicked here before).
+/// Cell size of one big-text glyph: 8×8 at `PixelSize::Full`, 4×3 at
+/// sextant. The one place those numbers are written down — the hero's fit
+/// ladder and this module's tiles both step through them.
+pub(crate) fn glyph_cell(full: bool) -> (u16, u16) {
+    if full {
+        (8, 8)
+    } else {
+        (4, 3)
+    }
+}
+
+/// Paint `text` as big glyphs into `rect` in `style`. The rect is the
+/// caller's clamped slot — the widget clips, this never grows it.
+fn glyph_slot(frame: &mut Frame, rect: Rect, text: &str, style: Style, full: bool) {
+    use tui_big_text::{BigText, PixelSize};
+    let px = if full { PixelSize::Full } else { PixelSize::Sextant };
+    frame.render_widget(
+        BigText::builder()
+            .pixel_size(px)
+            .style(style)
+            .lines(vec![Line::from(text.to_string())])
+            .build(),
+        rect,
+    );
+}
+
+/// One number, one color, one rect: the shared score-glyph core. Returns
+/// false — drawing nothing — when the glyphs don't fit `rect`, which is how
+/// every caller steps down a size instead of clipping a digit in half.
+pub(crate) fn digit_glyphs(frame: &mut Frame, rect: Rect, value: u16, color: Color, full: bool) -> bool {
+    let text = value.to_string();
+    let (gw, gh) = glyph_cell(full);
+    if text.len() as u16 * gw > rect.width || gh > rect.height {
+        return false;
+    }
+    glyph_slot(frame, rect, &text, Style::default().fg(color), full);
+    true
+}
+
 fn render_digits(frame: &mut Frame, center: Rect, game: &Game, flash: bool, full: bool) -> bool {
     let th = theme::current();
-    use tui_big_text::{BigText, PixelSize};
-    let (gw, gh, px) = if full {
-        (8u16, 8u16, PixelSize::Full)
-    } else {
-        (4u16, 3u16, PixelSize::Sextant)
-    };
+    let (gw, gh) = glyph_cell(full);
     let away_s = game.away_score.to_string();
     let home_s = game.home_score.to_string();
     let widths = [away_s.len() as u16 * gw, gw, home_s.len() as u16 * gw];
@@ -319,14 +353,7 @@ fn render_digits(frame: &mut Frame, center: Rect, game: &Game, flash: bool, full
         } else {
             Style::default().fg(color)
         };
-        frame.render_widget(
-            BigText::builder()
-                .pixel_size(px)
-                .style(style)
-                .lines(vec![Line::from(text.to_string())])
-                .build(),
-            slot,
-        );
+        glyph_slot(frame, slot, text, style, full);
         x += w;
     }
     true
@@ -772,7 +799,7 @@ fn momentum_line(game: &Game) -> Paragraph<'static> {
 /// discipline, RED ZONE stays the earned live red, and the value tag
 /// shortens rather than let the track fall under [`METER_MIN_BAR`] or the
 /// row clip at the border.
-fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
+pub(crate) fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
     let th = theme::current();
     let meter = game.meter.as_ref()?;
     let label_style = Style::default()
