@@ -1,5 +1,15 @@
 //! The tier budget: spec §4's sizes ladder as one pure function. Height and
 //! counts in, `TierPlan` out — nothing here reads a `Game` or renders a cell.
+//!
+//! Hero height is a pure function of the (width, height) bracket, never of
+//! game counts — a hero that resized as games came and went would violate
+//! the frozen-board principle (ruling R28). §4's "hero shrinks last" governs
+//! only the runout cascade *below* the bracket (tier1 → tier2 → finals →
+//! later), not the bracket itself.
+//!
+//! FINAL/LATER truncation legitimately fires `scores_lane` on its own, with
+//! every live game still fully shown — spec §1's `2 OFF-SCREEN · 2 FINAL ·
+//! 4 LATER` lane example is exactly that case.
 
 /// How many rows each piece of the board gets at a given size. Pure: height
 /// and counts in, plan out — the sizes ladder (spec §4) lives here and only here.
@@ -11,16 +21,66 @@ pub struct TierPlan {
     pub tier2: usize,   // single-line live rows
     pub finals: usize,  // dim single lines (0 = collapse to count line)
     pub later: usize,
-    pub scores_lane: bool, // the off-screen SCORES lane (only when truncated)
+    /// The off-screen SCORES lane (spec §1) — on exactly when tier2, finals,
+    /// or later got cut short of what the raw counts asked for.
+    pub scores_lane: bool,
 }
 
 /// Row cost of one section rule/label line.
 pub const RULE_ROWS: u16 = 1;
 
+/// A section (MY GAMES / FINAL / LATER) costs its rule row only if it ends
+/// up showing at least one content row — an empty section folds into the
+/// lane instead of drawing a label over nothing. Returns `(rows_shown, cost)`.
+fn section_alloc(requested: usize, budget: u16) -> (usize, u16) {
+    if requested == 0 || budget == 0 {
+        return (0, 0);
+    }
+    let content = requested.min(budget.saturating_sub(RULE_ROWS) as usize);
+    if content == 0 {
+        (0, 0)
+    } else {
+        (content, content as u16 + RULE_ROWS)
+    }
+}
+
+/// The live list (tier1 + tier2) shares one "in-play" rule, charged only
+/// when it actually shows a row — same fold-into-the-lane rule as above.
+/// Returns `(tier1, tier2, cost)`.
+fn live_alloc(live: usize, tier1_cap: usize, budget: u16) -> (usize, usize, u16) {
+    if live == 0 || budget == 0 {
+        return (0, 0, 0);
+    }
+    let avail = budget.saturating_sub(RULE_ROWS);
+    // spec §4 tier 1: scaled by what's left, capped by width class.
+    let tier1 = ((avail / 4) as usize).min(tier1_cap).min(live);
+    let after_tier1 = avail.saturating_sub(3 * tier1 as u16);
+    let live_left = live - tier1;
+    // spec §1 tier 2: as many single lines as fit.
+    let tier2 = live_left.min(after_tier1 as usize);
+    let content = 3 * tier1 as u16 + tier2 as u16;
+    if content == 0 {
+        (0, 0, 0)
+    } else {
+        (tier1, tier2, content + RULE_ROWS)
+    }
+}
+
 /// The sizes ladder (spec §4) as a top-down subtraction: hero first by the
-/// width/height gates, then a flat 4-rule reservation (MY GAMES, hero,
-/// FINAL, LATER), then rows run out bottom-up — later first, then finals,
-/// then tier2 truncates (lane on), tier1 demotes, hero shrinks last.
+/// width/height gates (never by `live`/`finals`/`later`/`my_games` — see the
+/// module doc), then MY GAMES, then rows run out bottom-up — later first,
+/// then finals, then tier2 truncates (lane on, paying for its own row),
+/// tier1 demotes, hero shrinks last. The lane is decided by a first pass
+/// with no row reserved for it; if that pass would have truncated anything,
+/// the whole cascade below MY GAMES reruns with one row set aside for the
+/// lane before tier1/tier2/finals/later fill again.
+///
+/// `my_games` is the MY GAMES band's row count, one line per pinned/favorite
+/// game — **excluding** the hero, even when the hero is itself a MY GAMES
+/// game (pins win the hero, spec §1). Layout only counts rows; deciding which
+/// game is the hero and whether to fold it out of the band's count is the
+/// caller's job — double-charging a pinned hero here is a caller bug, not a
+/// layout one.
 pub fn plan(width: u16, height: u16, live: usize, finals: usize, later: usize, my_games: usize) -> TierPlan {
     // spec §4 last row: `need 40×12, have W×H` — no hero fits below the floor.
     let (hero_rows, hero_digits_full): (u16, bool) = if width < 40 || height < 12 {
@@ -47,34 +107,37 @@ pub fn plan(width: u16, height: u16, live: usize, finals: usize, later: usize, m
     };
 
     // spec §1 MY GAMES band: 1 line per pinned/favorite row, off the same
-    // budget as everything below the hero — plus a flat 4-rule reservation
-    // (MY GAMES, hero, FINAL, LATER) so the invariant holds without needing
-    // to know which sections end up empty.
-    let reserved = hero_rows
-        .saturating_add(my_games as u16)
-        .saturating_add(4 * RULE_ROWS);
-    let mut remaining = height.saturating_sub(reserved);
+    // budget as everything below the hero.
+    let budget = height.saturating_sub(hero_rows);
+    let (_my_games_rows, my_games_cost) = section_alloc(my_games, budget);
+    let budget = budget.saturating_sub(my_games_cost);
 
-    // spec §4 tier 1: scaled by what's left, capped by width class.
-    let tier1 = ((remaining / 4) as usize).min(tier1_cap).min(live);
-    remaining = remaining.saturating_sub(3 * tier1 as u16);
-
-    // spec §1 tier 2: as many single lines as fit.
-    let live_left = live.saturating_sub(tier1);
-    let tier2 = live_left.min(remaining as usize);
-    remaining = remaining.saturating_sub(tier2 as u16);
-
-    // spec §1 tier 3 FINAL: at most 2 dim lines, whatever's left.
+    // First pass: nothing reserved for the lane yet.
+    let (tier1_0, tier2_0, live_cost_0) = live_alloc(live, tier1_cap, budget);
+    let live_left = live.saturating_sub(tier1_0);
+    let remaining_0 = budget.saturating_sub(live_cost_0);
     let finals_target = finals.min(2);
-    let finals_rows = finals_target.min(remaining as usize);
-    remaining = remaining.saturating_sub(finals_rows as u16);
+    let (finals_0, finals_cost_0) = section_alloc(finals_target, remaining_0);
+    let remaining_1 = remaining_0.saturating_sub(finals_cost_0);
+    let (later_0, _) = section_alloc(later, remaining_1);
 
-    // spec §1 tier 3 LATER: shrinks first when rows run out (§4).
-    let later_rows = later.min(remaining as usize);
+    // spec §1 Ticker: the lane comes on exactly when the un-laned pass would
+    // have cut something short of what it asked for.
+    let would_truncate =
+        tier2_0 < live_left || finals_0 < finals_target || later_0 < later;
 
-    // spec §1 Ticker: the lane appears exactly when something got cut.
-    let scores_lane =
-        tier2 < live_left || finals_rows < finals_target || later_rows < later;
+    let (tier1, tier2, finals_rows, later_rows) = if would_truncate {
+        // The lane pays for its own row before the cascade fills again.
+        let budget = budget.saturating_sub(1);
+        let (tier1, tier2, live_cost) = live_alloc(live, tier1_cap, budget);
+        let remaining = budget.saturating_sub(live_cost);
+        let (finals_rows, finals_cost) = section_alloc(finals_target, remaining);
+        let remaining = remaining.saturating_sub(finals_cost);
+        let (later_rows, _) = section_alloc(later, remaining);
+        (tier1, tier2, finals_rows, later_rows)
+    } else {
+        (tier1_0, tier2_0, finals_0, later_0)
+    };
 
     TierPlan {
         hero_rows,
@@ -83,7 +146,7 @@ pub fn plan(width: u16, height: u16, live: usize, finals: usize, later: usize, m
         tier2,
         finals: finals_rows,
         later: later_rows,
-        scores_lane,
+        scores_lane: would_truncate,
     }
 }
 
@@ -104,7 +167,8 @@ mod tests {
         assert!(p.hero_rows <= 6 && p.hero_rows >= 4);
         assert!(!p.hero_digits_full);
         assert_eq!(p.tier1, 0);
-        assert!(p.scores_lane, "8 live don't fit 22 rows — lane on");
+        // All 8 live games fit; it's LATER that truncates and trips the lane.
+        assert!(p.scores_lane, "LATER doesn't fit 22 rows — lane on");
         // <60 cols: 2-row compact hero, still one list.
         let p = plan(55, 38, 3, 1, 2, 0);
         assert_eq!(p.hero_rows, 2);
@@ -143,5 +207,55 @@ mod tests {
         let without = plan(120, 30, 6, 2, 3, 0);
         let with = plan(120, 30, 6, 2, 3, 2);
         assert!(with.tier2 <= without.tier2, "band rows are not free");
+    }
+
+    /// Full accounting invariant, swept: hero + 3·tier1 + tier2 + finals +
+    /// later + my_games + one RULE_ROW per section actually rendering
+    /// content + the lane's own row must never exceed the height it was
+    /// given. A section's rule is charged only when it shows content — an
+    /// empty section folds into the lane rather than drawing a label over
+    /// nothing (see `section_alloc`/`live_alloc`).
+    #[test]
+    fn the_budget_never_over_allocates() {
+        let widths = [40u16, 55, 60, 80, 100, 120, 180];
+        let heights = [12u16, 13, 15, 16, 22, 24, 26, 30, 40, 60];
+        let counts = [
+            (0usize, 0usize, 0usize, 0usize),
+            (3, 1, 2, 0),
+            (6, 3, 6, 0),
+            (8, 2, 4, 0),
+            (12, 5, 8, 2),
+            (20, 0, 0, 0),
+            (15, 3, 3, 0),
+        ];
+        for &w in &widths {
+            for &h in &heights {
+                for &(live, finals, later, my_games) in &counts {
+                    let p = plan(w, h, live, finals, later, my_games);
+                    let my_games_rows = my_games.min(h as usize); // matches section_alloc's cap
+                    let sections_rendering = [
+                        my_games_rows > 0,
+                        p.tier1 + p.tier2 > 0,
+                        p.finals > 0,
+                        p.later > 0,
+                    ]
+                    .into_iter()
+                    .filter(|&present| present)
+                    .count() as u16;
+                    let used = p.hero_rows
+                        + 3 * p.tier1 as u16
+                        + p.tier2 as u16
+                        + p.finals as u16
+                        + p.later as u16
+                        + my_games_rows as u16
+                        + sections_rendering * RULE_ROWS
+                        + if p.scores_lane { 1 } else { 0 };
+                    assert!(
+                        used <= h,
+                        "{w}x{h} live={live} finals={finals} later={later} my_games={my_games}: used {used} > {h} ({p:?})"
+                    );
+                }
+            }
+        }
     }
 }
