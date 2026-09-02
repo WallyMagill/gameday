@@ -68,14 +68,17 @@ Recorded as directions — reasoning, and what reopens them.
   under a home run while the digits said 8. Hard rule; a test enforces it.
 - **Direction: TV mode key is `v` and `:tv`; `t` stays FAVORITE.** Reasoning: the
   mockup's `t tv` collides with the existing binding. Reopens never.
-- **Pending (Walter's call, one question, after this spec is read): the theme
-  set.** Recommendation: ship `broadcast` (default), `studio`, `gruvbox`; rebuild
+- **Direction: theme set A (decided 2026-09-02)** — ship `broadcast` (default), `studio`, `gruvbox`; rebuild
   `ceefax` and `phosphor` as real modes in sub-project 4 or drop them; retire the
   six tint themes (`nord`, `catppuccin-mocha`, `rose-pine`, `everforest`,
   `dracula`, `tokyo-night`) from the built-in list — their TOML files stay in
   `assets/themes/` and still load from `~/.config/gameday/themes/` for anyone who
   wants them. Reasoning: the design critic showed them to be one theme with six
-  names; shipping them files the app under "another rice".
+  names; shipping them files the app under "another rice". Reopens if users ask.
+- **Pending (Walter's call, decided by eye from the logo study): logos.** The A′
+  frames drop the logo zone; before that is final, a rendered study compares the
+  existing marks at real cell sizes and placements (hero, TV, cut) against the
+  abbr+color-block identity. See docs/research/v3-identity/logo-study/ once built.
 
 ## 1. Board anatomy
 
