@@ -11,6 +11,7 @@ pub mod keymap;
 pub mod log;
 pub mod poll;
 pub mod provider;
+pub mod rank;
 pub mod sim;
 pub mod text;
 pub mod theme;
