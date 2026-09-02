@@ -195,9 +195,20 @@ fn apply(app: &mut App, cmd: Cmd) {
         Cmd::Sort(key) => {
             let next = key.unwrap_or_else(|| app.config.sort.cycled());
             app.config.sort = next;
-            app.persist_config();
             app.force_reorder();
-            app.status_line = Some(format!("sort {}", next.label().to_ascii_lowercase()));
+            // Same composition as `App::cycle_sort` ('s'): a config error
+            // blocking the save must not be clobbered by a claimed success.
+            app.status_line = None;
+            app.persist_config();
+            let save_error = app.status_line.take();
+            app.status_line = Some(match (&app.config_error, save_error) {
+                (Some(_), _) => format!(
+                    "sort {} · not saving (config error)",
+                    next.label().to_ascii_lowercase()
+                ),
+                (None, Some(err)) => err,
+                (None, None) => format!("sort {}", next.label().to_ascii_lowercase()),
+            });
         }
         Cmd::Tv => app.view = View::Tv,
         Cmd::Pin(abbr) => pin_team(app, &abbr),
@@ -492,6 +503,21 @@ mod tests {
         type_line(&mut app, "tv");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(app.view, View::Tv);
+    }
+
+    #[test]
+    fn sort_command_with_a_broken_config_says_not_saving_not_success() {
+        let mut app = mk();
+        app.set_config_error(Some("config.toml:7: unknown variant `NFLL`".into()));
+        handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
+        type_line(&mut app, "sort time");
+        handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.config.sort, SortKey::Time, "the in-memory sort still changes");
+        let line = app.status_line.clone().unwrap_or_default();
+        assert!(
+            line.starts_with("sort time") && line.ends_with("· not saving (config error)"),
+            "{line:?}"
+        );
     }
 
     #[test]

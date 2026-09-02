@@ -183,7 +183,7 @@ pub const KEYMAP: &[Binding] = &[
         footer: FooterSlot::Config,
     },
     Binding {
-        // Config display rows: THEME / SCORE / LAYOUT values.
+        // Config display rows: THEME / SORT values.
         keys: &["H/L"],
         label: "CYCLE",
         group: Group::View,
