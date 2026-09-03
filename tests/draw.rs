@@ -2943,7 +2943,55 @@ fn in_tv_only_the_shown_game_and_my_teams_take_the_screen() {
     );
 }
 
+#[test]
+fn a_locked_shown_game_keeps_the_takeover_even_when_a_better_game_scores() {
+    // spec v3.3 §9 decision B named edge: TV can be locked (space) onto a
+    // game that is NOT the ranking's top. `tv_follow` respects the lock and
+    // never re-anchors `tv_shown` while it holds, so the locked/shown game
+    // stays the one takeover-eligible id — a score from the ranking's
+    // actual top (unshown, not MY GAMES) is still just the quiet band.
+    let mut app = mk();
+    app.tick = 400;
 
+    let mut cur1 = cut_game("1"); // shown & locked
+    cur1.away_score = 17;
+    // A hotter, closer game than "1" — the one the ranking would otherwise
+    // promote TV to on the next event, if TV weren't locked off it.
+    let mut cur2 = g("2", "SF", "NYG", true);
+
+    app.apply_boards(League::Nfl, vec![cur1.clone(), cur2.clone()], false);
+    app.view = gameday::views::View::Tv;
+    app.tv_shown = Some("1".into());
+    app.tv_lock = Some("1".into());
+
+    // Delta on the locked/shown game: takeover.
+    cur1 = cut_game("1");
+    cur1.last_plays = vec![scoring_play()];
+    app.apply_boards(League::Nfl, vec![cur1.clone(), cur2.clone()], false);
+    let cut = app.cuts.active(app.tick).expect("a delta fires a cut");
+    assert!(cut.full, "the locked/shown game takes the whole screen");
+    assert_eq!(cut.game_id, "1");
+    assert_eq!(app.tv_shown.as_deref(), Some("1"), "the lock held tv_shown on 1");
+
+    app.tick += 31; // clear the takeover before the next fire
+
+    // Delta on the OTHER game (the would-be ranking top, still unshown
+    // thanks to the lock, not pinned or favorited): the quiet band.
+    cur2.away_score += 3;
+    cur2.last_plays = vec![Play {
+        team: "SF".into(),
+        text: "Purdy 5 Yd pass — TOUCHDOWN".into(),
+        scoring: true,
+        ..Default::default()
+    }];
+    app.apply_boards(League::Nfl, vec![cur1, cur2], false);
+    let cut = app.cuts.active(app.tick).expect("a delta fires a cut").clone();
+    assert!(
+        !cut.full,
+        "an unshown game's cut is the quiet band even when it outranks the locked game"
+    );
+    assert_eq!(cut.game_id, "2");
+}
 
 // ---------------------------------------------------------------- zoom (§5)
 // The Overview tab is hero + linescore + a per-sport matchup line, which is

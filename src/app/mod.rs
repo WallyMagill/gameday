@@ -424,7 +424,8 @@ impl App {
     /// screen in TV).
     fn cut_is_full(&self, game: &Game) -> bool {
         self.is_my_game(game)
-            || (matches!(self.view, View::Tv) && self.tv_shown.as_deref() == Some(game.id.as_str()))
+            || (matches!(self.view, View::Tv)
+                && self.tv_shown_in(&self.derive()).as_deref() == Some(game.id.as_str()))
     }
 
     pub fn tab_list(&self) -> Vec<Tab> {
