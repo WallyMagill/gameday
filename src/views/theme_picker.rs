@@ -82,3 +82,54 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         panel,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use ratatui::backend::TestBackend;
+    use ratatui::style::Color;
+    use ratatui::Terminal;
+
+    /// The strip draws ROLES, not the palette. broadcast and studio ship the
+    /// same eleven colors, so a palette strip rendered their two rows
+    /// identically and the picker claimed they were the same theme. This is
+    /// the cell-level assertion that they are not.
+    #[test]
+    fn broadcast_and_studio_draw_different_swatch_rows() {
+        theme::set_current("broadcast").unwrap();
+        let dir = std::env::temp_dir().join(format!("gd-picker-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
+        let (w, h) = (80u16, 24u16);
+        let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+        term.draw(|f| draw(&app, f, f.area())).unwrap();
+        let buf = term.backend().buffer().clone();
+
+        // The six swatch cells on the row whose name column reads `name`.
+        let swatches = |name: &str| -> Vec<Color> {
+            let y = (0..h)
+                .find(|&y| {
+                    (0..w)
+                        .map(|x| buf[(x, y)].symbol().to_string())
+                        .collect::<String>()
+                        .contains(name)
+                })
+                .unwrap_or_else(|| panic!("{name} has no row in the picker"));
+            let cells: Vec<Color> = (0..w)
+                .filter(|&x| buf[(x, y)].symbol() == "■")
+                .map(|x| buf[(x, y)].fg)
+                .collect();
+            assert_eq!(cells.len(), 6, "{name} draws six role swatches");
+            cells
+        };
+        let b = swatches("broadcast");
+        let s = swatches("studio");
+        assert_ne!(b, s, "broadcast and studio must not render as the same row");
+        // Where they differ hardest: the digits swatch (4th) is amber vs white.
+        let (bt, st) = (theme::builtin("broadcast"), theme::builtin("studio"));
+        assert_eq!(b[3], bt.star, "broadcast's digits swatch is amber");
+        assert_eq!(s[3], st.bright, "studio's digits swatch is white");
+        assert_eq!(b[0], s[0], "and both still share the ground");
+    }
+}

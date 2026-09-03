@@ -511,4 +511,50 @@ mod tests {
             assert!(game.meter.is_some());
         }
     }
+
+    /// The slate's shape is a gallery contract, not a detail. `dump`'s
+    /// `board-broadcast` renders at DUMP_COLS x DUMP_ROWS (120x36) and the
+    /// off-screen SCORES lane only appears there because the slate is big
+    /// enough to overflow the frame: 15 games, with LATER pushed past the
+    /// fold. Trimming a league (or a state) silently takes the lane back out
+    /// of the gallery, which is the only place it is ever eyeballed.
+    #[test]
+    fn the_demo_slate_fills_the_gallery_frame_and_fires_the_off_screen_lane() {
+        let boards = demo_boards();
+        let all: Vec<&Game> = boards.values().flatten().collect();
+        let count = |st: Status| all.iter().filter(|g| g.status == st).count();
+        assert_eq!(all.len(), 15, "the slate is 15 games");
+        assert_eq!(count(Status::Live), 7, "live games");
+        assert_eq!(count(Status::Final), 5, "FINAL has five rows");
+        assert_eq!(count(Status::Pre), 3, "LATER has three rows");
+        // Every league the demo config enables carries at least one game.
+        for league in demo_config().enabled_tabs {
+            assert!(
+                boards.get(&league).is_some_and(|g| !g.is_empty()),
+                "{league:?} has no demo games"
+            );
+        }
+
+        // …and at the gallery's own size the board overflows, so the lane
+        // draws and names exactly the three LATER games it pushed off.
+        let buf = crate::dump::render_demo_buffer(
+            crate::dump::DUMP_COLS,
+            crate::dump::DUMP_ROWS,
+            0,
+        )
+        .unwrap();
+        let row = |y: u16| -> String {
+            (0..crate::dump::DUMP_COLS)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        };
+        // Last row is the footer legend; the lane sits directly above it.
+        let lane = row(crate::dump::DUMP_ROWS - 2);
+        assert!(
+            lane.starts_with("SCORES") && lane.contains("3 OFF-SCREEN · 0 FINAL · 3 LATER"),
+            "the gallery board must fire the off-screen lane, got {lane:?}"
+        );
+    }
 }

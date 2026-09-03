@@ -14,6 +14,10 @@ use ratatui::style::Color;
 use ratatui::Terminal;
 use std::fs;
 
+/// A scratch config dir for one test. `name` MUST be unique per test: the
+/// dir is keyed by name + pid only, and `tmp` wipes it on entry, so two tests
+/// sharing a name race under the default (parallel) harness — one test's
+/// `tmp` deletes the other's theme files mid-run.
 fn tmp(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("gameday-theme-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -110,7 +114,7 @@ fn broadcast_is_loud_and_studio_is_the_same_palette_disciplined() {
 /// pin it: they all ship from the same directory in the same shape.
 #[test]
 fn a_retired_builtin_still_loads_and_selects_as_a_user_theme() {
-    let dir = tmp("retired");
+    let dir = tmp("retired-one");
     fs::write(
         dir.join("themes/nord.toml"),
         include_str!("../assets/themes/nord.toml"),
@@ -257,7 +261,7 @@ fn the_eight_retired_palettes_still_load_as_user_files() {
     // v3.2 decision A cut the built-in list to three, but the files stayed in
     // assets/themes/ — dropping them out of `include_str!` must not make them
     // unloadable, and every one of them gets the documented default roles.
-    let dir = tmp("retired");
+    let dir = tmp("retired-eight");
     for (name, text) in [
         ("ceefax", include_str!("../assets/themes/ceefax.toml")),
         ("phosphor", include_str!("../assets/themes/phosphor.toml")),
