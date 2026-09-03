@@ -301,19 +301,19 @@ pub fn tv_legend(locked: bool) -> [(&'static str, &'static str); 4] {
     ]
 }
 
-/// Spec §5: one footer grammar everywhere. The chord table keeps its caps
-/// key names (`SPC`, `ENTER`, `TAB`...) because that's what the help overlay
-/// and the drop-order lists match against, but every footer — Board, TV, and
-/// now every other view — renders lowercase, key-cap style. This is the one
-/// place that translation happens.
-pub fn lower_key(key: &'static str) -> &'static str {
+/// Spec §5: one grammar everywhere. The chord table keeps its caps key names
+/// (`SPC`, `ENTER`, `TAB`...) because that's what [`FOOTER_DROP_ORDER`] and
+/// the structural help-overlay test match against, but every rendered
+/// surface — footer (Board, TV, and every other view) and now the `?`
+/// overlay too — speaks lowercase, key-cap style. This is the one place that
+/// translation happens: a plain letter/symbol just lowercases (`TAB`→`tab`,
+/// `CTRL-C`→`ctrl-c`, `→/←` unchanged), and the two chords with their own
+/// word (`SPC`, `ENTER`) spell what the footer already spells them as.
+pub fn lower_key(key: &str) -> String {
     match key {
-        "SPC" => "space",
-        "ENTER" => "enter",
-        "TAB" => "tab",
-        "ESC" => "esc",
-        "H/L" => "h/l",
-        other => other,
+        "SPC" => "space".to_string(),
+        "ENTER" => "enter".to_string(),
+        other => other.to_lowercase(),
     }
 }
 
@@ -337,12 +337,34 @@ pub fn footer_chords(ctx: FooterCtx) -> Vec<(&'static str, &'static str)> {
         .collect()
 }
 
-/// Help-overlay rows for one group: (all chords joined, label).
+/// Help-overlay rows for one group: (all chords joined, label). Caps, as
+/// KEYMAP declares them — this is the structural source [`draw_help`]'s
+/// display rows derive from, and what [`tests::every_binding_reaches_the_help_overlay`]
+/// diffs against KEYMAP's own strings.
 pub fn help_rows(group: Group) -> Vec<(String, &'static str)> {
     KEYMAP
         .iter()
         .filter(|b| b.group == group)
         .map(|b| (b.keys.join("  "), b.label))
+        .collect()
+}
+
+/// The `?` overlay's actual rendered rows: [`help_rows`] translated through
+/// [`lower_key`] and lowercased labels, so the overlay speaks the same
+/// grammar as every footer (spec v3.3 §5).
+pub fn help_display_rows(group: Group) -> Vec<(String, String)> {
+    KEYMAP
+        .iter()
+        .filter(|b| b.group == group)
+        .map(|b| {
+            let keys = b
+                .keys
+                .iter()
+                .map(|k| lower_key(k))
+                .collect::<Vec<_>>()
+                .join("  ");
+            (keys, b.label.to_lowercase())
+        })
         .collect()
 }
 

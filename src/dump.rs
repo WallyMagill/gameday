@@ -855,8 +855,9 @@ mod tests {
 
     #[test]
     fn help_variant_renders_the_overlay() {
+        // spec v3.3 §5: the overlay's own panel is lowercase now too.
         let text = text_of(&render_variant(&variant("help"), 0).unwrap());
-        assert!(text.contains(" KEYS "), "help overlay panel missing:\n{text}");
+        assert!(text.contains(" keys "), "help overlay panel missing:\n{text}");
     }
 
     /// The two size captures are the ladder's ends (spec §4): the same

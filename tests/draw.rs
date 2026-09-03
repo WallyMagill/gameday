@@ -163,17 +163,43 @@ fn footer_advertises_sort_and_tv_not_pages() {
 
 #[test]
 fn help_overlay_lists_every_group_and_the_hidden_chords() {
+    // spec v3.3 §5: the "?" overlay speaks the same lowercase grammar as
+    // every footer now — group titles, chords and labels are all lowercase,
+    // no hand-written caps.
     let mut app = mk();
     app.help_open = true;
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     for needle in [
-        "KEYS", "NAVIGATION", "SELECTION", "VIEW", "APP",
+        "keys", "navigation", "selection", "view", "app",
         // Chords the footer omits must still be discoverable here.
-        "THEME", "SORT", "TV", "FAVORITE", "CTRL-C", "S-TAB",
+        "theme", "sort", "tv", "favorite", "ctrl-c", "s-tab",
     ] {
         assert!(s.contains(needle), "help overlay missing {needle:?}:\n{s}");
+    }
+}
+
+#[test]
+fn help_panel_speaks_the_lowercase_grammar_not_just_the_footer() {
+    // spec v3.3 §5: the overlay's own KEYS panel — not just the footer strip
+    // underneath it — must be lowercase. Round 1 fix: `App::draw_help` used
+    // to render `NAVIGATION`, `SPC`, `ESC/?/Q CLOSES` verbatim, a second caps
+    // grammar the footer-scoped tests never saw because they only inspect
+    // the buffer's last row.
+    let mut app = mk();
+    app.help_open = true;
+    let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    // The panel's own new rows, lowercase.
+    for needle in ["navigation", "space pin", "esc  q", "esc/?/q closes", " keys "] {
+        assert!(s.contains(needle), "panel missing {needle:?}:\n{s}");
+    }
+    // No leftover v3.1 caps-token grammar (the old NAVIGATION/SPC/ESC-CLOSES
+    // style, and the footer's own dead NAV: label).
+    for caps in ["NAVIGATION", "SELECTION", " SPC", "ESC/?/Q CLOSES", "NAV:"] {
+        assert!(!s.contains(caps), "leftover caps token {caps:?}:\n{s}");
     }
 }
 

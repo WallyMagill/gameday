@@ -515,16 +515,20 @@ impl App {
                 cell.bg = theme::dimmed(cell.bg);
             }
         }
+        // Spec v3.3 §5: the overlay speaks the same lowercase grammar as
+        // every footer — group titles, key chords and labels all run
+        // through the keymap's lowering (`keymap::lower_key` for chords,
+        // `.to_lowercase()` for labels/titles), not hand-written caps.
         let mut lines: Vec<Line> = Vec::new();
         for group in keymap::Group::ALL {
             if !lines.is_empty() {
                 lines.push(Line::from(""));
             }
             lines.push(Line::from(Span::styled(
-                group.title(),
+                group.title().to_lowercase(),
                 Style::default().fg(th.star).add_modifier(Modifier::BOLD),
             )));
-            for (keys, label) in keymap::help_rows(group) {
+            for (keys, label) in keymap::help_display_rows(group) {
                 lines.push(Line::from(vec![
                     Span::styled(format!("  {keys:<22}"), Style::default().fg(th.fg)),
                     Span::styled(label, Style::default().fg(th.muted)),
@@ -532,8 +536,10 @@ impl App {
             }
         }
         lines.push(Line::from(""));
+        // The overlay's own close keys, spelled the way the source table
+        // writes them (Esc, '?', 'q' — see `App::on_key`'s help_open arm).
         lines.push(Line::from(Span::styled(
-            "ESC/?/Q CLOSES",
+            "esc/?/q closes",
             Style::default().fg(th.dim),
         )));
         let w = 40u16.min(area.width.saturating_sub(4));
@@ -549,7 +555,7 @@ impl App {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(th.star))
             .title(Span::styled(
-                " KEYS ",
+                " keys ",
                 Style::default().fg(th.star).add_modifier(Modifier::BOLD),
             ));
         frame.render_widget(
