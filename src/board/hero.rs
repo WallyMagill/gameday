@@ -75,6 +75,18 @@ const FLANK_MIN_COLS: u16 = 18;
 /// Committed hero art is 16 cells wide; a narrower flank is not a flank.
 const MARK_COLS: u16 = 16;
 
+/// The jumbotron rung: a band this tall paints the `PixelSize::Full` form at
+/// double height — receipt, 8 glyph rows ([`tiles::glyph_cell`]`.1`) × 2. It
+/// is not a fourth ladder rung, it is the same 8-row form with every glyph
+/// row painted twice, which is why it lives inside [`score_block`] and every
+/// caller (TV, the takeover, the board's hero) gets it from the one formatter
+/// (spec §1's hard rule). Under this height nothing changes at all.
+///
+/// v3.3 §2: the design review measured TV's digits at half the mockup's
+/// height with ~6 dead rows under them — a 40-row jumbotron has the rows, the
+/// form just never grew into them.
+const DOUBLE_MIN_ROWS: u16 = 16;
+
 /// The mid-form floor: one quadrant digit is [`quad_digits::QUAD_ROWS`] rows
 /// (sitting-1 pick 1A), so a band shorter than that has already fallen to the
 /// text form. This is what the digits are charged when the bracket didn't ask
@@ -130,6 +142,10 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
         // what keeps the ladder honest when a rung changes cell grid.
         let (aw, hw, gh) = if form == ScoreForm::Full {
             let (gw, gh) = tiles::glyph_cell();
+            // The jumbotron rung: a band with the rows for it gets the same
+            // form at double height (`DOUBLE_MIN_ROWS`). Measured here, drawn
+            // in `score_block` — one answer to "how tall is the score".
+            let gh = if area.height >= DOUBLE_MIN_ROWS { gh * 2 } else { gh };
             (away.len() as u16 * gw, home.len() as u16 * gw, gh)
         } else {
             let (aw, gh) = quad_digits::quad_size(u32::from(game.away_score));
@@ -192,10 +208,16 @@ pub fn score_block(frame: &mut Frame, area: Rect, game: &Game, full: bool) {
     // `score_spots` already proved the fit, and both renderers re-check it
     // for callers who probe instead of measuring. Two answers to one question
     // is the shape that drifts, so a disagreement is loud in debug builds.
+    // At the jumbotron rung the glyphs are rendered once, into the top half
+    // of the spot, and then every row is painted twice (`stretch_rows`). The
+    // glyph engine never learns a second size: this is `PixelSize::Full`,
+    // stretched, so a doubled score and a board score are the same shape.
+    let doubled = spots.form == ScoreForm::Full && spots.away.height == tiles::glyph_cell().1 * 2;
+    let unstretched = |r: Rect| if doubled { Rect { height: r.height / 2, ..r } } else { r };
     let (drew_away, drew_home) = if spots.form == ScoreForm::Full {
         (
-            tiles::digit_glyphs(frame, spots.away, game.away_score, away_color),
-            tiles::digit_glyphs(frame, spots.home, game.home_score, home_color),
+            tiles::digit_glyphs(frame, unstretched(spots.away), game.away_score, away_color),
+            tiles::digit_glyphs(frame, unstretched(spots.home), game.home_score, home_color),
         )
     } else {
         (
@@ -210,6 +232,24 @@ pub fn score_block(frame: &mut Frame, area: Rect, game: &Game, full: bool) {
         spots.away,
         spots.home
     );
+    if doubled {
+        stretch_rows(frame, spots.away);
+        stretch_rows(frame, spots.home);
+    }
+}
+
+/// Paint each of `rect`'s top `height / 2` rows twice, in place, filling the
+/// rect from the top down. Walked bottom-up so a row is copied before
+/// anything can overwrite it (row `i` lands on `2i`/`2i + 1`, and `2i >= i`).
+fn stretch_rows(frame: &mut Frame, rect: Rect) {
+    let buf = frame.buffer_mut();
+    for i in (0..rect.height / 2).rev() {
+        for x in rect.x..rect.right() {
+            let cell = buf[(x, rect.y + i)].clone();
+            buf[(x, rect.y + 2 * i + 1)] = cell.clone();
+            buf[(x, rect.y + 2 * i)] = cell;
+        }
+    }
 }
 
 /// The fragment line under the digits: football's `2ND & GOAL · BALL ON 4 ·
@@ -1049,6 +1089,61 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn the_score_block_doubles_at_jumbotron_heights() {
+        // v3.3 Task 13: the jumbotron's digits were half the mockup's height
+        // because the Full form is a flat 8 rows however tall the band is. A
+        // rect that affords 16 rows now paints each glyph row twice — inside
+        // the one formatter, so TV, the cut and the board all get it from the
+        // same call (spec §1's hard rule).
+        let game = nfl_game();
+        let block = |w: u16, h: u16| {
+            let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+            term.draw(|f| score_block(f, f.area(), &game, true)).unwrap();
+            term
+        };
+        let inked = |term: &Terminal<TestBackend>, w: u16, h: u16| -> Vec<u16> {
+            let buf = term.backend().buffer();
+            (0..h).filter(|y| (0..w).any(|x| buf[(x, *y)].symbol() != " ")).collect()
+        };
+
+        // 16 rows: the form starts at the rect's top and every glyph row is
+        // painted twice. `24`/`21` ink 7 of the 8 glyph rows (the eighth is
+        // the glyph cell's own baseline gap), so 14 buffer rows carry ink and
+        // the pair check below is what proves the doubling.
+        let term = block(120, 16);
+        assert_eq!(
+            inked(&term, 120, 16),
+            (0..14u16).collect::<Vec<_>>(),
+            "a 16-row rect is filled by the doubled form\n{}",
+            text_of(term.backend().buffer())
+        );
+        let buf = term.backend().buffer();
+        for i in 0..8u16 {
+            for x in 0..120u16 {
+                let (top, bottom) = (&buf[(x, 2 * i)], &buf[(x, 2 * i + 1)]);
+                assert_eq!(
+                    top.symbol(),
+                    bottom.symbol(),
+                    "glyph row {i} must paint rows {} and {} the same at x={x}\n{}",
+                    2 * i,
+                    2 * i + 1,
+                    text_of(buf)
+                );
+                assert_eq!(top.fg, bottom.fg, "glyph row {i} colors differ at x={x}");
+            }
+        }
+
+        // 10 rows: single height, exactly as before (regression pin).
+        let term = block(120, 10);
+        assert_eq!(
+            inked(&term, 120, 10),
+            (1..8u16).collect::<Vec<_>>(),
+            "under the jumbotron gate the Full form stays 8 rows, centered\n{}",
+            text_of(term.backend().buffer())
+        );
+    }
 
     #[test]
     fn a_band_with_no_room_for_glyphs_still_prints_the_score() {

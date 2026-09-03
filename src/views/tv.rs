@@ -41,6 +41,40 @@ const LINESCORE_ROWS: u16 = crate::board::linescore::ROWS;
 /// first" discipline the board's brackets follow (ruling R29).
 const HERO_MIN_ROWS: u16 = 11;
 
+/// The same floor at the jumbotron rung (v3.3 §2): 1 nameplate + 16 doubled
+/// digit rows (`hero`'s `DOUBLE_MIN_ROWS`) + the fragment and meter lines.
+/// R29 again — on a terminal tall enough for the big form, the big form is
+/// charged before the linescore and the plays, not after them.
+const HERO_JUMBO_ROWS: u16 = 19;
+
+/// Air the digit band keeps around the doubled digits: one row, under the
+/// nameplate. Only one, because the glyph cell already carries a baseline row
+/// of its own at the bottom — doubled, that is two rows of air under the
+/// digits for free, and a second reserved row here would only widen the gap
+/// the hero is trying to close.
+const BAND_AIR: u16 = 1;
+
+/// The body height at which TV asks for the jumbotron floor: the doubled
+/// hero, the three plays and a whole linescore, so the big digits are never
+/// bought by evicting the two blocks under them.
+const JUMBO_BODY_ROWS: u16 = HERO_JUMBO_ROWS + PLAY_ROWS + LINESCORE_ROWS;
+
+/// Where the strip splits into two columns. Receipt: a tier-2 row spends 38
+/// cells on its grid before the situation text starts (`rows::TEXT_X`), so
+/// two columns plus the gutter need 78 before a single word of fragment —
+/// 100 is where both columns still read as rows rather than as stubs, and it
+/// is the same bracket the board uses to flank its hero.
+const STRIP_TWO_COL_COLS: u16 = 100;
+
+/// Air between the strip's two columns.
+const STRIP_GUTTER: u16 = 2;
+
+/// Rows one strip column may spend. The reference frame
+/// (docs/research/v3-identity/tv-nfl-sunday-120x40.png) lists five games per
+/// column and captions the remainder; more than that and the strip is
+/// competing with the game it is supposed to be a footnote to.
+const STRIP_MAX_ROWS: usize = 5;
+
 /// The play-clock stamp column: `12:34` right-aligned, plus a column of air.
 const STAMP_W: usize = 6;
 
@@ -98,10 +132,12 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
 
     // ----------------------------------------------------------- the strip
     let others: Vec<&&Game> = slate.iter().filter(|g| g.id != game.id).collect();
+    let columns = strip_columns(area.width);
     let strip_rows = if others.is_empty() {
         0
     } else {
-        (others.len() as u16 + 1).min(area.height / STRIP_MAX_SHARE)
+        let per_column = others.len().div_ceil(columns as usize).min(STRIP_MAX_ROWS) as u16;
+        (per_column + 1).min(area.height / STRIP_MAX_SHARE)
     };
     let body = Rect {
         height: area.height - strip_rows,
@@ -110,16 +146,26 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
 
     // ------------------------------------------------------------ the hero
     // Row budget, in keep order: the hero's floor first, then the plays, then
-    // the linescore. Whatever is left over stays with the hero, where it
-    // becomes air around the digits — `draw_hero` gives unspent rows back to
-    // the digit band, which is exactly the jumbotron look.
+    // the linescore.
     let plays: Vec<&crate::domain::Play> = game.last_plays.iter().take(PLAY_ROWS as usize).collect();
-    let mut spare = body.height.saturating_sub(HERO_MIN_ROWS);
+    let floor = if body.height >= JUMBO_BODY_ROWS { HERO_JUMBO_ROWS } else { HERO_MIN_ROWS };
+    let mut spare = body.height.saturating_sub(floor);
     let plays_rows = spare.min(plays.len() as u16);
     spare -= plays_rows;
     let linescore = crate::board::linescore::linescore_lines(game, &th).filter(|_| spare >= LINESCORE_ROWS);
     let ls_rows = if linescore.is_some() { LINESCORE_ROWS } else { 0 };
-    let hero_rows = body.height - plays_rows - ls_rows;
+    // What the hero can have, and what it actually wants. Before v3.3 these
+    // were the same number: every leftover row went into the digit band, so a
+    // 40-row terminal centered 8 rows of digits inside a 25-row band and left
+    // fifteen dead rows around them (the design review's "TV is the weakest
+    // frame"). The band now takes the doubled form plus `BAND_AIR` and stops;
+    // the rows it declines go to the gap above the linescore, where the
+    // reference frame's air is (docs/research/v3-identity/tv-nfl-sunday-120x40.png).
+    let can = body.height - plays_rows - ls_rows;
+    let options = u16::from(hero::fragment_line(game).is_some())
+        + u16::from(crate::tiles::meter_line(game, body.width as usize).is_some());
+    let wants = 1 + hero::digit_rows(true) * 2 + BAND_AIR + options;
+    let hero_rows = can.min(wants.max(HERO_MIN_ROWS));
 
     let watch = crate::rank::watchability(game, now);
     // TV draws the play block itself (three plays, stamped), so the hero is
@@ -156,7 +202,11 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         },
     );
 
-    let mut y = body.y + hero_rows;
+    // The linescore and the plays hang off the strip, not off the hero: the
+    // three-play feed sits directly above the `ALSO LIVE` rule the way the
+    // reference frame has it, and any row the hero declined shows up as one
+    // gap between the two blocks rather than as air inside the digit band.
+    let mut y = body.bottom() - plays_rows - ls_rows;
     if let Some(lines) = linescore {
         frame.render_widget(
             Paragraph::new(lines).alignment(Alignment::Center),
@@ -192,6 +242,18 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
             &others,
             now,
         );
+    }
+}
+
+/// Columns the strip lays its rows out in — two once the width can carry two
+/// readable tier-2 rows side by side ([`STRIP_TWO_COL_COLS`]). One place, so
+/// [`draw`]'s row budget and [`draw_strip`]'s layout can never disagree about
+/// how tall the strip is.
+fn strip_columns(width: u16) -> u16 {
+    if width >= STRIP_TWO_COL_COLS {
+        2
+    } else {
+        1
     }
 }
 
@@ -231,11 +293,23 @@ fn draw_strip(
         ])),
         Rect { height: 1, ..area },
     );
-    for (i, game) in others.iter().take(area.height as usize - 1).enumerate() {
+    // Two columns where the width affords them (`STRIP_TWO_COL_COLS`), filled
+    // down the left column first: the strip is ranked, and a reader who stops
+    // after three rows has still read the three most watchable games.
+    let columns = strip_columns(area.width);
+    let per_column = (area.height as usize - 1).min(STRIP_MAX_ROWS);
+    let col_w = (area.width - STRIP_GUTTER * (columns - 1)) / columns;
+    for (i, game) in others.iter().take(per_column * columns as usize).enumerate() {
+        let (col, row) = ((i / per_column) as u16, (i % per_column) as u16);
         let watch = crate::rank::watchability(game, now);
         rows::draw_tier2(
             frame,
-            Rect { y: area.y + 1 + i as u16, height: 1, ..area },
+            Rect {
+                x: area.x + col * (col_w + STRIP_GUTTER),
+                y: area.y + 1 + row,
+                width: col_w,
+                height: 1,
+            },
             game,
             &rows::RowCtx {
                 // The mark still says which strip games are hot: it is the

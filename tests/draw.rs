@@ -3209,19 +3209,20 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     term.draw(|f| app.draw(f)).unwrap();
     let text = buf_text(&term);
 
-    // The jumbotron: `PixelSize::Full` digits are 8×8 cells, so the away
-    // score paints eight contiguous rows of the left third in KC's hero
-    // color. A sextant fallback would paint three, the text form one.
+    // The jumbotron: `PixelSize::Full` digits are 8×8 cells and a band with
+    // 16 rows for them paints every glyph row twice (v3.3 §2), so the away
+    // score fills sixteen contiguous rows of the left third in KC's hero
+    // color. The quad rung would paint four, the text form one.
     let th = gameday::theme::current();
     let (away_color, ..) = gameday::theme::hero_pair(&th, team("KC").color, team("TB").color);
     let buf = term.backend().buffer();
     let digit_rows: Vec<u16> = (0..40u16)
         .filter(|y| (0..40u16).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 8)
         .collect();
-    assert_eq!(digit_rows.len(), 8, "TV draws 8-row Full digits:\n{text}");
+    assert_eq!(digit_rows.len(), 16, "TV draws the doubled Full form:\n{text}");
     assert_eq!(
-        digit_rows[7] - digit_rows[0],
-        7,
+        digit_rows[15] - digit_rows[0],
+        15,
         "the digit band is contiguous: {digit_rows:?}\n{text}"
     );
     // The shown game is the ranking's top; both its abbrs are on the hero.
@@ -3230,7 +3231,7 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     // Spec §0: TV stays logo-free, even at the ≥100 columns where the board
     // flanks its hero — the margin outside the digits is untouched ground.
     // (KC and TB both have committed art, so this would paint otherwise.)
-    for y in digit_rows[0]..=digit_rows[7] {
+    for y in digit_rows[0]..=digit_rows[15] {
         for x in 0..20u16 {
             assert_eq!(
                 buf[(x, y)].symbol(),
@@ -3249,6 +3250,155 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     // TV is not the board: no section rules, no off-screen lane.
     assert!(!text.contains("IN PLAY"), "no board rules in TV:\n{text}");
     assert!(!text.contains("OFF-SCREEN"), "no lane in TV:\n{text}");
+}
+
+#[test]
+fn tv_fills_its_frame() {
+    // v3.3 Task 13: the design review called TV the weakest frame — digits
+    // half the mockup's height, ~6 dead rows under them, and a one-column
+    // strip wasting half the width. All three are pinned here.
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let mut app = mk();
+    // A real live game, not the thin fixture: three plays, a linescore and a
+    // red-zone meter is what the jumbotron is laying out on a Sunday, and a
+    // frame is only "full" against the content it actually has.
+    let slate: Vec<Game> = tv_slate()
+        .into_iter()
+        .map(|mut g| {
+            g.linescore = vec![(7, 3), (10, 7), (0, 7), (7, 4)];
+            g.meter = Some(Meter::RedZone { yards_to_goal: 3 });
+            g.last_plays = (0..3)
+                .map(|i| Play {
+                    clock: format!("1:2{i}"),
+                    team: g.away.abbr.clone(),
+                    text: format!("Mahomes pass to Kelce for {} yards", i + 3),
+                    ..Default::default()
+                })
+                .collect();
+            g
+        })
+        .collect();
+    app.apply_boards(League::Nfl, slate, false);
+    app.tab = Tab::League(League::Nfl);
+    app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+    let term = render(&mut app, 120, 40);
+    let text = buf_text(&term);
+    let buf = term.backend().buffer();
+    let lines: Vec<&str> = text.lines().collect();
+    use ratatui::style::Color;
+
+    // The body is everything TV draws: the hero's nameplate row down to the
+    // last strip row, header/reserved-band/footer excluded.
+    let top = lines.iter().position(|l| l.contains("KC")).expect("hero nameplate") as u16;
+    let footer = lines.iter().rposition(|l| l.contains("esc board")).expect("footer") as u16;
+    let ground = gameday::theme::current().roles().ground;
+    let empty: Vec<u16> = (top..footer)
+        .filter(|y| {
+            (0..120u16).all(|x| {
+                buf[(x, *y)].symbol() == " "
+                    && (buf[(x, *y)].bg == ground || buf[(x, *y)].bg == Color::Reset)
+            })
+        })
+        .collect();
+    // The budget, with its receipt. Before this task the same frame left 20
+    // dead rows: 8-row digits floating in a 25-row band. What is left is
+    // structural, not slack —
+    //   * 2 rows are the glyph cell's own baseline gap, doubled (`24`/`21`
+    //     ink 7 of 8 glyph rows), and 1 is the band's air under the nameplate;
+    //   * the rest is ONE gap between the hero block and the linescore, which
+    //     is where the reference frame's own blank rows are
+    //     (docs/research/v3-identity/tv-nfl-sunday-120x40.png has five).
+    // Nine is what a 40-row terminal has left over once the doubled digits,
+    // the fragment, the meter, the linescore, three plays and the strip have
+    // taken their rows; the shape assertion below is the real claim — the
+    // slack is one gap, never holes scattered through the stack.
+    assert!(
+        empty.len() <= 9,
+        "the jumbotron leaves {} dead rows ({empty:?}), 9 is the budget:\n{text}",
+        empty.len()
+    );
+    let runs = empty.windows(2).filter(|w| w[1] != w[0] + 1).count() + 1;
+    assert!(
+        runs <= 2,
+        "the slack must be the band's air and ONE gap, not {runs} holes ({empty:?}):\n{text}"
+    );
+
+    // Doubled digits: 16 rows of away color, not 8.
+    let th = gameday::theme::current();
+    let (away_color, ..) = gameday::theme::hero_pair(&th, team("KC").color, team("TB").color);
+    let digit_rows: Vec<u16> = (0..40u16)
+        .filter(|y| (0..40u16).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 8)
+        .collect();
+    assert_eq!(digit_rows.len(), 16, "the jumbotron doubles the Full form:\n{text}");
+    assert_eq!(digit_rows[15] - digit_rows[0], 15, "contiguous: {digit_rows:?}\n{text}");
+
+    // Hero nameplates: the abbrs sit above the digits, in team color.
+    assert!(top < digit_rows[0], "the nameplate row is above the digits:\n{text}");
+    // Columns, not byte offsets: the home nameplate's lookalike block is
+    // multi-byte, so `find` would walk off the buffer.
+    let plate = lines[top as usize];
+    let col = |byte: usize| plate[..byte].chars().count() as u16;
+    let kc_x = col(plate.find("KC").expect("KC nameplate"));
+    assert_eq!(buf[(kc_x, top)].fg, away_color, "the away nameplate wears the away color:\n{text}");
+    let tb_x = col(plate.rfind("TB").expect("TB nameplate"));
+    let (_, home_color, _) = gameday::theme::hero_pair(&th, team("KC").color, team("TB").color);
+    assert_eq!(buf[(tb_x, top)].fg, home_color, "the home nameplate wears the home color:\n{text}");
+
+    // Two columns on the strip at 120 cols: some row carries two games,
+    // half a screen apart.
+    let strip_top = lines.iter().position(|l| l.contains("ALSO LIVE")).expect("strip rule");
+    let paired = lines[strip_top + 1..footer as usize].iter().find_map(|l| {
+        let (a, b) = (l.find("DAL")?, l.rfind("NYJ")?);
+        Some((a, b))
+    });
+    let (a, b) = paired.unwrap_or_else(|| panic!("no two-column strip row:\n{text}"));
+    assert!(b - a >= 50, "the strip's second column starts at x={b}, first at x={a}:\n{text}");
+}
+
+/// The doubled rung is still the ONE formatter (spec §1's hard rule): what
+/// TV paints is cell-for-cell what `hero::score_block` paints into a 16-row
+/// rect. Without this a jumbotron-only tweak drifts from the board's digits.
+#[test]
+fn the_jumbotron_digits_are_the_one_formatters_doubled_rung() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let mut app = mk();
+    app.apply_boards(League::Nfl, tv_slate(), false);
+    app.tab = Tab::League(League::Nfl);
+    app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+    let tv = render(&mut app, 120, 40);
+
+    let game = tv_slate().into_iter().next().unwrap();
+    let mut direct = Terminal::new(TestBackend::new(120, 16)).unwrap();
+    direct
+        .draw(|f| gameday::board::hero::score_block(f, f.area(), &game, true))
+        .unwrap();
+
+    // Glyph cells only: TV writes the clock and the chip in the center
+    // column, inside the digits' bounding box, and that is not the claim
+    // here — the claim is that every painted digit cell is the same cell.
+    let glyphs = |term: &Terminal<TestBackend>| {
+        digit_grid(term)
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|(s, fg)| {
+                        if SCORE_GLYPHS.contains(&s.as_str()) {
+                            (s, Some(fg))
+                        } else {
+                            (" ".to_string(), None)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(glyphs(&direct).len(), 14, "the direct render is the doubled rung (7 inked glyph rows × 2)");
+    assert_eq!(
+        glyphs(&tv),
+        glyphs(&direct),
+        "TV's digits differ from `score_block`'s at the doubled rung:\n{}",
+        buf_text(&tv)
+    );
 }
 
 #[test]
