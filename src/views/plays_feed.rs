@@ -12,7 +12,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
+/// Draws the feed and returns the absolute y of its last row — the END OF FEED
+/// rule when the whole feed fits — so the key bar sits with the list (spec
+/// v3.3 §5). A feed that fills the pane reports `None` and the bar keeps the
+/// terminal floor.
+pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> Option<u16> {
     let th = theme::current();
     let events = &app.derived().scoring;
     let chunks = Layout::default()
@@ -27,7 +31,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
                 .alignment(Alignment::Center),
             chunks[1],
         );
-        return;
+        return Some(chunks[1].y);
     }
     let sel = app.feed_scroll.min(events.len() - 1);
     // Keep the highlight visible: scroll the window once it walks past the
@@ -39,20 +43,27 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         .enumerate()
         .skip(skip)
         .take(visible)
-        .map(|(i, (game, play))| feed_row(game, play, i == sel))
+        .map(|(i, (game, play))| feed_row(game, play, i == sel, chunks[1].width as usize))
         .collect();
     // A short feed closes with an end marker so the blank pane below reads
-    // as "that's all", not as rows that failed to render.
+    // as "that's all", not as rows that failed to render. Spec v3.3 §5: the
+    // marker is the board's own rule, drawn to the frame's edge, so the list
+    // ends on a line rather than trailing off mid-row.
     if lines.len() < visible {
+        let head = "  ── END OF FEED ";
+        let rule = (chunks[1].width as usize).saturating_sub(head.chars().count() + 1);
         lines.push(Line::from(Span::styled(
-            "  ── END OF FEED ──",
+            format!("{head}{}", "─".repeat(rule)),
             Style::default().fg(th.dim),
         )));
     }
+    let end = chunks[1].y + lines.len().saturating_sub(1) as u16;
+    let full = lines.len() >= visible;
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().bg(th.bg)),
         chunks[1],
     );
+    (!full).then_some(end)
 }
 
 /// `PLAYS` chip (active-tab style, like the Zoom tab bar) plus the row count
@@ -79,9 +90,15 @@ fn draw_header(frame: &mut Frame, area: Rect, count: usize) {
     );
 }
 
+/// Widest league chip: `[WNBA]`. Every chip is padded to it so the stamp
+/// column — and everything after it — lands on one x for every row, the way
+/// the board's tier rows hold their stamp column.
+const CHIP_W: usize = 6;
+
 /// One feed row: marker, league chip, clock, credited team, scoring word,
-/// play text, then the matchup score dimly at the end for orientation.
-fn feed_row<'a>(game: &Game, play: &Play, selected: bool) -> Line<'a> {
+/// play text, then the matchup score at the row's right edge for orientation
+/// (spec v3.3 §5: the row is the width of the frame, not of its text).
+fn feed_row<'a>(game: &Game, play: &Play, selected: bool, width: usize) -> Line<'a> {
     let th = theme::current();
     let marker = if selected { "▸ " } else { "  " };
     let text_style = if selected {
@@ -94,10 +111,24 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool) -> Line<'a> {
     } else {
         (game.home_score, game.away_score)
     };
+    let stamp = crate::tiles::play_stamp(play);
+    let word = theme::scoring_word(game.league);
+    let score = format!("{}@{} {lead}-{trail} ", game.away.abbr, game.home.abbr);
+    // Everything left of the play text is fixed-width, so the gap that pushes
+    // the score to the right edge is the row's width minus what is spoken.
+    let spoken = marker.chars().count()
+        + CHIP_W
+        + 7 // " {stamp:>5} "
+        + 4 // team abbr column
+        + word.chars().count()
+        + 1
+        + play.text.chars().count()
+        + score.chars().count();
+    let gap = width.saturating_sub(spoken).max(2);
     Line::from(vec![
         Span::styled(marker, Style::default().fg(th.star)),
         Span::styled(
-            format!("[{}]", game.league.slug().to_uppercase()),
+            format!("{:<CHIP_W$}", format!("[{}]", game.league.slug().to_uppercase())),
             Style::default()
                 .fg(th.chip(game.league))
                 .add_modifier(Modifier::BOLD),
@@ -105,10 +136,7 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool) -> Line<'a> {
         // `play_stamp`, not `play.clock`: a baseball play carries its
         // half-inning in `period` and no clock at all, and printing the clock
         // field left the MLB rows of the feed with a blank stamp column.
-        Span::styled(
-            format!(" {:>5} ", crate::tiles::play_stamp(play)),
-            Style::default().fg(th.clock()),
-        ),
+        Span::styled(format!(" {stamp:>5} "), Style::default().fg(th.clock())),
         Span::styled(
             format!("{:<4}", play.team),
             Style::default()
@@ -116,13 +144,11 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool) -> Line<'a> {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("{} ", theme::scoring_word(game.league)),
+            format!("{word} "),
             Style::default().fg(th.live).add_modifier(Modifier::BOLD),
         ),
         Span::styled(play.text.clone(), text_style),
-        Span::styled(
-            format!("  {}@{} {lead}-{trail}", game.away.abbr, game.home.abbr),
-            Style::default().fg(th.muted),
-        ),
+        Span::raw(" ".repeat(gap)),
+        Span::styled(score, Style::default().fg(th.muted)),
     ])
 }

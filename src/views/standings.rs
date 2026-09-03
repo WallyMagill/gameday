@@ -36,6 +36,24 @@ pub fn line_count(table: &StandingsTable) -> usize {
     rows + table.groups.len().saturating_sub(1)
 }
 
+/// Two-column gate (spec v3.3 §5). Receipt: a conference table is 48 columns
+/// at its widest (abbr 5 + the longest NFL club name 26 + three 4-col value
+/// columns + a leading space, rounded up for the rule), so two of them plus a
+/// 4-column gutter need 100. Below that the table stays one column.
+pub const TWO_COL_MIN: u16 = 100;
+/// Gutter between the two tables.
+const GUTTER: u16 = 4;
+
+/// How many table columns fit `width` for `table`: two once the frame is wide
+/// enough and there is something to split, one otherwise.
+fn column_count(table: &StandingsTable, width: u16) -> usize {
+    if width >= TWO_COL_MIN && (table.groups.len() > 1 || table.groups[0].rows.len() > 4) {
+        2
+    } else {
+        1
+    }
+}
+
 /// How a table of `lines` lines fits a pane of `pane` rows: the number of
 /// table rows shown (the pane, minus one for the more-marker when clipped)
 /// and the largest top offset that still fills those rows.
@@ -48,7 +66,10 @@ pub fn window(lines: usize, pane: usize) -> (usize, usize) {
     (body, lines.saturating_sub(body))
 }
 
-pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, league: League) {
+/// Draws the table and returns the absolute y of its last content row when the
+/// whole table fits — the key bar anchors there (spec v3.3 §5). A clipped
+/// table fills the pane, so it reports `None` and the bar stays on the floor.
+pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, league: League) -> Option<u16> {
     let th = theme::current();
     let table = app.standings.get(&league);
     let chunks = Layout::default()
@@ -79,24 +100,50 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, league: League) {
                 .alignment(Alignment::Center),
             chunks[1],
         );
-        return;
+        return Some(chunks[1].y);
     };
-    let lines = body_lines(app, table);
+    // Spec v3.3 §5: a wide frame gets two tables side by side instead of one
+    // narrow column against a half-empty right side.
+    let pane = chunks[1];
+    let cols = column_count(table, pane.width);
+    let col_w = if cols == 2 {
+        (pane.width.saturating_sub(GUTTER) / 2) as usize
+    } else {
+        pane.width as usize
+    };
+    let columns = column_lines(app, table, cols, col_w);
+    let total = columns.iter().map(Vec::len).max().unwrap_or(0);
     // Clamp the offset so the table's tail always fills the pane — you can
     // scroll to the end but never past it into blank space. The key handler
-    // clamps against the same row count, recorded here.
-    let (body, max_offset) = window(lines.len(), chunks[1].height as usize);
-    app.standings_visible = body;
+    // clamps against the offset recorded here, which is column-count aware:
+    // two columns halve how far there is to scroll.
+    let (body, max_offset) = window(total, pane.height as usize);
+    app.standings_max_scroll = Some(max_offset);
     let offset = app.standings_scroll.min(max_offset);
-    let total = lines.len();
-    let mut lines: Vec<Line> = lines.into_iter().skip(offset).take(body).collect();
-    if total > body {
-        lines.push(more_marker(offset, total.saturating_sub(offset + body)));
+    for (i, col) in columns.into_iter().enumerate() {
+        let lines: Vec<Line> = col.into_iter().skip(offset).take(body).collect();
+        let rect = Rect {
+            x: pane.x + (i as u16) * (col_w as u16 + GUTTER),
+            y: pane.y,
+            width: col_w as u16,
+            height: body.min(pane.height as usize) as u16,
+        };
+        frame.render_widget(
+            Paragraph::new(lines).style(Style::default().bg(th.bg)),
+            rect,
+        );
     }
-    frame.render_widget(
-        Paragraph::new(lines).style(Style::default().bg(th.bg)),
-        chunks[1],
-    );
+    if total > body {
+        let marker = Rect { y: pane.y + body as u16, height: 1, ..pane };
+        frame.render_widget(
+            Paragraph::new(more_marker(offset, total.saturating_sub(offset + body)))
+                .style(Style::default().bg(th.bg)),
+            marker,
+        );
+        // Clipped: the table owns the pane, so the key bar keeps the floor.
+        return None;
+    }
+    Some(pane.y + total.saturating_sub(1) as u16)
 }
 
 /// The scroll affordance for a clipped table: `▲ 12 ABOVE  ▼ 8 BELOW` (each
@@ -166,9 +213,66 @@ fn draw_header(frame: &mut Frame, area: Rect, league: League, teams: usize, labe
     );
 }
 
-/// The whole table as lines (scrolling happens on top of this): per group a
-/// name row, a muted column-header row, then aligned team rows.
-fn body_lines<'a>(app: &App, table: &StandingsTable) -> Vec<Line<'a>> {
+/// One rendered section of a column: a title (the group's name, or a half of
+/// a single-group league's table named by its row range) and the rows under
+/// it.
+struct Section<'a> {
+    title: String,
+    rows: &'a [crate::domain::StandingRow],
+}
+
+/// The table's sections dealt into `cols` columns: by group when the league
+/// has groups to split (NFL's two conferences), by halving the row list when
+/// it is one table (EPL). Balanced by height, so neither column runs long.
+fn sections<'a>(table: &'a StandingsTable, cols: usize) -> Vec<Vec<Section<'a>>> {
+    let title = |g: &crate::domain::StandingsGroup| g.name.to_uppercase();
+    if cols < 2 {
+        return vec![table
+            .groups
+            .iter()
+            .map(|g| Section { title: title(g), rows: &g.rows })
+            .collect()];
+    }
+    if table.groups.len() == 1 {
+        // One table, no groups to split: halve the rows and say which slice
+        // each column holds, so the split never reads as two leagues.
+        let g = &table.groups[0];
+        let half = g.rows.len().div_ceil(2);
+        let (a, b) = g.rows.split_at(half);
+        let name = title(g);
+        return vec![
+            vec![Section { title: format!("{name} · 1-{}", a.len()), rows: a }],
+            vec![Section {
+                title: format!("{name} · {}-{}", a.len() + 1, g.rows.len()),
+                rows: b,
+            }],
+        ];
+    }
+    // Fill the left column until it holds half the lines, then the right.
+    let height = |g: &crate::domain::StandingsGroup| 2 + g.rows.len();
+    let total: usize = table.groups.iter().map(height).sum();
+    let (mut left, mut right) = (Vec::new(), Vec::new());
+    let mut used = 0usize;
+    for g in &table.groups {
+        let section = Section { title: title(g), rows: &g.rows };
+        if left.is_empty() || used + height(g) <= total.div_ceil(2) {
+            used += height(g);
+            left.push(section);
+        } else {
+            right.push(section);
+        }
+    }
+    vec![left, right]
+}
+
+/// Each column's lines: per section a titled rule row, a muted column-header
+/// row, then aligned team rows, with a blank line between sections.
+fn column_lines<'a>(
+    app: &App,
+    table: &StandingsTable,
+    cols: usize,
+    col_w: usize,
+) -> Vec<Vec<Line<'a>>> {
     let th = theme::current();
     // One shared name-column width so every group's columns line up.
     let name_w = table
@@ -185,44 +289,61 @@ fn body_lines<'a>(app: &App, table: &StandingsTable) -> Vec<Line<'a>> {
         .iter()
         .flat_map(|g| &g.rows)
         .find_map(|r| (!r.third_label.is_empty()).then_some(r.third_label));
-    let mut lines: Vec<Line> = Vec::new();
-    for (gi, group) in table.groups.iter().enumerate() {
-        if gi > 0 {
-            lines.push(Line::from(""));
-        }
-        lines.push(Line::from(Span::styled(
-            format!(" {}", group.name.to_uppercase()),
-            Style::default().fg(th.star).add_modifier(Modifier::BOLD),
-        )));
-        let mut header = format!(" {:<ABBR_W$}{:<name_w$}{:>VAL_W$}{:>VAL_W$}", "TEAM", "", "W", "L");
-        if let Some(label) = third_label {
-            header.push_str(&format!("{label:>VAL_W$}"));
-        }
-        lines.push(Line::from(Span::styled(header, Style::default().fg(th.muted))));
-        for row in &group.rows {
-            let mut tail = format!("{:>VAL_W$}{:>VAL_W$}", row.wins, row.losses);
-            if third_label.is_some() {
-                match row.third {
-                    Some(t) => tail.push_str(&format!("{t:>VAL_W$}")),
-                    None => tail.push_str(&" ".repeat(VAL_W)),
-                }
+    let mut out: Vec<Vec<Line>> = Vec::new();
+    for column in sections(table, cols) {
+        let mut lines: Vec<Line> = Vec::new();
+        for (si, section) in column.iter().enumerate() {
+            if si > 0 {
+                lines.push(Line::from(""));
             }
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!(" {:<ABBR_W$}", row.abbr),
-                    Style::default()
-                        .fg(abbr_color(app, table.league, &row.abbr))
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("{:<name_w$}", row.name.to_uppercase()),
-                    Style::default().fg(th.fg),
-                ),
-                Span::styled(tail, Style::default().fg(th.fg)),
-            ]));
+            lines.push(title_rule(&section.title, col_w));
+            let mut header =
+                format!(" {:<ABBR_W$}{:<name_w$}{:>VAL_W$}{:>VAL_W$}", "TEAM", "", "W", "L");
+            if let Some(label) = third_label {
+                header.push_str(&format!("{label:>VAL_W$}"));
+            }
+            lines.push(Line::from(Span::styled(header, Style::default().fg(th.muted))));
+            for row in section.rows {
+                let mut tail = format!("{:>VAL_W$}{:>VAL_W$}", row.wins, row.losses);
+                if third_label.is_some() {
+                    match row.third {
+                        Some(t) => tail.push_str(&format!("{t:>VAL_W$}")),
+                        None => tail.push_str(&" ".repeat(VAL_W)),
+                    }
+                }
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!(" {:<ABBR_W$}", row.abbr),
+                        Style::default()
+                            .fg(abbr_color(app, table.league, &row.abbr))
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{:<name_w$}", row.name.to_uppercase()),
+                        Style::default().fg(th.fg),
+                    ),
+                    Span::styled(tail, Style::default().fg(th.fg)),
+                ]));
+            }
         }
+        out.push(lines);
     }
-    lines
+    out
+}
+
+/// A section's title row: the name, then the board's own dim rule out to the
+/// column's edge, so a table never ends in a ragged half-empty row.
+fn title_rule<'a>(title: &str, col_w: usize) -> Line<'a> {
+    let th = theme::current();
+    let used = title.chars().count() + 2;
+    let rule = col_w.saturating_sub(used + 1);
+    Line::from(vec![
+        Span::styled(
+            format!(" {title} "),
+            Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("─".repeat(rule), Style::default().fg(th.dim)),
+    ])
 }
 
 /// Team color for an abbr, when that team is on the league's current board;

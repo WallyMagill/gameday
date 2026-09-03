@@ -107,12 +107,14 @@ pub struct App {
     pub feed_scroll: usize,
     /// Top-line offset in the Standings view (j/k, no highlight — the table
     /// is read-only); reset when the view opens. Clamped against
-    /// `standings_visible` so it can never run past what the pane shows.
+    /// `standings_max_scroll` so it can never run past what the pane shows.
     pub standings_scroll: usize,
-    /// Table rows the Standings pane showed on its last draw (the renderer
-    /// records it, like hit zones). 0 until the first draw, when the clamp
-    /// falls back to the line count.
-    pub standings_visible: usize,
+    /// The largest offset the Standings pane could draw on its last frame (the
+    /// renderer records it, like hit zones). `None` until the first draw, when
+    /// the clamp falls back to the line count. Recorded rather than recomputed
+    /// because it depends on the frame's width: spec v3.3 §5's two-column
+    /// table halves how far there is to scroll.
+    pub standings_max_scroll: Option<usize>,
     /// Selected row in the Config view, an index into
     /// `views::config_view::rows`; reset when the view opens.
     pub config_cursor: usize,
@@ -229,7 +231,7 @@ impl App {
             tv_lock: None,
             feed_scroll: 0,
             standings_scroll: 0,
-            standings_visible: 0,
+            standings_max_scroll: None,
             config_cursor: 0,
             config_edit: None,
             theme_cursor: 0,
@@ -954,10 +956,10 @@ impl App {
     }
 
     /// Scroll the Standings table. The offset is clamped so the last line
-    /// lands on the last pane row (`standings_visible`, recorded by the last
-    /// draw) — the stored value never runs past what is shown, so `k` after
-    /// the bottom moves the table on the first press. Before any draw the
-    /// pane height is unknown and the clamp falls back to the line count.
+    /// lands on the last pane row (`standings_max_scroll`, recorded by the
+    /// last draw) — the stored value never runs past what is shown, so `k`
+    /// after the bottom moves the table on the first press. Before any draw
+    /// the pane is unknown and the clamp falls back to the line count.
     fn move_standings_scroll(&mut self, delta: isize) {
         let lines = self
             .standings_target()
@@ -968,10 +970,7 @@ impl App {
             self.standings_scroll = 0;
             return;
         }
-        let max = match self.standings_visible {
-            0 => lines - 1,
-            visible => lines.saturating_sub(visible),
-        };
+        let max = self.standings_max_scroll.unwrap_or(lines - 1);
         let next = self.standings_scroll as isize + delta;
         self.standings_scroll = next.clamp(0, max as isize) as usize;
     }
@@ -1681,11 +1680,22 @@ impl App {
                 }
             }
         }
-        views::draw(self, frame, body);
+        let content_end = views::draw(self, frame, body);
         if ticker_h > 0 {
             self.draw_ticker(frame, chunks[2]);
         }
-        self.draw_footer(frame, chunks[3]);
+        // Spec v3.3 §5: a view that draws a measured block (the config editor)
+        // keeps its key bar with the block — one row under the last content
+        // row — instead of stranding it on the terminal floor. A SCORES lane
+        // owns the bottom of the frame when it renders, so the footer stays
+        // put underneath it rather than leapfrogging it.
+        let footer = match content_end {
+            Some(end) if ticker_h == 0 && end + 1 < chunks[3].y => {
+                Rect { y: end + 1, height: 1, ..chunks[3] }
+            }
+            _ => chunks[3],
+        };
+        self.draw_footer(frame, footer);
         if self.help_open {
             self.draw_help(frame, area);
         }

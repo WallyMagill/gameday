@@ -68,20 +68,26 @@ impl ZoomTab {
 /// Render the current view's body into `area`. `app` is mutable so views can
 /// register their mouse hit zones while they draw (state itself is read-only
 /// here — drawing must never change what is drawn).
-pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
+///
+/// Returns the absolute y of the view's last content row when the view is a
+/// measured block rather than a list that fills the pane; spec v3.3 §5 anchors
+/// the key bar one row under it instead of on the terminal floor. `None` means
+/// "the view owns the whole pane" — the footer stays at the floor.
+pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) -> Option<u16> {
     // Cloned so the borrow of `app.view` doesn't pin `app` across the call.
     match app.view.clone() {
         View::Board => crate::board::draw(app, frame, area),
         View::Zoom { game_id, tab } => zoom::draw(app, frame, area, &game_id, tab),
-        View::PlaysFeed => plays_feed::draw(app, frame, area),
-        View::Standings(league) => standings::draw(app, frame, area, league),
-        View::ConfigView => config_view::draw(app, frame, area),
+        View::PlaysFeed => return plays_feed::draw(app, frame, area),
+        View::Standings(league) => return standings::draw(app, frame, area, league),
+        View::ConfigView => return Some(config_view::draw(app, frame, area)),
         View::ThemePicker => {
             crate::board::draw(app, frame, area);
             theme_picker::draw(app, frame, area);
         }
         View::Tv => tv::draw(app, frame, area),
     }
+    None
 }
 
 #[cfg(test)]

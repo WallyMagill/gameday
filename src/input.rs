@@ -185,6 +185,9 @@ fn apply(app: &mut App, cmd: Cmd) {
             });
             app.view = View::Standings(league);
             app.standings_scroll = 0;
+            // A new table has its own length: the recorded clamp belongs to
+            // the table that just left the screen.
+            app.standings_max_scroll = None;
         }
         Cmd::ConfigView => {
             app.view = View::ConfigView;

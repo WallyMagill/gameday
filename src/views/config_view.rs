@@ -39,51 +39,114 @@ pub fn rows(app: &App) -> Vec<ConfigRow> {
     out
 }
 
-pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
+/// One panel's width: the longest row (`+ ADD FAVORITE`, `THEME   ◂ broadcast
+/// ▸`) is 26 columns with its marker, and the section rule wants room to read
+/// as a rule rather than a dash.
+const PANEL_W: usize = 44;
+/// Gutter between the two panels.
+const GUTTER: usize = 4;
+/// Two-panel gate: 2×44 + 4 = 92 columns of content, gated at the same 100 as
+/// the standings table so both screens change shape at one width.
+const TWO_PANEL_MIN: u16 = crate::views::standings::TWO_COL_MIN;
+
+/// Draws the editor and returns the absolute y of its last content row — the
+/// key bar anchors there (spec v3.3 §5), instead of floating on the terminal
+/// floor under a gulf of blank rows.
+pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> u16 {
     let th = theme::current();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
     draw_header(frame, chunks[0]);
-
+    let pane = chunks[1];
+    // Spec v3.3 §5: two panels side by side once the frame is wide enough —
+    // TABS on the left, FAVORITES + DISPLAY on the right — so the editor is a
+    // balanced block, not one narrow column down the left edge.
+    let two = pane.width >= TWO_PANEL_MIN;
+    let panel_w = PANEL_W.min(pane.width as usize);
     let rows = rows(app);
     let cursor = app.config_cursor.min(rows.len().saturating_sub(1));
-    let mut lines: Vec<Line> = Vec::new();
-    let mut cursor_line = 0usize;
+    let mut tabs: Vec<Line> = vec![section(" TABS", "space toggles", panel_w)];
+    let mut side: Vec<Line> = Vec::new();
+    // (column, line) of the cursor's row, so a clipped editor still scrolls
+    // it into view.
+    let mut cursor_at = (0usize, 0usize);
+    let mut favorites_open = false;
     for (i, row) in rows.iter().enumerate() {
-        // Section headers, injected before the first row of each section.
+        let selected = i == cursor;
+        let line = row_line(app, *row, selected);
         match row {
-            ConfigRow::Tab(_) if i == 0 => lines.push(section(" TABS", "space toggles")),
-            ConfigRow::Favorite(0) => {
-                lines.push(Line::from(""));
-                lines.push(section(" FAVORITES", "enter removes / adds"));
+            ConfigRow::Tab(_) => {
+                if selected {
+                    cursor_at = (0, tabs.len());
+                }
+                tabs.push(line);
             }
-            ConfigRow::AddFavorite if app.config.favorites.is_empty() => {
-                lines.push(Line::from(""));
-                lines.push(section(" FAVORITES", "enter adds"));
+            ConfigRow::Favorite(_) | ConfigRow::AddFavorite => {
+                if !favorites_open {
+                    favorites_open = true;
+                    let hint = if app.config.favorites.is_empty() {
+                        "enter adds"
+                    } else {
+                        "enter removes / adds"
+                    };
+                    side.push(section(" FAVORITES", hint, panel_w));
+                }
+                if selected {
+                    cursor_at = (1, side.len());
+                }
+                side.push(line);
             }
-            ConfigRow::Theme => {
-                lines.push(Line::from(""));
-                lines.push(section(" DISPLAY", "h/l cycles"));
+            ConfigRow::Theme | ConfigRow::Sort => {
+                if *row == ConfigRow::Theme {
+                    if !side.is_empty() {
+                        side.push(Line::from(""));
+                    }
+                    side.push(section(" DISPLAY", "h/l cycles", panel_w));
+                }
+                if selected {
+                    cursor_at = (1, side.len());
+                }
+                side.push(line);
             }
-            _ => {}
         }
-        if i == cursor {
-            cursor_line = lines.len();
-        }
-        lines.push(row_line(app, *row, i == cursor));
     }
-
-    // Keep the cursor's line on screen (small tables fit whole; a long
-    // favorites list scrolls under it).
-    let visible = chunks[1].height.max(1) as usize;
+    let (columns, cursor_line) = if two {
+        (vec![tabs, side], cursor_at.1)
+    } else {
+        // One column: the sections stack, so the cursor's line moves down by
+        // everything the TABS panel drew.
+        let offset = tabs.len() + 1;
+        let line = if cursor_at.0 == 0 { cursor_at.1 } else { cursor_at.1 + offset };
+        let mut all = tabs;
+        all.push(Line::from(""));
+        all.extend(side);
+        (vec![all], line)
+    };
+    let height = columns.iter().map(Vec::len).max().unwrap_or(0);
+    let pane_h = pane.height.max(1) as usize;
+    let visible = height.min(pane_h);
+    // Keep the cursor's line on screen when the editor is taller than the
+    // pane; a block that fits is centered in the frame instead.
     let skip = (cursor_line + 1).saturating_sub(visible);
-    let lines: Vec<Line> = lines.into_iter().skip(skip).take(visible).collect();
-    frame.render_widget(
-        Paragraph::new(lines).style(Style::default().bg(th.bg)),
-        chunks[1],
-    );
+    let block_w = if two { panel_w * 2 + GUTTER } else { panel_w };
+    let x = pane.x + (pane.width as usize).saturating_sub(block_w) as u16 / 2;
+    let y = pane.y + (pane_h - visible) as u16 / 2;
+    for (i, col) in columns.into_iter().enumerate() {
+        let lines: Vec<Line> = col.into_iter().skip(skip).take(visible).collect();
+        let rect = Rect {
+            x: x + (i * (panel_w + GUTTER)) as u16,
+            y,
+            width: panel_w as u16,
+            height: visible as u16,
+        };
+        frame.render_widget(
+            Paragraph::new(lines).style(Style::default().bg(th.bg)),
+            rect,
+        );
+    }
+    y + visible.saturating_sub(1) as u16
 }
 
 /// `CONFIG` chip (active-tab style, like the other full-screen views) plus a
@@ -107,11 +170,16 @@ fn draw_header(frame: &mut Frame, area: Rect) {
     );
 }
 
-fn section(title: &'static str, hint: &'static str) -> Line<'static> {
+/// A section header: title, its hint, then the board's dim rule out to the
+/// panel's edge so the panel reads as a panel and not a ragged list.
+fn section(title: &'static str, hint: &'static str, panel_w: usize) -> Line<'static> {
     let th = theme::current();
+    let head = format!("{title}  · {hint} ");
+    let rule = panel_w.saturating_sub(head.chars().count() + 1);
     Line::from(vec![
         Span::styled(title, Style::default().fg(th.star).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  · {hint}"), Style::default().fg(th.dim)),
+        Span::styled(format!("  · {hint} "), Style::default().fg(th.dim)),
+        Span::styled("─".repeat(rule), Style::default().fg(th.dim)),
     ])
 }
 

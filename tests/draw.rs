@@ -776,7 +776,13 @@ fn every_view_speaks_the_lowercase_footer() {
         let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
         let s = buf_text(&t);
-        let footer = s.lines().last().expect("footer row");
+        // spec v3.3 §5: the key bar is no longer always the last row — the
+        // config editor anchors it under its block — so find the legend
+        // rather than assuming the terminal floor.
+        let footer = s
+            .lines()
+            .find(|l| l.contains("? help"))
+            .unwrap_or_else(|| panic!("{name}: no key bar:\n{s}"));
         assert!(!footer.contains("NAV:"), "{name}: {footer:?}");
         assert!(!footer.contains("[TAB]"), "{name}: {footer:?}");
         assert!(footer.contains("? help"), "{name}: {footer:?}");
@@ -800,7 +806,14 @@ fn footers_shed_in_order_and_help_quit_survive_at_40_cols() {
         app.view = view.clone();
         let mut t = Terminal::new(TestBackend::new(40, 24)).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
-        let footer = buf_text(&t).lines().last().unwrap().to_string();
+        // spec v3.3 §5: a feed that fits its pane pulls the key bar up under
+        // its last row, so find the legend instead of taking the floor row.
+        let s = buf_text(&t);
+        let footer = s
+            .lines()
+            .find(|l| l.contains("? help"))
+            .unwrap_or_else(|| panic!("{view:?}: no key bar:\n{s}"))
+            .to_string();
         assert!(footer.contains("? help"), "{view:?}: help clipped: {footer:?}");
         assert!(footer.contains("esc back"), "{view:?}: back clipped: {footer:?}");
         assert!(!footer.contains("NAV:"), "{view:?}: {footer:?}");
@@ -1137,7 +1150,10 @@ fn standings_scroll_clamps_to_the_pane_so_k_moves_back_at_once() {
     let mut app = mk();
     app.view = View::Standings(League::Nfl);
     app.merge_standings(tall_standings_table());
-    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    // spec v3.3 §5: 80 cols, where the table is one column and 41 lines
+    // genuinely overflow a 24-row pane — at 120 the two conferences sit side
+    // by side and this table fits without scrolling at all.
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let lines = gameday::views::standings::line_count(&app.standings[&League::Nfl]);
     assert_eq!(lines, 41, "18+2 rows per group, one blank between");
@@ -1166,7 +1182,9 @@ fn standings_shows_a_more_marker_when_the_table_is_clipped() {
     let mut app = mk();
     app.view = View::Standings(League::Nfl);
     app.merge_standings(tall_standings_table());
-    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    // spec v3.3 §5: 80 cols — the one-column width, where a 41-line table is
+    // actually clipped by a 24-row pane.
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     let marker = s
@@ -1207,7 +1225,12 @@ fn feed_and_standings_footers_advertise_only_keys_that_work_there() {
         let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
         let s = buf_text(&t);
-        let footer = s.lines().last().unwrap();
+        // spec v3.3 §5: the key bar follows the content when the view fits,
+        // so it is not always the floor row.
+        let footer = s
+            .lines()
+            .find(|l| l.contains("? help"))
+            .unwrap_or_else(|| panic!("{view:?}: no key bar:\n{s}"));
         // spec v3.3 §5: lowercase, no "NAV:", no bracket-caps.
         assert!(!footer.contains("NAV:"), "{view:?}: {footer}");
         assert!(!footer.contains("tabs"), "{view:?}: zoom's tab cycle is a no-op here: {footer}");
@@ -3323,5 +3346,214 @@ fn soccer_zoom_lists_match_events_with_minute_and_letter() {
     assert!(!s.contains("12' Y B. Burn"), "only the last three events:\n{s}");
     for emoji in ['⚽', '🟨', '🟥'] {
         assert!(!s.contains(emoji), "emoji {emoji} in a terminal frame:\n{s}");
+    }
+}
+
+// ── spec v3.3 §5: screen layouts — no screen floats a narrow column in a
+// half-empty frame ─────────────────────────────────────────────────────────
+
+/// Live WNBA game with one scoring play — the six-column league chip
+/// (`[WNBA]`), which is what pushes the feed's stamp column out of line when
+/// the chip isn't padded to a fixed width.
+fn wnba_game(id: &str, away: &str, home: &str) -> Game {
+    let mut game = nba_game(id, away, home);
+    game.id = id.into();
+    game.league = League::Wnba;
+    game.last_plays = vec![Play {
+        clock: "2:08".into(),
+        team: away.into(),
+        text: "Wilson turnaround jumper".into(),
+        scoring: true,
+        ..Default::default()
+    }];
+    with_scoring(game)
+}
+
+#[test]
+fn standings_use_two_columns_at_width() {
+    // spec v3.3 §5: at 120 cols the two conference tables sit side by side
+    // (both group headers on one row, ≥40 cols apart; receipt: two 48-col
+    // tables + a 4-col gutter = 100 is the gate). At 80 they stack.
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Nfl);
+    app.merge_standings(standings_table());
+    let mut wide = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    wide.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&wide);
+    let row = s
+        .lines()
+        .find(|l| {
+            l.contains("AMERICAN FOOTBALL CONFERENCE") && l.contains("NATIONAL FOOTBALL CONFERENCE")
+        })
+        .unwrap_or_else(|| panic!("120 cols must put both conferences on one row:\n{s}"));
+    let afc = row.find("AMERICAN").unwrap();
+    let nfc = row.find("NATIONAL").unwrap();
+    assert!(nfc - afc >= 40, "columns must be a real split, {afc} vs {nfc}: {row:?}");
+    // Both tables keep their own rows under their own header.
+    assert!(s.contains("CHIEFS") && s.contains("EAGLES"), "{s}");
+
+    let mut narrow = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    narrow.draw(|f| app.draw(f)).unwrap();
+    let n = buf_text(&narrow);
+    assert!(
+        !n.lines().any(|l| {
+            l.contains("AMERICAN FOOTBALL CONFERENCE") && l.contains("NATIONAL FOOTBALL CONFERENCE")
+        }),
+        "below 100 cols the table is one column:\n{n}"
+    );
+    assert!(n.contains("NATIONAL FOOTBALL CONFERENCE"), "stacked, still both groups:\n{n}");
+}
+
+#[test]
+fn the_plays_feed_fills_the_width() {
+    // spec v3.3 §5: the feed is a full-width row, not a 60-col column in a
+    // 120-col frame — the matchup score rides the right edge — and the stamp
+    // column lands at one x for every league, four-letter chips included.
+    use gameday::views::View;
+    let mut app = mk();
+    let mut nfl = g("1", "KC", "TB", true);
+    nfl.last_plays = vec![Play {
+        clock: "1:27".into(),
+        team: "KC".into(),
+        text: "Mahomes to Kelce, 12 yd".into(),
+        scoring: true,
+        ..Default::default()
+    }];
+    app.config.enabled_tabs = vec![League::Nfl, League::Wnba];
+    app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
+    app.apply_boards(League::Wnba, vec![wnba_game("2", "LV", "SEA")], false);
+    app.view = View::PlaysFeed;
+    let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let rows: Vec<&str> = s
+        .lines()
+        .filter(|l| l.contains("Mahomes to Kelce") || l.contains("Wilson turnaround"))
+        .collect();
+    assert_eq!(rows.len(), 2, "both leagues' plays are rows:\n{s}");
+    // Everything left of the play text is fixed width, so the scoring word —
+    // the last of those columns — starts at one x on every row.
+    let word_col = |row: &str| {
+        let at = row
+            .find("TOUCHDOWN")
+            .or_else(|| row.find("BUCKET"))
+            .unwrap_or_else(|| panic!("no scoring word: {row:?}"));
+        // Columns, not bytes — the ▸ marker is three bytes wide.
+        row[..at].chars().count()
+    };
+    for row in &rows {
+        let end = row.trim_end().chars().count();
+        assert!(end > 80, "row stops short of the frame at {end}: {row:?}");
+        assert_eq!(word_col(row), word_col(rows[0]), "stamp column drifts: {row:?}");
+    }
+}
+
+#[test]
+fn the_re_laid_out_screens_survive_every_size() {
+    // spec v3.3 §5 does width arithmetic on three more screens (two-column
+    // standings, the full-width feed, the two-panel editor), so they take the
+    // board's own sweep: no panic anywhere on the ladder, and each still says
+    // what it is.
+    use gameday::views::View;
+    for (name, view, needle) in [
+        ("standings", View::Standings(League::Nfl), "STANDINGS"),
+        ("plays feed", View::PlaysFeed, "PLAYS"),
+        ("config", View::ConfigView, "CONFIG"),
+    ] {
+        for w in [40u16, 55, 60, 80, 99, 100, 120, 180] {
+            for h in [12u16, 16, 24, 30, 40, 60] {
+                let mut app = mk();
+                app.config.enabled_tabs = vec![League::Nfl];
+                app.apply_boards(League::Nfl, vec![with_scoring(g("1", "KC", "TB", true))], false);
+                app.merge_standings(tall_standings_table());
+                app.view = view.clone();
+                let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+                t.draw(|f| app.draw(f)).unwrap();
+                let s = buf_text(&t);
+                assert!(s.contains(needle), "{name} at {w}x{h} lost its header:\n{s}");
+            }
+        }
+    }
+}
+
+#[test]
+fn no_screen_floats_a_dead_column() {
+    // spec v3.3 §5: at 120x40 the key bar sits with the content it describes
+    // (content_end+1), not stranded on the terminal floor under a gulf of
+    // blank rows, and the block is centered rather than pinned left.
+    use gameday::views::View;
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        config_dir("dead-column"),
+        time::UtcOffset::UTC,
+    );
+    app.config.favorites.push(gameday::config::Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    });
+    app.view = View::ConfigView;
+    let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let lines: Vec<&str> = s.lines().collect();
+    let bar = lines
+        .iter()
+        .position(|l| l.contains("? help"))
+        .unwrap_or_else(|| panic!("config has no key bar:\n{s}"));
+    // The CONFIG chip is chrome, like the top bar — the block under it is
+    // what has to be centered.
+    let top = lines.iter().position(|l| l.contains("CONFIG")).unwrap() + 1;
+    let content: Vec<usize> = (top..bar).filter(|&y| !lines[y].trim().is_empty()).collect();
+    let last = *content.last().unwrap_or_else(|| panic!("config has no content:\n{s}"));
+    assert!(bar - last <= 2, "key bar floats {} rows under the content:\n{s}", bar - last);
+    // The block is centered: its left and right margins match.
+    let left = content
+        .iter()
+        .map(|&y| lines[y].chars().count() - lines[y].trim_start().chars().count())
+        .min()
+        .unwrap();
+    let right = 120
+        - content
+            .iter()
+            .map(|&y| lines[y].trim_end().chars().count())
+            .max()
+            .unwrap();
+    assert!(
+        left.abs_diff(right) <= 2,
+        "config block is not centered: left {left}, right {right}\n{s}"
+    );
+
+    // The two overlays carry their own key bar inside the panel, one row
+    // under the last content row, and the panel is centered in the frame.
+    for (name, open) in [
+        ("help", Box::new(|a: &mut App| a.help_open = true) as Box<dyn Fn(&mut App)>),
+        ("theme picker", Box::new(|a: &mut App| a.view = View::ThemePicker)),
+    ] {
+        let mut app = mk();
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        open(&mut app);
+        let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        t.draw(|f| app.draw(f)).unwrap();
+        let s = buf_text(&t);
+        let lines: Vec<&str> = s.lines().collect();
+        let bottom = lines
+            .iter()
+            .position(|l| l.contains('└'))
+            .unwrap_or_else(|| panic!("{name}: no panel:\n{s}"));
+        let key_row = lines[..bottom]
+            .iter()
+            .rposition(|l| l.contains("closes") || l.contains("REVERT"))
+            .unwrap_or_else(|| panic!("{name}: panel has no key line:\n{s}"));
+        assert!(
+            bottom - key_row <= 2,
+            "{name}: key line {} rows off the panel floor:\n{s}",
+            bottom - key_row
+        );
+        let border = lines[bottom];
+        let l = border.chars().position(|c| c == '└').unwrap();
+        let r = border.chars().rev().position(|c| c == '┘').unwrap();
+        assert!(l.abs_diff(r) <= 2, "{name}: panel off center: left {l}, right {r}\n{s}");
     }
 }
