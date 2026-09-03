@@ -1578,9 +1578,15 @@ impl App {
             area,
         );
         if area.width < 40 || area.height < 12 {
+            // Walter's rule: a limit someone can hit must name the actual and
+            // expected values — "need more columns" didn't say how many, or
+            // whether it was rows that were short.
             frame.render_widget(
-                Paragraph::new("need more columns")
-                    .style(Style::default().fg(th.muted).bg(th.bg)),
+                Paragraph::new(format!(
+                    "need 40×12, have {}×{}",
+                    area.width, area.height
+                ))
+                .style(Style::default().fg(th.muted).bg(th.bg)),
                 area,
             );
             return;

@@ -369,8 +369,20 @@ fn too_small_message() {
     let mut app = mk();
     let mut t = Terminal::new(TestBackend::new(30, 10)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
-    let s = buf_text(&t).to_lowercase();
-    assert!(s.contains("need more columns"), "{s}");
+    let s = buf_text(&t);
+    assert!(s.contains("need 40×12, have 30×10"), "{s}");
+}
+
+#[test]
+fn the_minimum_size_message_names_both_numbers() {
+    // Walter's rule: a limit someone can hit must name the actual and the
+    // expected value — 39x11 must say both 40x12 (the floor) and 39x11 (what
+    // they actually have), not a bare "need more columns".
+    let mut app = mk();
+    let mut t = Terminal::new(TestBackend::new(39, 11)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("need 40×12, have 39×11"), "{s}");
 }
 
 #[test]
@@ -1765,14 +1777,41 @@ fn header_shows_sort_key_and_only_leagues_with_games() {
     }
 }
 
+/// Every one of the 9 leagues carries a live game today, so every enabled
+/// league's chip actually earns its place (spec §1: only a league with a
+/// game today earns a chip). Ten chips total with `ALL` — what
+/// `header_keeps_the_clock_with_ten_chips_at_120_columns` and the width
+/// sweep below were named for, before the chip-gating change made a
+/// boardless fixture render 0-1 chips regardless of the name (task-9 review
+/// carry-forward #1).
+fn app_with_every_league_live() -> App {
+    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
+    for league in League::ALL {
+        let mut game = g("1", "AAA", "BBB", true);
+        game.league = league;
+        app.apply_boards(league, vec![game], false);
+    }
+    app
+}
+
 #[test]
 fn header_keeps_the_clock_with_ten_chips_at_120_columns() {
-    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
+    let mut app = app_with_every_league_live();
     app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
     let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
     term.draw(|f| app.draw(f)).unwrap();
     let first = buf_text(&term).lines().next().unwrap().to_string();
     assert!(first.contains("9:37:05 PM"), "clock clipped: {first}");
+    // All 9 league chips actually earned a slot (the fixture's whole point);
+    // the rule under test is that the clock survives ten real chips, not
+    // whatever the shed ladder left of an empty header.
+    for league in League::ALL {
+        assert!(
+            first.contains(&league.slug().to_uppercase()),
+            "{} chip missing at 120 cols with every league live: {first}",
+            league.slug()
+        );
+    }
 }
 
 #[test]
@@ -1796,17 +1835,23 @@ fn the_clock_survives_every_width_the_board_will_draw_at() {
     // up, the clock is always whole and the status chip is never glued to
     // whatever follows it. Caught a clipped "9:37:05" at 40 and an
     // "OFFLINE9:37:05 PM" at 60.
+    //
+    // Task-9 review carry-forward #1: a boardless fixture renders 0-1 chips
+    // under the new chip-gating (a league only earns a chip with a game
+    // today), so this sweep was never actually exercising "many chips" — the
+    // never-clip guarantee needs every league fighting for space to mean
+    // anything.
     for width in 40u16..=180 {
         for tab in [Tab::Home, Tab::League(League::Mls)] {
-            let mut app = mk();
+            let mut app = app_with_every_league_live();
             app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
             app.tab = tab;
             let mut t = Terminal::new(TestBackend::new(width, 40)).unwrap();
             t.draw(|f| app.draw(f)).unwrap();
             let b = t.backend().buffer();
             let row: String = (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect();
-            assert!(row.contains("9:37:05 PM"), "clock clipped at {width}: {row:?}");
-            assert!(!row.contains("YET9") && !row.contains("YETMON"), "chip glued at {width}: {row:?}");
+            assert!(row.contains("9:37:05 PM"), "clock clipped at {width} tab={tab:?}: {row:?}");
+            assert!(!row.contains("YET9") && !row.contains("YETMON"), "chip glued at {width} tab={tab:?}: {row:?}");
         }
     }
 }
@@ -1876,8 +1921,24 @@ fn the_board_is_one_ranked_list_with_sections() {
     assert!(s.contains("SORTED BY WATCHABILITY"), "the rule names the sort:\n{s}");
     assert!(s.contains("FINAL"), "FINAL section:\n{s}");
     assert!(s.contains("LATER"), "LATER section:\n{s}");
-    // The hero's digits are drawn as glyph cells, not as "27 - 24" text.
-    assert!(s.contains('█'), "hero digit glyphs:\n{s}");
+    // The hero's digits are drawn as glyph cells, not as "27 - 24" text — and
+    // cell-level (R22): the glyphs sit above the IN PLAY rule, in the away
+    // team's hero color, not merely present somewhere on the board.
+    let buf = term.backend().buffer();
+    let area = *buf.area();
+    let in_play_y = s
+        .lines()
+        .position(|l| l.contains("IN PLAY"))
+        .expect("IN PLAY rule") as u16;
+    let th = gameday::theme::current();
+    let (away_color, ..) = gameday::theme::hero_pair(&th, [200, 16, 46], [200, 16, 46]);
+    let glyph_above_rule = (0..in_play_y).any(|y| {
+        (0..area.width / 3).any(|x| buf[(x, y)].symbol() == "█" && buf[(x, y)].fg == away_color)
+    });
+    assert!(
+        glyph_above_rule,
+        "hero digit glyphs must render above IN PLAY, in the away team's hero color:\n{s}"
+    );
     // Spec §7: the tile grammar is gone — no borders, no MOMENTUM rail, no
     // SLATE strip, no GLOBAL ALERTS sidebar.
     for dead in ['┌', '┐', '└', '┘'] {
@@ -1978,8 +2039,19 @@ fn the_ticker_is_gone_at_40_rows_and_the_lane_appears_when_truncated() {
     let term = render(&mut app, 80, 24);
     let s = buf_text(&term);
     let lines: Vec<&str> = s.lines().collect();
-    let lane = lines[lines.len() - 2];
+    let lane_y = (lines.len() - 2) as u16;
+    let lane = lines[lane_y as usize];
     assert!(lane.contains("SCORES"), "one lane above the footer:\n{s}");
+    // Cell-level (R22): the lane's label starts at column 0 of that exact
+    // row, bold in the section-rule `cool` role — not merely text that
+    // happens to say SCORES somewhere on the board.
+    let buf = term.backend().buffer();
+    let r = gameday::theme::current().roles();
+    assert_eq!(buf[(0, lane_y)].fg, r.cool, "SCORES label wears the rule color:\n{s}");
+    assert!(
+        buf[(0, lane_y)].modifier.contains(ratatui::style::Modifier::BOLD),
+        "SCORES label is bold:\n{s}"
+    );
     // The lane accounts for exactly what didn't fit. Here every live game is
     // on screen and it is LATER that ran out of rows (Task 5's note), so the
     // lane degrades to the counts rather than naming a live game twice.
@@ -2004,11 +2076,28 @@ fn scores_lane_lists_off_screen_games_only() {
     let mut app = board_app(10, 2, 4);
     app.tab = Tab::League(League::Nfl);
     app.view = View::Zoom { game_id: "l0".into(), tab: ZoomTab::Overview };
-    let small = buf_text(&render(&mut app, 80, 24));
+    let small_term = render(&mut app, 80, 24);
+    let small = buf_text(&small_term);
     assert!(
         small.contains("SCORES"),
         "the board would truncate at 80x24 too, so Zoom gets the lane:\n{small}"
     );
+    // Cell-level (R22): the lane sits on its own row — the bottom of the
+    // frame's body, not the footer row itself — and its label is styled like
+    // every other view's lane the same way the Board's own is.
+    let lane_y = small
+        .lines()
+        .position(|l| l.contains("SCORES"))
+        .expect("SCORES line") as u16;
+    let footer_y = small.lines().count() as u16 - 1;
+    assert!(lane_y < footer_y, "the lane is above the footer, not on it:\n{small}");
+    let buf = small_term.backend().buffer();
+    let x = small.lines().nth(lane_y as usize).unwrap().find("SCORES").unwrap() as u16;
+    // This is `ticker::draw_lane` (every other view's lane), not
+    // `board::mod::draw_lane` — its own grammar, `th.muted` gutter, not the
+    // Board's section-rule `cool`.
+    let th = gameday::theme::current();
+    assert_eq!(buf[(x, lane_y)].fg, th.muted, "the lane label wears the ticker's gutter color:\n{small}");
 
     let mut wide_app = board_app(4, 0, 0);
     wide_app.tab = Tab::League(League::Nfl);
@@ -2024,6 +2113,200 @@ fn scores_lane_lists_off_screen_games_only() {
     let mut board_view = board_app(10, 2, 4);
     let board_s = buf_text(&render(&mut board_view, 80, 24));
     assert_eq!(board_s.matches("SCORES").count(), 1, "one lane, one owner:\n{board_s}");
+}
+
+// ---- Task 14: the size sweep -----------------------------------------------
+
+/// The brief's 14-game fixture: 8 live (one hot — RED ZONE), 3 final, 3
+/// later, 2 pinned. All NFL, distinct abbrs so a row is identifiable.
+fn sweep_games() -> Vec<Game> {
+    const PAIRS: [(&str, &str); 14] = [
+        ("KC", "TB"), ("DAL", "PHI"), ("GB", "CHI"), ("SF", "SEA"),
+        ("BUF", "MIA"), ("NYJ", "NE"), ("DEN", "LV"), ("ATL", "NO"),
+        ("CIN", "BAL"), ("PIT", "CLE"), ("HOU", "IND"), ("MIN", "DET"),
+        ("LAR", "ARI"), ("NYG", "WSH"),
+    ];
+    let mut out = Vec::new();
+    let mut next = 0usize;
+    for (tag, n, status) in [("l", 8, Status::Live), ("f", 3, Status::Final), ("p", 3, Status::Pre)] {
+        for i in 0..n {
+            let (away, home) = PAIRS[next % PAIRS.len()];
+            next += 1;
+            let mut game = g(&format!("{tag}{i}"), away, home, status == Status::Live);
+            game.status = status;
+            game.away_score = 10 + i as u16;
+            game.home_score = 7 + i as u16;
+            out.push(game);
+        }
+    }
+    // Make the first live game unambiguously hot: red zone.
+    out[0].meter = Some(gameday::domain::Meter::RedZone { yards_to_goal: 3 });
+    out
+}
+
+fn sweep_app() -> App {
+    let mut app = mk();
+    let games = sweep_games();
+    // Two pins, per the brief — the last two later games (never the hero,
+    // which only ever comes from a live game — R26).
+    app.pins = vec![
+        gameday::config::Pin { game_id: "p1".into(), league: League::Nfl, final_at: None },
+        gameday::config::Pin { game_id: "p2".into(), league: League::Nfl, final_at: None },
+    ];
+    app.apply_boards(League::Nfl, games, false);
+    app.tab = Tab::League(League::Nfl);
+    app
+}
+
+#[test]
+fn the_board_survives_every_size_the_app_will_draw_at() {
+    // The v3.1 clock sweep pattern, board edition (spec §4's sizes ladder,
+    // `src/board/layout.rs`'s own `the_budget_never_over_allocates` sweep,
+    // and `tests/draw.rs`'s `the_clock_survives_every_width_the_board_will_draw_at`).
+    let widths = [40u16, 55, 60, 80, 100, 120, 180];
+    let heights = [12u16, 16, 24, 30, 40, 60];
+    for &w in &widths {
+        for &h in &heights {
+            let mut app = sweep_app();
+            let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+            // No panic — the whole point of the sweep.
+            t.draw(|f| app.draw(f)).unwrap();
+            let s = buf_text(&t);
+            let lines: Vec<&str> = s.lines().collect();
+
+            // The key legend is the last row.
+            let footer = lines.last().unwrap_or(&"");
+            assert!(
+                footer.contains("quit") || footer.contains("q "),
+                "{w}x{h}: footer legend must be the last row: {footer:?}\n{s}"
+            );
+
+            // The selected row is visible after 10 j presses.
+            for _ in 0..10 {
+                key(&mut app, crossterm::event::KeyCode::Char('j'));
+            }
+            let mut t2 = Terminal::new(TestBackend::new(w, h)).unwrap();
+            t2.draw(|f| app.draw(f)).unwrap();
+            let buf2 = t2.backend().buffer();
+            let has_caret = (0..buf2.area().height).any(|y| {
+                (0..buf2.area().width).any(|x| {
+                    let c = &buf2[(x, y)];
+                    c.symbol() == "▸" && c.fg == gameday::theme::current().bright
+                })
+            });
+            assert!(has_caret, "{w}x{h}: selected row must be visible after 10 j presses:\n{}", buf_text(&t2));
+
+            // If h>=12 the hero (or compact hero) exists: its game's away
+            // abbr appears above the IN PLAY rule (or above MY GAMES, when
+            // the pinned band sits over it).
+            // The Board's body is the terminal minus header+footer (1 row
+            // each; the Board view never gets a ticker row), so the hero
+            // bracket's own >=12-row floor (`layout::plan`) applies to that
+            // body height, not the raw terminal height — a 40x12 terminal
+            // legitimately has no hero (its 10-row body is under the floor)
+            // and that is not a bug.
+            if h.saturating_sub(2) >= 12 {
+                let in_play_at = lines.iter().position(|l| l.contains("IN PLAY"));
+                if let Some(at) = in_play_at {
+                    let above = lines[..at].join("\n");
+                    // The hero is the hottest live game — l0's pair (KC/TB,
+                    // the red-zone game) — and its away abbr must be visible
+                    // above the rule, not just "something" rendered there.
+                    assert!(
+                        above.contains("KC"),
+                        "{w}x{h}: hero's away abbr (KC) must render above IN PLAY:\n{s}"
+                    );
+                }
+            }
+
+            // No hard clip mid-word: TestBackend already guarantees no line
+            // exceeds `w`. Where content genuinely didn't fit (the SCORES
+            // lane), it degrades through `text::truncate`, which always
+            // closes with `…` rather than stopping mid-word — so a truncated
+            // lane must end at `…`, with nothing glued on after it but
+            // trailing air.
+            if let Some(line) = lines.iter().find(|l| l.contains("SCORES")) {
+                if let Some(cut) = line.find('…') {
+                    let after: String = line.chars().skip(line[..cut].chars().count() + 1).collect();
+                    assert!(
+                        after.trim().is_empty(),
+                        "{w}x{h}: SCORES lane has content glued after its ellipsis: {line:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// The abbr pair (away, home) on the row carrying the bright selection caret
+/// (`▸` in `theme::current().bright`) — the hero's outside-edge mark or a
+/// tier row's gutter mark, whichever is on screen. `App::derived()` is
+/// crate-private, so identity here is read the same way a viewer reads it:
+/// off the screen.
+fn caret_pair(term: &Terminal<TestBackend>) -> Option<(String, String)> {
+    let buf = term.backend().buffer();
+    let area = *buf.area();
+    let bright = gameday::theme::current().bright;
+    let y = (0..area.height)
+        .find(|&y| (0..area.width).any(|x| buf[(x, y)].symbol() == "▸" && buf[(x, y)].fg == bright))?;
+    let row: String = (0..area.width).map(|x| buf[(x, y)].symbol().to_string()).collect();
+    for (away, home) in SWEEP_PAIRS {
+        if row.contains(away) && row.contains(home) {
+            return Some((away.to_string(), home.to_string()));
+        }
+    }
+    None
+}
+
+const SWEEP_PAIRS: [(&str, &str); 14] = [
+    ("KC", "TB"), ("DAL", "PHI"), ("GB", "CHI"), ("SF", "SEA"),
+    ("BUF", "MIA"), ("NYJ", "NE"), ("DEN", "LV"), ("ATL", "NO"),
+    ("CIN", "BAL"), ("PIT", "CLE"), ("HOU", "IND"), ("MIN", "DET"),
+    ("LAR", "ARI"), ("NYG", "WSH"),
+];
+
+#[test]
+fn resize_relayouts_from_the_same_list() {
+    let mut app = sweep_app();
+    for _ in 0..3 {
+        key(&mut app, crossterm::event::KeyCode::Char('j'));
+    }
+    let mut wide = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    wide.draw(|f| app.draw(f)).unwrap();
+    let wide_pair = caret_pair(&wide).expect("a selected row is on screen at 120x40");
+
+    // Same App, drawn at a smaller size: selection is preserved by id (the
+    // selection index doesn't move, and the board is rebuilt fresh from the
+    // same underlying list on every draw — no stale scroll offset carried
+    // across the resize).
+    let mut narrow = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    narrow.draw(|f| app.draw(f)).unwrap();
+    let narrow_pair = caret_pair(&narrow).expect("a selected row is on screen at 80x24");
+    assert_eq!(wide_pair, narrow_pair, "selection survives a resize, by identity");
+
+    // The hero may demote (drop its digit form, or lose the flanks) but the
+    // same game keeps being the hero: its abbr pair still appears above the
+    // IN PLAY rule (or the MY GAMES rule, when the pinned band sits over it)
+    // at both sizes.
+    let hero_line = |term: &Terminal<TestBackend>| -> String {
+        let s = buf_text(term);
+        let lines: Vec<&str> = s.lines().collect();
+        let rule = lines
+            .iter()
+            .position(|l| l.contains("IN PLAY") || l.contains("MY GAMES"))
+            .unwrap_or(lines.len());
+        lines[..rule].join("\n")
+    };
+    let wide_hero = hero_line(&wide);
+    let narrow_hero = hero_line(&narrow);
+    for (away, home) in SWEEP_PAIRS {
+        let in_wide = wide_hero.contains(away) && wide_hero.contains(home);
+        let in_narrow = narrow_hero.contains(away) && narrow_hero.contains(home);
+        assert_eq!(
+            in_wide, in_narrow,
+            "hero identity ({away}/{home}) must agree across the resize\nwide:\n{wide_hero}\nnarrow:\n{narrow_hero}"
+        );
+    }
 }
 
 #[test]

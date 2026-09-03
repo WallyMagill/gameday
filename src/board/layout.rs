@@ -13,14 +13,22 @@
 
 /// How many rows each piece of the board gets at a given size. Pure: height
 /// and counts in, plan out — the sizes ladder (spec §4) lives here and only here.
+///
+/// `tier2`, `finals`, and `later` counts used to live here too, but no
+/// reader anywhere consumed them (task-9 review carry-forward #2, M3):
+/// `board::board_walk` builds its block list from the FULL live/finals/later
+/// counts and works out what actually fits with its own dynamic
+/// `total > area.height` window/scroll math (`board/mod.rs`), never by
+/// asking this plan how many finals or later rows it budgeted — so the three
+/// fields were dead weight on every caller. Deleted; the per-section budget
+/// math that used to feed them is still computed (and still tested, in
+/// `plan_detailed` below) because it decides `scores_lane`, which
+/// `app/mod.rs` DOES read (to size the ticker lane on every non-Board view).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TierPlan {
     pub hero_rows: u16, // 0 = no hero fits (only < 12 total rows)
     pub hero_digits_full: bool, // 8-row PixelSize::Full vs 4x3 sextant
     pub tier1: usize,   // promoted 3-row rows (0..=3)
-    pub tier2: usize,   // single-line live rows
-    pub finals: usize,  // dim single lines (0 = collapse to count line)
-    pub later: usize,
     /// The off-screen SCORES lane (spec §1) — on exactly when tier2, finals,
     /// or later got cut short of what the raw counts asked for.
     pub scores_lane: bool,
@@ -82,6 +90,31 @@ fn live_alloc(live: usize, tier1_cap: usize, budget: u16) -> (usize, usize, u16)
 /// caller's job — double-charging a pinned hero here is a caller bug, not a
 /// layout one.
 pub fn plan(width: u16, height: u16, live: usize, finals: usize, later: usize, my_games: usize) -> TierPlan {
+    let full = plan_detailed(width, height, live, finals, later, my_games);
+    TierPlan {
+        hero_rows: full.hero_rows,
+        hero_digits_full: full.hero_digits_full,
+        tier1: full.tier1,
+        scores_lane: full.scores_lane,
+    }
+}
+
+/// Every row count the cascade computes, `tier2`/`finals`/`later` included —
+/// kept private (and test-only in practice) now that nothing outside this
+/// module's own budget-invariant tests reads the three fields `TierPlan`
+/// dropped. `plan` above is the real, minimal public contract.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FullPlan {
+    hero_rows: u16,
+    hero_digits_full: bool,
+    tier1: usize,
+    tier2: usize,
+    finals: usize,
+    later: usize,
+    scores_lane: bool,
+}
+
+fn plan_detailed(width: u16, height: u16, live: usize, finals: usize, later: usize, my_games: usize) -> FullPlan {
     // spec §4 last row: `need 40×12, have W×H` — no hero fits below the floor.
     let (hero_rows, hero_digits_full): (u16, bool) = if width < 40 || height < 12 {
         (0, false)
@@ -147,7 +180,7 @@ pub fn plan(width: u16, height: u16, live: usize, finals: usize, later: usize, m
         (tier1_0, tier2_0, finals_0, later_0)
     };
 
-    TierPlan {
+    FullPlan {
         hero_rows,
         hero_digits_full,
         tier1,
@@ -184,7 +217,7 @@ mod tests {
         assert_eq!(p.hero_rows, 2);
         // Never negative / overlapping: sum of allocated rows <= height.
         for (w, h) in [(40u16, 12u16), (60, 20), (100, 30), (200, 60)] {
-            let p = plan(w, h, 12, 5, 8, 2);
+            let p = plan_detailed(w, h, 12, 5, 8, 2);
             let used = p.hero_rows
                 + 3 * p.tier1 as u16
                 + p.tier2 as u16
@@ -199,23 +232,30 @@ mod tests {
     #[test]
     fn rows_run_out_bottom_up() {
         // Shrinking height drops LATER to a count line before touching live rows.
-        let tall = plan(120, 38, 6, 3, 6, 0);
-        let short = plan(120, 26, 6, 3, 6, 0);
+        let tall = plan_detailed(120, 38, 6, 3, 6, 0);
+        let short = plan_detailed(120, 26, 6, 3, 6, 0);
         assert!(short.later < tall.later, "later shrinks first");
         assert!(
             short.tier2 + short.tier1 >= 6usize.min(tall.tier1 + tall.tier2),
             "live rows survive"
         );
         // Down further: finals go, then the lane appears.
-        let tiny = plan(120, 16, 6, 3, 6, 0);
+        let tiny = plan_detailed(120, 16, 6, 3, 6, 0);
         assert_eq!(tiny.finals, 0);
         assert!(tiny.scores_lane);
+        // The public `plan` agrees with `plan_detailed` on every field it
+        // still carries — it's a strict projection, not a second cascade.
+        let public = plan(120, 26, 6, 3, 6, 0);
+        assert_eq!(public.hero_rows, short.hero_rows);
+        assert_eq!(public.hero_digits_full, short.hero_digits_full);
+        assert_eq!(public.tier1, short.tier1);
+        assert_eq!(public.scores_lane, short.scores_lane);
     }
 
     #[test]
     fn my_games_rows_come_off_the_same_budget() {
-        let without = plan(120, 30, 6, 2, 3, 0);
-        let with = plan(120, 30, 6, 2, 3, 2);
+        let without = plan_detailed(120, 30, 6, 2, 3, 0);
+        let with = plan_detailed(120, 30, 6, 2, 3, 2);
         assert!(with.tier2 <= without.tier2, "band rows are not free");
     }
 
@@ -241,7 +281,7 @@ mod tests {
         for &w in &widths {
             for &h in &heights {
                 for &(live, finals, later, my_games) in &counts {
-                    let p = plan(w, h, live, finals, later, my_games);
+                    let p = plan_detailed(w, h, live, finals, later, my_games);
                     let my_games_rows = my_games.min(h as usize); // matches section_alloc's cap
                     let sections_rendering = [
                         my_games_rows > 0,
