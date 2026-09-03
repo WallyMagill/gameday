@@ -43,8 +43,12 @@ const PENALTY_MINOR_SECS: u16 = 120;
 /// [`quad_digits`] and ruling R42 deleted the scoring word's. What used to
 /// step down in size now steps down in *kind* — to a plain bold line.
 pub(crate) fn glyph_cell() -> (u16, u16) {
-    (8, 8)
+    GLYPH_CELL
 }
+
+/// [`glyph_cell`] as a constant, for the callers that need the number in a
+/// `const` (the hero's jumbotron gate is `GLYPH_CELL.1 * 2`).
+pub(crate) const GLYPH_CELL: (u16, u16) = (8, 8);
 
 /// Paint `text` as big glyphs into `rect` in `style`. The rect is the
 /// caller's clamped slot — the widget clips, this never grows it.

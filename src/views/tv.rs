@@ -41,11 +41,15 @@ const LINESCORE_ROWS: u16 = crate::board::linescore::ROWS;
 /// first" discipline the board's brackets follow (ruling R29).
 const HERO_MIN_ROWS: u16 = 11;
 
-/// The same floor at the jumbotron rung (v3.3 §2): 1 nameplate + 16 doubled
-/// digit rows (`hero`'s `DOUBLE_MIN_ROWS`) + the fragment and meter lines.
-/// R29 again — on a terminal tall enough for the big form, the big form is
-/// charged before the linescore and the plays, not after them.
-const HERO_JUMBO_ROWS: u16 = 19;
+/// The same floor at the jumbotron rung (v3.3 §2): 1 nameplate + the doubled
+/// digit rows + the fragment and meter lines. R29 again — on a terminal tall
+/// enough for the big form, the big form is charged before the linescore and
+/// the plays, not after them.
+///
+/// The digit half is [`hero::DOUBLE_MIN_ROWS`] itself, never a copy of it:
+/// the gate and the form's height are one number in the hero, and
+/// `the_jumbo_floor_reads_the_heros_own_gate` pins this arithmetic to it.
+const HERO_JUMBO_ROWS: u16 = 1 + hero::DOUBLE_MIN_ROWS + 2;
 
 /// Air the digit band keeps around the doubled digits: one row, under the
 /// nameplate. Only one, because the glyph cell already carries a baseline row
@@ -164,7 +168,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     let can = body.height - plays_rows - ls_rows;
     let options = u16::from(hero::fragment_line(game).is_some())
         + u16::from(crate::tiles::meter_line(game, body.width as usize).is_some());
-    let wants = 1 + hero::digit_rows(true) * 2 + BAND_AIR + options;
+    let wants = 1 + hero::digit_rows_in(hero::DOUBLE_MIN_ROWS, true) + BAND_AIR + options;
     let hero_rows = can.min(wants.max(HERO_MIN_ROWS));
 
     let watch = crate::rank::watchability(game, now);
@@ -271,7 +275,17 @@ fn draw_strip(
     let r = th.roles();
     let d = app.derived();
     let label = "ALSO LIVE";
-    let mut caption = format!("{} GAMES", others.len());
+    // Count what the strip SHOWS, not what the slate holds: past two full
+    // columns the rest never render, and a caption that says "14 GAMES" over
+    // ten rows is the frame lying about itself (review finding 3).
+    let columns = strip_columns(area.width);
+    let per_column = (area.height as usize).saturating_sub(1).min(STRIP_MAX_ROWS);
+    let shown = others.len().min(per_column * columns as usize);
+    let mut caption = if shown < others.len() {
+        format!("{shown} GAMES · {} MORE", others.len() - shown)
+    } else {
+        format!("{shown} GAMES")
+    };
     // The next cut rides the caption's right edge, because that is where a
     // section says what it is about — and the switch itself waits for an
     // event (spec §3), so this is the only warning there is.
@@ -296,10 +310,8 @@ fn draw_strip(
     // Two columns where the width affords them (`STRIP_TWO_COL_COLS`), filled
     // down the left column first: the strip is ranked, and a reader who stops
     // after three rows has still read the three most watchable games.
-    let columns = strip_columns(area.width);
-    let per_column = (area.height as usize - 1).min(STRIP_MAX_ROWS);
     let col_w = (area.width - STRIP_GUTTER * (columns - 1)) / columns;
-    for (i, game) in others.iter().take(per_column * columns as usize).enumerate() {
+    for (i, game) in others.iter().take(shown).enumerate() {
         let (col, row) = ((i / per_column) as u16, (i % per_column) as u16);
         let watch = crate::rank::watchability(game, now);
         rows::draw_tier2(
@@ -325,5 +337,44 @@ fn draw_strip(
                 now,
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Review finding 1: TV's stack budget is arithmetic on the hero's own
+    /// jumbotron gate, not a copy of the number. Move `DOUBLE_MIN_ROWS` and
+    /// this fails here rather than silently budgeting a band the hero will
+    /// not fill.
+    #[test]
+    fn the_jumbo_floor_reads_the_heros_own_gate() {
+        assert_eq!(
+            HERO_JUMBO_ROWS,
+            1 + hero::DOUBLE_MIN_ROWS + 2,
+            "the jumbotron floor is a nameplate, the doubled digits and the two option rows"
+        );
+        // ...and the hero's own answer to "how tall is the score in this
+        // band" is what TV asks for, at both sides of the gate.
+        assert_eq!(
+            hero::digit_rows_in(hero::DOUBLE_MIN_ROWS, true),
+            hero::digit_rows(true) * 2,
+            "a band at the gate gets the doubled form"
+        );
+        assert_eq!(
+            hero::digit_rows_in(hero::DOUBLE_MIN_ROWS - 1, true),
+            hero::digit_rows(true),
+            "one row under the gate is the single form"
+        );
+    }
+
+    /// The strip is bounded by [`STRIP_MAX_ROWS`] per column, so a big slate
+    /// has rows it never draws — the caption counts what is on screen.
+    #[test]
+    fn the_strip_has_a_ceiling_the_caption_has_to_respect() {
+        assert_eq!(strip_columns(STRIP_TWO_COL_COLS), 2, "the gate width runs two columns");
+        assert_eq!(strip_columns(STRIP_TWO_COL_COLS - 1), 1, "under the gate, one");
+        assert_eq!(strip_columns(120) as usize * STRIP_MAX_ROWS, 10, "ten rows is the ceiling at 120 cols");
     }
 }

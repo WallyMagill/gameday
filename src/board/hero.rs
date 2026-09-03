@@ -85,7 +85,12 @@ const MARK_COLS: u16 = 16;
 /// v3.3 §2: the design review measured TV's digits at half the mockup's
 /// height with ~6 dead rows under them — a 40-row jumbotron has the rows, the
 /// form just never grew into them.
-const DOUBLE_MIN_ROWS: u16 = 16;
+///
+/// Public because TV budgets its stack around it ([`crate::views::tv`]): the
+/// gate and the doubled form's height are the same number, and a second copy
+/// of it in a caller is exactly the drift this constant exists to prevent
+/// (review finding 1). Read it through [`digit_rows_in`].
+pub const DOUBLE_MIN_ROWS: u16 = tiles::GLYPH_CELL.1 * 2;
 
 /// The mid-form floor: one quadrant digit is [`quad_digits::QUAD_ROWS`] rows
 /// (sitting-1 pick 1A), so a band shorter than that has already fallen to the
@@ -103,6 +108,20 @@ pub fn digit_rows(full: bool) -> u16 {
         tiles::glyph_cell().1
     } else {
         DIGIT_FLOOR_ROWS
+    }
+}
+
+/// [`digit_rows`] for a band `band` rows tall — the same answer, doubled at
+/// the jumbotron rung. This is THE source for "how many rows does the score
+/// cost here": `score_spots` measures with it and TV budgets its stack with
+/// it, so the gate can move without a caller silently budgeting the old form
+/// (review finding 1).
+pub fn digit_rows_in(band: u16, full: bool) -> u16 {
+    let rows = digit_rows(full);
+    if full && band >= DOUBLE_MIN_ROWS {
+        rows * 2
+    } else {
+        rows
     }
 }
 
@@ -124,6 +143,12 @@ struct ScoreSpots {
     away: Rect,
     home: Rect,
     form: ScoreForm,
+    /// How many buffer cells one glyph cell is painted as, `(x, y)`. `(1, 1)`
+    /// everywhere but the jumbotron rung, where it is `(2, 2)` when the width
+    /// afforded it and `(1, 2)` when only the rows did. Carried rather than
+    /// re-derived from the rect: `score_spots` is the one place that decides
+    /// it (review finding 2).
+    scale: (u16, u16),
 }
 
 /// Away digits right-aligned in the left third, home left-aligned in the
@@ -133,6 +158,8 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
     let home = game.home_score.to_string();
     let third = area.width / 3;
     for form in [ScoreForm::Full, ScoreForm::Quad] {
+        // Reset per rung: only the Full arm ever magnifies.
+        let mut scale = (1u16, 1u16);
         if form == ScoreForm::Full && !full {
             continue;
         }
@@ -141,12 +168,30 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
         // between them (`quad_size`). Asking each form for its own size is
         // what keeps the ladder honest when a rung changes cell grid.
         let (aw, hw, gh) = if form == ScoreForm::Full {
-            let (gw, gh) = tiles::glyph_cell();
-            // The jumbotron rung: a band with the rows for it gets the same
-            // form at double height (`DOUBLE_MIN_ROWS`). Measured here, drawn
-            // in `score_block` — one answer to "how tall is the score".
-            let gh = if area.height >= DOUBLE_MIN_ROWS { gh * 2 } else { gh };
-            (away.len() as u16 * gw, home.len() as u16 * gw, gh)
+            let (gw, _) = tiles::glyph_cell();
+            // The jumbotron rung, gated per AXIS (ruling R43). Rows double
+            // when the band has `DOUBLE_MIN_ROWS` for them; columns double
+            // only when BOTH scores still fit their third at the wider size.
+            //
+            // Receipt, at the reference width — 120 cols, `third` = 40:
+            //   * a 2-digit score is 2 × 8 = 16 cells, doubled 32 ≤ 40 ✓, so
+            //     a Sunday jumbotron gets true 2× glyphs;
+            //   * a 3-digit score (any NBA game) is 24, doubled 48 > 40 ✗, so
+            //     it keeps 8-cell columns and only its rows double. Doubling
+            //     it unconditionally would fail this arm's fit test outright
+            //     and drop a 120-col NBA score to the 4-row quad form.
+            // Both sides or neither: a mirror pair whose halves are different
+            // widths is not a score, it is a bug.
+            let tall = area.height >= DOUBLE_MIN_ROWS;
+            let gh = digit_rows_in(area.height, true);
+            let (aw, hw) = (away.len() as u16 * gw, home.len() as u16 * gw);
+            let wide = tall && aw * 2 <= third && hw * 2 <= third;
+            scale = (if wide { 2 } else { 1 }, if tall { 2 } else { 1 });
+            if wide {
+                (aw * 2, hw * 2, gh)
+            } else {
+                (aw, hw, gh)
+            }
         } else {
             let (aw, gh) = quad_digits::quad_size(u32::from(game.away_score));
             let (hw, _) = quad_digits::quad_size(u32::from(game.home_score));
@@ -160,6 +205,7 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
             away: Rect { x: area.x + third - aw, y, width: aw, height: gh },
             home: Rect { x: area.right() - third, y, width: hw, height: gh },
             form,
+            scale,
         };
     }
     // Text form: one centered `24 - 21`, the two numbers still addressable
@@ -171,6 +217,7 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
         away: Rect { x: x0, y, width: away.len() as u16, height: 1 },
         home: Rect { x: x0 + text_w - home.len() as u16, y, width: home.len() as u16, height: 1 },
         form: ScoreForm::Text,
+        scale: (1, 1),
     }
 }
 
@@ -208,12 +255,13 @@ pub fn score_block(frame: &mut Frame, area: Rect, game: &Game, full: bool) {
     // `score_spots` already proved the fit, and both renderers re-check it
     // for callers who probe instead of measuring. Two answers to one question
     // is the shape that drifts, so a disagreement is loud in debug builds.
-    // At the jumbotron rung the glyphs are rendered once, into the top half
-    // of the spot, and then every row is painted twice (`stretch_rows`). The
-    // glyph engine never learns a second size: this is `PixelSize::Full`,
-    // stretched, so a doubled score and a board score are the same shape.
-    let doubled = spots.form == ScoreForm::Full && spots.away.height == tiles::glyph_cell().1 * 2;
-    let unstretched = |r: Rect| if doubled { Rect { height: r.height / 2, ..r } } else { r };
+    // At the jumbotron rung the glyphs are rendered once, at their own size
+    // in the top-left corner of the spot, and then `stretch` paints each
+    // glyph cell as a `scale` block. The glyph engine never learns a second
+    // size: this is `PixelSize::Full` magnified, so a doubled score and a
+    // board score are the same shape.
+    let (sx, sy) = spots.scale;
+    let unstretched = |r: Rect| Rect { width: r.width / sx, height: r.height / sy, ..r };
     let (drew_away, drew_home) = if spots.form == ScoreForm::Full {
         (
             tiles::digit_glyphs(frame, unstretched(spots.away), game.away_score, away_color),
@@ -232,22 +280,27 @@ pub fn score_block(frame: &mut Frame, area: Rect, game: &Game, full: bool) {
         spots.away,
         spots.home
     );
-    if doubled {
-        stretch_rows(frame, spots.away);
-        stretch_rows(frame, spots.home);
+    if (sx, sy) != (1, 1) {
+        stretch(frame, spots.away, sx, sy);
+        stretch(frame, spots.home, sx, sy);
     }
 }
 
-/// Paint each of `rect`'s top `height / 2` rows twice, in place, filling the
-/// rect from the top down. Walked bottom-up so a row is copied before
-/// anything can overwrite it (row `i` lands on `2i`/`2i + 1`, and `2i >= i`).
-fn stretch_rows(frame: &mut Frame, rect: Rect) {
+/// Magnify what was drawn in `rect`'s top-left `width / sx` × `height / sy`
+/// corner to fill `rect`, in place: cell `(i, j)` becomes the `sx` × `sy`
+/// block at `(i * sx, j * sy)`. Walked from the far corner back so a cell is
+/// always read before anything can overwrite it (`i * sx >= i`, `j * sy >= j`,
+/// and every larger index has already been consumed).
+fn stretch(frame: &mut Frame, rect: Rect, sx: u16, sy: u16) {
     let buf = frame.buffer_mut();
-    for i in (0..rect.height / 2).rev() {
-        for x in rect.x..rect.right() {
-            let cell = buf[(x, rect.y + i)].clone();
-            buf[(x, rect.y + 2 * i + 1)] = cell.clone();
-            buf[(x, rect.y + 2 * i)] = cell;
+    for j in (0..rect.height / sy).rev() {
+        for i in (0..rect.width / sx).rev() {
+            let cell = buf[(rect.x + i, rect.y + j)].clone();
+            for dy in 0..sy {
+                for dx in 0..sx {
+                    buf[(rect.x + i * sx + dx, rect.y + j * sy + dy)] = cell.clone();
+                }
+            }
         }
     }
 }
@@ -1143,6 +1196,60 @@ mod tests {
             "under the jumbotron gate the Full form stays 8 rows, centered\n{}",
             text_of(term.backend().buffer())
         );
+    }
+
+    #[test]
+    fn the_jumbotron_doubles_columns_only_when_the_third_can_hold_them() {
+        // Ruling R43: the two axes are gated separately inside the one Full
+        // arm. At 120 cols `third` is 40, so a 2-digit score (2 × 8 = 16,
+        // doubled 32 ≤ 40) gets true 2× glyphs, and a 3-digit one (24,
+        // doubled 48 > 40) keeps 8-cell columns rather than failing the fit
+        // test and falling to the 4-row quad form.
+        let (w, h) = (120u16, 16u16);
+        let third = w / 3;
+        let spots = |game: &Game| score_spots(Rect { x: 0, y: 0, width: w, height: h }, game, true);
+
+        let two = nfl_game(); // 24 - 21
+        let s = spots(&two);
+        assert_eq!(s.form, ScoreForm::Full, "a 2-digit score stays on the Full rung");
+        assert_eq!(s.scale, (2, 2), "and takes both axes: {s:?}");
+        assert_eq!(s.away.width, 32, "two glyphs at 2× columns");
+        assert_eq!(s.away.height, DOUBLE_MIN_ROWS);
+        assert!(s.away.width <= third && s.home.width <= third, "still inside the third");
+
+        // An NBA score: three digits, so columns may not double.
+        let mut three = nfl_game();
+        three.away_score = 118;
+        three.home_score = 121;
+        let s = spots(&three);
+        assert_eq!(s.form, ScoreForm::Full, "a 3-digit score must NOT fall to quad at 120 cols");
+        assert_eq!(s.scale, (1, 2), "rows only — 3 × 8 × 2 = 48 does not fit the 40-col third");
+        assert_eq!(s.away.width, 24, "three glyphs at 1× columns");
+        assert_eq!(s.away.height, DOUBLE_MIN_ROWS, "the rows still double");
+
+        // Both sides or neither: a lopsided pair (1 digit vs 3) is measured
+        // by the wider side, so the mirror never renders at two scales.
+        let mut lopsided = nfl_game();
+        lopsided.away_score = 9;
+        lopsided.home_score = 121;
+        assert_eq!(spots(&lopsided).scale, (1, 2), "the wider side decides for both");
+
+        // Cell level: the 2× render really is the 1× render magnified.
+        let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+        term.draw(|f| score_block(f, f.area(), &two, true)).unwrap();
+        let buf = term.backend().buffer();
+        let s = spots(&two);
+        for j in 0..s.away.height / 2 {
+            for i in 0..s.away.width / 2 {
+                let (x, y) = (s.away.x + i * 2, s.away.y + j * 2);
+                let seed = buf[(x, y)].clone();
+                for (dx, dy) in [(1, 0), (0, 1), (1, 1)] {
+                    let cell = &buf[(x + dx, y + dy)];
+                    assert_eq!(cell.symbol(), seed.symbol(), "the 2×2 block at ({x},{y}) is not solid");
+                    assert_eq!(cell.fg, seed.fg, "the 2×2 block at ({x},{y}) changes color");
+                }
+            }
+        }
     }
 
     #[test]

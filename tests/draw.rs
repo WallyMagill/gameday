@@ -3229,14 +3229,22 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     assert!(text.contains("KC") && text.contains("TB"), "{text}");
 
     // Spec §0: TV stays logo-free, even at the ≥100 columns where the board
-    // flanks its hero — the margin outside the digits is untouched ground.
+    // flanks its hero — the margin OUTSIDE the digits is untouched ground.
     // (KC and TB both have committed art, so this would paint otherwise.)
+    // The margin is measured, not assumed: ruling R43 lets a 2-digit score
+    // take double-width glyphs, which start further left than the old fixed
+    // `x < 20` window did. What must stay empty is whatever the digits did
+    // not take.
+    let digits_x = (0..120u16)
+        .find(|x| digit_rows.iter().any(|y| buf[(*x, *y)].fg == away_color))
+        .expect("the away digits are somewhere");
+    assert!(digits_x > 0, "the away digits must leave a margin at all:\n{text}");
     for y in digit_rows[0]..=digit_rows[15] {
-        for x in 0..20u16 {
+        for x in 0..digits_x {
             assert_eq!(
                 buf[(x, y)].symbol(),
                 " ",
-                "no hero mark in TV's margin at ({x},{y}):\n{text}"
+                "no hero mark in TV's margin at ({x},{y}), digits start at x={digits_x}:\n{text}"
             );
         }
     }
@@ -3399,6 +3407,53 @@ fn the_jumbotron_digits_are_the_one_formatters_doubled_rung() {
         "TV's digits differ from `score_block`'s at the doubled rung:\n{}",
         buf_text(&tv)
     );
+}
+
+#[test]
+fn tv_keeps_a_three_digit_score_on_the_full_rung() {
+    // Ruling R43's other half: a basketball jumbotron. 3 × 8 = 24 cells of
+    // digits doubled would be 48, past the 40-col third at 120 columns, so
+    // the columns must NOT double — and the score must not fall to the 4-row
+    // quad form either. Rows double, columns don't, spec §0's logo-free
+    // margin survives.
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let mut app = mk();
+    let slate: Vec<Game> = tv_slate()
+        .into_iter()
+        .map(|mut g| {
+            g.away_score = 118;
+            g.home_score = 121;
+            g
+        })
+        .collect();
+    app.apply_boards(League::Nfl, slate, false);
+    app.tab = Tab::League(League::Nfl);
+    app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+    let term = render(&mut app, 120, 40);
+    let text = buf_text(&term);
+    let buf = term.backend().buffer();
+
+    let th = gameday::theme::current();
+    let (away_color, ..) = gameday::theme::hero_pair(&th, team("KC").color, team("TB").color);
+    let digit_rows: Vec<u16> = (0..40u16)
+        .filter(|y| (0..40u16).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 8)
+        .collect();
+    assert_eq!(digit_rows.len(), 16, "the rows still double for a 3-digit score:\n{text}");
+
+    // 24 columns wide, right-aligned against the 40-col third: x 16..40.
+    let inked: Vec<u16> = (0..40u16)
+        .filter(|x| digit_rows.iter().any(|y| buf[(*x, *y)].fg == away_color))
+        .collect();
+    let (first, last) = (inked[0], inked[inked.len() - 1]);
+    assert!(first >= 16, "3 × 8 = 24 columns of digits start at x=16, not {first}:\n{text}");
+    assert!(last < 40, "the away score stays inside its third, ended at {last}:\n{text}");
+
+    // Spec §0 again: whatever the digits did not take is untouched ground.
+    for y in digit_rows[0]..=digit_rows[15] {
+        for x in 0..first {
+            assert_eq!(buf[(x, y)].symbol(), " ", "no hero mark at ({x},{y}):\n{text}");
+        }
+    }
 }
 
 #[test]
