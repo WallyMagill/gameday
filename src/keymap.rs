@@ -301,6 +301,22 @@ pub fn tv_legend(locked: bool) -> [(&'static str, &'static str); 4] {
     ]
 }
 
+/// Spec §5: one footer grammar everywhere. The chord table keeps its caps
+/// key names (`SPC`, `ENTER`, `TAB`...) because that's what the help overlay
+/// and the drop-order lists match against, but every footer — Board, TV, and
+/// now every other view — renders lowercase, key-cap style. This is the one
+/// place that translation happens.
+pub fn lower_key(key: &'static str) -> &'static str {
+    match key {
+        "SPC" => "space",
+        "ENTER" => "enter",
+        "TAB" => "tab",
+        "ESC" => "esc",
+        "H/L" => "h/l",
+        other => other,
+    }
+}
+
 /// The footer chord list for the current view: (key, label) pairs in table
 /// order.
 pub fn footer_chords(ctx: FooterCtx) -> Vec<(&'static str, &'static str)> {

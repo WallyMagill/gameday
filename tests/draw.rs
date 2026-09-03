@@ -187,7 +187,10 @@ fn zoomed_footer_shows_back_and_the_zoomed_game() {
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.contains("[ESC] BACK"), "{s}");
+    // spec v3.3 §5: every non-board footer speaks the lowercase legend now —
+    // no "[ESC] BACK" bracket-caps, no "NAV:".
+    assert!(s.contains("esc back"), "{s}");
+    assert!(!s.contains("NAV:"), "{s}");
     assert!(!s.contains("[Z] ZOOM"), "{s}");
     // 'q' pops here instead of quitting, so QUIT is not advertised.
     assert!(!s.contains("[Q] QUIT"), "{s}");
@@ -642,7 +645,8 @@ fn footer_advertises_filter_chord_but_not_cmd_on_the_board() {
     let s = buf_text(&t);
     assert!(s.contains("/ filter"), "{s}");
     assert!(!s.contains("CMD"), "{s}");
-    // The Zoomed footer keeps the old generic list, CMD included.
+    // spec v3.3 §5: the Zoomed footer keeps the generic list, CMD included —
+    // just lowercase now, same as every other non-board view.
     use gameday::views::{View, ZoomTab};
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.tab = Tab::League(League::Nfl);
@@ -650,8 +654,9 @@ fn footer_advertises_filter_chord_but_not_cmd_on_the_board() {
     let mut tz = Terminal::new(TestBackend::new(120, 24)).unwrap();
     tz.draw(|f| app.draw(f)).unwrap();
     let sz = buf_text(&tz);
-    assert!(sz.contains("[:] CMD"), "{sz}");
-    assert!(sz.contains("[/] FILTER"), "{sz}");
+    assert!(sz.contains(": cmd"), "{sz}");
+    assert!(sz.contains("/ filter"), "{sz}");
+    assert!(!sz.contains("NAV:"), "{sz}");
 }
 
 #[test]
@@ -665,6 +670,115 @@ fn narrow_footer_sheds_low_value_chords_but_keeps_help_and_quit() {
     assert!(footer.contains("? help"), "help clipped: {footer:?}");
     assert!(footer.contains("q quit"), "quit clipped: {footer:?}");
     assert!(!footer.contains("move"), "move should be shed first: {footer:?}");
+}
+
+/// Longest run of consecutive ASCII-uppercase letters in `s`, excluding the
+/// footer's known status readouts (`FOCUS`, `UPD`, `GAME`) — those are
+/// clock-shaped status text, not the "NAV:" chord grammar spec v3.3 §5
+/// deletes. Team abbreviations (`KC`, `TB`) are 2-3 letters and never trip
+/// the ≤3 budget on their own.
+fn max_caps_run_excluding_status(s: &str) -> usize {
+    let stripped = s.replace("FOCUS", "").replace("UPD", "").replace("GAME", "");
+    let mut max = 0;
+    let mut run = 0;
+    for c in stripped.chars() {
+        if c.is_ascii_uppercase() {
+            run += 1;
+            max = max.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    max
+}
+
+#[test]
+fn every_view_speaks_the_lowercase_footer() {
+    // spec v3.3 §5: one footer grammar everywhere — plays feed, standings,
+    // config, zoom, help (over the board) and the theme picker all render
+    // their footer from the keymap, lowercase, no "NAV:", no "[TAB]"
+    // bracket-caps.
+    use gameday::views::{View, ZoomTab};
+    type Setup = (&'static str, Box<dyn Fn(&mut App)>);
+    let cases: Vec<Setup> = vec![
+        (
+            "plays feed",
+            Box::new(|app: &mut App| {
+                app.config.enabled_tabs = vec![League::Nfl];
+                app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+                app.view = View::PlaysFeed;
+            }),
+        ),
+        (
+            "standings",
+            Box::new(|app: &mut App| {
+                app.config.enabled_tabs = vec![League::Nfl];
+                app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+                app.view = View::Standings(League::Nfl);
+            }),
+        ),
+        (
+            "config",
+            Box::new(|app: &mut App| {
+                app.view = View::ConfigView;
+            }),
+        ),
+        (
+            "zoom",
+            Box::new(|app: &mut App| {
+                app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+                app.tab = Tab::League(League::Nfl);
+                app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
+            }),
+        ),
+        (
+            "help",
+            Box::new(|app: &mut App| {
+                app.help_open = true;
+            }),
+        ),
+        (
+            "theme picker",
+            Box::new(|app: &mut App| {
+                app.view = View::ThemePicker;
+            }),
+        ),
+    ];
+    for (name, setup) in cases {
+        let mut app = mk();
+        setup(&mut app);
+        let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        t.draw(|f| app.draw(f)).unwrap();
+        let s = buf_text(&t);
+        let footer = s.lines().last().expect("footer row");
+        assert!(!footer.contains("NAV:"), "{name}: {footer:?}");
+        assert!(!footer.contains("[TAB]"), "{name}: {footer:?}");
+        assert!(footer.contains("? help"), "{name}: {footer:?}");
+        assert!(
+            max_caps_run_excluding_status(footer) <= 3,
+            "{name}: caps run too long: {footer:?}"
+        );
+    }
+}
+
+#[test]
+fn footers_shed_in_order_and_help_quit_survive_at_40_cols() {
+    // spec v3.3 §5: FOOTER_DROP_ORDER's shed discipline carries over to
+    // every view — HELP and the way back (BACK, ESC/Q, since 'q' pops
+    // rather than quits off the Board) are never the ones clipped.
+    use gameday::views::View;
+    for view in [View::PlaysFeed, View::Standings(League::Nfl)] {
+        let mut app = mk();
+        app.config.enabled_tabs = vec![League::Nfl];
+        app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+        app.view = view.clone();
+        let mut t = Terminal::new(TestBackend::new(40, 24)).unwrap();
+        t.draw(|f| app.draw(f)).unwrap();
+        let footer = buf_text(&t).lines().last().unwrap().to_string();
+        assert!(footer.contains("? help"), "{view:?}: help clipped: {footer:?}");
+        assert!(footer.contains("esc back"), "{view:?}: back clipped: {footer:?}");
+        assert!(!footer.contains("NAV:"), "{view:?}: {footer:?}");
+    }
 }
 
 #[test]
@@ -1068,10 +1182,12 @@ fn feed_and_standings_footers_advertise_only_keys_that_work_there() {
         t.draw(|f| app.draw(f)).unwrap();
         let s = buf_text(&t);
         let footer = s.lines().last().unwrap();
-        assert!(!footer.contains("TABS"), "{view:?}: zoom's tab cycle is a no-op here: {footer}");
-        assert!(footer.contains("BACK"), "{view:?}: {footer}");
-        // [TAB] LEAGUE is advertised, so Tab must actually switch tabs.
-        assert!(footer.contains("LEAGUE"), "{view:?}: {footer}");
+        // spec v3.3 §5: lowercase, no "NAV:", no bracket-caps.
+        assert!(!footer.contains("NAV:"), "{view:?}: {footer}");
+        assert!(!footer.contains("tabs"), "{view:?}: zoom's tab cycle is a no-op here: {footer}");
+        assert!(footer.contains("back"), "{view:?}: {footer}");
+        // "tab league" is advertised, so Tab must actually switch tabs.
+        assert!(footer.contains("league"), "{view:?}: {footer}");
         assert_eq!(app.tab, Tab::Home);
         gameday::input::handle_key(&mut app, KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.tab, Tab::League(League::Nfl), "{view:?}: Tab switches league");

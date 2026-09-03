@@ -426,15 +426,16 @@ impl App {
                 spans.push(Span::styled(format!(" {label} "), Style::default().fg(th.muted)));
             }
         } else {
-            // Narrow terminals can't hold every chord: shed the low-value
-            // ones in keymap's declared order so HELP and QUIT are never the
-            // ones clipped.
+            // Spec §5: every other view speaks the same lowercase, no-caps,
+            // no-`NAV:` grammar as the Board and TV legends — same
+            // `FOOTER_DROP_ORDER` shed discipline (HELP/QUIT/BACK never
+            // shed), just translated through `keymap::lower_key`.
             let mut chords = keymap::footer_chords(ctx);
-            let chords_width = |cs: &[(&str, &str)]| -> usize {
+            let chords_width = |cs: &[(&'static str, &'static str)]| -> usize {
                 filter_width
-                    + 5
+                    + 1
                     + cs.iter()
-                        .map(|(k, a)| 4 + k.chars().count() + a.chars().count())
+                        .map(|(k, a)| keymap::lower_key(k).chars().count() + a.chars().count() + 3)
                         .sum::<usize>()
             };
             for drop in keymap::FOOTER_DROP_ORDER {
@@ -443,13 +444,15 @@ impl App {
                 }
                 chords.retain(|(_, a)| a != drop);
             }
-            spans.push(Span::styled(
-                " NAV:",
-                Style::default().fg(th.fg).add_modifier(Modifier::BOLD),
-            ));
             for (key, action) in chords {
-                spans.push(Span::styled(format!(" [{key}]"), Style::default().fg(th.fg)));
-                spans.push(Span::styled(format!(" {action}"), Style::default().fg(th.muted)));
+                spans.push(Span::styled(
+                    format!(" {}", keymap::lower_key(key)),
+                    Style::default().fg(th.fg),
+                ));
+                spans.push(Span::styled(
+                    format!(" {} ", action.to_lowercase()),
+                    Style::default().fg(th.muted),
+                ));
             }
         }
 
