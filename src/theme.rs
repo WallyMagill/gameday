@@ -1032,6 +1032,7 @@ mod tests {
     }
 
     #[test]
+    // parked at v3.3 sitting-2 — promotion blocked on light-bg logo art (sub-project 4)
     fn daygame_ink_contrast_clears_4_5_to_1() {
         // The light candidate's whole risk is legibility on paper: ink on
         // ground must clear the WCAG body-text floor of 4.5:1, and `dim`

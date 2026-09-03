@@ -318,13 +318,13 @@ pub fn gallery() -> Vec<Variant> {
         //                 stem exists so the frame sits beside the candidates
         //                 in the same sitting instead of being hunted down in
         //                 `board-studio`.
-        //   -daygame      the light candidate. DUMP-ONLY: `daygame` is not in
-        //                 `BUILTIN_NAMES` and cannot be selected — `with_theme`
-        //                 installs it for this capture and removes it after.
         //   -gruvbox-warm shipping gruvbox on morhetz's dark0_soft ground,
-        //                 the same way. The product gruvbox is untouched.
+        //                 rendered the same DUMP-ONLY way as any candidate —
+        //                 `with_theme` installs it for this capture and
+        //                 removes it after. The product gruvbox is untouched.
+        // `daygame`, the other v3.3 candidate, is parked (sitting 2): its
+        // dump hook is gone, so no `gate-daygame` stem exists here.
         themed("gate-studio", "studio"),
-        themed("gate-daygame", "daygame"),
         themed("gate-gruvbox-warm", "gruvbox-warm"),
     ]);
     out
@@ -931,6 +931,8 @@ mod tests {
                 // Ruling R38: the gate stems JOIN this list while they exist.
                 // They are a temporary sitting artifact — when v3.3 §1b picks
                 // a mid-size form, the two losers and this entry go together.
+                // `gate-daygame` is gone already: sitting 2 parked daygame,
+                // so its dump hook (and this stem) were deleted with it.
                 "gate-digits-product",
                 "gate-digits-text",
                 "gate-tier1-after",
@@ -938,7 +940,6 @@ mod tests {
                 "gate-band-fired",
                 "gate-band-amber",
                 "gate-studio",
-                "gate-daygame",
                 "gate-gruvbox-warm",
             ],
             "gallery stems are a stable contract for other tasks"
@@ -947,13 +948,13 @@ mod tests {
 
     #[test]
     fn the_theme_gates_render_in_their_own_palettes_and_leave_no_candidate_loaded() {
-        // Sitting 2's three theme frames. Each must actually be drawn in the
-        // theme it is named for — the ground cell is the cheapest proof — and
-        // the two candidates must be gone from the picker the moment the
-        // render is over: they are gate-only until the owner promotes them.
+        // Sitting 2's theme frames (daygame's gate-daygame stem is gone —
+        // parked, not promoted). Each must actually be drawn in the theme it
+        // is named for — the ground cell is the cheapest proof — and the
+        // candidate must be gone from the picker the moment the render is
+        // over: it is gate-only until the owner promotes it.
         for (stem, ground) in [
             ("gate-studio", theme::builtin("studio").bg),
-            ("gate-daygame", theme::candidate("daygame").theme.bg),
             ("gate-gruvbox-warm", theme::candidate("gruvbox-warm").theme.bg),
         ] {
             let buf = render_variant(&variant(stem), 0).unwrap();
