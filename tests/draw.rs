@@ -3350,8 +3350,11 @@ fn tv_never_panics_and_never_blanks_the_score() {
         let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
         term.draw(|f| app.draw(f)).unwrap();
         let text = buf_text(&term);
+        // The three rungs of the ladder: `PixelSize::Full` (`████`), the
+        // quadrant mid form (sitting-1 pick 1A — `█` plus half blocks), or
+        // the bold text arm. The sextant marker (`🬂`) is gone with the form.
         assert!(
-            text.contains("24 - 21") || text.contains("████") || text.contains('🬂'),
+            text.contains("24 - 21") || text.contains('█'),
             "{w}x{h} must still show a score in some form:\n{text}"
         );
     }

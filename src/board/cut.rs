@@ -179,12 +179,16 @@ fn plan(area: Rect, word: &str) -> Plan {
     ]
     .into_iter()
     .find(|(form, score_full)| {
-        let score_rows = crate::tiles::glyph_cell(*score_full).1;
+        // The score's rows come from the hero's ladder, not from
+        // `glyph_cell`: the mid rung is the 4-row quad form (sitting-1 pick
+        // 1A), and a cut that reserved 3 would hand `score_block` a band it
+        // has to refuse, collapsing the announcement to `27 - 24`.
+        let score_rows = hero::digit_rows(*score_full);
         form.cols(word) <= area.width && form.rows() + score_rows <= middle
     })
     .unwrap_or((WordForm::Text, false));
 
-    let score_rows = crate::tiles::glyph_cell(score_full).1.min(middle);
+    let score_rows = hero::digit_rows(score_full).min(middle);
     let stack = word_form.rows() + score_rows;
     let top = area.y + brackets.min(1);
     let word_y = top + middle.saturating_sub(stack) / 2;

@@ -253,6 +253,31 @@ mod tests {
         assert_eq!(art.rows[0][0].bg, Some((1, 2, 3)));
     }
 
+    /// Ruling R41: every bundled mark draws on a terminal that only has the
+    /// quadrant blocks. The v3.2 art was generated with chafa's `sextant`
+    /// class, whose U+1FB00–1FB3B range Terminal.app's default font does not
+    /// cover — every mark was a field of tofu boxes there, and in the
+    /// gallery's own PNG pipeline. `tools/gen-logos.sh` now defaults to
+    /// `space+solid+half+quad`; this is what stops a regeneration from
+    /// quietly putting the sextants back.
+    #[test]
+    fn no_bundled_mark_uses_a_symbol_outside_the_quadrant_blocks() {
+        for (key, raw) in LOGO_SOURCES {
+            let art = parse_hero_mark(raw).unwrap_or_else(|| panic!("{key} failed to parse"));
+            for (y, row) in art.rows.iter().enumerate() {
+                for (x, cell) in row.iter().enumerate() {
+                    let o = cell.ch as u32;
+                    assert!(
+                        cell.ch == ' ' || (0x2580..=0x259F).contains(&o),
+                        "{key} cell ({x},{y}) is U+{o:04X} ({:?}) — outside the quadrant range \
+                         U+2580..=U+259F that every terminal draws",
+                        cell.ch
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn blank_padding_rows_are_dropped() {
         let art = parse_hero_mark(" \x1b[38;2;0;0;0m  \x1b[0m\n\x1b[38;2;9;9;9m#\n").unwrap();

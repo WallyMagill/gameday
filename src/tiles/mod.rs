@@ -67,16 +67,22 @@ pub(crate) fn word_glyphs(frame: &mut Frame, rect: Rect, word: &str, color: Colo
     glyph_slot(frame, rect, word, Style::default().fg(color), full);
 }
 
-/// One number, one color, one rect: the shared score-glyph core. Returns
-/// false — drawing nothing — when the glyphs don't fit `rect`, which is how
-/// every caller steps down a size instead of clipping a digit in half.
-pub(crate) fn digit_glyphs(frame: &mut Frame, rect: Rect, value: u16, color: Color, full: bool) -> bool {
+/// One number, one color, one rect at `PixelSize::Full`: the big-score core.
+/// Returns false — drawing nothing — when the glyphs don't fit `rect`, which
+/// is how every caller steps down a size instead of clipping a digit in half.
+///
+/// There is no sextant arm any more (sitting-1 pick 1A): the mid rung of the
+/// score ladder is [`quad_digits`], and the tier-1 sextant garnish that was
+/// this function's only other small-form caller is deleted (ruling R39).
+/// `glyph_slot`'s sextant path survives for [`word_glyphs`] — the cut's
+/// scoring word still steps down that way.
+pub(crate) fn digit_glyphs(frame: &mut Frame, rect: Rect, value: u16, color: Color) -> bool {
     let text = value.to_string();
-    let (gw, gh) = glyph_cell(full);
+    let (gw, gh) = glyph_cell(true);
     if text.len() as u16 * gw > rect.width || gh > rect.height {
         return false;
     }
-    glyph_slot(frame, rect, &text, Style::default().fg(color), full);
+    glyph_slot(frame, rect, &text, Style::default().fg(color), true);
     true
 }
 

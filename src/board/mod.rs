@@ -53,8 +53,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 
-/// Rows a tier-1 block occupies (three sextant rows — `rows::draw_tier1`).
-const TIER1_ROWS: u16 = 3;
+/// Rows a tier-1 block occupies: the nameplate row, the fragment/play row
+/// under it, and one row of air (`rows::draw_tier1`). `rows` draws its gutter
+/// marks down exactly this many rows, so the number lives here once.
+pub(crate) const TIER1_ROWS: u16 = 3;
 
 /// One drawable unit of the board. Every block is a whole number of rows and
 /// is drawn or skipped as a unit; only the game blocks are selectable.

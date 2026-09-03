@@ -2,8 +2,9 @@
 //! hero is one ranked list, and a game's tier is how loudly that list says
 //! it. Tier 1 is a three-row block, tier 2 is one line, tier 3 is one dim
 //! line for finals and later games. All three print the score as a plain
-//! numeral in the same column (spec v3.3 §4) — tier 1's sextant digits are
-//! garnish beside that numeral, never the score itself.
+//! numeral in the same column, and since sitting-1 pick 2A all three clock in
+//! the same column too (spec v3.3 §4): tier 1 is the same grid with height,
+//! not a grid of its own.
 //!
 //! Three rules hold across all three tiers:
 //!
@@ -26,7 +27,6 @@
 use crate::domain::{Game, League, Status};
 use crate::text::{fmt_start, truncate};
 use crate::theme::{self, Roles, TeamColorScope};
-use crate::tiles;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -101,35 +101,23 @@ const TEXT_X: u16 = 38;
 /// Broadcast field on a LATER row, before the odds (`FOX`, `ESPN`, `PRIME`).
 const BCAST_W: u16 = 7;
 
-// Tier 1 shares the one-line tiers' nameplate grid (spec v3.3 §4): the same
-// `pair_line` draws `GB 13 CHI 10` at the same columns a tier-2 row does, so
-// the score of a promoted row is read the same way — and in the same place —
-// as every row under it. What tier 1 adds is height, not a second grid: the
-// sextant digits are garnish beside the numerals, and the clock and prose
-// start further right to leave room for them.
-/// The sextant garnish field (spec v3.3 §4): it starts one column of air
-/// after the shared nameplate's last score cell and stops one short of the
-/// clock, so the glyphs sit *beside* the row's real score rather than in
-/// place of it. 17 cells wide, which is exactly what a two-digit pair costs
-/// — 4 cells per sextant glyph (`tiles::glyph_cell(false).0`), 8 a side,
-/// plus the one-cell gap. Three digits a side (25) doesn't fit, and the
-/// garnish drops rather than shrinking the numerals it decorates.
-const T1_GARNISH_X: u16 = HOME_SCORE_X + SCORE_W + 1;
-const T1_GARNISH_W: u16 = T1_CLOCK_X - T1_GARNISH_X - 1;
-/// Air between the two garnish scores — one cell, the same separation the
-/// nameplate's `13 CHI` keeps.
-const T1_GARNISH_GAP: u16 = 1;
-const T1_CLOCK_X: u16 = 40;
-const T1_TEXT_X: u16 = 53;
+// Tier 1 shares the one-line tiers' grid (spec v3.3 §4) *entirely*: the same
+// `pair_line` draws `GB 13 CHI 10` at the same columns a tier-2 row does, and
+// since sitting-1 pick 2A the clock and the prose share those columns too.
+// What tier 1 adds is height, not a second grid.
+//
+// Sitting-1 ruling R39 deleted the sextant garnish that used to sit between
+// the nameplate and the clock: it tofued on terminals without sextant
+// coverage, it duplicated the numerals `pair_line` already draws, and it was
+// the only reason tier 1 pushed its clock out to x40 while every row under it
+// clocked at x22. Dropping it buys that alignment back for free.
 /// The tier-1 state chip's field. It rides on row 1, where nothing sits
 /// between the clock column and the play text, so it gets the whole gap
 /// rather than the clock's own [`CLOCK_W`] — at 11 cells the longest chips
 /// `rank::watchability` emits ("BASES LOADED" and "GO-AHEAD 3RD" at 12,
 /// "TYING RUN 3RD" at 13, spec v3.3 §7) were clipped to a word that isn't
-/// one.
-const T1_CHIP_W: u16 = T1_TEXT_X - T1_CLOCK_X;
-/// A sextant glyph is three rows tall; a shorter block falls to text.
-const SEXTANT_ROWS: u16 = 3;
+/// one. Now `TEXT_X - CLOCK_X` = 16, which holds all of them.
+const T1_CHIP_W: u16 = TEXT_X - CLOCK_X;
 
 /// Render `line` into the column `x..x+w` of row `y` (both relative to
 /// `area`). A column that starts past the right edge is dropped — that is
@@ -258,15 +246,15 @@ fn gutters(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
     }
 }
 
-/// Tier 1: a 3-row promoted row (sextant digits) — abbr+league stack,
-/// digits, clock+state column, fragments, last play (A′ tier-1 rows).
+/// Tier 1: a 3-row promoted row — abbr+league stack, the shared nameplate's
+/// numerals, clock+state column, fragments, last play (A′ tier-1 rows).
 pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     if area.width == 0 || area.height == 0 {
         return;
     }
     let th = theme::current();
     let r = th.roles();
-    gutters(frame, area, ctx, SEXTANT_ROWS, true);
+    gutters(frame, area, ctx, crate::board::TIER1_ROWS, true);
 
     // The nameplate is tier 2's line, cell for cell (spec v3.3 §4): abbrs and
     // plain bold amber numerals on the shared columns. A promoted row is
@@ -277,57 +265,30 @@ pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
         let tag = Span::styled(game.league.slug().to_uppercase(), Style::default().fg(r.dim));
         col(frame, area, AWAY_ABBR_X, ABBR_W, 1, Alignment::Right, Line::from(tag));
     }
-    garnish_digits(frame, area, game, r.digits);
-
     let state = state_text(game, ctx.now);
     if !state.is_empty() {
         let span = Span::styled(state, Style::default().fg(ink(ctx)).add_modifier(Modifier::BOLD));
-        col(frame, area, T1_CLOCK_X, CLOCK_W, 0, Alignment::Left, Line::from(span));
+        col(frame, area, CLOCK_X, CLOCK_W, 0, Alignment::Left, Line::from(span));
     }
     // The state chip sits directly under the clock (A′ frame: red `2-MIN`
     // beneath `Q4 0:48`). Plain hot text, not a filled block — the filled
     // chip is the hero's alone (spec §1).
     if let Some(chip) = ctx.chip {
         let span = Span::styled(chip, Style::default().fg(r.hot).add_modifier(Modifier::BOLD));
-        col(frame, area, T1_CLOCK_X, T1_CHIP_W, 1, Alignment::Left, Line::from(span));
+        col(frame, area, CLOCK_X, T1_CHIP_W, 1, Alignment::Left, Line::from(span));
     }
-    let room = (area.width.saturating_sub(T1_TEXT_X)) as usize;
+    let room = (area.width.saturating_sub(TEXT_X)) as usize;
     if let Some(fragment) = situation_summary(game) {
         let span = Span::styled(truncate(&fragment, room), Style::default().fg(r.dim));
-        col(frame, area, T1_TEXT_X, area.width, 0, Alignment::Left, Line::from(span));
+        col(frame, area, TEXT_X, area.width, 0, Alignment::Left, Line::from(span));
     }
     if let Some(play) = game.last_plays.first() {
         let line = Line::from(vec![
             Span::styled("▸ ", Style::default().fg(r.dim)),
             Span::styled(truncate(&play.text, room.saturating_sub(2)), Style::default().fg(ink(ctx))),
         ]);
-        col(frame, area, T1_TEXT_X, area.width, 1, Alignment::Left, line);
+        col(frame, area, TEXT_X, area.width, 1, Alignment::Left, line);
     }
-}
-
-/// The sextant pair as *garnish* (spec v3.3 §4), centered in the field
-/// between the nameplate and the clock. It is drawn only when the whole pair
-/// fits at full size and the block is tall enough — the numerals in
-/// [`pair_line`] already carry the score, so garnish that doesn't fit simply
-/// isn't drawn. It never shrinks, never substitutes for the numerals, and
-/// (Task 9) is the first thing to go on a terminal whose font tofus the
-/// sextant range.
-fn garnish_digits(frame: &mut Frame, area: Rect, game: &Game, color: Color) {
-    let (gw, gh) = tiles::glyph_cell(false);
-    if area.height < gh || T1_GARNISH_X >= area.width {
-        return;
-    }
-    let field = T1_GARNISH_W.min(area.width - T1_GARNISH_X);
-    let away_w = game.away_score.to_string().len() as u16 * gw;
-    let home_w = game.home_score.to_string().len() as u16 * gw;
-    let want = away_w + T1_GARNISH_GAP + home_w;
-    if want > field {
-        return;
-    }
-    let x = area.x + T1_GARNISH_X + (field - want) / 2;
-    let slot = |x, width| Rect { x, y: area.y, width, height: gh };
-    tiles::digit_glyphs(frame, slot(x, away_w), game.away_score, color, false);
-    tiles::digit_glyphs(frame, slot(x + away_w + T1_GARNISH_GAP, home_w), game.home_score, color, false);
 }
 
 /// Tier 2: one line — mark │ nudge │ ABBR n ABBR n │ clock │ [league] │
@@ -761,32 +722,32 @@ mod tests {
     }
 
     #[test]
-    fn tier1_is_three_rows_with_sextant_digits() {
+    fn tier1_is_three_rows_on_the_shared_grid() {
         let game = live_game("DAL", "PHI");
         let r = theme::current().roles();
         let term = render(120, 3, &game, &RowCtx { hot: true, ..ctx() }, draw_tier1);
         let buf = term.backend().buffer();
         let text = text_of(buf);
 
-        // spec v3.3 §4: the sextant digits moved out of the score columns and
-        // into the garnish field between the nameplate and the clock. 4x3
-        // cells per glyph, so amber cells appear on every row of the block.
-        let field = Rect { x: T1_GARNISH_X, y: 0, width: T1_GARNISH_W, height: 3 };
-        for y in 0..3 {
-            let row = Rect { y, height: 1, ..field };
-            assert!(cells_with_fg(buf, row, r.digits) >= 2, "sextant garnish cells on row {y}\n{text}");
+        // sitting-1 pick 2A / ruling R39: the sextant garnish is gone. The
+        // cells between the nameplate's last score column and the clock carry
+        // no ink at all now — the numerals `pair_line` draws ARE the score.
+        let field = Rect { x: HOME_SCORE_X + SCORE_W, y: 0, width: CLOCK_X - HOME_SCORE_X - SCORE_W, height: 3 };
+        for y in field.y..field.bottom() {
+            for x in field.x..field.right() {
+                assert_eq!(buf[(x, y)].symbol(), " ", "no garnish left at ({x},{y})\n{text}");
+            }
         }
-        assert!(!text.contains("17 - 17"), "the glyph form fits at 120 cols\n{text}");
 
         // spec v3.3 §4: the stack sits on the shared nameplate grid — abbr
         // over league tag at tier 2's own columns — and the clock and the two
-        // text rows follow to the right of the garnish.
+        // text rows sit in tier 2's own columns as well.
         assert_eq!(col_of(buf, 0, "DAL"), Some(AWAY_ABBR_X + ABBR_W - 3), "away abbr, row 0\n{text}");
         assert_eq!(col_of(buf, 1, "NFL"), Some(AWAY_ABBR_X + ABBR_W - 3), "league under it, row 1\n{text}");
         assert_eq!(col_of(buf, 0, "PHI"), Some(HOME_ABBR_X), "home abbr, row 0\n{text}");
-        assert_eq!(col_of(buf, 0, "Q4 0:48"), Some(T1_CLOCK_X), "clock column, row 0\n{text}");
-        assert_eq!(col_of(buf, 0, "PHI 3RD & 6 AT DAL 38"), Some(T1_TEXT_X), "situation, row 0\n{text}");
-        assert_eq!(col_of(buf, 1, "▸ Hurts hit"), Some(T1_TEXT_X), "last play, row 1\n{text}");
+        assert_eq!(col_of(buf, 0, "Q4 0:48"), Some(CLOCK_X), "clock column, row 0\n{text}");
+        assert_eq!(col_of(buf, 0, "PHI 3RD & 6 AT DAL 38"), Some(TEXT_X), "situation, row 0\n{text}");
+        assert_eq!(col_of(buf, 1, "▸ Hurts hit"), Some(TEXT_X), "last play, row 1\n{text}");
 
         // The mark is a bar down the whole block, one state.
         for y in 0..3 {
@@ -800,10 +761,10 @@ mod tests {
         let term = render(120, 3, &game, &chipped, draw_tier1);
         let buf = term.backend().buffer();
         let text = text_of(buf);
-        assert_eq!(col_of(buf, 1, "2-MIN"), Some(T1_CLOCK_X), "chip under the clock\n{text}");
-        assert_eq!(buf[(T1_CLOCK_X, 1)].fg, r.hot, "the chip is hot\n{text}");
-        assert_eq!(col_of(buf, 0, "Q4 0:48"), Some(T1_CLOCK_X), "the clock keeps row 0\n{text}");
-        assert_eq!(col_of(buf, 1, "▸ Hurts hit"), Some(T1_TEXT_X), "the play keeps its column\n{text}");
+        assert_eq!(col_of(buf, 1, "2-MIN"), Some(CLOCK_X), "chip under the clock\n{text}");
+        assert_eq!(buf[(CLOCK_X, 1)].fg, r.hot, "the chip is hot\n{text}");
+        assert_eq!(col_of(buf, 0, "Q4 0:48"), Some(CLOCK_X), "the clock keeps row 0\n{text}");
+        assert_eq!(col_of(buf, 1, "▸ Hurts hit"), Some(TEXT_X), "the play keeps its column\n{text}");
         let bare = text_of(render(120, 3, &game, &ctx(), draw_tier1).backend().buffer());
         assert!(!bare.contains("2-MIN"), "no chip, no row\n{bare}");
 
@@ -816,7 +777,8 @@ mod tests {
             assert!(text.contains(chip), "{chip} must not be clipped\n{text}");
         }
 
-        // Too short for a sextant: the score is text, never blank.
+        // A one-row tier 1 still prints its numerals — the block never blanks
+        // its score just because the rows under it were cut.
         let term = render(120, 1, &game, &ctx(), draw_tier1);
         let text = text_of(term.backend().buffer());
         assert!(text.contains("17"), "a one-row tier 1 still prints its score\n{text}");
@@ -853,41 +815,33 @@ mod tests {
     }
 
     #[test]
-    fn tier1_glyph_garnish_never_replaces_the_numerals() {
-        // spec v3.3 §4: the sextant digits are garnish. They appear when the
-        // field between the nameplate and the clock holds the pair, they
-        // vanish when it doesn't, and the numerals never move either way.
-        let game = tier2_game();
-        let r = theme::current().roles();
-        let wide = render(120, 3, &game, &ctx(), draw_tier1);
-        let bw = wide.backend().buffer();
-        let wt = text_of(bw);
-        let field = Rect { x: T1_GARNISH_X, y: 0, width: T1_GARNISH_W, height: SEXTANT_ROWS };
-        for y in 0..SEXTANT_ROWS {
-            let row = Rect { y, height: 1, ..field };
-            assert!(cells_with_fg(bw, row, r.digits) >= 2, "garnish glyph cells on row {y}\n{wt}");
-        }
-        assert_eq!(col_of(bw, 0, "13"), Some(AWAY_SCORE_X + SCORE_W - 2), "numerals with garnish\n{wt}");
-
-        // A block one row tall has no room for a 3-row glyph; a 100+ score
-        // needs 12 cells a side, past the garnish field. Both drop the
-        // garnish and keep the numerals exactly where they were.
-        let flat = render(120, 1, &game, &ctx(), draw_tier1);
-        let bf = flat.backend().buffer();
-        let ft = text_of(bf);
-        assert_eq!(cells_with_fg(bf, Rect { height: 1, ..field }, r.digits), 0, "no garnish in one row\n{ft}");
-        assert_eq!(col_of(bf, 0, "13"), Some(AWAY_SCORE_X + SCORE_W - 2), "numerals unmoved\n{ft}");
-        assert_eq!(col_of(bf, 0, "10"), Some(HOME_SCORE_X + SCORE_W - 2), "numerals unmoved\n{ft}");
-
-        let mut big = game.clone();
-        big.away_score = 101;
-        big.home_score = 98;
-        let term = render(120, 3, &big, &ctx(), draw_tier1);
-        let bb = term.backend().buffer();
-        let bt = text_of(bb);
-        assert_eq!(cells_with_fg(bb, field, r.digits), 0, "12+12 cells don't fit the garnish field\n{bt}");
-        assert_eq!(col_of(bb, 0, "101"), Some(AWAY_SCORE_X), "a three-digit score fills the field\n{bt}");
-        assert_eq!(col_of(bb, 0, "98"), Some(HOME_SCORE_X + SCORE_W - 2), "home numeral\n{bt}");
+    fn tier1_and_tier2_clock_in_the_same_column() {
+        // sitting-1 pick 2A: the sextant garnish was the ONLY reason tier 1
+        // pushed its clock out to x40 while every row under it clocked at
+        // x22. With the garnish deleted (ruling R39) the two tiers share the
+        // column, and this test is what stops a future "tier 1 needs room
+        // for X" from quietly re-introducing the zig-zag.
+        let game = tier2_game(); // GB 13 CHI 10, Q3 4:20
+        let t1 = render(120, 3, &game, &ctx(), draw_tier1);
+        let t2 = render(120, 1, &game, &ctx(), draw_tier2);
+        let (b1, b2) = (t1.backend().buffer(), t2.backend().buffer());
+        let (text1, text2) = (text_of(b1), text_of(b2));
+        let clock = state_text(&game, ctx().now);
+        assert!(!clock.is_empty(), "the fixture must have a clock to compare");
+        let (c1, c2) = (col_of(b1, 0, &clock), col_of(b2, 0, &clock));
+        assert_eq!(c1, Some(CLOCK_X), "tier 1 clocks at the shared column\n{text1}");
+        assert_eq!(c1, c2, "tier 1 and tier 2 clock in the same column\n{text1}\n---\n{text2}");
+        // Cell for cell, not just "same x": the clock's first cell is the
+        // same symbol in the same ink on both tiers.
+        assert_eq!(b1[(CLOCK_X, 0)].symbol(), b2[(CLOCK_X, 0)].symbol(), "same clock cell\n{text1}");
+        assert_eq!(b1[(CLOCK_X, 0)].fg, b2[(CLOCK_X, 0)].fg, "same clock ink\n{text1}");
+        // The prose column follows the clock: tier 1's fragment starts where
+        // tier 2's does.
+        assert_eq!(
+            col_of(b1, 0, "GB 3RD & 2 AT CHI 41"),
+            col_of(b2, 0, "GB 3RD & 2 AT CHI 41"),
+            "the fragment shares tier 2's column\n{text1}\n---\n{text2}"
+        );
     }
 
     #[test]

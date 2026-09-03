@@ -66,10 +66,10 @@ pub struct Variant {
     /// frames all moved with a flag would stop being one.
     pub tick: Option<u64>,
     setup: fn(&mut App),
-    /// Ran over the finished frame, after `app.draw`. The v3.3 digit gate is
-    /// the only user: it repaints the hero's score band with a *candidate*
-    /// mid-size form so the three `gate-digits-*` captures differ in the
-    /// digits and nothing else.
+    /// Ran over the finished frame, after `app.draw`. The v3.3 gates are the
+    /// only users: `gate-digits-text` repaints the hero's score band with the
+    /// ladder's bottom rung so the two `gate-digits-*` captures differ in the
+    /// digits and nothing else, and `gate-band-amber` recolors the band.
     ///
     /// This is why the hook is a field on `Variant` and not a flag on
     /// [`crate::board::hero::score_block`]: `Variant` is constructed only by
@@ -260,8 +260,14 @@ pub fn gallery() -> Vec<Variant> {
         at_tick("nudge-seq-1", crate::sim::NUDGE_TICK - 1),
         at_tick("nudge-seq-2", crate::sim::NUDGE_TICK),
         at_tick("nudge-seq-3", crate::sim::NUDGE_TICK + 1),
+        // sitting-1 pick 1A landed: the product's own mid-size form IS the
+        // quadrant one, so `gate-digits-current` renders the winner with no
+        // overlay at all and the separate `gate-digits-quad` stem is gone —
+        // an overlay that redraws what the board already drew is a no-op
+        // dressed as a comparison. `gate-digits-text` stays: it is the
+        // honest bottom of the ladder and the only frame still worth
+        // contrasting. (R38: Task 16 retires both.)
         gate("gate-digits-current", None),
-        gate("gate-digits-quad", Some(gate_quad as fn(&mut Frame, &App))),
         gate("gate-digits-text", Some(gate_text as fn(&mut Frame, &App))),
         // The v3.3 tier-1 re-grid gate (spec §4). No overlay and no new
         // mechanism: the tier-1 rows ARE the product's, so the gate is just
@@ -357,37 +363,6 @@ fn gate_band(app: &App) -> Option<(Rect, crate::domain::Game, crate::board::hero
     Some((band, game, plan))
 }
 
-/// `gate-digits-quad`: the same 80×24 board, with the hero's score redrawn in
-/// the candidate quadrant-block form. The nameplates, meter, play row and
-/// everything below the hero are the real board's, untouched; the center
-/// column is redrawn by the hero's own `draw_center_column`, so the only
-/// thing that differs from `gate-digits-current` is the digits themselves.
-///
-/// The band grows to [`quad_digits::QUAD_ROWS`], which at this bracket costs
-/// the fragment line one row — that cost is part of what the gate is asking
-/// about, so it is shown rather than hidden.
-fn gate_quad(frame: &mut Frame, app: &App) {
-    let Some((band, game, plan)) = gate_band(app) else {
-        return;
-    };
-    use crate::tiles::quad_digits::{quad_digits, quad_size, QUAD_ROWS};
-    let band = Rect { height: band.height.max(QUAD_ROWS), ..band };
-    erase(frame, band);
-    let th = theme::current();
-    let (away_color, home_color, _) = theme::hero_pair(&th, game.away.color, game.home.color);
-    let third = band.width / 3;
-    let (aw, _) = quad_size(u32::from(game.away_score));
-    let (hw, _) = quad_size(u32::from(game.home_score));
-    let y = band.y + (band.height - QUAD_ROWS) / 2;
-    // Away right-aligned in the left third, home left-aligned in the right
-    // third — the mirror `score_spots` draws, at the new cell size.
-    let away = Rect { x: band.x + third.saturating_sub(aw), y, width: aw, height: QUAD_ROWS };
-    let home = Rect { x: band.right() - third, y, width: hw, height: QUAD_ROWS };
-    quad_digits(frame, away, u32::from(game.away_score), away_color);
-    quad_digits(frame, home, u32::from(game.home_score), home_color);
-    crate::board::hero::draw_center_column(frame, band, &game, &plan, None);
-}
-
 /// `gate-digits-text`: the honest bottom of the ladder. No new renderer and
 /// no flag — `score_block` is handed a band too short for any glyph form, so
 /// it takes its own text arm (`24 - 21`, bold, team-colored) exactly as it
@@ -397,7 +372,7 @@ fn gate_text(frame: &mut Frame, app: &App) {
         return;
     };
     erase(frame, band);
-    // Two rows is under the sextant floor, so `score_spots` returns `Text`.
+    // Two rows is under the quad form's floor, so `score_spots` returns `Text`.
     let short = Rect { height: 2, ..band };
     crate::board::hero::score_block(frame, short, &game, false);
     crate::board::hero::draw_center_column(frame, band, &game, &plan, Some(short.y));
@@ -763,8 +738,10 @@ fn color_css(c: Color) -> String {
 }
 
 pub fn buffer_to_html(buf: &Buffer) -> String {
-    // Cascadia Mono carries the sextant glyphs (U+1FB00 block) the logo art
-    // uses; system monospace fonts mostly don't, so the capture would show tofu.
+    // Cascadia Mono carries the sextant glyphs (U+1FB00 block) the cut's
+    // scoring word still steps down to; system monospace fonts mostly don't,
+    // so the capture would show tofu. The hero digits and the logo art no
+    // longer need it — both are quadrant blocks now (sitting-1 1A, R41).
     let font_face = std::env::var("GAMEDAY_DUMP_FONT")
         .ok()
         .filter(|p| Path::new(p).exists())
@@ -911,7 +888,6 @@ mod tests {
                 // They are a temporary sitting artifact — when v3.3 §1b picks
                 // a mid-size form, the two losers and this entry go together.
                 "gate-digits-current",
-                "gate-digits-quad",
                 "gate-digits-text",
                 "gate-tier1-after",
                 "gate-band-reserved",
@@ -942,67 +918,69 @@ mod tests {
         })
     }
 
-    /// The gate is only a gate if the three frames differ in the score and
+    /// The gate is only a gate if the two frames differ in the score and
     /// agree on everything else. Cell-wise containment, not a row-count
     /// bound: every cell that changed must sit inside the band the overlay
-    /// declared, and the count outside it must be exactly zero. Task 12 and
-    /// Task 16 lean on this as the overlay's regression guard — an `erase`
-    /// that bled into the meter row, or an overlay that nudged a nameplate,
-    /// has to fail here.
+    /// declared, and the count outside it must be exactly zero. Task 16 leans
+    /// on this as the overlay's regression guard — an `erase` that bled into
+    /// the meter row, or an overlay that nudged a nameplate, has to fail here.
+    ///
+    /// sitting-1 pick 1A collapsed the three frames to two: the product's own
+    /// score IS the quad form now, so the baseline is the winner and the only
+    /// overlay left is the text rung.
     #[test]
-    fn the_three_gate_frames_differ_only_inside_the_heros_band_rect() {
-        use crate::tiles::quad_digits::QUAD_ROWS;
+    fn the_gate_frames_differ_only_inside_the_heros_band_rect() {
         let (base, band) = gate_baseline();
-        let quad = render_variant(&variant("gate-digits-quad"), 0).unwrap();
         let text = render_variant(&variant("gate-digits-text"), 0).unwrap();
         assert_eq!(*base.area(), Rect::new(0, 0, GATE_COLS, GATE_ROWS), "gate size");
 
-        // `gate_quad` grows the band to the quad form's row count and says so;
-        // `gate_text` repaints the band as it stands. Those are the two
-        // permitted footprints, and nothing may change outside them.
-        for (name, frame, allowed) in [
-            ("gate-digits-quad", &quad, Rect { height: band.height.max(QUAD_ROWS), ..band }),
-            ("gate-digits-text", &text, band),
-        ] {
-            let mut inside = 0usize;
-            let mut outside: Vec<(u16, u16)> = Vec::new();
-            for y in 0..GATE_ROWS {
-                for x in 0..GATE_COLS {
-                    let (a, b) = (&base[(x, y)], &frame[(x, y)]);
-                    if a.symbol() == b.symbol() && a.fg == b.fg && a.bg == b.bg {
-                        continue;
-                    }
-                    if allowed.contains(ratatui::layout::Position { x, y }) {
-                        inside += 1;
-                    } else {
-                        outside.push((x, y));
-                    }
+        // `gate_text` repaints the band as it stands — that rect is its whole
+        // permitted footprint, and nothing may change outside it.
+        let mut inside = 0usize;
+        let mut outside: Vec<(u16, u16)> = Vec::new();
+        for y in 0..GATE_ROWS {
+            for x in 0..GATE_COLS {
+                let (a, b) = (&base[(x, y)], &text[(x, y)]);
+                if a.symbol() == b.symbol() && a.fg == b.fg && a.bg == b.bg {
+                    continue;
+                }
+                if band.contains(ratatui::layout::Position { x, y }) {
+                    inside += 1;
+                } else {
+                    outside.push((x, y));
                 }
             }
-            assert!(
-                outside.is_empty(),
-                "{name} changed {} cells outside band_rect {allowed:?}: first ten {:?}\n{}",
-                outside.len(),
-                &outside[..outside.len().min(10)],
-                text_of(frame)
-            );
-            assert!(
-                inside > 0,
-                "{name} changed nothing at all — the overlay never ran\n{}",
-                text_of(frame)
-            );
         }
-
-        // Contained *and* actually the form each stem is named for: the quad
-        // frame is drawn from the quadrant table, the text frame is
-        // `score_block`'s own bold `27 - 24` arm, and the baseline is neither.
-        let (quad_text, text_text, base_text) = (text_of(&quad), text_of(&text), text_of(&base));
         assert!(
-            quad_text.contains("█▀█") || quad_text.contains("▀▀█"),
-            "quad frame has no quad digits:\n{quad_text}"
+            outside.is_empty(),
+            "gate-digits-text changed {} cells outside band_rect {band:?}: first ten {:?}\n{}",
+            outside.len(),
+            &outside[..outside.len().min(10)],
+            text_of(&text)
+        );
+        assert!(
+            inside > 0,
+            "gate-digits-text changed nothing at all — the overlay never ran\n{}",
+            text_of(&text)
+        );
+
+        // Contained *and* actually the form each stem is named for: the
+        // baseline — the shipping board — is drawn from the quadrant table
+        // (sitting-1 pick 1A), and the text frame is `score_block`'s own bold
+        // `27 - 24` arm with no glyph left in the band.
+        let (text_text, base_text) = (text_of(&text), text_of(&base));
+        assert!(
+            base_text.contains("▀▀█") || base_text.contains("█▀█"),
+            "the shipping hero must draw quad digits:\n{base_text}"
         );
         assert!(text_text.contains(" - "), "text frame has no `N - N` score:\n{text_text}");
-        assert!(!base_text.contains("█▀█"), "current frame must be today's hero, untouched");
+        let band_rows: String = (band.y..band.bottom())
+            .map(|y| (band.x..band.right()).map(|x| text[(x, y)].symbol()).collect::<String>())
+            .collect();
+        assert!(
+            !band_rows.contains('\u{2580}') && !band_rows.contains('\u{2584}') && !band_rows.contains('\u{2588}'),
+            "the text rung must leave no quadrant glyph in the band:\n{text_text}"
+        );
     }
 
     #[test]

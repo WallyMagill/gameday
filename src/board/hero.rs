@@ -15,16 +15,22 @@
 //!   the nameplate already carries that team's identity, so a placeholder
 //!   would be noise.
 //! * **The digits are charged first** (ruling R29). The band reserves the
-//!   rows the caller's bracket asked for — 8 for Full, 3 for sextant — and
-//!   the fragment/meter/play rows split what is left, in that keep order
-//!   (R30). [`score_block`]'s 8-row → sextant → bold `24 - 21` ladder is for
-//!   a bracket too short to hold the form, never something an optional row
-//!   can take away.
+//!   rows the caller's bracket asked for — 8 for Full, 4 for the quadrant
+//!   mid form — and the fragment/meter/play rows split what is left, in that
+//!   keep order (R30). [`score_block`]'s 8-row → quad → bold `24 - 21` ladder
+//!   is for a bracket too short to hold the form, never something an optional
+//!   row can take away.
+//!
+//! sitting-1 pick 1A: the mid rung is [`tiles::quad_digits`], not
+//! `tui-big-text`'s sextants. The sextant form tofus on Terminal.app and did
+//! not resolve into a readable number at 80×24 even where the font covered
+//! it; the quadrant form is one row taller (4 vs 3) and reads at a glance.
 
 use crate::domain::{Game, League, Status};
 use crate::text::truncate;
 use crate::theme;
 use crate::tiles;
+use crate::tiles::quad_digits;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -69,19 +75,32 @@ const FLANK_MIN_COLS: u16 = 18;
 /// Committed hero art is 16 cells wide; a narrower flank is not a flank.
 const MARK_COLS: u16 = 16;
 
-/// The sextant floor: one sextant glyph is 3 rows, so a band with fewer than
-/// three rows has already fallen to the text form. This is what the digits
-/// are charged when the bracket didn't ask for Full — never a cap on a
-/// bracket that did (ruling R29).
-const DIGIT_FLOOR_ROWS: u16 = 3;
+/// The mid-form floor: one quadrant digit is [`quad_digits::QUAD_ROWS`] rows
+/// (sitting-1 pick 1A), so a band shorter than that has already fallen to the
+/// text form. This is what the digits are charged when the bracket didn't ask
+/// for Full — never a cap on a bracket that did (ruling R29).
+const DIGIT_FLOOR_ROWS: u16 = quad_digits::QUAD_ROWS;
+
+/// Rows the score costs at each rung of the ladder. The one place the two
+/// numbers are written down: [`row_plan`] reserves them and the takeover
+/// ([`crate::board::cut`]) sizes its own score band off the same answer, so a
+/// cut can never hand `score_block` a band one row short of the form it
+/// planned for.
+pub fn digit_rows(full: bool) -> u16 {
+    if full {
+        tiles::glyph_cell(true).1
+    } else {
+        DIGIT_FLOOR_ROWS
+    }
+}
 
 /// Which size the score digits ended up at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ScoreForm {
     /// 8×8 `PixelSize::Full` glyphs.
     Full,
-    /// 4×3 sextant glyphs.
-    Sextant,
+    /// 3×4 quadrant-block glyphs (sitting-1 pick 1A).
+    Quad,
     /// `24 - 21` on one bold row — never a blank score.
     Text,
 }
@@ -101,12 +120,22 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
     let away = game.away_score.to_string();
     let home = game.home_score.to_string();
     let third = area.width / 3;
-    for form in [ScoreForm::Full, ScoreForm::Sextant] {
+    for form in [ScoreForm::Full, ScoreForm::Quad] {
         if form == ScoreForm::Full && !full {
             continue;
         }
-        let (gw, gh) = tiles::glyph_cell(form == ScoreForm::Full);
-        let (aw, hw) = (away.len() as u16 * gw, home.len() as u16 * gw);
+        // The two forms measure differently: `PixelSize::Full` is a flat
+        // 8 cells per glyph, the quad form is 3 per digit plus a 1-cell gap
+        // between them (`quad_size`). Asking each form for its own size is
+        // what keeps the ladder honest when a rung changes cell grid.
+        let (aw, hw, gh) = if form == ScoreForm::Full {
+            let (gw, gh) = tiles::glyph_cell(true);
+            (away.len() as u16 * gw, home.len() as u16 * gw, gh)
+        } else {
+            let (aw, gh) = quad_digits::quad_size(u32::from(game.away_score));
+            let (hw, _) = quad_digits::quad_size(u32::from(game.home_score));
+            (aw, hw, gh)
+        };
         if aw > third || hw > third || gh > area.height || third == 0 {
             continue;
         }
@@ -160,12 +189,20 @@ pub fn score_block(frame: &mut Frame, area: Rect, game: &Game, full: bool) {
         frame.render_widget(Paragraph::new(line).alignment(Alignment::Center), row);
         return;
     }
-    let big = spots.form == ScoreForm::Full;
-    // `score_spots` already proved the fit, and `digit_glyphs` re-checks it
+    // `score_spots` already proved the fit, and both renderers re-check it
     // for callers who probe instead of measuring. Two answers to one question
     // is the shape that drifts, so a disagreement is loud in debug builds.
-    let drew_away = tiles::digit_glyphs(frame, spots.away, game.away_score, away_color, big);
-    let drew_home = tiles::digit_glyphs(frame, spots.home, game.home_score, home_color, big);
+    let (drew_away, drew_home) = if spots.form == ScoreForm::Full {
+        (
+            tiles::digit_glyphs(frame, spots.away, game.away_score, away_color),
+            tiles::digit_glyphs(frame, spots.home, game.home_score, home_color),
+        )
+    } else {
+        (
+            quad_digits::quad_digits(frame, spots.away, u32::from(game.away_score), away_color),
+            quad_digits::quad_digits(frame, spots.home, u32::from(game.home_score), home_color),
+        )
+    };
     debug_assert!(
         drew_away && drew_home,
         "score_spots handed {:?} rects the glyph renderer rejected: away {:?}, home {:?}",
@@ -295,10 +332,16 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
 ///
 /// Ruling R29: the digits are charged FIRST. The bracket asked for a form
 /// (`digits_full`), so the band reserves the rows that form needs and the
-/// optional rows below split whatever is left. The Full → sextant → text
+/// optional rows below split whatever is left. The Full → quad → text
 /// ladder is for brackets too short to hold the form — never something a
 /// meter row can take away. (Before this, the flagship 10-row bracket spent
-/// three rows on options and rendered sextants.)
+/// three rows on options and rendered a mid form.)
+///
+/// sitting-1 pick 1A moved the mid rung from 3 rows to 4. The 6-row bracket
+/// (60–99 cols) therefore reads 1 nameplate + 4 digits + 1 spare, and the keep
+/// order spends that spare on the fragment — the meter and play rows it used
+/// to afford are the honest price of a readable score. The bracket table
+/// itself (R28/R32) is untouched.
 ///
 /// Keep order, ruling R30: fragment → meter → play. The fragment carries the
 /// only down-and-distance on screen; the meter's own label repeats the chip
@@ -306,15 +349,15 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
 /// and the play stamp is the last nice-to-have.
 fn row_plan(area: Rect, have: [bool; 3], digits_full: bool) -> (u16, [bool; 3]) {
     let under_nameplate = area.height.saturating_sub(1);
-    let full_rows = tiles::glyph_cell(true).1;
-    let digit_rows = if digits_full && under_nameplate >= full_rows {
+    let full_rows = digit_rows(true);
+    let band = if digits_full && under_nameplate >= full_rows {
         full_rows
     } else if under_nameplate >= DIGIT_FLOOR_ROWS {
         DIGIT_FLOOR_ROWS
     } else {
         under_nameplate.min(1)
     };
-    let mut spare = under_nameplate - digit_rows;
+    let mut spare = under_nameplate - band;
     let mut want = have;
     for slot in &mut want {
         if *slot && spare > 0 {
@@ -833,7 +876,11 @@ mod tests {
                 .collect()
         };
         // (terminal size, rows of away-colored digit cells the bracket owes)
-        for (w, h, want) in [(120u16, 40u16, 8usize), (100, 32, 8), (80, 24, 3), (60, 20, 3)] {
+        //
+        // sitting-1 pick 1A: the mid rung is the 4-row quad form, so the
+        // 6-row bracket owes 4 digit rows where it used to owe 3 sextant
+        // ones. The bracket table itself did not move (R28/R32).
+        for (w, h, want) in [(120u16, 40u16, 8usize), (100, 32, 8), (80, 24, 4), (60, 20, 4)] {
             let tier = crate::board::layout::plan(w, h, 8, 2, 4, 0);
             let mut p = plan();
             p.digits_full = tier.hero_digits_full;
@@ -872,16 +919,28 @@ mod tests {
             let (away_color, ..) = theme::hero_pair(&th, game.away.color, game.home.color);
             // Every bracket that draws a glyph form; the text arm has no
             // band to speak of (it lies across the whole width by design).
-            for (w, h) in [(120u16, 12u16), (100, 10), (80, 6), (80, 5), (60, 4)] {
+            //
+            // sitting-1 pick 1A: a 4-row hero is 1 nameplate + 3 rows, under
+            // the quad form's floor, so it now takes the text arm — the case
+            // moved to the assertion below the loop. `layout::plan` never
+            // asks for one (its brackets are 0/2/6/12 rows), so nothing on
+            // the product path lost a glyph here.
+            for (w, h) in [(120u16, 12u16), (100, 10), (80, 6), (80, 5), (60, 6)] {
                 let mut p = plan();
                 p.digits_full = h >= 10;
                 let band = band_rect(Rect { x: 0, y: 0, width: w, height: h }, &game, p.digits_full);
                 let term = render(w, h, &game, &p);
                 let buf = term.backend().buffer();
                 let inked: Vec<u16> = (0..h)
-                    // 4+ away-colored cells in the left third is a digit row;
-                    // the nameplate's `KC` and the flank art never reach it.
-                    .filter(|y| (0..w / 3).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 4)
+                    // 3+ away-colored cells in the INNER half of the left
+                    // third is a digit row. Three, not four: the thinnest row
+                    // the quad table draws for a one-digit score is `8`'s
+                    // `█▀█` — 3 cells (MLB's away 8 here). At three the
+                    // nameplate's own `SEA` would qualify, so the window
+                    // starts at `w/6`: the digits are right-aligned against
+                    // the third's edge and never reach back that far, and the
+                    // abbr never reaches forward that far.
+                    .filter(|y| (w / 6..w / 3).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 3)
                     .collect();
                 assert!(!inked.is_empty(), "no away digits at {w}x{h}\n{}", text_of(buf));
                 assert!(
@@ -894,6 +953,16 @@ mod tests {
                 assert!(band.y == 1 && band.bottom() <= h, "{w}x{h}: band {band:?} escapes the hero");
             }
         }
+        // Under the quad floor (sitting-1 pick 1A): a 4-row hero has 3 rows
+        // under its nameplate, one short of the form, so the ladder takes its
+        // text arm — a score, never a blank — and `band_rect` still reports a
+        // band inside the hero for a caller to find it in.
+        let game = nfl_game();
+        let band = band_rect(Rect { x: 0, y: 0, width: 60, height: 4 }, &game, false);
+        assert!(band.y == 1 && band.bottom() <= 4, "short band {band:?} escapes the hero");
+        let term = render(60, 4, &game, &HeroPlan { digits_full: false, ..plan() });
+        let text = text_of(term.backend().buffer());
+        assert!(text.contains("24 - 21"), "a hero under the quad floor still says its score\n{text}");
     }
 
     #[test]
