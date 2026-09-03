@@ -324,3 +324,167 @@ grammar beyond `:sort`, `:tv`, and the removed layout/score commands.
 - A live-night capture at 120×40 and one at 80×24; a `:tv` capture; a real cut
   captured from a live scoring play (pin a live team, wait).
 - Idle CPU unchanged from sub-project 1; live CPU not above it.
+
+---
+
+## Verification (2026-09-02)
+
+Run 2026-09-02, 22:30–23:05 EDT, from the `v3-2-identity` worktree at 3db4d2d
+plus this task's two carry tests. Every live run used
+`--config-dir /private/tmp/.../scratchpad/gd-dod*` (scratch config; Walter's
+real config was never opened) and was driven inside tmux.
+
+### 1. Tests and lint
+
+```
+$ cargo test 2>&1 | grep -E '^test result'
+test result: ok. 232 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 91 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+410 tests, 0 failed, 0 ignored, 10 suites, default parallelism.
+
+```
+$ cargo clippy --all-targets 2>&1 | grep -cE '^(warning|error)'
+0
+$ cargo clippy --all-targets 2>&1 | tail -1
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+```
+
+Zero warnings. v3.1's §10 miss (5 pre-existing lints inherited from
+2026-08-29/30) is closed — v3.2 cleared them along the way.
+
+**Two carry tests added here** (controller-ruled, folded into Task 16):
+
+- `header_keeps_the_clock_and_the_selected_tab_at_eighty_columns`
+  (`tests/draw.rs`) was built on a boardless fixture, which under chip-gating
+  renders 0–1 chips — the shed ladder was never asked to shed anything. It now
+  runs on Task 14's nine-league fixture (`app_with_every_league_live`) and
+  asserts what the ladder actually gives up at 80 columns: the brackets go
+  (`[ NFL ]`/`[ALL]` absent), every league chip and the clock survive. The
+  first draft asserted that *chips* shed and failed — the ladder's rung 1 drops
+  bracket decoration and still fits all ten chips at 80 cols. The passing
+  assertion is the measured behavior, not the guessed one.
+- `the_window_math_holds_at_odd_heights` (`tests/draw.rs`) — Task 14's review
+  noted the size sweep walks even heights only, leaving `board::first_visible`
+  and the lane's row unguarded where `height - lane` cannot divide evenly. The
+  test walks h ∈ {15, 25, 27, 33, 39} at 120 cols with 24 games and the
+  selection driven to index 20, asserting: the frame is exactly h rows, the
+  footer holds the last row, the SCORES lane holds the row above it, the
+  selected row's bright caret is strictly above the lane, and the lane's
+  off-screen count is in (0, 24). Mutation-checked: changing
+  `let window = area.height - u16::from(lane);` to `area.height` makes it fail
+  (caret drawn into the lane row); reverted.
+
+### 2. Side-by-sides
+
+Gallery regenerated with
+`GAMEDAY_DUMP_FONT=<scratch>/cascadia/ttf/CascadiaMonoNF.ttf ./target/release/gameday dump`
+(22 pages, PNGs batched by `src/dump.rs`). Read pair by pair:
+
+**`out/board-broadcast.png` vs `docs/research/v3-identity/tonight-120x40.png`.**
+Same grammar, element for element: header wordmark + chip row + `s SORT: WATCH`
++ date/clock; a `MY GAMES` rule with the pin caption; the nameplate line with
+records flanking and the team block; giant hero digits with the state chip
+between them; the sport fragment row (bases/outs/count) and the `▸` last-play
+line; the `IN PLAY ──── SORTED BY WATCHABILITY` rule; the tier ladder (big
+digits → compact → one-line) with the hot mark in the left gutter; `FINAL` and
+`LATER` rules; the footer key legend with `GAME n/m · UPD`. Divergences worth
+Walter's eye: (a) the implementation draws 16×10 team logo flanks either side
+of the hero digits, which the mockup does not have (the v3.2 logo decision, and
+they read as heavier than the mockup's empty flanks); (b) the mockup's FINAL
+rows carry a one-phrase summary ("Chapman homers twice") — the implementation's
+FINAL rows are score-only; (c) the implementation adds a
+`SCORES  n OFF-SCREEN · n FINAL · n LATER` counts lane the mockup does not
+show.
+
+**`out/tv.png` vs `docs/research/v3-identity/tv-nfl-sunday-120x40.png`.**
+Same grammar — nameplate pair, giant digits, state chip, situation line,
+possession/red-zone meter, timestamped play list, `ALSO LIVE` section, TV
+footer (`space lock · n next · esc board`). Divergences: (a) the mockup's
+digits fill roughly the top two-thirds of the frame; the implementation's TV
+digits are the same size as the board hero's, so TV reads as "the board with
+the list removed" rather than as a bigger frame; (b) the mockup's meter is a
+full-width field with yard-line ticks (10 20 30 40 50 40 30 20 10); the
+implementation draws the shorter left-labelled `RED ZONE` bar; (c) the
+implementation adds a linescore block the mockup does not have, and puts the
+game clock on the play lines where the mockup puts wall-clock times; (d) no
+`TV` chip in the implementation's header tab strip; (e) no `FINAL · LATER`
+strip under `ALSO LIVE`.
+
+**Bonus pair, `out/board-narrow.png` vs `tonight-80x24.png`** — same grammar;
+the implementation's lane is one counts row where the mockup spends two extra
+rows naming the off-screen games, and the implementation keeps the date at 80
+columns where the mockup drops it.
+
+**VERDICT: awaiting Walter's eye.** These are readings, not a sign-off; §10
+puts the side-by-side gate with the owner.
+
+### 3. Live captures — a real MLB night
+
+Slate at 22:30 EDT (`site.api.espn.com` MLB scoreboard): 9 finals, 6 live —
+DET@MIN, MIA@KC, CHW@HOU, MIL@CHC, NYY@LAA, STL@LAD. Two scratch instances ran
+side by side in tmux for ~17 minutes; captures in
+`.superpowers/sdd/2026-09-02-gameday-v3-2-identity/live-captures/`.
+
+| receipt | file | what it shows |
+| --- | --- | --- |
+| board, 120×40 | `board-120x40.txt` | DET@MIN hero (TOP 9TH, bases/outs/count, live at-bat text), IN PLAY with three tier-2 MLB rows and two tier-3, FINAL with 9 real finals, LATER with real NFL lines and odds, `SCORES 85 OFF-SCREEN` lane, footer clock never clipped |
+| board, 80×24 | `board-80x24.txt` | the same board on the narrow ladder: unbracketed chips, compact hero, four live rows, FINAL, lane |
+| `v` TV | `tv-120x40.txt` | DET@MIN TV frame with the real linescore (5-5 through 8), `ALSO LIVE ─ 5 GAMES` |
+| cut, takeover | `cut-live-1.txt`, `-2.txt`, `-3.txt` | three real takeovers fired by real scoring plays: 22:37:53 KC (`▲ SCORING PLAY · KC`, MIA@KC 8-7), 22:39:37 MIA (9-8), 22:47:46 MIL (MIL@CHC) |
+| cut, band | `cut-live-80-1.txt` | 22:47:42, the 2-row band above an intact board — and an `↑1` nudge on the NYY row in the same frame, which is the event-gated re-sort firing live |
+
+**v3.1's deferred live-scoring receipt is closed**: real scoring plays, real
+cuts, both shapes, captured off the wire.
+
+Three defects the live night exposed that the simulator never could (recorded,
+not fixed — Task 16 is receipts):
+
+1. **MLB's cut word is always `HOME RUN!`.** `theme::scoring_word_for_play`
+   sharpens football only; every MLB score gets the league word. All three
+   captured MLB takeovers say HOME RUN! — `cut-live-1.txt` was an RBI walk
+   (`WALK · — J. SANOJA`), `-3.txt` a run scored on a strikeout. On the wire
+   this reads as wrong, not as a stylized headline.
+2. **`split_surname` is backwards for MLB play text.** ESPN writes
+   `"<PlayType> — <Player>"` for baseball, so the band renders
+   `▲ HOME RUN! · CHC STRIKEOUT · MIL 9 CHC 5` with a second row of
+   `— J. ORTIZ · T9` — the play type is being used as the scorer's name and the
+   leading em dash leaks. The takeover shows the same seam as
+   `PLAY · RESULT — J. MARSEE`.
+3. **TV promotes every cut to a takeover, not just the TV game's.**
+   `App::cut_is_full` returns true on `matches!(self.view, View::Tv)` for any
+   game; while TV was locked to DET@MIN, MIA@KC's and MIL@CHC's scores each
+   took the whole screen. Spec §3's "tv → full" is implemented literally; the
+   live behavior suggests it should be scoped to the game on screen.
+
+### 4. CPU
+
+Method as v3.1 (`--demo` in tmux at 120×40, `ps` sampling), plus an exact
+CPU-time delta because `ps %cpu` on macOS is a decayed average. The v3.1
+baseline commit (`ef219a0`, whose message records 0.46%) was rebuilt in a
+temporary detached worktree and run **simultaneously** with v3.2's binary, so
+both saw the same machine load — the fair comparison, since 0.46% was measured
+on a differently-loaded machine.
+
+```
+window 120s   v3.1 (ef219a0) 1.64s = 1.37%    v3.2 (3db4d2d) 1.43s = 1.19%
+ps %cpu, v3.1 / v3.2:   1.2 / 0.7     1.4 / 0.8     1.0 / 0.7
+```
+
+Single-process runs before the paired one agreed: v3.2 1.25% delta / ps
+0.8–1.0%, v3.1 1.38% delta / ps 1.4–1.5%.
+
+v3.2 is **below** v3.1 on both measures, head to head. The 0.46% figure in
+ef219a0's message does not reproduce on today's machine for the v3.1 binary
+either (1.37%), so it is a machine-state artifact, not a v3.2 regression — the
+§10 gate ("live CPU not above sub-project 1") is met against a same-conditions
+baseline, and the absolute number in the plan should be read as stale.

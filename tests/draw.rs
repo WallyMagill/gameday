@@ -1819,7 +1819,14 @@ fn header_keeps_the_clock_and_the_selected_tab_at_eighty_columns() {
     // Ten chips at 80 cols: the shed ladder runs out of league tabs long
     // before it touches the right side. The selected tab is the one chip
     // that never sheds, and the clock is never clipped.
-    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
+    //
+    // Task-16 carry (task-9 review carry-forward #1, finished): this used a
+    // boardless fixture, which under chip-gating renders 0-1 chips — the shed
+    // ladder was never asked to shed anything. On the nine-league fixture the
+    // header genuinely overflows 80 columns, so shedding is what the test
+    // exercises: something must go, and it is never ALL, never NFL, never the
+    // clock.
+    let mut app = app_with_every_league_live();
     app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
     app.tab = Tab::League(League::Nfl);
     let mut term = Terminal::new(TestBackend::new(80, 40)).unwrap();
@@ -1827,6 +1834,21 @@ fn header_keeps_the_clock_and_the_selected_tab_at_eighty_columns() {
     let first = buf_text(&term).lines().next().unwrap().to_string();
     assert!(first.contains("9:37:05 PM"), "clock clipped: {first}");
     assert!(first.contains("NFL"), "selected tab shed: {first}");
+    assert!(first.contains("ALL"), "ALL chip shed: {first}");
+    // The ladder DID descend: ten bracketed chips cannot fit 80 columns, so
+    // the brackets are the rung that got given up. Every chip still reads —
+    // decoration sheds before content, and content sheds before the clock.
+    assert!(
+        !first.contains("[ NFL ]") && !first.contains("[ALL]"),
+        "brackets survived 80 cols with all nine leagues live — the ladder never descended: {first}"
+    );
+    for league in League::ALL {
+        assert!(
+            first.contains(&league.slug().to_uppercase()),
+            "{} chip shed at 80 cols before the brackets did: {first}",
+            league.slug()
+        );
+    }
 }
 
 #[test]
@@ -2026,6 +2048,69 @@ fn selection_walks_the_whole_list_and_scrolls() {
         row.contains("CIN") && row.contains("BAL"),
         "the caret sits on the selected game: {row:?}\n{s}"
     );
+}
+
+#[test]
+fn the_window_math_holds_at_odd_heights() {
+    // Task-16 carry (Task 14 review): the size sweep walks even heights and
+    // the dynamic window (`board::first_visible` + the lane's row) had no
+    // regression test at an ODD height, where `height - lane` and the row
+    // costs cannot divide evenly and an off-by-one lands on the footer.
+    //
+    // At every odd height the board draws at, with the selection deep enough
+    // that the window must have moved: the selected row is on screen, and
+    // nothing the walk drew overflows into the lane or the footer.
+    for h in [15u16, 25, 27, 33, 39] {
+        let mut app = board_app(12, 6, 6);
+        for _ in 0..20 {
+            key(&mut app, crossterm::event::KeyCode::Char('j'));
+        }
+        assert_eq!(app.selected, 20, "j walks the whole list at h={h}");
+        let term = render(&mut app, 120, h);
+        let buf = term.backend().buffer();
+        let s = buf_text(&term);
+        let lines: Vec<&str> = s.lines().collect();
+        assert_eq!(lines.len(), h as usize, "the frame is exactly h={h} rows:\n{s}");
+
+        // The selected row is visible: the bright caret in the nudge gutter.
+        let bright = gameday::theme::current().bright;
+        let caret_y = (0..buf.area().height).find(|&y| {
+            (0..buf.area().width).any(|x| buf[(x, y)].symbol() == "▸" && buf[(x, y)].fg == bright)
+        });
+        let caret_y = caret_y
+            .unwrap_or_else(|| panic!("selected row must be on screen at h={h}:\n{s}"));
+
+        // The footer is the last row and the lane, when it exists, is the row
+        // above it. Neither may be overwritten by a board row, and the caret
+        // may never land on either — that is what an off-by-one in the window
+        // would look like.
+        let footer_y = h - 1;
+        assert!(
+            lines[footer_y as usize].contains("quit"),
+            "footer keeps the last row at h={h}:\n{s}"
+        );
+        let lane_y = footer_y - 1;
+        let lane = lines[lane_y as usize];
+        assert!(
+            lane.contains("SCORES"),
+            "24 games cannot fit h={h} — the lane must be the row above the footer:\n{s}"
+        );
+        assert!(
+            caret_y < lane_y,
+            "the selected row was drawn into the lane/footer at h={h}: caret_y={caret_y}, lane_y={lane_y}\n{s}"
+        );
+        // The lane counts every game the walk did not draw: exactly the 24
+        // games minus the ones carrying a caret-able row on screen. It is
+        // never zero here, and never more than the whole board.
+        let off: usize = lane
+            .split_whitespace()
+            .find_map(|t| t.parse::<usize>().ok())
+            .unwrap_or_else(|| panic!("lane names a count at h={h}: {lane:?}"));
+        assert!(
+            (1..24).contains(&off),
+            "lane count out of range at h={h}: off={off}, board=24\n{s}"
+        );
+    }
 }
 
 #[test]
