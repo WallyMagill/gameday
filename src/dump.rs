@@ -829,39 +829,87 @@ mod tests {
         );
     }
 
+    /// Render the gate's baseline frame AND report the band the overlays are
+    /// allowed to touch — the *same* `hero::band_rect` the overlays call, on
+    /// the *same* app state, so the containment assertion below is measured
+    /// against the geometry under test rather than a hand-copied rect.
+    fn gate_baseline() -> (Buffer, Rect) {
+        let v = variant("gate-digits-current");
+        with_theme(v.theme, || {
+            let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut app = demo_app(dir, 0);
+            (v.setup)(&mut app);
+            let mut term = Terminal::new(TestBackend::new(v.cols, v.rows)).unwrap();
+            term.draw(|f| app.draw(f)).unwrap();
+            // `hit_zones` is populated by the draw above, which is what
+            // `gate_band` reads the hero's rect out of.
+            let (band, ..) = gate_band(&app).expect("the gate board has a hero");
+            (term.backend().buffer().clone(), band)
+        })
+    }
+
     /// The gate is only a gate if the three frames differ in the score and
-    /// agree on everything else: same size, same board, same hero.
+    /// agree on everything else. Cell-wise containment, not a row-count
+    /// bound: every cell that changed must sit inside the band the overlay
+    /// declared, and the count outside it must be exactly zero. Task 12 and
+    /// Task 16 lean on this as the overlay's regression guard — an `erase`
+    /// that bled into the meter row, or an overlay that nudged a nameplate,
+    /// has to fail here.
     #[test]
-    fn the_three_gate_frames_differ_only_in_how_the_score_is_drawn() {
-        let names = ["gate-digits-current", "gate-digits-quad", "gate-digits-text"];
-        let frames: Vec<Vec<String>> = names
-            .iter()
-            .map(|s| {
-                let v = variant(s);
-                assert_eq!((v.cols, v.rows), (GATE_COLS, GATE_ROWS), "{s} is not a gate size");
-                text_of(&render_variant(&v, 0).unwrap()).lines().map(String::from).collect()
-            })
-            .collect();
-        // Every frame is the same board: the nameplate row and everything
-        // below the hero are identical, so the eye is comparing digits.
-        for f in &frames {
-            assert_eq!(f.len(), GATE_ROWS as usize);
+    fn the_three_gate_frames_differ_only_inside_the_heros_band_rect() {
+        use crate::tiles::quad_digits::QUAD_ROWS;
+        let (base, band) = gate_baseline();
+        let quad = render_variant(&variant("gate-digits-quad"), 0).unwrap();
+        let text = render_variant(&variant("gate-digits-text"), 0).unwrap();
+        assert_eq!(*base.area(), Rect::new(0, 0, GATE_COLS, GATE_ROWS), "gate size");
+
+        // `gate_quad` grows the band to the quad form's row count and says so;
+        // `gate_text` repaints the band as it stands. Those are the two
+        // permitted footprints, and nothing may change outside them.
+        for (name, frame, allowed) in [
+            ("gate-digits-quad", &quad, Rect { height: band.height.max(QUAD_ROWS), ..band }),
+            ("gate-digits-text", &text, band),
+        ] {
+            let mut inside = 0usize;
+            let mut outside: Vec<(u16, u16)> = Vec::new();
+            for y in 0..GATE_ROWS {
+                for x in 0..GATE_COLS {
+                    let (a, b) = (&base[(x, y)], &frame[(x, y)]);
+                    if a.symbol() == b.symbol() && a.fg == b.fg && a.bg == b.bg {
+                        continue;
+                    }
+                    if allowed.contains(ratatui::layout::Position { x, y }) {
+                        inside += 1;
+                    } else {
+                        outside.push((x, y));
+                    }
+                }
+            }
+            assert!(
+                outside.is_empty(),
+                "{name} changed {} cells outside band_rect {allowed:?}: first ten {:?}\n{}",
+                outside.len(),
+                &outside[..outside.len().min(10)],
+                text_of(frame)
+            );
+            assert!(
+                inside > 0,
+                "{name} changed nothing at all — the overlay never ran\n{}",
+                text_of(frame)
+            );
         }
-        let differing: Vec<usize> = (0..GATE_ROWS as usize)
-            .filter(|y| frames[0][*y] != frames[1][*y] || frames[0][*y] != frames[2][*y])
-            .collect();
+
+        // Contained *and* actually the form each stem is named for: the quad
+        // frame is drawn from the quadrant table, the text frame is
+        // `score_block`'s own bold `27 - 24` arm, and the baseline is neither.
+        let (quad_text, text_text, base_text) = (text_of(&quad), text_of(&text), text_of(&base));
         assert!(
-            !differing.is_empty() && differing.len() <= 5,
-            "gate frames must differ in the hero band only, differ in rows {differing:?}"
+            quad_text.contains("█▀█") || quad_text.contains("▀▀█"),
+            "quad frame has no quad digits:\n{quad_text}"
         );
-        // The quad frame really is drawn from the quadrant table, and the
-        // text frame really is `score_block`'s bold `24 - 21` arm.
-        let quad = frames[1].join("\n");
-        let text = frames[2].join("\n");
-        assert!(quad.contains("█▀█") || quad.contains("▀▀█"), "quad frame has no quad digits:\n{quad}");
-        assert!(text.contains(" - "), "text frame has no `N - N` score:\n{text}");
-        // …and the current frame is neither: it is today's sextant hero.
-        assert!(!frames[0].join("\n").contains("█▀█"), "current frame must be untouched");
+        assert!(text_text.contains(" - "), "text frame has no `N - N` score:\n{text_text}");
+        assert!(!base_text.contains("█▀█"), "current frame must be today's hero, untouched");
     }
 
     #[test]
