@@ -555,11 +555,20 @@ impl App {
 
     /// Same answer against a frame's already-derived lists — the draw path
     /// takes this one so a TV frame still derives exactly once.
+    ///
+    /// Ruling R36: there is ONE slate. A shown id is kept only while it is
+    /// still live and still on this tab; anything else falls back to the
+    /// hero rule. Validating against `d.selection` (which carries finals and
+    /// later games) let a game that had gone final stay "shown" while the
+    /// draw looked it up in the live slate and printed "nothing is live"
+    /// over a board with five live games.
     pub(crate) fn tv_shown_in(&self, d: &Derived) -> Option<String> {
+        let slate = Self::tv_slate(d);
+        let on_slate = |id: &String| slate.iter().any(|g| g.id == *id);
         self.tv_shown
             .clone()
-            .filter(|id| d.selection.iter().any(|g| g.id == *id))
-            .or_else(|| d.hero_id.clone())
+            .filter(on_slate)
+            .or_else(|| d.hero_id.clone().filter(on_slate))
     }
 
     /// The slate `n` walks: every live game, board order — the shown game
@@ -580,11 +589,16 @@ impl App {
         if slate.is_empty() {
             return;
         }
-        let at = self
+        // A shown game that is not on the slate has no "next" — the first
+        // game is where `n` lands, not the second (an `unwrap_or(0)` here
+        // stepped past `slate[0]` and made it unreachable in one press).
+        let next = match self
             .tv_shown_in(&d)
             .and_then(|id| slate.iter().position(|g| g.id == id))
-            .unwrap_or(0);
-        let next = slate[(at + 1) % slate.len()].id.clone();
+        {
+            Some(at) => slate[(at + 1) % slate.len()].id.clone(),
+            None => slate[0].id.clone(),
+        };
         if self.tv_lock.is_some() {
             self.tv_lock = Some(next.clone());
         }
@@ -594,35 +608,80 @@ impl App {
     /// The game the next event will cut to, when that isn't the game already
     /// on screen. The ranking is recomputed here rather than read off the
     /// frozen order — between events the order is deliberately stale, and
-    /// naming the next cut is the whole point of not switching yet.
+    /// naming the next cut is the whole point of not switching yet. It is
+    /// the same rule `tv_follow` will apply when the event lands (R35), so
+    /// the caption can never advertise a cut that then doesn't happen.
     pub(crate) fn tv_next_cut_in(&self, d: &Derived) -> Option<Game> {
         if self.tv_lock.is_some() {
             return None;
         }
         let shown = self.tv_shown_in(d);
-        let live = self.live_all();
-        let top = crate::rank::top_id(
-            &live,
-            self.config.sort,
-            &self.config.enabled_tabs,
-            self.now(),
-        )?;
-        if Some(&top) == shown.as_ref() {
+        // Ruling R35, re-ranked: MY GAMES' top wins outright while it is
+        // live; otherwise whichever IN PLAY game the ranking would lead with
+        // right now. `d.in_play` (not `live_all`) is what keeps the caption
+        // inside the tab and the `/` filter — a cut TV cannot make is worse
+        // than no warning at all.
+        let next = match d.my_games.first().filter(|g| g.status == Status::Live) {
+            Some(game) => game.id.clone(),
+            None => crate::rank::top_id(
+                &d.in_play,
+                self.config.sort,
+                &self.config.enabled_tabs,
+                self.now(),
+            )?,
+        };
+        if Some(&next) == shown.as_ref() {
             return None;
         }
-        self.game_by_id(&top)
+        Self::tv_slate(d)
+            .into_iter()
+            .find(|g| g.id == next)
+            .cloned()
     }
 
-    /// After an event re-derived the order: TV follows the new top. Called
-    /// only from the two `OrderState::on_event` sites, which is what makes
-    /// "switches on the next event, never on a timer" (spec §3) true by
+    /// After an event re-derived the order: TV follows the board's hero.
+    /// Called only from the two `OrderState::on_event` sites, which is what
+    /// makes "switches on the next event, never on a timer" (spec §3) true by
     /// construction — no timer can reach this.
-    fn tv_follow(&mut self, live: &[Game]) {
+    ///
+    /// Ruling R35: the rule is `Derived::hero_id` — MY GAMES' top while it is
+    /// live, else the ranking's top — and not `OrderState`'s own top, which
+    /// excludes MY GAMES by design (that exclusion exists to keep pins out of
+    /// the IN PLAY band, not to define a ranking). Following it meant the
+    /// first event cut away from your own team and, because the shown id
+    /// could then never match, pinned `next cut:` on screen forever.
+    fn tv_follow(&mut self) {
         if !matches!(self.view, View::Tv) || self.tv_lock.is_some() {
             return;
         }
-        if let Some(top) = self.order.ordered(live).first() {
-            self.tv_shown = Some(top.id.clone());
+        if let Some(hero) = self.derive().hero_id {
+            self.tv_shown = Some(hero);
+        }
+    }
+
+    /// Ruling R36, the other half: what TV was holding onto can leave the
+    /// slate without any rank event at all — a MY GAMES game going final
+    /// never moves the rank fingerprint (`live_all` excludes it), so
+    /// `tv_follow` is never called for it. A lock that outlives its game is a
+    /// trap (auto-cut off, footer still offering `space unlock`, nothing on
+    /// screen explaining why), and a shown id that outlives its game leaves
+    /// the state disagreeing with the picture. Both re-anchor to the hero
+    /// rule here, on data arrival — never on a tick.
+    fn tv_hygiene(&mut self) {
+        if !matches!(self.view, View::Tv) {
+            return;
+        }
+        let d = self.derive();
+        let slate = Self::tv_slate(&d);
+        let gone = |id: &Option<String>| {
+            id.as_ref()
+                .is_some_and(|id| !slate.iter().any(|g| g.id == *id))
+        };
+        if gone(&self.tv_lock) {
+            self.tv_lock = None;
+        }
+        if gone(&self.tv_shown) && self.tv_lock.is_none() {
+            self.tv_shown = d.hero_id.clone();
         }
     }
 
@@ -1084,7 +1143,7 @@ impl App {
                 now,
                 self.tick,
             );
-            self.tv_follow(&live);
+            self.tv_follow();
         }
         self.rank_fingerprints = fps;
     }
@@ -1104,7 +1163,7 @@ impl App {
             self.tick,
         );
         // A new sort key is a new ranking, and TV shows the ranking's top.
-        self.tv_follow(&live);
+        self.tv_follow();
     }
 
     pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
@@ -1186,6 +1245,10 @@ impl App {
             // inside the `!stale` guard on purpose — a cached payload is not
             // news and must never move the board.
             self.maybe_reorder();
+            // …and TV lets go of anything that just left the live slate
+            // (R36). After `maybe_reorder`, so the hero it re-anchors to is
+            // this event's, not the last one's.
+            self.tv_hygiene();
         }
         // Drop score memory for games no board carries any more: unbounded
         // growth over a days-long session, and a recycled id would flash on
@@ -2189,6 +2252,119 @@ mod tests {
         // …and space again releases it.
         app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
         assert_eq!(app.tv_lock, None, "space unlocks");
+    }
+
+    /// A favorited KC game that ranks LAST, and a stranger game that ranks
+    /// first — the pair ruling R35 is about.
+    fn my_game_and_a_better_one() -> App {
+        let mut app = app_with(
+            vec![
+                ranked("mine", "Q1", "15:00", 3, 0),
+                {
+                    let mut other = ranked("other", "Q4", "5:00", 24, 21);
+                    other.away = team("DAL");
+                    other.home = team("PHI");
+                    other
+                },
+            ],
+            vec![],
+        );
+        app.config.favorites.push(Favorite {
+            league: League::Nfl,
+            team_abbr: "KC".into(),
+        });
+        app
+    }
+
+    #[test]
+    fn tv_follows_the_hero_rule_and_never_cuts_away_from_my_game() {
+        // Ruling R35: TV follows `Derived::hero_id` — MY GAMES' top while it
+        // is live, else the ranking's top. Following `OrderState`'s top
+        // instead (which excludes MY GAMES by design) meant the first event
+        // cut away from your own team and could never cut back.
+        let mut app = my_game_and_a_better_one();
+        app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+        assert_eq!(app.tv_shown.as_deref(), Some("mine"), ":tv opens on my game");
+
+        // "other" outranks it by a mile, and an event lands. The screen holds.
+        let mut better = ranked("other", "Q4", "5:00", 24, 24);
+        better.away = team("DAL");
+        better.home = team("PHI");
+        app.apply_boards(
+            League::Nfl,
+            vec![ranked("mine", "Q1", "15:00", 3, 0), better.clone()],
+            false,
+        );
+        assert_eq!(
+            app.tv_shown.as_deref(),
+            Some("mine"),
+            "an event must never cut away from a live MY GAMES top"
+        );
+        assert_eq!(
+            app.tv_next_cut_in(&app.derive()).map(|g| g.id),
+            None,
+            "and nothing is advertised as next: my game IS the rule's top"
+        );
+
+        // My game goes final: now the ranking's top takes the screen.
+        let mut done = ranked("mine", "Q4", "0:00", 3, 0);
+        done.status = Status::Final;
+        app.apply_boards(League::Nfl, vec![done, better], false);
+        assert_eq!(
+            app.tv_shown.as_deref(),
+            Some("other"),
+            "a final MY GAMES top hands the screen to the ranking"
+        );
+    }
+
+    #[test]
+    fn both_tv_entries_clear_a_stale_lock() {
+        let mut app = my_game_and_a_better_one();
+        let lock_then_leave = |app: &mut App| {
+            app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+            assert!(app.tv_lock.is_some(), "space locks");
+            app.on_key(KeyCode::Esc, KeyModifiers::NONE);
+            assert_eq!(app.view, View::Board);
+        };
+        app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+        lock_then_leave(&mut app);
+        app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+        assert_eq!(app.tv_lock, None, "v reopens unlocked");
+
+        // The command form is the same door: `:tv` used to set the view
+        // only, so TV reopened still locked on a game from the last visit.
+        lock_then_leave(&mut app);
+        for c in ":tv".chars() {
+            crate::input::handle_key(&mut app, KeyCode::Char(c), KeyModifiers::NONE);
+        }
+        crate::input::handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(matches!(app.view, View::Tv), ":tv opens TV");
+        assert_eq!(app.tv_lock, None, ":tv reopens unlocked");
+    }
+
+    #[test]
+    fn a_lock_on_a_game_that_leaves_the_slate_releases_itself() {
+        // Ruling R36: a lock is one slate's worth of intent. When its game
+        // goes final the lock would otherwise hold a dead id — auto-cut off,
+        // footer still offering `space unlock`, screen stuck on a game that
+        // is not live.
+        let mut app = my_game_and_a_better_one();
+        app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert_eq!(app.tv_lock.as_deref(), Some("mine"));
+
+        let mut done = ranked("mine", "Q4", "0:00", 3, 0);
+        done.status = Status::Final;
+        let mut better = ranked("other", "Q4", "5:00", 24, 21);
+        better.away = team("DAL");
+        better.home = team("PHI");
+        app.apply_boards(League::Nfl, vec![done, better], false);
+        assert_eq!(app.tv_lock, None, "the lock released with its game");
+        assert_eq!(
+            app.tv_shown.as_deref(),
+            Some("other"),
+            "and the hero rule took over in the same event"
+        );
     }
 
     #[test]

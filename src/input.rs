@@ -210,7 +210,10 @@ fn apply(app: &mut App, cmd: Cmd) {
                 (None, None) => format!("sort {}", next.label().to_ascii_lowercase()),
             });
         }
-        Cmd::Tv => app.view = View::Tv,
+        // Both entry paths seed the shown game and clear any lock: a `:tv`
+        // that only set the view reopened still locked on a game from the
+        // last visit, with no event able to move the screen.
+        Cmd::Tv => app.open_tv(),
         Cmd::Pin(abbr) => pin_team(app, &abbr),
         Cmd::Quit => app.should_quit = true,
     }

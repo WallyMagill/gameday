@@ -103,6 +103,12 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     // handed the game without its plays rather than drawing a fourth,
     // unstamped copy of the newest one. Nothing else in the hero reads
     // `last_plays`, and the clone is local to this frame.
+    //
+    // This seam is load-bearing twice: an empty `last_plays` also drops the
+    // play row from the hero's R30 keep-order budget, so the row it would
+    // have taken goes back to the digit band (`hero.rs`'s `band_rows`) —
+    // which is where TV's air around the digits comes from. Anyone changing
+    // `HeroPlan` needs both halves.
     let mut headline = game.clone();
     headline.last_plays.clear();
     hero::draw_hero(
@@ -117,7 +123,11 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
             now,
             pinned: app.pins.iter().any(|p| p.game_id == game.id),
             favorite: app.is_my_game(game),
-            show_logos: area.width >= 100,
+            // Spec §0: TV, the cut and the row tiers stay logo-free. The
+            // logo study measured two 40-col marks collapsing the digits
+            // from 15 rows to 6 and evicting the play feed, and the
+            // reference frame has no flanks.
+            show_logos: false,
             // Nothing is selectable in TV, so no caret.
             selected: false,
         },
@@ -149,7 +159,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
                     Style::default().fg(if play.scoring { r.hot } else { r.ink }),
                 ),
             ])),
-            Rect { x: body.x + 2, y, width: body.width - 2, height: 1 },
+            Rect { x: body.x + 2, y, width: body.width.saturating_sub(2), height: 1 },
         );
         y += 1;
     }

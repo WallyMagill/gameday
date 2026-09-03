@@ -2284,6 +2284,19 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     // The shown game is the ranking's top; both its abbrs are on the hero.
     assert!(text.contains("KC") && text.contains("TB"), "{text}");
 
+    // Spec §0: TV stays logo-free, even at the ≥100 columns where the board
+    // flanks its hero — the margin outside the digits is untouched ground.
+    // (KC and TB both have committed art, so this would paint otherwise.)
+    for y in digit_rows[0]..=digit_rows[7] {
+        for x in 0..20u16 {
+            assert_eq!(
+                buf[(x, y)].symbol(),
+                " ",
+                "no hero mark in TV's margin at ({x},{y}):\n{text}"
+            );
+        }
+    }
+
     // Everything else rides the strip, one row each.
     assert!(text.contains("ALSO LIVE"), "the strip names itself:\n{text}");
     assert!(text.contains("5 GAMES"), "the strip counts the rest:\n{text}");
@@ -2293,6 +2306,32 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     // TV is not the board: no section rules, no off-screen lane.
     assert!(!text.contains("IN PLAY"), "no board rules in TV:\n{text}");
     assert!(!text.contains("OFF-SCREEN"), "no lane in TV:\n{text}");
+}
+
+#[test]
+fn a_locked_game_going_final_never_leaves_tv_saying_nothing_is_live() {
+    // Ruling R36: one slate. The lock and the shown id are both validated
+    // against the LIVE slate the strip draws from — a game that has gone
+    // final can't stay "shown" while five games are live.
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let mut app = mk();
+    app.apply_boards(League::Nfl, tv_slate(), false);
+    app.tab = Tab::League(League::Nfl);
+    app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+    app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+    assert_eq!(app.tv_lock.as_deref(), Some("1"), "space locks the shown game");
+
+    let mut games = tv_slate();
+    games[0].status = Status::Final;
+    app.apply_boards(League::Nfl, games, false);
+    assert_eq!(app.tv_lock, None, "the lock released with its game");
+
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let text = buf_text(&term);
+    assert!(!text.contains("nothing is live"), "five games are live:\n{text}");
+    assert!(text.contains("DAL") && text.contains("PHI"), "the next live game leads:\n{text}");
+    assert!(text.contains("4 GAMES"), "the strip counts the remaining live games:\n{text}");
 }
 
 #[test]
