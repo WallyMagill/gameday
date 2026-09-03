@@ -729,13 +729,24 @@ mod tests {
         let buf = term.backend().buffer();
         let text = text_of(buf);
 
-        // sitting-1 pick 2A / ruling R39: the sextant garnish is gone. The
-        // cells between the nameplate's last score column and the clock carry
-        // no ink at all now — the numerals `pair_line` draws ARE the score.
-        let field = Rect { x: HOME_SCORE_X + SCORE_W, y: 0, width: CLOCK_X - HOME_SCORE_X - SCORE_W, height: 3 };
-        for y in field.y..field.bottom() {
-            for x in field.x..field.right() {
-                assert_eq!(buf[(x, y)].symbol(), " ", "no garnish left at ({x},{y})\n{text}");
+        // sitting-1 pick 2A / ruling R39: the garnish is gone, and what makes
+        // that checkable is not the one column it vacated (with the clock at
+        // x22 there is exactly one cell between the nameplate and the clock,
+        // which is too degenerate to fail interestingly) but the *kind* of
+        // ink it was. The garnish was big-glyph digits; a tier-1 block must
+        // now draw no block-element glyph anywhere, on any row.
+        for y in 0..3u16 {
+            for x in 0..120u16 {
+                let ch = buf[(x, y)].symbol().chars().next().unwrap_or(' ');
+                let o = ch as u32;
+                // `▌` (U+258C) is the hot mark in column 0 — the one block
+                // element a row is allowed, and it is a gutter, not a score.
+                let allowed = ch == '▌' && x == 0;
+                assert!(
+                    allowed || !((0x2580..=0x259F).contains(&o) || (0x1FB00..=0x1FBFF).contains(&o)),
+                    "tier 1 draws a glyph score at ({x},{y}): U+{o:04X} — the numerals ARE the \
+                     score now (R39)\n{text}"
+                );
             }
         }
 

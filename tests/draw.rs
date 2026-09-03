@@ -2865,46 +2865,58 @@ fn the_takeover_and_the_hero_agree_on_every_digit_cell() {
     use ratatui::layout::Rect;
     let game = cut_game("1");
     let play = scoring_play();
-    let area = Rect::new(0, 1, 120, 39); // everything under the header row
-    let (slot, full) = gameday::board::cut::score_slot(area, &game, &play);
-    assert!(slot.width > 0 && slot.height > 0, "the takeover must reserve a score band");
 
-    let mut cut = Terminal::new(TestBackend::new(120, 40)).unwrap();
-    let fired = gameday::board::cut::Cut {
-        game_id: game.id.clone(),
-        play: play.clone(),
-        full: true,
-        until_tick: gameday::board::cut::CUT_TICKS,
-    };
-    cut.draw(|f| gameday::board::cut::draw_takeover(f, area, &game, &fired, 0))
-        .unwrap();
-    let mut hero = Terminal::new(TestBackend::new(120, 40)).unwrap();
-    hero.draw(|f| gameday::board::hero::score_block(f, slot, &game, full))
-        .unwrap();
+    // Both rungs of the ladder, because the shared call is only *proven*
+    // shared at the sizes a test actually renders. 120×40 gives the takeover
+    // enough middle for 8-row `PixelSize::Full` digits; 80×19 is the quad
+    // rung — `cut::plan` picks `(Full word, score_full = false)` when
+    // `8 + 4 <= middle < 8 + 8`, i.e. middle 12–15, i.e. height 16–19 at
+    // width ≥ 72. The `painted` floors are the fixture's own cell counts
+    // (24–21): 32 solid cells at Full, and 35 at quad (the table's `2`, `4`,
+    // `2`, `1` come to 10+8+10+7), each floored a little under.
+    for (w, h, want_full, floor) in [(120u16, 40u16, true, 32usize), (80, 19, false, 30)] {
+        let area = Rect::new(0, 1, w, h - 1); // everything under the header row
+        let (slot, full) = gameday::board::cut::score_slot(area, &game, &play);
+        assert!(slot.width > 0 && slot.height > 0, "{w}x{h}: the takeover must reserve a score band");
+        assert_eq!(full, want_full, "{w}x{h}: this size is here to exercise the other rung");
 
-    let (a, b) = (cut.backend().buffer(), hero.backend().buffer());
-    let mut painted = 0;
-    for y in slot.y..slot.bottom() {
-        for x in slot.x..slot.right() {
-            assert_eq!(
-                a[(x, y)].symbol(),
-                b[(x, y)].symbol(),
-                "digit cell ({x},{y}) differs between the cut and the hero"
-            );
-            // The takeover paints its own ground across the whole area, so
-            // an empty cell's fg differs by construction; the digits are the
-            // claim, and every painted cell must match in color too.
-            if a[(x, y)].symbol() != " " {
+        let mut cut = Terminal::new(TestBackend::new(w, h)).unwrap();
+        let fired = gameday::board::cut::Cut {
+            game_id: game.id.clone(),
+            play: play.clone(),
+            full: true,
+            until_tick: gameday::board::cut::CUT_TICKS,
+        };
+        cut.draw(|f| gameday::board::cut::draw_takeover(f, area, &game, &fired, 0))
+            .unwrap();
+        let mut hero = Terminal::new(TestBackend::new(w, h)).unwrap();
+        hero.draw(|f| gameday::board::hero::score_block(f, slot, &game, full))
+            .unwrap();
+
+        let (a, b) = (cut.backend().buffer(), hero.backend().buffer());
+        let mut painted = 0;
+        for y in slot.y..slot.bottom() {
+            for x in slot.x..slot.right() {
                 assert_eq!(
-                    a[(x, y)].fg,
-                    b[(x, y)].fg,
-                    "digit color at ({x},{y}) differs between the cut and the hero"
+                    a[(x, y)].symbol(),
+                    b[(x, y)].symbol(),
+                    "{w}x{h}: digit cell ({x},{y}) differs between the cut and the hero"
                 );
-                painted += 1;
+                // The takeover paints its own ground across the whole area, so
+                // an empty cell's fg differs by construction; the digits are the
+                // claim, and every painted cell must match in color too.
+                if a[(x, y)].symbol() != " " {
+                    assert_eq!(
+                        a[(x, y)].fg,
+                        b[(x, y)].fg,
+                        "{w}x{h}: digit color at ({x},{y}) differs between the cut and the hero"
+                    );
+                    painted += 1;
+                }
             }
         }
+        assert!(painted >= floor, "{w}x{h}: the score has to actually be drawn: {painted} cells");
     }
-    assert!(painted >= 32, "the score has to actually be drawn: {painted} cells");
 }
 
 #[test]
@@ -3551,16 +3563,24 @@ fn mlb_zoom_game() -> Game {
     }
 }
 
-/// The score glyphs of a rendered frame, cropped to their bounding box:
-/// every `█` cell with its fg. Position-independent, so the same score drawn
-/// at two different y offsets compares equal.
+/// The score glyphs of a rendered frame, cropped to their bounding box, with
+/// each cell's fg. Position-independent, so the same score drawn at two
+/// different y offsets compares equal.
+///
+/// The glyph set is the four characters the two score forms actually draw:
+/// `PixelSize::Full` paints solid `█`, and the quad table (sitting-1 pick 1A)
+/// adds `▀ ▄ ▝`. Deliberately NOT the whole U+2580–259F run — the tier rows'
+/// hot mark is `▌` and the hero marks are quadrant art, and either would drag
+/// non-score cells into the bounding box.
+const SCORE_GLYPHS: [&str; 4] = ["█", "▀", "▄", "▝"];
+
 fn digit_grid(term: &Terminal<TestBackend>) -> Vec<Vec<(String, ratatui::style::Color)>> {
     let b = term.backend().buffer();
     let area = b.area();
     let mut cells = Vec::new();
     for y in 0..area.height {
         for x in 0..area.width {
-            if b[(x, y)].symbol() == "█" {
+            if SCORE_GLYPHS.contains(&b[(x, y)].symbol()) {
                 cells.push((x, y));
             }
         }
@@ -3623,6 +3643,32 @@ fn zoom_overview_reuses_the_hero_and_shows_the_matchup_line() {
         digit_grid(&zoom),
         board_digits,
         "the zoom hero's digits differ from the board hero's for the same game"
+    );
+
+    // …and again at the QUAD rung. 120×40 is `hero_digits_full = true`
+    // (layout: width ≥ 100 && height ≥ 32), so the pass above only ever
+    // exercises `PixelSize::Full`. Below that bracket the zoom and the board
+    // both draw the quadrant form, and that rung has to be pinned too —
+    // otherwise a quad-only tweak inside the zoom drifts from `score_block`
+    // and this test stays green.
+    let mut app = mk();
+    app.apply_boards(League::Mlb, vec![game.clone()], false);
+    app.tab = Tab::League(League::Mlb);
+    let mut board = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    board.draw(|f| app.draw(f)).unwrap();
+    let board_quad = digit_grid(&board);
+    // The rung really is quad here: `PixelSize::Full` is 8 rows tall, the
+    // quad table is 4, and nothing else on this frame draws these glyphs.
+    assert_eq!(board_quad.len(), 4, "80×24 must render the 4-row quad form, got {board_quad:?}");
+
+    zoomed(&mut app, &game);
+    let mut zoom = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    zoom.draw(|f| app.draw(f)).unwrap();
+    assert_eq!(
+        digit_grid(&zoom),
+        board_quad,
+        "at the quad rung the zoom hero's digits differ from the board hero's:\n{}",
+        buf_text(&zoom)
     );
 }
 

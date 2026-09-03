@@ -33,25 +33,26 @@ const PENALTY_BAR_MAX: usize = 20;
 /// shows as a full bar until it is inside its last two minutes).
 const PENALTY_MINOR_SECS: u16 = 120;
 
-/// Cell size of one big-text glyph: 8×8 at `PixelSize::Full`, 4×3 at
-/// sextant. The one place those numbers are written down — the hero's fit
-/// ladder and this module's tiles both step through them.
-pub(crate) fn glyph_cell(full: bool) -> (u16, u16) {
-    if full {
-        (8, 8)
-    } else {
-        (4, 3)
-    }
+/// Cell size of one big-text glyph: 8×8, `PixelSize::Full`. The one place
+/// those numbers are written down — the hero's fit ladder and the cut's word
+/// ladder both step through them.
+///
+/// There is no second size here any more. `PixelSize::Sextant` was 4×3 and
+/// drew from U+1FB00–1FB3B, which Terminal.app's default font does not cover;
+/// sitting-1 pick 1A replaced the digits' sextant rung with
+/// [`quad_digits`] and ruling R42 deleted the scoring word's. What used to
+/// step down in size now steps down in *kind* — to a plain bold line.
+pub(crate) fn glyph_cell() -> (u16, u16) {
+    (8, 8)
 }
 
 /// Paint `text` as big glyphs into `rect` in `style`. The rect is the
 /// caller's clamped slot — the widget clips, this never grows it.
-fn glyph_slot(frame: &mut Frame, rect: Rect, text: &str, style: Style, full: bool) {
+fn glyph_slot(frame: &mut Frame, rect: Rect, text: &str, style: Style) {
     use tui_big_text::{BigText, PixelSize};
-    let px = if full { PixelSize::Full } else { PixelSize::Sextant };
     frame.render_widget(
         BigText::builder()
-            .pixel_size(px)
+            .pixel_size(PixelSize::Full)
             .style(style)
             .lines(vec![Line::from(text.to_string())])
             .build(),
@@ -61,10 +62,10 @@ fn glyph_slot(frame: &mut Frame, rect: Rect, text: &str, style: Style, full: boo
 
 /// Big letters for a word (the cut's scoring word), in `rect`, at the size
 /// the caller already measured with [`glyph_cell`]. Same renderer as the
-/// digits — one glyph engine, so a word and a score never disagree about
-/// their cell grid.
-pub(crate) fn word_glyphs(frame: &mut Frame, rect: Rect, word: &str, color: Color, full: bool) {
-    glyph_slot(frame, rect, word, Style::default().fg(color), full);
+/// digits' Full rung — one glyph engine, so a word and a score never disagree
+/// about their cell grid.
+pub(crate) fn word_glyphs(frame: &mut Frame, rect: Rect, word: &str, color: Color) {
+    glyph_slot(frame, rect, word, Style::default().fg(color));
 }
 
 /// One number, one color, one rect at `PixelSize::Full`: the big-score core.
@@ -74,15 +75,13 @@ pub(crate) fn word_glyphs(frame: &mut Frame, rect: Rect, word: &str, color: Colo
 /// There is no sextant arm any more (sitting-1 pick 1A): the mid rung of the
 /// score ladder is [`quad_digits`], and the tier-1 sextant garnish that was
 /// this function's only other small-form caller is deleted (ruling R39).
-/// `glyph_slot`'s sextant path survives for [`word_glyphs`] — the cut's
-/// scoring word still steps down that way.
 pub(crate) fn digit_glyphs(frame: &mut Frame, rect: Rect, value: u16, color: Color) -> bool {
     let text = value.to_string();
-    let (gw, gh) = glyph_cell(true);
+    let (gw, gh) = glyph_cell();
     if text.len() as u16 * gw > rect.width || gh > rect.height {
         return false;
     }
-    glyph_slot(frame, rect, &text, Style::default().fg(color), true);
+    glyph_slot(frame, rect, &text, Style::default().fg(color));
     true
 }
 

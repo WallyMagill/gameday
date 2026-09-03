@@ -261,13 +261,13 @@ pub fn gallery() -> Vec<Variant> {
         at_tick("nudge-seq-2", crate::sim::NUDGE_TICK),
         at_tick("nudge-seq-3", crate::sim::NUDGE_TICK + 1),
         // sitting-1 pick 1A landed: the product's own mid-size form IS the
-        // quadrant one, so `gate-digits-current` renders the winner with no
-        // overlay at all and the separate `gate-digits-quad` stem is gone —
-        // an overlay that redraws what the board already drew is a no-op
-        // dressed as a comparison. `gate-digits-text` stays: it is the
-        // honest bottom of the ladder and the only frame still worth
-        // contrasting. (R38: Task 16 retires both.)
-        gate("gate-digits-current", None),
+        // quadrant one, so this stem renders the winner with no overlay at
+        // all and the separate `gate-digits-quad` stem is gone — an overlay
+        // that redraws what the board already drew is a no-op dressed as a
+        // comparison. Named `-product`, not `-current`: it is no longer one
+        // side of a candidate contrast, it is what ships. `gate-digits-text`
+        // stays as the honest bottom of the ladder. (R38: T16 retires both.)
+        gate("gate-digits-product", None),
         gate("gate-digits-text", Some(gate_text as fn(&mut Frame, &App))),
         // The v3.3 tier-1 re-grid gate (spec §4). No overlay and no new
         // mechanism: the tier-1 rows ARE the product's, so the gate is just
@@ -327,7 +327,7 @@ fn hero_zone(app: &App) -> Option<(Rect, crate::domain::Game, bool)> {
     // is not reachable from a finished frame — so read the answer off the
     // hero's own height, using `draw_hero`'s own condition: Full digits are
     // drawn only when the rows under the nameplate can hold an 8-row glyph.
-    let digits_full = rect.height.saturating_sub(1) >= crate::tiles::glyph_cell(true).1;
+    let digits_full = rect.height.saturating_sub(1) >= crate::tiles::glyph_cell().1;
     Some((rect, d.selection[i].clone(), digits_full))
 }
 
@@ -738,10 +738,13 @@ fn color_css(c: Color) -> String {
 }
 
 pub fn buffer_to_html(buf: &Buffer) -> String {
-    // Cascadia Mono carries the sextant glyphs (U+1FB00 block) the cut's
-    // scoring word still steps down to; system monospace fonts mostly don't,
-    // so the capture would show tofu. The hero digits and the logo art no
-    // longer need it — both are quadrant blocks now (sitting-1 1A, R41).
+    // A font with full block-element coverage. Nothing the app draws needs
+    // U+1FB00 any more — sitting-1 pick 1A moved the digits to quadrant
+    // blocks, R41 regenerated the logo art the same way, and R42 deleted the
+    // scoring word's sextant rung — so this is now belt-and-braces for the
+    // capture rather than the load-bearing requirement it was. Kept because a
+    // headless Chrome with a thin default font still substitutes badly on the
+    // box-drawing rules and meter tracks.
     let font_face = std::env::var("GAMEDAY_DUMP_FONT")
         .ok()
         .filter(|p| Path::new(p).exists())
@@ -887,7 +890,7 @@ mod tests {
                 // Ruling R38: the gate stems JOIN this list while they exist.
                 // They are a temporary sitting artifact — when v3.3 §1b picks
                 // a mid-size form, the two losers and this entry go together.
-                "gate-digits-current",
+                "gate-digits-product",
                 "gate-digits-text",
                 "gate-tier1-after",
                 "gate-band-reserved",
@@ -903,7 +906,7 @@ mod tests {
     /// the *same* app state, so the containment assertion below is measured
     /// against the geometry under test rather than a hand-copied rect.
     fn gate_baseline() -> (Buffer, Rect) {
-        let v = variant("gate-digits-current");
+        let v = variant("gate-digits-product");
         with_theme(v.theme, || {
             let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
             std::fs::create_dir_all(&dir).unwrap();
@@ -1288,8 +1291,8 @@ mod tests {
             }
             text.push('\n');
         }
-        // Big style: sextant digits, so the single-row score text is gone but
-        // the identity rows appear under them. The 4-up NFL tile can't fit
+        // Big style: glyph digits (quad at this bracket), so the single-row
+        // score text is gone but the identity rows appear under them. The 4-up NFL tile can't fit
         // "BUCCANEERS 11-6", so both sides fall back to the abbr form rather
         // than losing the records.
         assert!(!text.contains("27 - 24"), "the board never prints a text score row:\n{text}");

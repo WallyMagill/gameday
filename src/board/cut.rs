@@ -112,18 +112,23 @@ fn word_for(game: &Game, play: &Play) -> &'static str {
 }
 
 /// Which size the scoring word ended up at, and the rows it costs.
+///
+/// Ruling R42: there is no sextant rung. It fired at widths 40–71 — every
+/// terminal narrower than `TOUCHDOWN` at block size — and `PixelSize::Sextant`
+/// draws from U+1FB00–1FB3B, which Terminal.app's default font does not cover:
+/// the loudest moment the app has rendered as a row of tofu boxes. The ladder
+/// is block letters or a plain bold line, and a bold line that says TOUCHDOWN
+/// beats a big shape that says nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WordForm {
     Full,
-    Sextant,
     Text,
 }
 
 impl WordForm {
     fn rows(self) -> u16 {
         match self {
-            WordForm::Full => crate::tiles::glyph_cell(true).1,
-            WordForm::Sextant => crate::tiles::glyph_cell(false).1,
+            WordForm::Full => crate::tiles::glyph_cell().1,
             WordForm::Text => 1,
         }
     }
@@ -132,8 +137,7 @@ impl WordForm {
     fn cols(self, word: &str) -> u16 {
         let glyphs = word.chars().count() as u16;
         match self {
-            WordForm::Full => glyphs * crate::tiles::glyph_cell(true).0,
-            WordForm::Sextant => glyphs * crate::tiles::glyph_cell(false).0,
+            WordForm::Full => glyphs * crate::tiles::glyph_cell().0,
             WordForm::Text => glyphs,
         }
     }
@@ -167,13 +171,12 @@ fn plan(area: Rect, word: &str) -> Plan {
     // Width receipt: at `PixelSize::Full` one glyph is 8 cells wide
     // (`tiles::glyph_cell`), so the longest word we ship — "TOUCHDOWN", 9
     // glyphs (spec v3.3 §7 dropped the "!") — needs 72 columns. Anything
-    // narrower steps down to sextant (4/glyph, 36 columns) and then to a
-    // plain bold line. Never a clipped letter.
+    // narrower goes straight to a plain bold line (ruling R42 deleted the
+    // sextant rung that used to sit between them). Never a clipped letter,
+    // and never a rung that tofus.
     let (word_form, score_full) = [
         (WordForm::Full, true),
         (WordForm::Full, false),
-        (WordForm::Sextant, true),
-        (WordForm::Sextant, false),
         (WordForm::Text, true),
         (WordForm::Text, false),
     ]
@@ -239,14 +242,14 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick
             Paragraph::new(Span::styled(word, hot)).alignment(Alignment::Center),
             word_rect,
         ),
-        form => {
-            let cols = form.cols(word);
+        WordForm::Full => {
+            let cols = word_form.cols(word);
             let slot = Rect {
                 x: word_rect.x + (word_rect.width - cols) / 2,
                 width: cols,
                 ..word_rect
             };
-            crate::tiles::word_glyphs(frame, slot, word, r.hot, form == WordForm::Full);
+            crate::tiles::word_glyphs(frame, slot, word, r.hot);
         }
     }
     // The hard rule (spec §1): the takeover does not know how to draw a
@@ -733,6 +736,65 @@ mod tests {
         out
     }
 
+    /// Ruling R42: the scoring word's ladder is block letters or a plain bold
+    /// line — there is no rung in between. The deleted sextant rung fired at
+    /// exactly the widths pinned here (40–71: `TOUCHDOWN` is 9 glyphs × 8 =
+    /// 72 cells at block size, and the app's floor is 40 cols), and it drew
+    /// from U+1FB00–1FB3B, which Terminal.app's default font renders as tofu.
+    /// The loudest moment the app has must not be a row of boxes.
+    #[test]
+    fn under_the_block_width_the_scoring_word_is_a_bold_line_not_a_glyph() {
+        let g = game();
+        let p = play("Mahomes 12 Yd pass to Kelce");
+        let word = word_for(&g, &p);
+        assert_eq!(word, "TOUCHDOWN");
+        let block_cols = word.chars().count() as u16 * crate::tiles::glyph_cell().0;
+        assert_eq!(block_cols, 72, "the width receipt this test is pinned to");
+
+        let cut = a_cut(true, 0, &p);
+        for w in [40u16, 55, 60, 71] {
+            for h in [12u16, 20, 40] {
+                let area = Rect::new(0, 0, w, h);
+                let plan = plan(area, word);
+                assert_eq!(
+                    plan.word_form,
+                    WordForm::Text,
+                    "{w}x{h}: {block_cols} cells of block letters cannot fit {w} columns"
+                );
+                assert_eq!(plan.word_rect.height, 1, "{w}x{h}: the text form is one row");
+
+                // Cell level: the word row spells TOUCHDOWN in `hot`, and no
+                // cell anywhere on the frame is a legacy-computing glyph.
+                let b = drawn(w, h, |f| draw_takeover(f, area, &g, &cut, 0));
+                let row = row_text(&b, plan.word_rect.y);
+                assert!(row.contains(word), "{w}x{h}: word row is {row:?}");
+                let x = row.find(word).unwrap() as u16;
+                let r = theme::current().roles();
+                assert_eq!(b[(x, plan.word_rect.y)].fg, r.hot, "{w}x{h}: the word wears hot");
+                assert!(
+                    b[(x, plan.word_rect.y)].modifier.contains(Modifier::BOLD),
+                    "{w}x{h}: the text form carries its weight in bold"
+                );
+                for y in 0..h {
+                    for x in 0..w {
+                        let ch = b[(x, y)].symbol().chars().next().unwrap_or(' ');
+                        assert!(
+                            !(0x1FB00..=0x1FBFF).contains(&(ch as u32)),
+                            "{w}x{h}: legacy-computing glyph U+{:04X} at ({x},{y}) — R42 deleted \
+                             the rung that drew them\n{}",
+                            ch as u32,
+                            (0..h).map(|y| row_text(&b, y)).collect::<Vec<_>>().join("\n")
+                        );
+                    }
+                }
+            }
+        }
+
+        // And the rung above still fires the moment the columns are there.
+        let wide = Rect::new(0, 0, 72, 40);
+        assert_eq!(plan(wide, word).word_form, WordForm::Full, "72 columns is exactly enough");
+    }
+
     #[test]
     fn the_takeover_names_both_teams_in_their_colors() {
         // spec v3.3 §3: the takeover names who is playing, and each abbr
@@ -782,11 +844,17 @@ mod tests {
             for h in [12u16, 16, 24, 40] {
                 let area = Rect::new(0, 0, w, h);
                 let b = drawn(w, h, |f| draw_takeover(f, area, &g, &cut, 0));
-                let (score, _) = score_slot(area, &g, &p);
-                if score.bottom() >= area.bottom() {
+                // Ask the plan where the label row IS, rather than assuming
+                // it is the row under the score. Ruling R42 dropped the
+                // word's sextant rung, which changed which sizes can afford
+                // labels at all — at 40×12 the plan now spends the middle on
+                // a bold word plus a full-height score band and has no label
+                // row, so "the row under the score" is the detail line and
+                // the old guess read `MAHOMES · 12 YD PASS…` as a label.
+                let Some(row) = plan(area, word_for(&g, &p)).labels else {
                     continue;
-                }
-                let named = runs(&b, score.bottom());
+                };
+                let named = runs(&b, row.y);
                 let named: Vec<&str> = named.iter().map(|(_, s, _)| s.as_str()).collect();
                 assert!(
                     named.is_empty() || named == ["KC", "BUF"],

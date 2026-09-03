@@ -35,7 +35,7 @@ const PLAY_ROWS: u16 = 3;
 const LINESCORE_ROWS: u16 = crate::board::linescore::ROWS;
 
 /// What the hero owes before TV spends a row on anything else: the nameplate,
-/// the 8 rows of `PixelSize::Full` digits (`tiles::glyph_cell(true).1`), and
+/// the 8 rows of `PixelSize::Full` digits (`tiles::glyph_cell().1`), and
 /// the fragment and meter lines under them. Everything below is charged
 /// against what is left over, hero first — the same "digits are charged
 /// first" discipline the board's brackets follow (ruling R29).

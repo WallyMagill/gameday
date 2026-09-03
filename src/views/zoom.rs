@@ -87,7 +87,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: Rect, game: &Game, activ
 }
 
 /// What the hero asks for in a zoom: the nameplate row, 8 rows of
-/// `PixelSize::Full` digits (`tiles::glyph_cell(true).1`), and the three
+/// `PixelSize::Full` digits (`tiles::glyph_cell().1`), and the three
 /// optional rows the hero's own keep order can spend (fragment, meter, last
 /// play) — `hero.rs`'s full budget. The zoom is the one surface with room to
 /// grant all of it; a shorter pane falls through the hero's own ladder.

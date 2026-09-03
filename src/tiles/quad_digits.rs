@@ -2,7 +2,7 @@
 //!
 //! Why a second digit renderer exists at all: the v3.3 spike found that
 //! Terminal.app has no sextant coverage — `tui-big-text`'s `PixelSize::Sextant`
-//! (the hero's mid rung, `tiles::glyph_cell(false)` = 4×3) renders as tofu
+//! (the hero's mid rung before sitting-1 pick 1A, 4×3) renders as tofu
 //! there — and that at 80×24 the sextant digits do not resolve into a readable
 //! number even where the font *does* cover them. The quadrant block set is the
 //! oldest, widest-covered half/quarter-cell run in Unicode; a digit built from
@@ -14,9 +14,9 @@
 //! instead of 8×3 — the same footprint, spent on height, which is where a
 //! digit's identity lives.
 //!
-//! Nothing wires this into `hero::score_block` yet: the three `gate-digits-*`
-//! captures put this form beside today's in front of the owner, and the apply
-//! task picks one.
+//! Sitting-1 pick 1A made this the ladder's mid rung: `hero::score_block`
+//! draws it wherever a bracket asked for digits but cannot hold the 8-row
+//! `PixelSize::Full` form, which is every terminal from 60 to 99 columns.
 
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};

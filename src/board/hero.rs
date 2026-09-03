@@ -88,7 +88,7 @@ const DIGIT_FLOOR_ROWS: u16 = quad_digits::QUAD_ROWS;
 /// planned for.
 pub fn digit_rows(full: bool) -> u16 {
     if full {
-        tiles::glyph_cell(true).1
+        tiles::glyph_cell().1
     } else {
         DIGIT_FLOOR_ROWS
     }
@@ -129,7 +129,7 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
         // between them (`quad_size`). Asking each form for its own size is
         // what keeps the ladder honest when a rung changes cell grid.
         let (aw, hw, gh) = if form == ScoreForm::Full {
-            let (gw, gh) = tiles::glyph_cell(true);
+            let (gw, gh) = tiles::glyph_cell();
             (away.len() as u16 * gw, home.len() as u16 * gw, gh)
         } else {
             let (aw, gh) = quad_digits::quad_size(u32::from(game.away_score));

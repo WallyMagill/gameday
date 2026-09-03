@@ -31,7 +31,7 @@
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TierPlan {
     pub hero_rows: u16, // 0 = no hero fits (only < 12 total rows)
-    pub hero_digits_full: bool, // 8-row PixelSize::Full vs 4x3 sextant
+    pub hero_digits_full: bool, // 8-row PixelSize::Full vs the 3x4 quad form
     pub tier1: usize,   // promoted 3-row rows (0..=3)
     /// The scoring band's rows (spec §3), reserved at the TOP of the body:
     /// [`crate::board::cut::BAND_ROWS`] whenever something is live, 0 when
@@ -147,7 +147,8 @@ fn plan_detailed(width: u16, height: u16, live: usize, finals: usize, later: usi
         // meter only). Costs 1–2 tier rows at 40 rows tall.
         (12, true)
     } else {
-        // spec §4 "80×24" / "60-79 cols": sextant digits, 6 rows total.
+        // spec §4 "80×24" / "60-79 cols": quad digits (sitting-1 pick 1A),
+        // 6 rows total — 1 nameplate + 4 digit rows + 1 spare.
         (6, false)
     };
 
@@ -235,7 +236,7 @@ mod tests {
         assert!(p.hero_digits_full);
         assert_eq!(p.tier1, 3);
         assert!(!p.scores_lane);
-        // 80x24: sextant hero, all tier 2, lane when truncated.
+        // 80x24: quad hero, all tier 2, lane when truncated.
         let p = plan(80, 22, 8, 2, 4, 0);
         assert!(p.hero_rows <= 6 && p.hero_rows >= 4);
         assert!(!p.hero_digits_full);
