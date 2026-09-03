@@ -165,11 +165,10 @@ fn plan(area: Rect, word: &str) -> Plan {
     // before the score does: the digits are what is being announced.
     //
     // Width receipt: at `PixelSize::Full` one glyph is 8 cells wide
-    // (`tiles::glyph_cell`), so the longest word we ship — "TOUCHDOWN!", 10
-    // glyphs including the "!" — needs 80 columns. (The brief's 72-col gate
-    // counted a bare "TOUCHDOWN"; the word we actually ship carries the bang,
-    // so 80 is the number.) Anything narrower steps down to sextant (4/glyph,
-    // 40 columns) and then to a plain bold line. Never a clipped letter.
+    // (`tiles::glyph_cell`), so the longest word we ship — "TOUCHDOWN", 9
+    // glyphs (spec v3.3 §7 dropped the "!") — needs 72 columns. Anything
+    // narrower steps down to sextant (4/glyph, 36 columns) and then to a
+    // plain bold line. Never a clipped letter.
     let (word_form, score_full) = [
         (WordForm::Full, true),
         (WordForm::Full, false),
@@ -592,25 +591,25 @@ mod tests {
 
     #[test]
     fn the_word_follows_the_play_text_where_the_text_is_specific() {
-        assert_eq!(word_for(&game(), &play("Mahomes 12 Yd pass to Kelce")), "TOUCHDOWN!");
-        assert_eq!(word_for(&game(), &play("Butker 41 Yd Field Goal")), "FIELD GOAL!");
-        assert_eq!(word_for(&game(), &play("Jones sacked in end zone for a Safety")), "SAFETY!");
+        assert_eq!(word_for(&game(), &play("Mahomes 12 Yd pass to Kelce")), "TOUCHDOWN"); // spec v3.3 §7
+        assert_eq!(word_for(&game(), &play("Butker 41 Yd Field Goal")), "FIELD GOAL"); // spec v3.3 §7
+        assert_eq!(word_for(&game(), &play("Jones sacked in end zone for a Safety")), "SAFETY"); // spec v3.3 §7
         // Ruling R34: touchdown wins over every other word in the sentence.
         // ESPN really writes these, and FIELD GOAL! on a return score is a
         // lie the screen tells for three seconds.
         assert_eq!(
             word_for(&game(), &play("Blocked Field Goal returned 62 yards for a TOUCHDOWN")),
-            "TOUCHDOWN!"
+            "TOUCHDOWN"
         );
         assert_eq!(
             word_for(&game(), &play("Fumble on the Safety, recovered for a Touchdown")),
-            "TOUCHDOWN!"
+            "TOUCHDOWN"
         );
         let mut nba = game();
         nba.league = League::Nba;
         // Basketball has no field goals in this sense: "field goal" arms are
         // football-only, so a basketball play keeps the league word.
-        assert_eq!(word_for(&nba, &play("Jokic makes 3-pt field goal")), "BUCKET!");
+        assert_eq!(word_for(&nba, &play("Jokic makes 3-pt field goal")), "BUCKET"); // spec v3.3 §7
     }
 
     #[test]
@@ -621,12 +620,12 @@ mod tests {
         // HOME RUN! in block letters (T16 live captures cut-live-1 and the
         // 22:47:42 band): a bases-loaded walk and a run scoring on a
         // strikeout. Neither is a home run.
-        assert_eq!(word_for(&mlb, &play("Walk — J. Sanoja")), "RUN SCORES!");
-        assert_eq!(word_for(&mlb, &play("Strikeout — J. Ortiz")), "RUN SCORES!");
-        assert_eq!(word_for(&mlb, &play("Play Result — J. Marsee")), "RUN SCORES!");
+        assert_eq!(word_for(&mlb, &play("Walk — J. Sanoja")), "RUN SCORES"); // spec v3.3 §7
+        assert_eq!(word_for(&mlb, &play("Strikeout — J. Ortiz")), "RUN SCORES"); // spec v3.3 §7
+        assert_eq!(word_for(&mlb, &play("Play Result — J. Marsee")), "RUN SCORES"); // spec v3.3 §7
         // Earned by the sentence, in either of ESPN's two spellings.
-        assert_eq!(word_for(&mlb, &play("Home Run — K. Schwarber")), "HOME RUN!");
-        assert_eq!(word_for(&mlb, &play("A. Judge homers to left center")), "HOME RUN!");
+        assert_eq!(word_for(&mlb, &play("Home Run — K. Schwarber")), "HOME RUN"); // spec v3.3 §7
+        assert_eq!(word_for(&mlb, &play("A. Judge homers to left center")), "HOME RUN"); // spec v3.3 §7
     }
 
     #[test]
@@ -697,7 +696,7 @@ mod tests {
         let (name, rest) = split_surname(&p.text);
         assert_eq!(name, Some("J. Ortiz"));
         assert_eq!(rest, "Strikeout");
-        assert_eq!(word_for(&mlb, &p), "RUN SCORES!");
+        assert_eq!(word_for(&mlb, &p), "RUN SCORES"); // spec v3.3 §7
         let line = detail_line(&mlb, &p, 80);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text, "J. ORTIZ · STRIKEOUT · T9");

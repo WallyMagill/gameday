@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 
 /// One game's watchability verdict. `score` orders the board; `hot` drives
 /// the 2-state mark; `chip` is the hero/state label ("RED ZONE", "2-MIN",
-/// "TYING ON 3RD", "BASES LOADED", "STOPPAGE", …) or None.
+/// "TYING RUN 3RD", "BASES LOADED", "STOPPAGE", …) or None.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Watch {
     pub score: u32,
@@ -221,20 +221,20 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             if inning_late && runners > 0 && field >= bat && field - bat <= runners + 1 {
                 // Name the base (spec §2) — the lead runner's, the one whose
                 // run ties or wins it. The chip is a `&'static str`, so
-                // these are the six spellings, not a `format!`. Twelve cells
-                // is the budget rather than a style choice: the tier-1 chip
-                // rides under the clock in `rows::T1_CHIP_W`, 13 cells to
-                // the play-text column, so spec §2's literal
-                // "TYING RUN ON 3RD" (16) would paint into the play. Twelve
-                // is the width "BASES LOADED" already measured.
+                // these are the six spellings, not a `format!`. Thirteen
+                // cells is the budget rather than a style choice: the tier-1
+                // chip rides under the clock in `rows::T1_CHIP_W`, 13 cells
+                // to the play-text column, so spec §2's literal
+                // "TYING RUN ON 3RD" (16) would still paint into the play —
+                // "TYING RUN 3RD" (13, spec v3.3 §7) fits exactly.
                 let lead = bases.iter().rposition(|b| *b).unwrap_or(0);
                 let chip = match (field == bat, lead) {
                     (true, 0) => "GO-AHEAD 1ST",
                     (true, 1) => "GO-AHEAD 2ND",
                     (true, _) => "GO-AHEAD 3RD",
-                    (false, 0) => "TYING ON 1ST",
-                    (false, 1) => "TYING ON 2ND",
-                    (false, _) => "TYING ON 3RD",
+                    (false, 0) => "TYING RUN 1ST",
+                    (false, 1) => "TYING RUN 2ND",
+                    (false, _) => "TYING RUN 3RD",
                 };
                 bonus!(40, Some(chip));
             }
@@ -535,7 +535,7 @@ mod tests {
         assert!(w.hot);
         assert_eq!(
             w.chip,
-            Some("TYING ON 3RD"),
+            Some("TYING RUN 3RD"), // spec v3.3 §7
             "spec §2: the chip names the base, not a dangling phrase"
         );
     }
@@ -585,7 +585,7 @@ mod tests {
         });
         assert_eq!(
             watchability(&down_one, now()).chip,
-            Some("TYING ON 1ST")
+            Some("TYING RUN 1ST") // spec v3.3 §7
         );
     }
 
@@ -604,7 +604,7 @@ mod tests {
         });
         let w = watchability(&end_away_down, now());
         assert!(w.hot, "away is the batting/tying side on END, must be hot");
-        assert_eq!(w.chip, Some("TYING ON 2ND"));
+        assert_eq!(w.chip, Some("TYING RUN 2ND")); // spec v3.3 §7
 
         // Same shape relabeled BOT 8TH: bottom in progress, HOME bats. Home
         // trails by 1 with a runner on 2nd -> tying run on, hot.
@@ -618,7 +618,7 @@ mod tests {
         });
         let w = watchability(&bot_home_down, now());
         assert!(w.hot, "home is the batting/tying side on BOT, must be hot");
-        assert_eq!(w.chip, Some("TYING ON 2ND"));
+        assert_eq!(w.chip, Some("TYING RUN 2ND")); // spec v3.3 §7
 
         // END 8TH again, but HOME trails (so AWAY, the batting side, is
         // actually ahead) — the old `starts_with("TOP")`-vs-else code

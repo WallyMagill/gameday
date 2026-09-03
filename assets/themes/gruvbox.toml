@@ -5,14 +5,20 @@ name = "gruvbox"
 bg = "#282828"
 fg = "#ebdbb2"
 bright = "#fbf1c7"
+# gruvbox published palette (morhetz, neutral/dark0 set) — gray #928374.
 muted = "#928374"
 dim = "#3c3836"
 border = "#504945"
-live = "#fb4934"
+# gruvbox published palette — red #cc241d (the neutral red; #fb4934 is the
+# bright variant, wrong role for `hot`).
+live = "#cc241d"
 green = "#b8bb26"
-cyan = "#8ec07c"
+# gruvbox published palette — aqua #689d6a (neutral; #8ec07c is bright).
+cyan = "#689d6a"
 magenta = "#d3869b"
-star = "#fabd2f"
+# gruvbox published palette — yellow #d79921 (neutral; #fabd2f is bright,
+# carries `digits` too loud against the published ground).
+star = "#d79921"
 
 [palette.league]
 nfl = "#fb4934"
@@ -25,7 +31,7 @@ nhl = "#8ec07c"
 epl = "#b8bb26"
 mls = "#8ec07c"
 
-# gruvbox's amber (`star` = #fabd2f) carries the digits; the rest are defaults.
+# gruvbox's amber (`star` = #d79921) carries the digits; the rest are defaults.
 [roles]
 ground = "bg"
 ink = "fg"

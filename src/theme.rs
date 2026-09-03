@@ -703,10 +703,10 @@ pub fn dimmed(c: Color) -> Color {
 /// Word the ticker/alerts use for a scoring play in this league.
 pub fn scoring_word(league: League) -> &'static str {
     match league {
-        League::Nfl | League::Cfb => "TOUCHDOWN!",
-        League::Nba | League::Wnba | League::Cbb => "BUCKET!",
-        League::Mlb => "HOME RUN!",
-        League::Nhl | League::Epl | League::Mls => "GOAL!",
+        League::Nfl | League::Cfb => "TOUCHDOWN",
+        League::Nba | League::Wnba | League::Cbb => "BUCKET",
+        League::Mlb => "HOME RUN",
+        League::Nhl | League::Epl | League::Mls => "GOAL",
     }
 }
 
@@ -735,10 +735,10 @@ pub fn scoring_word_for_play(league: League, text: &str) -> &'static str {
             return scoring_word(league);
         }
         if lower.contains("field goal") {
-            return "FIELD GOAL!";
+            return "FIELD GOAL";
         }
         if lower.contains("safety") {
-            return "SAFETY!";
+            return "SAFETY";
         }
     }
     if league == League::Mlb {
@@ -754,7 +754,7 @@ pub fn scoring_word_for_play(league: League, text: &str) -> &'static str {
         if lower.contains("home run") || lower.contains("homer") {
             return scoring_word(league);
         }
-        return "RUN SCORES!";
+        return "RUN SCORES";
     }
     scoring_word(league)
 }
@@ -887,8 +887,39 @@ mod tests {
         assert_eq!(builtin("studio").bg, Color::Rgb(0, 0, 0));
         assert_eq!(builtin("studio").live, builtin("broadcast").live);
         assert_eq!(builtin("gruvbox").bg, Color::Rgb(0x28, 0x28, 0x28));
-        assert_eq!(builtin("gruvbox").star, Color::Rgb(0xfa, 0xbd, 0x2f));
+        // spec v3.3 §6: gruvbox published palette yellow is #d79921, not the
+        // bright #fabd2f this file used to carry.
+        assert_eq!(builtin("gruvbox").star, Color::Rgb(0xd7, 0x99, 0x21));
         assert_eq!(builtin("gruvbox").league_accent(League::Nhl), Color::Rgb(0x8e, 0xc0, 0x7c));
+    }
+
+    #[test]
+    fn no_scoring_word_carries_an_exclamation() {
+        // spec v3.3 §7: scoring words lost their bang at the definition, not
+        // per call site — cover the league word and every sharpened
+        // NFL/CFB/MLB path scoring_word_for_play can take.
+        for league in League::ALL {
+            assert!(!scoring_word(league).contains('!'), "{league:?}: {}", scoring_word(league));
+        }
+        let cases = [
+            (League::Nfl, "Mahomes 12 Yd pass to Kelce"),
+            (League::Nfl, "Butker 41 Yd Field Goal"),
+            (League::Nfl, "Jones sacked in end zone for a Safety"),
+            (League::Cfb, "Butker 41 Yd Field Goal"),
+            (League::Mlb, "Home Run — K. Schwarber"),
+            (League::Mlb, "Walk — J. Sanoja"),
+            (League::Nba, "Jokic makes 3-pt field goal"),
+            (League::Nhl, "goal scored"),
+        ];
+        for (league, text) in cases {
+            let word = scoring_word_for_play(league, text);
+            assert!(!word.contains('!'), "{league:?} {text:?}: {word}");
+        }
+    }
+
+    #[test]
+    fn gruvbox_ground_is_the_published_282828() {
+        assert_eq!(builtin("gruvbox").roles().ground, Color::Rgb(0x28, 0x28, 0x28));
     }
 
     #[test]

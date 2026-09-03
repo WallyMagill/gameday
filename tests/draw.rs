@@ -770,13 +770,13 @@ fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
         .iter()
         .find(|l| l.contains("Mahomes to Kelce"))
         .unwrap_or_else(|| panic!("NFL scoring play missing from feed:\n{s}"));
-    assert!(nfl_row.contains("NFL") && nfl_row.contains("TOUCHDOWN!"), "{nfl_row}");
+    assert!(nfl_row.contains("NFL") && nfl_row.contains("TOUCHDOWN"), "{nfl_row}"); // spec v3.3 §7
     assert!(nfl_row.contains("KC@TB") && nfl_row.contains("27-24"), "{nfl_row}");
     let nba_row = lines
         .iter()
         .find(|l| l.contains("Tatum pull-up three"))
         .unwrap_or_else(|| panic!("NBA scoring play missing from feed:\n{s}"));
-    assert!(nba_row.contains("NBA") && nba_row.contains("BUCKET!"), "{nba_row}");
+    assert!(nba_row.contains("NBA") && nba_row.contains("BUCKET"), "{nba_row}"); // spec v3.3 §7
     // Row 0 (the NFL play — enabled-tab order) carries the ▸ marker.
     assert!(nfl_row.contains("▸"), "marker must start on row 0: {nfl_row}");
     assert!(!nba_row.contains("▸"), "only one row is marked: {nba_row}");
@@ -2602,7 +2602,7 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     let hot = (1..40u16)
         .map(|y| (0..120u16).filter(|&x| b[(x, y)].fg == r.hot && b[(x, y)].symbol() != " ").count())
         .sum::<usize>();
-    assert!(hot >= 40, "TOUCHDOWN! must be painted in block letters: {hot} hot cells\n{s}");
+    assert!(hot >= 40, "TOUCHDOWN must be painted in block letters: {hot} hot cells\n{s}"); // spec v3.3 §7
     assert!(s.contains("CHIEFS AT BILLS"), "the dim strip names the game:\n{s}");
     assert!(s.contains("MAHOMES"), "the detail line comes from the play:\n{s}");
     // Spec §3's chip, verbatim, on the takeover's one filled element.
@@ -2624,7 +2624,7 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     let rows: Vec<&str> = s.lines().collect();
     // Spec §3 / ruling R33: `▲ HOME RUN · TEX Seager (32) · ATH 0 TEX 5` on a
     // hot ground, two rows, above an intact list.
-    assert!(rows[1].starts_with("▲ TOUCHDOWN! · KC MAHOMES · KC 24 BUF 21"), "band headline:\n{s}");
+    assert!(rows[1].starts_with("▲ TOUCHDOWN · KC MAHOMES · KC 24 BUF 21"), "band headline:\n{s}"); // spec v3.3 §7
     // spec v3.3 §3: row two stopped repeating the play and became the
     // affordance — what enter does, and how long the band has left.
     assert!(
