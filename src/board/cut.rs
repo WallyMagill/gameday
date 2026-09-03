@@ -316,10 +316,9 @@ fn chip_line(play: &Play) -> Line<'static> {
 }
 
 /// `MAHOMES · 12 YD PASS TO KELCE · Q4 1:52` — every part from the
-/// `Play` itself. The scorer's surname is the play text's own first token:
-/// ESPN writes these subject-first ("Mahomes pass to …", "Kelce 3 Yd pass
-/// from …"), and a token that isn't a plain word is simply not treated as a
-/// name rather than guessed at.
+/// `Play` itself. The scorer's name comes out of the play text through
+/// [`split_surname`], which knows ESPN's two sentence forms; a text with no
+/// name-shaped token is simply printed whole rather than guessed at.
 fn detail_line(game: &Game, play: &Play, width: u16) -> Line<'static> {
     let th = theme::current();
     let r = th.roles();
@@ -352,10 +351,27 @@ fn detail_line(game: &Game, play: &Play, width: u16) -> Line<'static> {
     Line::from(spans)
 }
 
-/// The play text's leading name token, and everything after it. `None` when
-/// the first token isn't a plain capitalized word — nothing is invented.
+/// The play text's name, and everything else. `None` when no token is
+/// name-shaped — nothing is invented.
+///
+/// Two sentence forms, because ESPN writes two. Football is subject-first
+/// ("Mahomes 12 Yd pass"), so the name is the leading token. Baseball is
+/// subject-*last* behind a dash ("Strikeout — J. Ortiz"), and no stop list
+/// can keep up with its play-type vocabulary (Strikeout, Walk, Single,
+/// Double, Groundout, Sacrifice, …) — the live band painted `CHC STRIKEOUT`
+/// as the scorer with `— J. ORTIZ` as the play. So the dash form is
+/// recognized first, and only when the right side is actually name-shaped.
+/// Both the band and the takeover's detail line come through here.
 fn split_surname(text: &str) -> (Option<&str>, &str) {
     let trimmed = text.trim();
+    for sep in ['—', '–'] {
+        if let Some((head, tail)) = trimmed.split_once(sep) {
+            let (head, tail) = (head.trim(), tail.trim());
+            if !head.is_empty() && is_person(tail) {
+                return (Some(tail), head);
+            }
+        }
+    }
     let head = trimmed.split_whitespace().next().unwrap_or_default();
     // A handful of capitalized words that open a play sentence without being
     // anybody's name ("End of quarter", "Safety, snap out of the end zone").
@@ -372,6 +388,23 @@ fn split_surname(text: &str) -> (Option<&str>, &str) {
     } else {
         (None, trimmed)
     }
+}
+
+/// Is this whole fragment a person's name? Used for the right side of the
+/// dash form only. Deliberately tight: one to three capitalized tokens of
+/// letters, apostrophes, hyphens and initials' periods, ending in a token
+/// long enough to be a surname. A right side that is a clause ("scores from
+/// second") fails it and the sentence keeps its old, whole-text handling.
+fn is_person(s: &str) -> bool {
+    let tokens: Vec<&str> = s.split_whitespace().collect();
+    if tokens.is_empty() || tokens.len() > 3 {
+        return false;
+    }
+    tokens.last().is_some_and(|t| t.chars().count() > 1)
+        && tokens.iter().all(|t| {
+            t.chars().next().is_some_and(|c| c.is_uppercase())
+                && t.chars().all(|c| c.is_alphabetic() || c == '\'' || c == '-' || c == '.')
+        })
 }
 
 /// The dim strip under the detail: who is playing, spelled out. The takeover
@@ -473,6 +506,22 @@ mod tests {
     }
 
     #[test]
+    fn mlb_says_home_run_only_when_the_play_was_one() {
+        let mut mlb = game();
+        mlb.league = League::Mlb;
+        // The two real texts off the wire on 2026-09-02 that rendered
+        // HOME RUN! in block letters (T16 live captures cut-live-1 and the
+        // 22:47:42 band): a bases-loaded walk and a run scoring on a
+        // strikeout. Neither is a home run.
+        assert_eq!(word_for(&mlb, &play("Walk — J. Sanoja")), "RUN SCORES!");
+        assert_eq!(word_for(&mlb, &play("Strikeout — J. Ortiz")), "RUN SCORES!");
+        assert_eq!(word_for(&mlb, &play("Play Result — J. Marsee")), "RUN SCORES!");
+        // Earned by the sentence, in either of ESPN's two spellings.
+        assert_eq!(word_for(&mlb, &play("Home Run — K. Schwarber")), "HOME RUN!");
+        assert_eq!(word_for(&mlb, &play("A. Judge homers to left center")), "HOME RUN!");
+    }
+
+    #[test]
     fn the_detail_line_is_built_from_the_play_alone() {
         let line = detail_line(&game(), &play("Mahomes pass to Kelce for 3 yards"), 80);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -498,5 +547,51 @@ mod tests {
             assert_eq!(split_surname(text).1, text, "the whole sentence survives: {text:?}");
         }
         assert_eq!(split_surname("Mahomes 12 Yd pass").0, Some("Mahomes"));
+    }
+
+    #[test]
+    fn mlbs_dash_form_names_the_player_not_the_play_type() {
+        // The real texts off the wire (T16 live captures): the band rendered
+        // `▲ HOME RUN! · CHC STRIKEOUT` with `— J. ORTIZ · T9` beneath it —
+        // play type painted as a person, leaked em dash painted as the play.
+        for (text, name, rest) in [
+            ("Strikeout — J. Ortiz", "J. Ortiz", "Strikeout"),
+            ("Walk — J. Sanoja", "J. Sanoja", "Walk"),
+            ("Play Result — J. Marsee", "J. Marsee", "Play Result"),
+            ("Sacrifice Fly — M. Betts", "M. Betts", "Sacrifice Fly"),
+            ("Single – W. Contreras", "W. Contreras", "Single"), // en dash too
+        ] {
+            assert_eq!(split_surname(text), (Some(name), rest), "{text:?}");
+        }
+
+        // Football's subject-first form is untouched, dash or no dash.
+        assert_eq!(
+            split_surname("Mahomes 12 Yd pass to Kelce"),
+            (Some("Mahomes"), "12 Yd pass to Kelce")
+        );
+        // A dash whose right side is a clause, not a name: nothing is
+        // rearranged, and the sentence survives whole.
+        let clause = "Kelce 3 Yd pass — no flag on the play";
+        assert_eq!(split_surname(clause).0, Some("Kelce"));
+        assert_eq!(split_surname("End of inning — runners left on"), (None, "End of inning — runners left on"));
+    }
+
+    #[test]
+    fn the_mlb_band_reads_as_a_leaderboard_line() {
+        // End to end on the captured band: word, team, player, then the play
+        // type on the second row — no em dash, no play type as a name.
+        let mut mlb = game();
+        mlb.league = League::Mlb;
+        let mut p = play("Strikeout — J. Ortiz");
+        p.team = "CHC".into();
+        p.period = "T9".into();
+        p.clock = String::new();
+        let (name, rest) = split_surname(&p.text);
+        assert_eq!(name, Some("J. Ortiz"));
+        assert_eq!(rest, "Strikeout");
+        assert_eq!(word_for(&mlb, &p), "RUN SCORES!");
+        let line = detail_line(&mlb, &p, 80);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, "J. ORTIZ · STRIKEOUT · T9");
     }
 }

@@ -1,6 +1,5 @@
-use gameday::board::logo::{hero_mark, HeroMark};
+use gameday::board::logo::{draw_abbr_mark, draw_hero_mark, hero_mark, HeroMark};
 use gameday::domain::Team;
-use gameday::tiles::logo::{draw_logo, load_logo};
 use ratatui::{backend::TestBackend, Terminal};
 
 fn team(abbr: &str, logo_key: &str) -> Team {
@@ -17,7 +16,11 @@ fn team(abbr: &str, logo_key: &str) -> Team {
 
 fn draw_to_text(team: &Team, w: u16, h: u16) -> String {
     let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
-    t.draw(|f| draw_logo(f, f.area(), team)).unwrap();
+    t.draw(|f| match hero_mark(&team.logo_key) {
+        Some(mark) => draw_hero_mark(f, f.area(), mark),
+        None => draw_abbr_mark(f, f.area(), team),
+    })
+    .unwrap();
     let b = t.backend().buffer();
     let mut s = String::new();
     for y in 0..h {
@@ -54,7 +57,7 @@ fn hero_mark_draws_into_a_clipped_area() {
     // 16x10; the blit must clip rather than panic or bleed.
     let mut t = Terminal::new(TestBackend::new(8, 5)).unwrap();
     let mark = hero_mark("nfl/kc").unwrap();
-    t.draw(|f| gameday::board::logo::draw_hero_mark(f, f.area(), mark)).unwrap();
+    t.draw(|f| draw_hero_mark(f, f.area(), mark)).unwrap();
     let b = t.backend().buffer();
     let painted = (0..5)
         .flat_map(|y| (0..8).map(move |x| (x, y)))
@@ -81,7 +84,7 @@ fn demo_marks_all_load() {
     for key in [
         "nfl/kc", "nfl/tb", "nba/den", "nba/bos", "mlb/nyy", "mlb/tor", "nhl/edm", "nhl/dal",
     ] {
-        assert!(load_logo(key).is_some(), "missing {key}");
+        assert!(hero_mark(key).is_some(), "missing {key}");
     }
 }
 
@@ -92,6 +95,6 @@ fn all_thirty_two_nfl_marks_load() {
         "ind", "jax", "kc", "lv", "lac", "lar", "mia", "min", "ne", "no", "nyg", "nyj", "phi",
         "pit", "sea", "sf", "tb", "ten", "wsh",
     ] {
-        assert!(load_logo(&format!("nfl/{abbr}")).is_some(), "missing nfl/{abbr}");
+        assert!(hero_mark(&format!("nfl/{abbr}")).is_some(), "missing nfl/{abbr}");
     }
 }

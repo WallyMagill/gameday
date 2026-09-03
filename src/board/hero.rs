@@ -659,7 +659,7 @@ mod tests {
         assert!(fragment_line(&game).is_none(), "MLB's meter row IS its fragment line");
         let term = render(120, 12, &game, &{
             let mut p = plan();
-            p.chip = Some("TYING RUN ON 3RD");
+            p.chip = Some("TYING ON 3RD");
             p
         });
         let text = text_of(term.backend().buffer());

@@ -712,7 +712,8 @@ pub fn scoring_word(league: League) -> &'static str {
 
 /// The word for one specific scoring play. The league word is the answer
 /// everywhere except football, where the play text itself distinguishes the
-/// three ways a score happens.
+/// three ways a score happens, and baseball, where the league word is a
+/// specific event that most runs are not.
 ///
 /// The model carries no play *kind* — `Play` is `{clock, period, team, text,
 /// scoring}`, and ESPN's scoreboard `lastPlay` (where a captured scoring play
@@ -739,6 +740,21 @@ pub fn scoring_word_for_play(league: League, text: &str) -> &'static str {
         if lower.contains("safety") {
             return "SAFETY!";
         }
+    }
+    if league == League::Mlb {
+        // MLB is the one league whose league word names a *specific* play
+        // rather than any score: "GOAL!" is true of every hockey goal, but
+        // most runs are not home runs. The live captures caught HOME RUN! in
+        // block letters over an RBI walk ("Walk — J. Sanoja") and a run that
+        // scored on a strikeout — the screen stating a fact that didn't
+        // happen. So the word is earned from the sentence or it is the
+        // honest generic; nothing is guessed from the score delta (a
+        // two-run double and back-to-back solo shots are both +2).
+        let lower = text.to_lowercase();
+        if lower.contains("home run") || lower.contains("homer") {
+            return scoring_word(league);
+        }
+        return "RUN SCORES!";
     }
     scoring_word(league)
 }

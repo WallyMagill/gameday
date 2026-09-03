@@ -113,7 +113,7 @@ const T1_TEXT_X: u16 = 53;
 /// The tier-1 state chip's field. It rides on row 1, where nothing sits
 /// between the clock column and the play text, so it gets the whole gap
 /// rather than the clock's own [`CLOCK_W`] — at 11 cells the longest chips
-/// `rank::watchability` emits ("BASES LOADED", "TYING RUN ON", both 12) were
+/// `rank::watchability` emits ("BASES LOADED", "TYING ON 3RD", "GO-AHEAD 3RD", all 12) were
 /// clipped to a word that isn't one.
 const T1_CHIP_W: u16 = T1_TEXT_X - T1_CLOCK_X;
 /// A sextant glyph is three rows tall; a shorter block falls to text.
@@ -775,7 +775,7 @@ mod tests {
 
         // The longest chip the ranker emits fits whole — the clock column's
         // 11 cells clipped "BASES LOADED" to "BASES LOADE".
-        for chip in ["BASES LOADED", "TYING RUN ON"] {
+        for chip in ["BASES LOADED", "TYING ON 3RD", "GO-AHEAD 3RD"] {
             let c = RowCtx { chip: Some(chip), ..ctx() };
             let term = render(120, 3, &game, &c, draw_tier1);
             let text = text_of(term.backend().buffer());

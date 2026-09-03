@@ -836,6 +836,7 @@ impl App {
         if i < self.config.favorites.len() {
             self.config.favorites.remove(i);
             self.persist_config();
+            self.force_reorder(); // membership change — see `toggle_pin`
         }
         self.move_config_cursor(0); // re-clamp against the shrunk row list
     }
@@ -906,6 +907,7 @@ impl App {
             team_abbr: abbr,
         });
         self.persist_config();
+        self.force_reorder(); // membership change — see `toggle_pin`
     }
 
     /// h/l on a display row: cycle its value and persist. No-op on rows that
@@ -1488,6 +1490,14 @@ impl App {
             self.status_line = Some(format!("pinned {matchup}"));
         }
         self.persist_pins();
+        // Membership in MY GAMES changed, so the game just entered or left
+        // the ranked list: re-rank now. Without this the released game
+        // re-enters `live_all` and `OrderState::ordered`'s append-unseen
+        // fallback parks it *last* in IN PLAY until the next fresh apply
+        // changes a fingerprint — the board reading as if it punished the
+        // unpin. A user keystroke is an event under spec §2's gate, same as
+        // `s` or `:sort`, so R24 is untouched.
+        self.force_reorder();
         self.clamp_selected();
     }
 
@@ -1514,6 +1524,7 @@ impl App {
             });
         }
         self.persist_config();
+        self.force_reorder(); // membership change — see `toggle_pin`
         self.clamp_selected();
     }
 
@@ -2007,6 +2018,49 @@ mod tests {
         );
         app.on_key(KeyCode::Char('t'), KeyModifiers::NONE);
         assert!(app.config.favorites.is_empty());
+    }
+
+    #[test]
+    fn unpinning_re_ranks_at_once_instead_of_parking_the_game_last() {
+        // The best game on the board, pinned and then released. Without a
+        // re-rank on the membership change, `OrderState::ordered`'s
+        // append-unseen fallback puts it *last* in IN PLAY until the next
+        // fresh apply changes a fingerprint — the board reading as if the
+        // unpin demoted it.
+        let mut best = g("2", "DAL", "PHI", true); // tied, late: most watchable
+        best.period = "Q4".into();
+        best.clock = "0:45".into();
+        best.away_score = 21;
+        best.home_score = 21;
+        let games = vec![g("1", "KC", "TB", true), best];
+        let mut app = app_with(games.clone(), vec![]);
+        app.tab = Tab::League(League::Nfl);
+        let ids = |app: &App| -> Vec<String> {
+            app.derive().in_play.iter().map(|x| x.id.clone()).collect()
+        };
+        assert_eq!(
+            ids(&app),
+            vec!["2", "1"],
+            "the tied Q4 game leads IN PLAY to begin with"
+        );
+
+        // Select it (it is the hero, index 0) and pin, then unpin.
+        app.selected = 0;
+        app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert_eq!(app.derive().my_games.len(), 1, "pinned into MY GAMES");
+        assert_eq!(ids(&app), vec!["1"]);
+        // One poll lands while it is pinned: the ranked order now has no
+        // memory of it at all.
+        app.apply_boards(League::Nfl, games, false);
+        assert_eq!(ids(&app), vec!["1"]);
+        app.selected = 0;
+        app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert!(app.pins.is_empty(), "unpinned");
+        assert_eq!(
+            ids(&app),
+            vec!["2", "1"],
+            "released to its own rank, not to the bottom of the list"
+        );
     }
 
     #[test]

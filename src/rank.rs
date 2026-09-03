@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 
 /// One game's watchability verdict. `score` orders the board; `hot` drives
 /// the 2-state mark; `chip` is the hero/state label ("RED ZONE", "2-MIN",
-/// "TYING RUN ON 3RD", "BASES LOADED", "STOPPAGE", …) or None.
+/// "TYING ON 3RD", "BASES LOADED", "STOPPAGE", …) or None.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Watch {
     pub score: u32,
@@ -214,8 +214,29 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             } else {
                 (g.home_score, g.away_score)
             };
-            if inning_late && runners > 0 && field > bat && field - bat <= runners + 1 {
-                bonus!(40, Some("TYING RUN ON"));
+            // `field >= bat`: a tied game with a runner on is the walk-off
+            // situation, and spec §2 says "tying/**go-ahead** run on base" —
+            // the old `>` gave the tied 9th no chip and no hot mark. At 0
+            // margin the runner is the go-ahead run, so the chip says so.
+            if inning_late && runners > 0 && field >= bat && field - bat <= runners + 1 {
+                // Name the base (spec §2) — the lead runner's, the one whose
+                // run ties or wins it. The chip is a `&'static str`, so
+                // these are the six spellings, not a `format!`. Twelve cells
+                // is the budget rather than a style choice: the tier-1 chip
+                // rides under the clock in `rows::T1_CHIP_W`, 13 cells to
+                // the play-text column, so spec §2's literal
+                // "TYING RUN ON 3RD" (16) would paint into the play. Twelve
+                // is the width "BASES LOADED" already measured.
+                let lead = bases.iter().rposition(|b| *b).unwrap_or(0);
+                let chip = match (field == bat, lead) {
+                    (true, 0) => "GO-AHEAD 1ST",
+                    (true, 1) => "GO-AHEAD 2ND",
+                    (true, _) => "GO-AHEAD 3RD",
+                    (false, 0) => "TYING ON 1ST",
+                    (false, 1) => "TYING ON 2ND",
+                    (false, _) => "TYING ON 3RD",
+                };
+                bonus!(40, Some(chip));
             }
         }
         League::Nba | League::Wnba | League::Cbb => {
@@ -514,8 +535,57 @@ mod tests {
         assert!(w.hot);
         assert_eq!(
             w.chip,
-            Some("TYING RUN ON"),
-            "chip prefix; the base is appended by the caller"
+            Some("TYING ON 3RD"),
+            "spec §2: the chip names the base, not a dangling phrase"
+        );
+    }
+
+    #[test]
+    fn mlb_tied_ninth_with_a_runner_is_the_go_ahead_situation() {
+        // BOT 9TH tied, winning run on third: the walk-off. The old
+        // `field > bat` gate gave this no bonus and no chip at all.
+        let mut walkoff = g(League::Mlb, "BOT 9TH", "", 4, 4);
+        walkoff.situation = Some(Situation {
+            on_base: Some([false, false, true]),
+            outs: Some(1),
+            ..Default::default()
+        });
+        let w = watchability(&walkoff, now());
+        assert!(w.hot, "a tied 9th with the winning run on third is hot");
+        assert_eq!(w.chip, Some("GO-AHEAD 3RD"));
+
+        // Tied but nobody on: no runner, no chip.
+        let mut empty = walkoff.clone();
+        empty.situation = Some(Situation {
+            on_base: Some([false, false, false]),
+            outs: Some(1),
+            ..Default::default()
+        });
+        assert_eq!(watchability(&empty, now()).chip, None);
+
+        // The lead runner names the base: first and second occupied, tied,
+        // so the go-ahead run is the one on second.
+        let mut first_and_second = walkoff.clone();
+        first_and_second.situation = Some(Situation {
+            on_base: Some([true, true, false]),
+            outs: Some(1),
+            ..Default::default()
+        });
+        assert_eq!(
+            watchability(&first_and_second, now()).chip,
+            Some("GO-AHEAD 2ND")
+        );
+
+        // Down 1 with only a runner on first: he is the tying run.
+        let mut down_one = g(League::Mlb, "BOT 9TH", "", 5, 4);
+        down_one.situation = Some(Situation {
+            on_base: Some([true, false, false]),
+            outs: Some(1),
+            ..Default::default()
+        });
+        assert_eq!(
+            watchability(&down_one, now()).chip,
+            Some("TYING ON 1ST")
         );
     }
 
@@ -534,7 +604,7 @@ mod tests {
         });
         let w = watchability(&end_away_down, now());
         assert!(w.hot, "away is the batting/tying side on END, must be hot");
-        assert_eq!(w.chip, Some("TYING RUN ON"));
+        assert_eq!(w.chip, Some("TYING ON 2ND"));
 
         // Same shape relabeled BOT 8TH: bottom in progress, HOME bats. Home
         // trails by 1 with a runner on 2nd -> tying run on, hot.
@@ -548,7 +618,7 @@ mod tests {
         });
         let w = watchability(&bot_home_down, now());
         assert!(w.hot, "home is the batting/tying side on BOT, must be hot");
-        assert_eq!(w.chip, Some("TYING RUN ON"));
+        assert_eq!(w.chip, Some("TYING ON 2ND"));
 
         // END 8TH again, but HOME trails (so AWAY, the batting side, is
         // actually ahead) — the old `starts_with("TOP")`-vs-else code
