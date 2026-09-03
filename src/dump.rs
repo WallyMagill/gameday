@@ -59,7 +59,8 @@ pub struct Variant {
     pub stem: &'static str,
     pub cols: u16,
     pub rows: u16,
-    /// A built-in theme name (`theme::BUILTIN_NAMES`).
+    /// A built-in theme name (`theme::BUILTIN_NAMES`) or a gate candidate
+    /// (`theme::CANDIDATE_NAMES`, installed for this capture only).
     pub theme: &'static str,
     /// Pins this capture to one sim tick regardless of `--tick`. Only the
     /// `nudge-seq` frames use it: they are a sequence, and a sequence whose
@@ -236,6 +237,18 @@ pub fn gallery() -> Vec<Variant> {
         setup: home as fn(&mut App),
         overlay,
     };
+    // A theme gate: the plain demo board at the gallery's own size, in one
+    // named theme. `theme` may be a candidate (`theme::CANDIDATE_NAMES`) —
+    // `with_theme` installs those for the render and takes them back out.
+    let themed = |stem, theme| Variant {
+        stem,
+        cols: DUMP_COLS,
+        rows: DUMP_ROWS,
+        theme,
+        tick: None,
+        setup: home as fn(&mut App),
+        overlay: None,
+    };
     let mut out: Vec<Variant> = BOARD_STEMS
         .iter()
         .map(|(name, stem)| full(*stem, *name, home as fn(&mut App)))
@@ -298,6 +311,21 @@ pub fn gallery() -> Vec<Variant> {
             setup: home as fn(&mut App),
             overlay: Some(gate_amber as fn(&mut Frame, &App)),
         },
+        // The v3.3 theme gates (spec §6), for the owner's sitting 2. Same
+        // 120×36 demo board three times, so the only variable is the palette:
+        //   -studio       the rebuilt press box — monochrome plus one red.
+        //                 This one is the PRODUCT (studio is a built-in); the
+        //                 stem exists so the frame sits beside the candidates
+        //                 in the same sitting instead of being hunted down in
+        //                 `board-studio`.
+        //   -daygame      the light candidate. DUMP-ONLY: `daygame` is not in
+        //                 `BUILTIN_NAMES` and cannot be selected — `with_theme`
+        //                 installs it for this capture and removes it after.
+        //   -gruvbox-warm shipping gruvbox on morhetz's dark0_soft ground,
+        //                 the same way. The product gruvbox is untouched.
+        themed("gate-studio", "studio"),
+        themed("gate-daygame", "daygame"),
+        themed("gate-gruvbox-warm", "gruvbox-warm"),
     ]);
     out
 }
@@ -440,12 +468,25 @@ fn gate_amber(frame: &mut Frame, app: &App) {
 
 /// Run `f` with `name` as the current theme, restoring the caller's theme
 /// after — variants can't leak palettes into each other (or into tests on
-/// the same thread). A dump asks only for built-ins, so a miss is a bug.
+/// the same thread). A dump asks for a built-in or a gate candidate, so a
+/// miss is a bug.
+///
+/// A candidate (`theme::CANDIDATE_NAMES`) is not a loaded theme: it exists for
+/// the length of its own capture and is uninstalled after, so nothing else in
+/// the process — the picker, `:theme`, a later variant — can reach it. That
+/// is the whole dump-only hook the v3.3 theme gates needed (ruling R38).
 fn with_theme<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let prev = theme::current_name();
+    let candidate = theme::CANDIDATE_NAMES.contains(&name);
+    if candidate {
+        theme::install(theme::candidate(name));
+    }
     theme::set_current(name).unwrap_or_else(|e| panic!("dump theme: {e}"));
     let out = f();
     theme::set_current(&prev).expect("the previous theme is still loaded");
+    if candidate {
+        theme::uninstall(name);
+    }
     out
 }
 
@@ -896,9 +937,36 @@ mod tests {
                 "gate-band-reserved",
                 "gate-band-fired",
                 "gate-band-amber",
+                "gate-studio",
+                "gate-daygame",
+                "gate-gruvbox-warm",
             ],
             "gallery stems are a stable contract for other tasks"
         );
+    }
+
+    #[test]
+    fn the_theme_gates_render_in_their_own_palettes_and_leave_no_candidate_loaded() {
+        // Sitting 2's three theme frames. Each must actually be drawn in the
+        // theme it is named for — the ground cell is the cheapest proof — and
+        // the two candidates must be gone from the picker the moment the
+        // render is over: they are gate-only until the owner promotes them.
+        for (stem, ground) in [
+            ("gate-studio", theme::builtin("studio").bg),
+            ("gate-daygame", theme::candidate("daygame").theme.bg),
+            ("gate-gruvbox-warm", theme::candidate("gruvbox-warm").theme.bg),
+        ] {
+            let buf = render_variant(&variant(stem), 0).unwrap();
+            assert_eq!(buf[(0, 0)].bg, ground, "{stem} is not drawn on its own ground");
+            let text = text_of(&buf);
+            assert!(text.contains("IN PLAY"), "{stem} must be the full board:\n{text}");
+        }
+        assert_eq!(
+            theme::names(),
+            theme::BUILTIN_NAMES.to_vec(),
+            "a gate candidate leaked into the loaded set"
+        );
+        assert_eq!(theme::current_name(), "broadcast", "the gates restored the thread's theme");
     }
 
     /// Render the gate's baseline frame AND report the band the overlays are

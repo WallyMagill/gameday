@@ -1,45 +1,70 @@
-# studio — the broadcast palette, calm. Same ground, same red; the difference
-# is in the ROLES: row scores are white instead of amber, and the section
-# structure recedes to `dim`. What is left in color is the hero and the live
-# mark, which is the identity floor. (Before v3.2 studio differed from
-# broadcast only in `[discipline]`, so at the role layer the two were the same
-# theme — this is what makes them two looks.)
+# studio — the press box. v3.3 §6 rebuilt this theme: through v3.2 it was
+# broadcast's palette with white row scores, which meant the two built-ins
+# shipped the same eleven colors and the picker's swatch strip was the only
+# place the difference was visible. The design review's verdict was that it
+# did not earn its slot.
+#
+# It earns it now by being a different LOOK, not a different discipline:
+# monochrome plus exactly one red. Every color here is a gray — ground, ink,
+# structure, the league chips, the "green"/"cyan"/"magenta" role names the
+# board still spends — except `live`, which stays broadcast's #ff3c3c. Red is
+# the identity floor (LIVE, the scoring words, the ticker frame, RED ZONE), so
+# on studio it is also the *only* chroma the chrome can spend, and it reads
+# like an alert light in a gray room.
+#
+# The ground is #0e0e0e, one step off true black: broadcast owns #000000, and
+# a press-box monitor is charcoal, not a hole. Digits are pure white.
 name = "studio"
 
 [palette]
-bg = "#000000"
-fg = "#c8c8c8"
-bright = "#ebebeb"
-muted = "#787878"
-dim = "#3c3c3c"
-border = "#505050"
+bg = "#0e0e0e"
+fg = "#d2d2d2"
+bright = "#ffffff"
+# muted carries data (timestamps, the nav bar, table headers) — 5.7:1 on the
+# ground, over the 3:1 large-text floor the built-in contrast test enforces.
+muted = "#8c8c8c"
+dim = "#303030"
+border = "#5a5a5a"
+# The one chroma in the theme — broadcast's red, unchanged.
 live = "#ff3c3c"
-green = "#50d26e"
-cyan = "#46c8dc"
-magenta = "#dc64dc"
-star = "#f0c846"
+# Role names, not hues (see `Theme`): "green" is positive, "cyan" is the clock,
+# "magenta" the records header. In the press box they are three legible grays,
+# separated by a step each so surfaces that spend two of them still read apart.
+green = "#b4b4b4"
+cyan = "#9e9e9e"
+magenta = "#c2c2c2"
+star = "#c8c8c8"
 
+# The nine league accents are one gray: the `[NFL]` chip says which league in
+# letters, and letters are how a monochrome board says everything.
 [palette.league]
-nfl = "#ff4646"
-cfb = "#ff963c"
-nba = "#508cff"
-wnba = "#6eb4ff"
-cbb = "#7878ff"
-mlb = "#e6c83c"
-nhl = "#46c8dc"
-epl = "#5ad282"
-mls = "#3cc8b4"
+nfl = "#a0a0a0"
+cfb = "#a0a0a0"
+nba = "#a0a0a0"
+wnba = "#a0a0a0"
+cbb = "#a0a0a0"
+mlb = "#a0a0a0"
+nhl = "#a0a0a0"
+epl = "#a0a0a0"
+mls = "#a0a0a0"
 
-# The calm mapping: white row scores (`bright`, not the amber `star`) and a
-# section structure one step back (`dim`, not `border`). `hot` stays `live` —
-# red is the identity floor no theme is allowed to spend.
+# Roles: white scores (`bright`), gray structure that is actually visible
+# (`border`, not the near-invisible `dim` v3.2 used — on a #0e0e0e ground a
+# #303030 rule is a smudge, and the press box wants clean structure, not
+# hidden structure). `hot` stays `live`.
+#
+# `team = "hero"`, not `"never"`: the hero's digits are the identity floor, and
+# `never` would be a claim the board cannot honor — only `hero+marks` is read
+# anywhere (`board::rows`), so `never` and `hero` draw the same pixels today.
+# Monochrome here means the CHROME spends no hue; the two teams still wear
+# their own colors in the one place the spec says color belongs.
 [roles]
 ground = "bg"
 ink = "fg"
 dim = "muted"
 digits = "bright"
 hot = "live"
-cool = "dim"
+cool = "border"
 team = "hero"
 
 [discipline]

@@ -49,7 +49,7 @@ fn every_builtin_round_trips_through_toml() {
 }
 
 #[test]
-fn broadcast_is_loud_and_studio_is_the_same_palette_disciplined() {
+fn broadcast_is_loud_and_studio_is_the_press_box() {
     let b = theme::builtin("broadcast");
     let s = theme::builtin("studio");
     assert_eq!(b.bg, Color::Rgb(0, 0, 0));
@@ -74,7 +74,9 @@ fn broadcast_is_loud_and_studio_is_the_same_palette_disciplined() {
             sidebar_headers: SidebarHeaders::Muted,
         }
     );
-    // Same palette — every one of the eleven colors and every league accent.
+    // v3.3 §6: studio stopped being broadcast's palette. It is the press box —
+    // its own grayscale set, so every one of the eleven colors moves except
+    // the red, and every league accent goes gray.
     for (label, a, c) in [
         ("bg", b.bg, s.bg),
         ("fg", b.fg, s.fg),
@@ -82,28 +84,33 @@ fn broadcast_is_loud_and_studio_is_the_same_palette_disciplined() {
         ("muted", b.muted, s.muted),
         ("dim", b.dim, s.dim),
         ("border", b.border, s.border),
-        ("live", b.live, s.live),
         ("green", b.green, s.green),
         ("cyan", b.cyan, s.cyan),
         ("magenta", b.magenta, s.magenta),
         ("star", b.star, s.star),
     ] {
-        assert_eq!(a, c, "studio must be broadcast's palette: {label}");
+        assert_ne!(a, c, "studio is no longer broadcast's palette: {label}");
     }
     for league in League::ALL {
-        assert_eq!(b.league_accent(league), s.league_accent(league), "{league:?} accent");
+        assert_ne!(b.league_accent(league), s.league_accent(league), "{league:?} accent");
     }
-    // …and a different identity, at the ROLE layer, not only in
-    // `[discipline]`: studio's row scores are white and its section structure
-    // sits one step back. Before v3.2 the two themes had identical `[roles]`,
-    // which made "studio" a discipline flag rather than a look.
+    // Different at the ROLE layer too: studio's scores are white where
+    // broadcast's are amber. (Before v3.2 the two themes had identical
+    // `[roles]`, which made "studio" a discipline flag rather than a look.)
     assert_ne!(b.roles(), s.roles(), "studio must differ as a role mapping");
     assert_eq!(b.roles().digits, b.star, "broadcast scores are amber");
     assert_eq!(s.roles().digits, s.bright, "studio scores are white");
-    assert_eq!(s.roles().cool, s.dim, "studio's structure recedes");
-    // The identity floor holds in both: red is red, and the ground is shared.
-    assert_eq!(b.roles().hot, s.roles().hot);
-    assert_eq!(b.roles().ground, s.roles().ground);
+    assert_eq!(s.roles().cool, s.border, "studio's structure is gray, not colored");
+    // The identity floor holds in both: red is red. The ground does not —
+    // press-box studio sits a step off true black.
+    assert_eq!(b.roles().hot, s.roles().hot, "one red, shared");
+    assert_eq!(s.live, Color::Rgb(255, 60, 60), "and it is broadcast's red");
+    assert_ne!(b.roles().ground, s.roles().ground);
+    // The one team-color scope studio keeps: `hero`. `never` would be a claim
+    // the board cannot honor — the drawn difference between `hero` and `never`
+    // is nothing (only `hero+marks` is read, in `board::rows`), and hero team
+    // color is the documented identity floor, not chrome.
+    assert_eq!(s.roles().team, theme::TeamColorScope::Hero);
 }
 
 /// v3.2 §6 cut the built-ins from eleven to three, and the README promises

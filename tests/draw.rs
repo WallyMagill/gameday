@@ -359,6 +359,66 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
     theme::set_current("broadcast").unwrap();
 }
 
+#[test]
+fn studio_spends_no_chroma_but_the_red_and_the_team_identity() {
+    // v3.3 §6: press-box studio is grayscale plus exactly one red. This is the
+    // cell-level statement of that — every colored cell on a studio frame is a
+    // gray, the hot red, or a team's own color on the hero (the identity
+    // floor, which `roles.team = hero` keeps and no theme may spend).
+    use gameday::theme;
+    use ratatui::style::Color;
+    theme::set_current("studio").unwrap();
+    let th = theme::builtin("studio");
+    let mut app = mk();
+    let mut game = g("1", "KC", "BUF", true);
+    // A hue the chrome could never justify: if navy shows up anywhere but the
+    // hero's identity, this test says so.
+    game.home.color = [0, 51, 141];
+    game.home.alt_color = [255, 255, 255];
+    app.apply_boards(League::Nfl, vec![game.clone()], false);
+    app.tab = Tab::League(League::Nfl);
+    // 80 cols is under the board's 100-col logo flank floor, so no logo art is
+    // drawn and every remaining color is one the theme chose.
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let b = t.backend().buffer();
+    let area = *b.area();
+    let chroma = |c: Color| -> i32 {
+        match c {
+            Color::Rgb(r, g, bl) => r.max(g).max(bl) as i32 - r.min(g).min(bl) as i32,
+            _ => 0,
+        }
+    };
+    let is_red = |c: Color| -> bool {
+        match c {
+            Color::Rgb(r, g, bl) => r as i32 - g as i32 >= 64 && r as i32 - bl as i32 >= 64,
+            _ => false,
+        }
+    };
+    let team_colors: Vec<Color> = [game.away.color, game.home.color]
+        .iter()
+        .flat_map(|c| [th.art_color(*c), theme::dimmed(th.art_color(*c))])
+        .collect();
+    let mut navy = 0usize;
+    for y in 0..area.height {
+        for x in 0..area.width {
+            let cell = &b[(x, y)];
+            for (what, c) in [("fg", cell.fg), ("bg", cell.bg)] {
+                if c == th.art_color(game.home.color) {
+                    navy += 1;
+                }
+                assert!(
+                    chroma(c) <= 8 || is_red(c) || team_colors.contains(&c),
+                    "studio cell ({x},{y}) {what} = {c:?} is neither gray, the hot red, nor a team color\n{}",
+                    buf_text(&t)
+                );
+            }
+        }
+    }
+    assert!(navy > 0, "the hero must still wear the home team's navy:\n{}", buf_text(&t));
+    theme::set_current("broadcast").unwrap();
+}
+
 // v3.2 §7: the GLOBAL ALERTS / TOP PLAYS / RECORDS sidebar is deleted, and
 // with it `sidebar_top_plays_are_abbr_surname_clock` and
 // `records_rail_shows_the_abbr_instead_of_a_clipped_name`. The scoring feed

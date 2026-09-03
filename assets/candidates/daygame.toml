@@ -1,0 +1,61 @@
+# daygame — the light candidate (v3.3 §6). NOT a built-in: it is compiled in
+# as a gate candidate (`theme::CANDIDATE_NAMES`), rendered by `gameday dump`
+# as `gate-daygame`, and cannot be selected until the owner promotes it in
+# sitting 2. Every other theme gameday ships is a dark one; this is the answer
+# to "what does the board look like at a desk, in daylight, next to a browser".
+#
+# Contrast receipts, WCAG 2 relative luminance against the paper ground
+# (#f5f2ea, L = 0.889), pinned by `daygame_ink_contrast_clears_4_5_to_1`:
+#   ink    #1c1a17  15.5:1  — body text, over the 4.5:1 floor with room
+#   muted  #5d5851   6.3:1  — carries data, over the 3:1 large-text floor
+#   digits #9a6a00   4.2:1  — scores are large type; the deep amber is the one
+#                             warm note, and going darker turns it brown
+#   live   #c0261f   6.0:1  — still red-dominant (r leads g and b by >= 64),
+#                             which is the identity floor every theme owes
+name = "daygame"
+
+[palette]
+# Warm paper, not white: a #ffffff terminal glares, and the board's grays all
+# read as dirt on it.
+bg = "#f5f2ea"
+fg = "#1c1a17"
+bright = "#000000"
+muted = "#5d5851"
+# On a light ground `dim` is a *lighter* step — the hairlines and empty rules.
+dim = "#ddd7c9"
+# `cool` = slate: structure that is present without being ink.
+border = "#55637a"
+live = "#c0261f"
+green = "#2f6b3a"
+cyan = "#2a5f7a"
+magenta = "#7a3f6b"
+star = "#9a6a00"
+
+# League accents darkened to read on paper — the dark themes' accents are
+# picked to glow on black and all of them wash out here.
+[palette.league]
+nfl = "#a32a22"
+cfb = "#a35a12"
+nba = "#2a4f9e"
+wnba = "#3a6ab0"
+cbb = "#4a4aa0"
+mlb = "#8a6a10"
+nhl = "#2a6a7a"
+epl = "#2f6b3a"
+mls = "#1f6a62"
+
+[roles]
+ground = "bg"
+ink = "fg"
+dim = "muted"
+digits = "star"
+hot = "live"
+cool = "border"
+team = "hero"
+
+[discipline]
+chips = true
+section_labels = false
+play_abbrs = false
+clocks = false
+sidebar_headers = "single"

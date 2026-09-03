@@ -38,6 +38,25 @@ const BUILTIN_TOML: [&str; 3] = [
     include_str!("../assets/themes/gruvbox.toml"),
 ];
 
+/// Themes that exist for the gate frames only (v3.3 sitting 2, ruling R38).
+/// They are compiled in like the built-ins but are NOT loaded: `entries()`
+/// never lists them, `set_current` cannot reach one, and the picker cannot
+/// show one. `gameday dump` installs a candidate for the length of the one
+/// capture named after it and takes it back out ([`candidate`] + [`uninstall`],
+/// spent by `dump::with_theme`).
+///
+/// `daygame` is the light-theme candidate; `gruvbox-warm` is the shipping
+/// gruvbox with its ground on morhetz's `dark0_soft`. If the owner promotes
+/// one, it moves into [`BUILTIN_NAMES`] and out of here; if not, the file and
+/// its gate stem are deleted together.
+pub const CANDIDATE_NAMES: [&str; 2] = ["daygame", "gruvbox-warm"];
+
+/// The compiled-in candidate sources, parallel to [`CANDIDATE_NAMES`].
+const CANDIDATE_TOML: [&str; 2] = [
+    include_str!("../assets/candidates/daygame.toml"),
+    include_str!("../assets/candidates/gruvbox-warm.toml"),
+];
+
 /// v3.1's sidebar-header coloring knob. The sidebar itself is deleted (v3.2
 /// §7) and nothing reads this any more — it survives only so that a theme
 /// file written for v3.1 still *parses* (`[discipline]` is compat-only, and
@@ -577,6 +596,23 @@ pub fn builtin(name: &str) -> Theme {
         .theme
 }
 
+/// A gate candidate by name (panics on a typo — it's a programmer's
+/// constant, like [`builtin`]). The returned entry is not installed: the
+/// caller decides how long it exists, and `dump::with_theme` is the only
+/// caller that installs one at all.
+pub fn candidate(name: &str) -> Entry {
+    let i = CANDIDATE_NAMES
+        .iter()
+        .position(|n| *n == name)
+        .unwrap_or_else(|| {
+            panic!("no candidate theme {name:?}, valid: {}", CANDIDATE_NAMES.join("|"))
+        });
+    let (parsed, theme) = parse_theme_inner(CANDIDATE_TOML[i], false)
+        .unwrap_or_else(|e| panic!("candidate theme {name} fails to parse: {e}"));
+    assert_eq!(&parsed, name, "assets/candidates/{name}.toml names itself {parsed:?}");
+    Entry { name: parsed, theme, user: false }
+}
+
 /// Install (or replace) a user theme on this thread.
 pub fn install(entry: Entry) {
     USER.with(|u| {
@@ -584,6 +620,13 @@ pub fn install(entry: Entry) {
         u.retain(|e| !e.name.eq_ignore_ascii_case(&entry.name));
         u.push(Entry { user: true, ..entry });
     });
+}
+
+/// Take a theme back out of this thread's installed set. The gate frames use
+/// it so a candidate exists for exactly one capture and never reaches the
+/// picker; unknown names are a no-op (there is nothing to undo).
+pub fn uninstall(name: &str) {
+    USER.with(|u| u.borrow_mut().retain(|e| !e.name.eq_ignore_ascii_case(name)));
 }
 
 /// Read `<dir>/themes/*.toml` (sorted by file name). Returns the themes that
@@ -883,8 +926,9 @@ mod tests {
     fn palettes_carry_their_identity() {
         assert_eq!(builtin("broadcast").bg, Color::Rgb(0, 0, 0));
         assert_eq!(builtin("broadcast").live, Color::Rgb(255, 60, 60));
-        // studio is broadcast's palette, calm — same ground, same red.
-        assert_eq!(builtin("studio").bg, Color::Rgb(0, 0, 0));
+        // v3.3 §6: studio is the press box — its own near-black gray ground,
+        // and broadcast's red, which is the identity floor both share.
+        assert_eq!(builtin("studio").bg, Color::Rgb(0x0e, 0x0e, 0x0e));
         assert_eq!(builtin("studio").live, builtin("broadcast").live);
         assert_eq!(builtin("gruvbox").bg, Color::Rgb(0x28, 0x28, 0x28));
         // spec v3.3 §6: gruvbox published palette yellow is #d79921, not the
@@ -915,6 +959,136 @@ mod tests {
             let word = scoring_word_for_play(league, text);
             assert!(!word.contains('!'), "{league:?} {text:?}: {word}");
         }
+    }
+
+    /// Chroma of a truecolor: `max(r,g,b) - min(r,g,b)`, 0 for a pure gray.
+    fn chroma(c: Color) -> i32 {
+        let Color::Rgb(r, g, b) = c else { panic!("not truecolor") };
+        r.max(g).max(b) as i32 - r.min(g).min(b) as i32
+    }
+
+    #[test]
+    fn studio_is_monochrome_plus_one_red() {
+        // v3.3 §6: studio is the press box — one red accent, everything else
+        // grayscale. The v3.2 studio was broadcast's palette with white digits,
+        // which is why the design review said it didn't earn its slot.
+        // GRAY = 8/255: the ±4 wobble a hand-picked "neutral" gray carries, not
+        // a hue anyone can see on a cell.
+        const GRAY: i32 = 8;
+        let th = builtin("studio");
+        let r = th.roles();
+        for (label, c) in [
+            ("ground", r.ground),
+            ("ink", r.ink),
+            ("dim", r.dim),
+            ("digits", r.digits),
+            ("cool", r.cool),
+        ] {
+            assert!(
+                chroma(c) <= GRAY,
+                "studio role {label} = {} has chroma {}, expected <= {GRAY} (press-box studio is grayscale everywhere but `hot`)",
+                hex_of(c),
+                chroma(c)
+            );
+        }
+        assert_eq!(r.digits, Color::Rgb(0xff, 0xff, 0xff), "studio's hero/row digits are white");
+        let Color::Rgb(hr, hg, hb) = r.hot else { panic!("studio hot is not truecolor") };
+        let (hr, hg, hb) = (hr as i32, hg as i32, hb as i32);
+        assert!(
+            hr - hg >= 64 && hr - hb >= 64,
+            "studio hot = {} is not red (red must lead g and b by >= 64)",
+            hex_of(r.hot)
+        );
+        // Not only the roles: no surface off the role layer (chips, the
+        // clock, the league accents) may smuggle a hue back in.
+        for (label, c) in [
+            ("bg", th.bg),
+            ("fg", th.fg),
+            ("bright", th.bright),
+            ("muted", th.muted),
+            ("dim", th.dim),
+            ("border", th.border),
+            ("green", th.green),
+            ("cyan", th.cyan),
+            ("magenta", th.magenta),
+            ("star", th.star),
+        ] {
+            assert!(
+                chroma(c) <= GRAY,
+                "studio palette.{label} = {} has chroma {}, expected <= {GRAY}",
+                hex_of(c),
+                chroma(c)
+            );
+        }
+        for league in League::ALL {
+            let c = th.league_accent(league);
+            assert!(
+                chroma(c) <= GRAY,
+                "studio league accent {league:?} = {} has chroma {}, expected <= {GRAY}",
+                hex_of(c),
+                chroma(c)
+            );
+        }
+    }
+
+    #[test]
+    fn daygame_ink_contrast_clears_4_5_to_1() {
+        // The light candidate's whole risk is legibility on paper: ink on
+        // ground must clear the WCAG body-text floor of 4.5:1, and `dim`
+        // (which carries data, not decoration) the large-text floor of 3:1.
+        let th = candidate("daygame").theme;
+        let r = th.roles();
+        let ink = contrast(r.ink, r.ground);
+        assert!(
+            ink >= 4.5,
+            "daygame ink {} on ground {} is {ink:.2}:1, expected >= 4.5:1",
+            hex_of(r.ink),
+            hex_of(r.ground)
+        );
+        let dim = contrast(r.dim, r.ground);
+        assert!(
+            dim >= 3.0,
+            "daygame dim {} on ground {} is {dim:.2}:1, expected >= 3.0:1",
+            hex_of(r.dim),
+            hex_of(r.ground)
+        );
+        // It is a *light* theme: the ground outshines the ink, which is the
+        // one thing every other loaded theme has backwards.
+        assert!(
+            rel_luma(r.ground) > rel_luma(r.ink),
+            "daygame ground {} must be lighter than its ink {}",
+            hex_of(r.ground),
+            hex_of(r.ink)
+        );
+        // And it ships behind the gate: not a built-in, not in the picker.
+        assert!(!BUILTIN_NAMES.contains(&"daygame"), "daygame is a candidate, not a built-in");
+        assert!(lookup("daygame").is_none(), "daygame must not be selectable until it is promoted");
+    }
+
+    #[test]
+    fn gruvbox_warm_lifts_the_ground_and_nothing_else() {
+        // The owner's other sitting-2 question: gruvbox on dark0_soft
+        // (#32302f, morhetz's own next step up) instead of the true #282828.
+        let warm = candidate("gruvbox-warm").theme;
+        let base = builtin("gruvbox");
+        assert_eq!(warm.bg, Color::Rgb(0x32, 0x30, 0x2f), "the one lifted value");
+        assert_eq!(warm.roles().ground, warm.bg);
+        for (label, a, b) in [
+            ("fg", warm.fg, base.fg),
+            ("bright", warm.bright, base.bright),
+            ("muted", warm.muted, base.muted),
+            ("dim", warm.dim, base.dim),
+            ("border", warm.border, base.border),
+            ("live", warm.live, base.live),
+            ("green", warm.green, base.green),
+            ("cyan", warm.cyan, base.cyan),
+            ("magenta", warm.magenta, base.magenta),
+            ("star", warm.star, base.star),
+        ] {
+            assert_eq!(a, b, "gruvbox-warm changes only the ground: {label}");
+        }
+        // The product theme is untouched by the candidate existing.
+        assert_eq!(base.bg, Color::Rgb(0x28, 0x28, 0x28));
     }
 
     #[test]

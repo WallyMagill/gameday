@@ -35,7 +35,7 @@ sort = "watch"                  # watch | time | league
 ## Themes
 
 Three built-ins: **broadcast** (the default — amber scores, colored chrome),
-**studio** (the same palette, calm: white scores, the structure a step back),
+**studio** (the press box: grayscale plus exactly one red, white scores),
 and **gruvbox** (the one warm-ground community palette). A theme is a palette
 read through *roles* — `ground`, `ink`, `dim`, `digits`, `hot`, `cool` and a
 `team` scope saying where team color is allowed — so two themes can share

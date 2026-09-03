@@ -35,9 +35,10 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         ];
         // The ROLES in six cells, in the order the board spends them:
         // ground, ink, dim, digits, hot, cool. Not the raw palette — v3.2 §6
-        // makes a theme a role mapping, and two of the three built-ins share
-        // a palette outright (broadcast and studio), so a palette strip drew
-        // them as the same theme.
+        // makes a theme a role mapping. (Through v3.2 broadcast and studio
+        // shared a palette outright, so a palette strip drew them as the same
+        // theme; v3.3's press-box studio has its own grays, and the strip
+        // still shows what the board will actually spend.)
         let r = p.roles();
         for c in [r.ground, r.ink, r.dim, r.digits, r.hot, r.cool] {
             spans.push(Span::styled("■", Style::default().fg(c)));
@@ -91,10 +92,11 @@ mod tests {
     use ratatui::style::Color;
     use ratatui::Terminal;
 
-    /// The strip draws ROLES, not the palette. broadcast and studio ship the
-    /// same eleven colors, so a palette strip rendered their two rows
-    /// identically and the picker claimed they were the same theme. This is
-    /// the cell-level assertion that they are not.
+    /// The strip draws ROLES, not the palette. In v3.2 broadcast and studio
+    /// shipped the same eleven colors, so a palette strip rendered their two
+    /// rows identically and the picker claimed they were the same theme. This
+    /// is the cell-level assertion that they are not — and since v3.3 rebuilt
+    /// studio as press-box monochrome, the delta is every swatch, not one.
     #[test]
     fn broadcast_and_studio_draw_different_swatch_rows() {
         theme::set_current("broadcast").unwrap();
@@ -130,6 +132,20 @@ mod tests {
         let (bt, st) = (theme::builtin("broadcast"), theme::builtin("studio"));
         assert_eq!(b[3], bt.star, "broadcast's digits swatch is amber");
         assert_eq!(s[3], st.bright, "studio's digits swatch is white");
-        assert_eq!(b[0], s[0], "and both still share the ground");
+        // v3.3: even the ground swatch differs now — studio's press-box ground
+        // is a near-black gray, not broadcast's true black.
+        assert_ne!(b[0], s[0], "studio's ground swatch is its own");
+        // Every swatch but `hot` is gray on studio; `hot` is the one chroma
+        // the two themes still share.
+        for (i, c) in s.iter().enumerate() {
+            let Color::Rgb(r, g, bl) = *c else { panic!("studio swatch {i} is not truecolor") };
+            let chroma = r.max(g).max(bl) as i32 - r.min(g).min(bl) as i32;
+            if i == 4 {
+                assert_eq!(*c, st.live, "studio's hot swatch is the red");
+            } else {
+                assert!(chroma <= 8, "studio swatch {i} #{r:02x}{g:02x}{bl:02x} has chroma {chroma}, expected <= 8");
+            }
+        }
+        assert_eq!(b[4], s[4], "the identity floor: both spend the same red");
     }
 }

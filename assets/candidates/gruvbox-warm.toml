@@ -1,0 +1,58 @@
+# gruvbox-warm — the shipping gruvbox with its ground lifted exactly one
+# published step, and nothing else touched. A gate candidate (`gate-gruvbox-
+# warm`), not a built-in: `theme::builtin("gruvbox")` is unchanged, and this
+# file exists so sitting 2 can put the two grounds side by side.
+#
+# Receipt for the one changed value: #32302f is morhetz's own `dark0_soft`,
+# the next step up from the `dark0_hard`/`dark0` pair gruvbox's published
+# palette defines (#1d2021 / #282828 / #32302f). It is not a hand-mixed gray —
+# the question being asked is "does the canonical soft ground read better on a
+# board this dense", so the candidate has to be a canonical value.
+name = "gruvbox-warm"
+
+[palette]
+bg = "#32302f"
+fg = "#ebdbb2"
+bright = "#fbf1c7"
+# gruvbox published palette (morhetz, neutral/dark0 set) — gray #928374.
+muted = "#928374"
+dim = "#3c3836"
+border = "#504945"
+# gruvbox published palette — red #cc241d (the neutral red; #fb4934 is the
+# bright variant, wrong role for `hot`).
+live = "#cc241d"
+green = "#b8bb26"
+# gruvbox published palette — aqua #689d6a (neutral; #8ec07c is bright).
+cyan = "#689d6a"
+magenta = "#d3869b"
+# gruvbox published palette — yellow #d79921 (neutral; #fabd2f is bright,
+# carries `digits` too loud against the published ground).
+star = "#d79921"
+
+[palette.league]
+nfl = "#fb4934"
+cfb = "#fe8019"
+nba = "#83a598"
+wnba = "#fabd2f"
+cbb = "#d3869b"
+mlb = "#b8bb26"
+nhl = "#8ec07c"
+epl = "#b8bb26"
+mls = "#8ec07c"
+
+# gruvbox's amber (`star` = #d79921) carries the digits; the rest are defaults.
+[roles]
+ground = "bg"
+ink = "fg"
+dim = "muted"
+digits = "star"
+hot = "live"
+cool = "border"
+team = "hero"
+
+[discipline]
+chips = true
+section_labels = false
+play_abbrs = false
+clocks = false
+sidebar_headers = "single"
