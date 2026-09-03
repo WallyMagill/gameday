@@ -94,7 +94,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     let mut spare = body.height.saturating_sub(HERO_MIN_ROWS);
     let plays_rows = spare.min(plays.len() as u16);
     spare -= plays_rows;
-    let linescore = crate::board::linescore::lines(game).filter(|_| spare >= LINESCORE_ROWS);
+    let linescore = crate::board::linescore::linescore_lines(game, &th).filter(|_| spare >= LINESCORE_ROWS);
     let ls_rows = if linescore.is_some() { LINESCORE_ROWS } else { 0 };
     let hero_rows = body.height - plays_rows - ls_rows;
 

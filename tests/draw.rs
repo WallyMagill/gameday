@@ -1849,6 +1849,137 @@ fn zoom_overview_carries_the_linescore_with_hits_and_errors() {
 }
 
 #[test]
+fn the_linescore_wears_team_colors() {
+    // spec v3.3 §5: the linescore's team rows wear `theme::hero_pair`
+    // colors instead of the gated `team_text` role, which could fall back
+    // to plain `fg` (white) — the white-digit role miss the v3.2 review
+    // caught on an NYY row.
+    use gameday::views::{View, ZoomTab};
+    let th = gameday::theme::current();
+    let mut game = g("1", "KC", "TB", true);
+    game.linescore = vec![(1, 0), (0, 2), (2, 0)];
+    let periods = game.linescore.len();
+    let (away_color, home_color, _) = gameday::theme::hero_pair(&th, game.away.color, game.home.color);
+    assert_ne!(away_color, home_color, "the two rows must not collapse to one color");
+
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![game], false);
+    app.tab = Tab::League(League::Nfl);
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
+    let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let b = t.backend().buffer();
+    let text = buf_text(&t);
+    let lines: Vec<&str> = text.lines().collect();
+    let head_i = lines
+        .iter()
+        .position(|l| l.contains("  1  2  3"))
+        .unwrap_or_else(|| panic!("period header missing:\n{text}"));
+    let away_y = (head_i + 1) as u16;
+    let home_y = (head_i + 2) as u16;
+    assert_eq!(b[(0, away_y)].fg, away_color, "KC linescore row wears the away hero color:\n{text}");
+    assert_eq!(b[(0, home_y)].fg, home_color, "TB linescore row wears the home hero color:\n{text}");
+    // Totals column ("R"): the last cell of the right-aligned 4-wide `R`
+    // field, same absolute column on both rows regardless of digit count.
+    let totals_x = (5 + 3 * periods + 3) as u16;
+    assert!(
+        b[(totals_x, away_y)].modifier.contains(ratatui::style::Modifier::BOLD),
+        "away totals column stays bold:\n{text}"
+    );
+    assert!(
+        b[(totals_x, home_y)].modifier.contains(ratatui::style::Modifier::BOLD),
+        "home totals column stays bold:\n{text}"
+    );
+}
+
+#[test]
+fn zoom_logo_flanks_are_symmetric_or_absent() {
+    // spec v3.3 §5: both or neither. A team with no committed mark used to
+    // leave the OTHER team's flank drawn while its own stayed empty — one
+    // lone mark reads as a rendering bug, not as an intentional asymmetry.
+    // This exercises `hero::draw_hero` directly (the board and the zoom
+    // share this one function; spec §0 makes the marks hero-only).
+    use gameday::board::hero::{draw_hero, HeroPlan};
+    use gameday::domain::Team;
+
+    fn team(abbr: &str, color: [u8; 3], key: &str) -> Team {
+        Team {
+            id: abbr.into(),
+            abbr: abbr.into(),
+            name: abbr.into(),
+            color,
+            logo_key: key.into(),
+            ..Default::default()
+        }
+    }
+    fn game(away_key: &str, home_key: &str) -> Game {
+        Game {
+            id: "1".into(),
+            league: League::Nfl,
+            away: team("KC", [227, 24, 55], away_key),
+            home: team("BUF", [0, 51, 141], home_key),
+            away_score: 27,
+            home_score: 24,
+            status: Status::Live,
+            ..Default::default()
+        }
+    }
+    fn plan() -> HeroPlan {
+        HeroPlan {
+            digits_full: true,
+            chip: None,
+            now: time::OffsetDateTime::UNIX_EPOCH,
+            pinned: false,
+            favorite: false,
+            show_logos: true,
+            selected: false,
+        }
+    }
+    // No situation/last_plays/meter on `game()`, so no optional row is drawn
+    // under the digit band — the whole area under the nameplate is band,
+    // and the margin columns below are never touched by anything but a
+    // flank mark.
+    let (w, h) = (120u16, 12u16);
+    // away digits: "27" @ 8-wide glyphs = 16 cols, right-aligned in the
+    // 40-col left third, landing at x=24 — 0..20 is inside the margin with
+    // room to spare. home digits: "24" lands at x=80..96 in the right
+    // third — 100..120 is clear of it on the far side.
+    let painted = |term: &Terminal<TestBackend>, xs: std::ops::Range<u16>| -> usize {
+        let buf = term.backend().buffer();
+        let mut n = 0;
+        for y in 1..h {
+            for x in xs.clone() {
+                let c = &buf[(x, y)];
+                if c.symbol() != " " || c.bg != ratatui::style::Color::Reset {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    let render = |g: &Game| -> Terminal<TestBackend> {
+        let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+        term.draw(|f| draw_hero(f, f.area(), g, &plan())).unwrap();
+        term
+    };
+
+    // Only KC (away) has committed art; BUF's key is unknown.
+    let one_sided = game("nfl/kc", "nfl/zzz");
+    let term = render(&one_sided);
+    assert_eq!(painted(&term, 0..20), 0, "one committed mark must not draw its own flank");
+    assert_eq!(painted(&term, 100..120), 0, "…and the other side must stay empty too");
+
+    // Both KC and BUF have committed art: both flanks draw.
+    let both = game("nfl/kc", "nfl/buf");
+    let term = render(&both);
+    assert!(painted(&term, 0..20) > 0, "both marks committed: away flank must draw");
+    assert!(painted(&term, 100..120) > 0, "both marks committed: home flank must draw");
+}
+
+#[test]
 fn header_chip_is_its_own_cell_and_offline_names_the_error() {
     let mut app = mk();
     let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();

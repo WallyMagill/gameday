@@ -455,10 +455,17 @@ fn draw_flanks(frame: &mut Frame, band: Rect, game: &Game, spots: ScoreSpots) {
     if left.width < FLANK_MIN_COLS || right.width < FLANK_MIN_COLS {
         return;
     }
-    for (flank, team) in [(left, &game.away), (right, &game.home)] {
-        let Some(mark) = crate::board::logo::hero_mark(&team.logo_key) else {
-            continue;
-        };
+    // spec v3.3 §5: both or neither. A team with no committed art used to
+    // leave its own margin empty while the other side still drew — a lone
+    // logo reads as a rendering bug, not as "one team has art and one
+    // doesn't". So the gate lives here, before either side is drawn, not
+    // inside the per-side loop where it can only skip one of them.
+    let (Some(away_mark), Some(home_mark)) =
+        (crate::board::logo::hero_mark(&game.away.logo_key), crate::board::logo::hero_mark(&game.home.logo_key))
+    else {
+        return;
+    };
+    for (flank, mark) in [(left, away_mark), (right, home_mark)] {
         // Whole mark or none: a clipped mark is a smear, not an identity.
         if mark.width > MARK_COLS.min(flank.width) || mark.height > flank.height {
             continue;

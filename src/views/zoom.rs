@@ -102,9 +102,10 @@ const FEED_MIN: u16 = 5;
 /// §5). Everything under the hero is charged against what the hero left, in
 /// that order — the same "the hero shrinks last" rule the board runs on.
 fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
+    let th = theme::current();
     let hero_rows = HERO_ROWS.min(area.height);
     let mut rest = area.height - hero_rows;
-    let linescore = linescore::lines(game).filter(|_| rest >= linescore::ROWS + FEED_MIN);
+    let linescore = linescore::linescore_lines(game, &th).filter(|_| rest >= linescore::ROWS + FEED_MIN);
     let ls_rows = if linescore.is_some() { linescore::ROWS } else { 0 };
     rest -= ls_rows;
     let matchup = matchup_line(game, area.width as usize).filter(|_| rest > FEED_MIN);
