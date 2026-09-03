@@ -104,3 +104,20 @@ Direction (Walter, 2026-09-03): **B** — full takeover in TV only for the shown
 - Gallery regenerated; the two-sitting gate record (which option won each gate) appended to this spec as `## Decisions`.
 - Full suite green at default parallelism; clippy zero warnings; the v3.2 verification receipts still hold (spot-run: size sweep, hard-rule tests).
 - CPU re-sampled once against the v3.2 number (1.19%) — row-doubling and reserved band rows must not move it beyond jitter.
+
+## Decisions (the two sittings, Walter, 2026-09-03)
+
+Sitting 1 — from rendered frames at 80×24/120×36:
+- Mid-size digits: **quad** (1A) — quadrant 4-row glyphs; current sextants tofu on Terminal.app and the PNG pipeline; text carries no weight. Wired as the ladder's mid rung (Full → quad → text).
+- Tier-1 grid: **re-grid kept, garnish dropped** (2A) — one amber score column through the whole board; dropping the garnish aligned tier-1's clock to tier-2's x. Sextant garnish deleted (R39), not toggled.
+- Band: **reserved rows, red top** (3A) — quiet and fired frames cell-identical below the band; the amber-in-list variant was rendered and declined.
+- Config default: quadrant glyphs everywhere by evidence (spike matrix); no `glyphs` toggle ships (R40 — quad is the design, not a fallback). §1a's opt-in clause is deviated by that ruling.
+- Consequence beyond the menu: all 38 logo marks regenerated sextant-free (guard test pins the range); the scoring word dropped its sextant rung (R42).
+
+Sitting 2 — from rendered frames at 120×36/40:
+- TV: **confirmed** (1A) with axis-gated 2× digits (R43 — 32×16 blocks; 3-digit scores degrade to rows-only by arithmetic). Remaining deltas vs the mockup (1-row meter, no FINAL·LATER strip section) accepted.
+- Studio: **ships** (2A) as press-box monochrome — grayscale roles, red the only chroma, team color on the hero only.
+- daygame: **parked** (3A) — the light theme reads well but committed logo art is baked black-on-black-box; promotion rides sub-project 4's art work. Roles + contrast test stay in-tree.
+- gruvbox: **true #282828** (4A) — canonical dark0; the warm dark0_soft variant was rendered and declined.
+- Config screen: **centered** (5A) — Walter asked for the recommendation; the top-anchored variant was rendered and re-created the §5 dead-space defect, so centered was confirmed by frames.
+- Carried out of the sittings: 40×12 takeover (bold word, no labels) shipped tested but uneyeballed — final review triages; `TeamColorScope::Never` is a dead value — meaning-or-delete at final review.
