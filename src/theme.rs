@@ -118,20 +118,24 @@ pub enum TeamColorScope {
     Hero,
     /// The hero plus the row marks.
     HeroMarks,
-    /// Nowhere: a fully monochrome chrome.
-    Never,
 }
 
 impl TeamColorScope {
-    pub const VALID: &'static str = "hero|hero+marks|never";
+    pub const VALID: &'static str = "hero|hero+marks";
 
     /// The spelling a theme file uses (`hero+marks`, not the serde default
     /// `heromarks` — spec §6 writes the plus).
+    ///
+    /// v3.3 deleted a third scope, `never`. Nothing ever read it — the one
+    /// comparison in the codebase is `== HeroMarks` (`board::rows`), so a
+    /// theme asking for `never` drew hero team color anyway, and *meaning* it
+    /// would strip the identity floor spec §6 says no theme may spend. The
+    /// retired spelling is not an error, though: [`parse_theme`] maps it to
+    /// [`Self::Hero`] — the value it always behaved as — with a one-time note.
     fn parse(value: &str) -> Option<Self> {
         match value {
             "hero" => Some(Self::Hero),
             "hero+marks" => Some(Self::HeroMarks),
-            "never" => Some(Self::Never),
             _ => None,
         }
     }
@@ -140,7 +144,6 @@ impl TeamColorScope {
         match self {
             Self::Hero => "hero",
             Self::HeroMarks => "hero+marks",
-            Self::Never => "never",
         }
     }
 }
@@ -426,6 +429,24 @@ fn parse_theme_inner(text: &str, compat_note: bool) -> Result<(String, Theme), S
     };
     let team = match r.team.as_deref() {
         None => TeamColorScope::default(),
+        // v3.3 retired `never` (see `TeamColorScope::parse`). A user theme on
+        // disk still saying it must keep loading, and the honest landing spot
+        // is the value it has always drawn as — `hero` — not a parse error
+        // and not a silently different board.
+        Some("never") => {
+            if compat_note {
+                crate::log::note_once(
+                    &format!("theme:{name}:team-never"),
+                    &format!(
+                        "theme {name}: roles.team = \"never\" was retired in v3.3 — it never \
+                         differed from \"hero\" (the hero's colors are the identity floor), \
+                         so it loads as \"hero\"; valid: {}",
+                        TeamColorScope::VALID
+                    ),
+                );
+            }
+            TeamColorScope::Hero
+        }
         Some(v) => TeamColorScope::parse(v).ok_or_else(|| {
             format!("roles.team = {v:?} is not a scope, expected one of {}", TeamColorScope::VALID)
         })?,

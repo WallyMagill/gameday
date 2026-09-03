@@ -53,9 +53,9 @@ mls = "#a0a0a0"
 # #303030 rule is a smudge, and the press box wants clean structure, not
 # hidden structure). `hot` stays `live`.
 #
-# `team = "hero"`, not `"never"`: the hero's digits are the identity floor, and
-# `never` would be a claim the board cannot honor — only `hero+marks` is read
-# anywhere (`board::rows`), so `never` and `hero` draw the same pixels today.
+# `team = "hero"`: the hero's digits are the identity floor. (v3.3 deleted the
+# old `"never"` scope for exactly this reason — it was a claim the board could
+# not honor, and nothing read it; a file still saying it loads as `hero`.)
 # Monochrome here means the CHROME spends no hue; the two teams still wear
 # their own colors in the one place the spec says color belongs.
 [roles]

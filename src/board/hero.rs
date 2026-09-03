@@ -1261,7 +1261,9 @@ mod tests {
             let text = text_of(term.backend().buffer());
             if w >= 12 && h >= 2 {
                 assert!(
-                    text.contains("24 - 21") || text.contains("████") || text.contains('🬂'),
+                    // Text rung, or a glyph one: post-sextant-extinction the
+                    // only ink a glyph score leaves is the quadrant blocks.
+                    text.contains("24 - 21") || text.contains("████") || text.contains('▀'),
                     "{w}x{h} must still show a score in some form\n{text}"
                 );
             }

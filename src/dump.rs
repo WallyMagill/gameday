@@ -40,9 +40,8 @@ use crate::theme;
 use crate::views::{View, ZoomTab};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::{Frame, Terminal};
+use ratatui::style::{Color, Modifier};
+use ratatui::Terminal;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -59,25 +58,13 @@ pub struct Variant {
     pub stem: &'static str,
     pub cols: u16,
     pub rows: u16,
-    /// A built-in theme name (`theme::BUILTIN_NAMES`) or a gate candidate
-    /// (`theme::CANDIDATE_NAMES`, installed for this capture only).
+    /// A built-in theme name (`theme::BUILTIN_NAMES`).
     pub theme: &'static str,
     /// Pins this capture to one sim tick regardless of `--tick`. Only the
     /// `nudge-seq` frames use it: they are a sequence, and a sequence whose
     /// frames all moved with a flag would stop being one.
     pub tick: Option<u64>,
     setup: fn(&mut App),
-    /// Ran over the finished frame, after `app.draw`. The v3.3 gates are the
-    /// only users: `gate-digits-text` repaints the hero's score band with the
-    /// ladder's bottom rung so the two `gate-digits-*` captures differ in the
-    /// digits and nothing else, and `gate-band-amber` recolors the band.
-    ///
-    /// This is why the hook is a field on `Variant` and not a flag on
-    /// [`crate::board::hero::score_block`]: `Variant` is constructed only by
-    /// [`gallery`], the product path never builds one, and `App::draw` is
-    /// handed no capture state at all. The one-formatter rule (spec §1) is
-    /// intact — the shipping score renderer gained no variant.
-    overlay: Option<fn(&mut Frame, &App)>,
 }
 
 /// `board-<theme>` stems, one per built-in, in `BUILTIN_NAMES` order. Static
@@ -203,7 +190,6 @@ pub fn gallery() -> Vec<Variant> {
         theme,
         tick: None,
         setup,
-        overlay: None,
     };
     let sized = |stem, cols, rows, setup| Variant {
         stem,
@@ -212,7 +198,6 @@ pub fn gallery() -> Vec<Variant> {
         theme: "broadcast",
         tick: None,
         setup,
-        overlay: None,
     };
     let at_tick = |stem, tick| Variant {
         stem,
@@ -221,33 +206,6 @@ pub fn gallery() -> Vec<Variant> {
         theme: "broadcast",
         tick: Some(tick),
         setup: home as fn(&mut App),
-        overlay: None,
-    };
-    // The v3.3 mid-size digit gate (spec §1b). Three captures of the SAME
-    // 80×24 board — the size where the spec says the score stops resolving —
-    // differing only in how the hero's score is drawn. `Variant` already
-    // carried per-stem `cols`/`rows` (`board-narrow` is 80×24), so the gate
-    // needed no size mechanism at all: `sized` is it.
-    let gate = |stem, overlay| Variant {
-        stem,
-        cols: GATE_COLS,
-        rows: GATE_ROWS,
-        theme: "broadcast",
-        tick: None,
-        setup: home as fn(&mut App),
-        overlay,
-    };
-    // A theme gate: the plain demo board at the gallery's own size, in one
-    // named theme. `theme` may be a candidate (`theme::CANDIDATE_NAMES`) —
-    // `with_theme` installs those for the render and takes them back out.
-    let themed = |stem, theme| Variant {
-        stem,
-        cols: DUMP_COLS,
-        rows: DUMP_ROWS,
-        theme,
-        tick: None,
-        setup: home as fn(&mut App),
-        overlay: None,
     };
     let mut out: Vec<Variant> = BOARD_STEMS
         .iter()
@@ -273,220 +231,21 @@ pub fn gallery() -> Vec<Variant> {
         at_tick("nudge-seq-1", crate::sim::NUDGE_TICK - 1),
         at_tick("nudge-seq-2", crate::sim::NUDGE_TICK),
         at_tick("nudge-seq-3", crate::sim::NUDGE_TICK + 1),
-        // sitting-1 pick 1A landed: the product's own mid-size form IS the
-        // quadrant one, so this stem renders the winner with no overlay at
-        // all and the separate `gate-digits-quad` stem is gone — an overlay
-        // that redraws what the board already drew is a no-op dressed as a
-        // comparison. Named `-product`, not `-current`: it is no longer one
-        // side of a candidate contrast, it is what ships. `gate-digits-text`
-        // stays as the honest bottom of the ladder. (R38: T16 retires both.)
-        gate("gate-digits-product", None),
-        gate("gate-digits-text", Some(gate_text as fn(&mut Frame, &App))),
-        // The v3.3 tier-1 re-grid gate (spec §4). No overlay and no new
-        // mechanism: the tier-1 rows ARE the product's, so the gate is just
-        // the demo board at 120×36 — tall enough that the plan promotes tier-1
-        // blocks with tier-2 rows under them, which is the comparison being
-        // asked for. The BEFORE frame is the same stem rendered from the
-        // pre-task commit.
-        sized("gate-tier1-after", 120, 36, home as fn(&mut App)),
-        // The v3.3 band-geometry gate (spec §3). Three frames of the SAME
-        // 120×36 demo board for the owner's sitting:
-        //   -reserved  the quiet board, its two band rows already spent (the
-        //              MY GAMES rule hoisted into them, one row of air under)
-        //   -fired     a band up in those rows — every other row identical,
-        //              which is the whole point of the reservation
-        //   -amber     the one-off: the same band drawn inside the IN PLAY
-        //              section in `roles.digits` amber instead of hot, the
-        //              placement/colour the mockup asks about. DUMP-ONLY —
-        //              composed by the overlay hook, no product path can draw
-        //              a band there or in that colour.
-        sized("gate-band-reserved", 120, 36, home as fn(&mut App)),
-        sized("gate-band-fired", 120, 36, cut_band as fn(&mut App)),
-        Variant {
-            stem: "gate-band-amber",
-            cols: 120,
-            rows: 36,
-            theme: "broadcast",
-            tick: None,
-            setup: home as fn(&mut App),
-            overlay: Some(gate_amber as fn(&mut Frame, &App)),
-        },
-        // The v3.3 theme gates (spec §6), for the owner's sitting 2. Same
-        // 120×36 demo board three times, so the only variable is the palette:
-        //   -studio       the rebuilt press box — monochrome plus one red.
-        //                 This one is the PRODUCT (studio is a built-in); the
-        //                 stem exists so the frame sits beside the candidates
-        //                 in the same sitting instead of being hunted down in
-        //                 `board-studio`.
-        //   -gruvbox-warm shipping gruvbox on morhetz's dark0_soft ground,
-        //                 rendered the same DUMP-ONLY way as any candidate —
-        //                 `with_theme` installs it for this capture and
-        //                 removes it after. The product gruvbox is untouched.
-        // `daygame`, the other v3.3 candidate, is parked (sitting 2): its
-        // dump hook is gone, so no `gate-daygame` stem exists here.
-        themed("gate-studio", "studio"),
-        themed("gate-gruvbox-warm", "gruvbox-warm"),
     ]);
     out
 }
 
-/// The gate frames' size. 80×24 is the bracket the v3.3 spec names as the
-/// defect ("at 80×24 the hero digits don't resolve into a readable number") —
-/// and it is the size `board-narrow` already captures, so the gate is
-/// comparing against a frame the gallery has been shipping all along.
-const GATE_COLS: u16 = 80;
-const GATE_ROWS: u16 = 24;
-
-/// The hero on a frame the app just drew: its rect, the game in it, and the
-/// digit form the bracket asked for.
-///
-/// The rect is read back from the click zones the board registers — the board
-/// pushes `Hit::Row(i)` for every block it draws, and `i` indexes
-/// `Derived::selection`, so the hero's own rect is exact rather than guessed.
-fn hero_zone(app: &App) -> Option<(Rect, crate::domain::Game, bool)> {
-    let d = app.derive();
-    let hero_id = d.hero_id.clone()?;
-    let i = d.selection.iter().position(|g| g.id == hero_id)?;
-    let rect = app.hit_zones.iter().find_map(|(r, hit)| match hit {
-        crate::keymap::Hit::Row(j) if *j == i => Some(*r),
-        _ => None,
-    })?;
-    // `TierPlan::hero_digits_full` was computed over the *board* rect, which
-    // is not reachable from a finished frame — so read the answer off the
-    // hero's own height, using `draw_hero`'s own condition: Full digits are
-    // drawn only when the rows under the nameplate can hold an 8-row glyph.
-    let digits_full = rect.height.saturating_sub(1) >= crate::tiles::glyph_cell().1;
-    Some((rect, d.selection[i].clone(), digits_full))
-}
-
-/// Paint `rect` back to the theme's ground — the same fill `App::draw_frame`
-/// lays down before anything else, so a repainted band is indistinguishable
-/// from one that was never drawn on.
-fn erase(frame: &mut Frame, rect: Rect) {
-    let th = theme::current();
-    // `Block`'s style alone only re-styles the cells it covers — the symbols
-    // underneath survive, which left the old digits legible through the new
-    // ones. `Clear` blanks the symbols; the block puts the ground back.
-    frame.render_widget(ratatui::widgets::Clear, rect);
-    frame.render_widget(
-        ratatui::widgets::Block::default().style(Style::default().bg(th.bg).fg(th.fg)),
-        rect,
-    );
-}
-
-/// The hero's band and the plan the center column needs, for a gate overlay.
-fn gate_band(app: &App) -> Option<(Rect, crate::domain::Game, crate::board::hero::HeroPlan)> {
-    let (hero, game, digits_full) = hero_zone(app)?;
-    let band = crate::board::hero::band_rect(hero, &game, digits_full);
-    let plan = crate::board::hero::HeroPlan {
-        digits_full,
-        chip: crate::rank::watchability(&game, app.now()).chip,
-        now: app.now(),
-        pinned: false,
-        favorite: false,
-        // The gate is at 80 cols, under the board's own 100-col flank floor.
-        show_logos: false,
-        selected: false,
-    };
-    Some((band, game, plan))
-}
-
-/// `gate-digits-text`: the honest bottom of the ladder. No new renderer and
-/// no flag — `score_block` is handed a band too short for any glyph form, so
-/// it takes its own text arm (`24 - 21`, bold, team-colored) exactly as it
-/// does on a real terminal that ran out of rows.
-fn gate_text(frame: &mut Frame, app: &App) {
-    let Some((band, game, plan)) = gate_band(app) else {
-        return;
-    };
-    erase(frame, band);
-    // Two rows is under the quad form's floor, so `score_spots` returns `Text`.
-    let short = Rect { height: 2, ..band };
-    crate::board::hero::score_block(frame, short, &game, false);
-    crate::board::hero::draw_center_column(frame, band, &game, &plan, Some(short.y));
-}
-
-/// `gate-band-amber`: the mockup's question — what if the band lived *inside*
-/// the IN PLAY section, in the scoreboard's amber (`roles.digits`), instead of
-/// riding the reserved rows in the alert colour?
-///
-/// Composed entirely on this side of the line: it finds the IN PLAY rule on
-/// the finished frame, asks the product's own [`crate::board::cut::draw_band`]
-/// to draw there, then swaps the `hot` fill for `digits` cell by cell. The
-/// shipping band gained no colour parameter and no second home — there is
-/// still exactly one band renderer, and the product can only put it in the
-/// rows [`crate::board::layout::TierPlan::band_rows`] reserved.
-fn gate_amber(frame: &mut Frame, app: &App) {
-    use crate::board::cut::{Cut, BAND_ROWS};
-    let area = frame.area();
-    // The band a demo board actually fires (see `cut_band`): a game nobody
-    // follows scored, so the quiet two-row form is the honest subject.
-    let Some(game) = app
-        .boards
-        .values()
-        .flatten()
-        .find(|g| g.id == "nhl-live")
-        .cloned()
-    else {
-        return;
-    };
-    let Some(play) = game.scoring_plays.last().or_else(|| game.last_plays.first()).cloned() else {
-        return;
-    };
-    // Where the IN PLAY rule ended up on this frame, read off the buffer
-    // rather than recomputed — the gate must land on the board that was drawn.
-    let label = "IN PLAY";
-    let Some(y) = (0..area.height).find(|&y| {
-        (0..label.len() as u16)
-            .zip(label.chars())
-            .all(|(dx, want)| frame.buffer_mut()[(area.x + dx, y)].symbol() == want.to_string())
-    }) else {
-        return;
-    };
-    if y + BAND_ROWS > area.bottom() {
-        return;
-    }
-    let rect = Rect { x: area.x, y, width: area.width, height: BAND_ROWS };
-    let cut = Cut {
-        game_id: game.id.clone(),
-        play,
-        full: false,
-        until_tick: app.tick + crate::board::cut::CUT_TICKS,
-    };
-    crate::board::cut::draw_band(frame, rect, &game, &cut, app.tick);
-    let r = theme::current().roles();
-    let buf = frame.buffer_mut();
-    for y in rect.y..rect.bottom() {
-        for x in rect.x..rect.right() {
-            let cell = &mut buf[(x, y)];
-            if cell.bg == r.hot {
-                cell.set_bg(r.digits);
-            }
-        }
-    }
-}
-
 /// Run `f` with `name` as the current theme, restoring the caller's theme
 /// after — variants can't leak palettes into each other (or into tests on
-/// the same thread). A dump asks for a built-in or a gate candidate, so a
-/// miss is a bug.
-///
-/// A candidate (`theme::CANDIDATE_NAMES`) is not a loaded theme: it exists for
-/// the length of its own capture and is uninstalled after, so nothing else in
-/// the process — the picker, `:theme`, a later variant — can reach it. That
-/// is the whole dump-only hook the v3.3 theme gates needed (ruling R38).
+/// the same thread). Every gallery variant names a built-in, so a miss is a
+/// bug. (v3.3's sitting gates also rendered `theme::CANDIDATE_NAMES` entries
+/// here, installed for one capture and uninstalled after; ruling R38 retired
+/// the gate stems with the sittings, so this only sets a loaded theme now.)
 fn with_theme<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let prev = theme::current_name();
-    let candidate = theme::CANDIDATE_NAMES.contains(&name);
-    if candidate {
-        theme::install(theme::candidate(name));
-    }
     theme::set_current(name).unwrap_or_else(|e| panic!("dump theme: {e}"));
     let out = f();
     theme::set_current(&prev).expect("the previous theme is still loaded");
-    if candidate {
-        theme::uninstall(name);
-    }
     out
 }
 
@@ -548,12 +307,7 @@ pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
         let mut app = demo_app(dir, tick);
         (v.setup)(&mut app);
         let mut term = Terminal::new(TestBackend::new(v.cols, v.rows))?;
-        term.draw(|f| {
-            app.draw(f);
-            if let Some(overlay) = v.overlay {
-                overlay(f, &app);
-            }
-        })?;
+        term.draw(|f| app.draw(f))?;
         Ok(term.backend().buffer().clone())
     })
 }
@@ -928,130 +682,13 @@ mod tests {
                 "nudge-seq-1",
                 "nudge-seq-2",
                 "nudge-seq-3",
-                // Ruling R38: the gate stems JOIN this list while they exist.
-                // They are a temporary sitting artifact — when v3.3 §1b picks
-                // a mid-size form, the two losers and this entry go together.
-                // `gate-daygame` is gone already: sitting 2 parked daygame,
-                // so its dump hook (and this stem) were deleted with it.
-                "gate-digits-product",
-                "gate-digits-text",
-                "gate-tier1-after",
-                "gate-band-reserved",
-                "gate-band-fired",
-                "gate-band-amber",
-                "gate-studio",
-                "gate-gruvbox-warm",
+                // Ruling R38: the `gate-*` stems joined this list only while
+                // v3.3's sittings needed them. The sittings are decided (1A,
+                // the band reservation, the rebuilt studio, gruvbox's ground),
+                // so the frames and their dump-only overlay hook are gone and
+                // the public gallery is gate-free again.
             ],
             "gallery stems are a stable contract for other tasks"
-        );
-    }
-
-    #[test]
-    fn the_theme_gates_render_in_their_own_palettes_and_leave_no_candidate_loaded() {
-        // Sitting 2's theme frames (daygame's gate-daygame stem is gone —
-        // parked, not promoted). Each must actually be drawn in the theme it
-        // is named for — the ground cell is the cheapest proof — and the
-        // candidate must be gone from the picker the moment the render is
-        // over: it is gate-only until the owner promotes it.
-        for (stem, ground) in [
-            ("gate-studio", theme::builtin("studio").bg),
-            ("gate-gruvbox-warm", theme::candidate("gruvbox-warm").theme.bg),
-        ] {
-            let buf = render_variant(&variant(stem), 0).unwrap();
-            assert_eq!(buf[(0, 0)].bg, ground, "{stem} is not drawn on its own ground");
-            let text = text_of(&buf);
-            assert!(text.contains("IN PLAY"), "{stem} must be the full board:\n{text}");
-        }
-        assert_eq!(
-            theme::names(),
-            theme::BUILTIN_NAMES.to_vec(),
-            "a gate candidate leaked into the loaded set"
-        );
-        assert_eq!(theme::current_name(), "broadcast", "the gates restored the thread's theme");
-    }
-
-    /// Render the gate's baseline frame AND report the band the overlays are
-    /// allowed to touch — the *same* `hero::band_rect` the overlays call, on
-    /// the *same* app state, so the containment assertion below is measured
-    /// against the geometry under test rather than a hand-copied rect.
-    fn gate_baseline() -> (Buffer, Rect) {
-        let v = variant("gate-digits-product");
-        with_theme(v.theme, || {
-            let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).unwrap();
-            let mut app = demo_app(dir, 0);
-            (v.setup)(&mut app);
-            let mut term = Terminal::new(TestBackend::new(v.cols, v.rows)).unwrap();
-            term.draw(|f| app.draw(f)).unwrap();
-            // `hit_zones` is populated by the draw above, which is what
-            // `gate_band` reads the hero's rect out of.
-            let (band, ..) = gate_band(&app).expect("the gate board has a hero");
-            (term.backend().buffer().clone(), band)
-        })
-    }
-
-    /// The gate is only a gate if the two frames differ in the score and
-    /// agree on everything else. Cell-wise containment, not a row-count
-    /// bound: every cell that changed must sit inside the band the overlay
-    /// declared, and the count outside it must be exactly zero. Task 16 leans
-    /// on this as the overlay's regression guard — an `erase` that bled into
-    /// the meter row, or an overlay that nudged a nameplate, has to fail here.
-    ///
-    /// sitting-1 pick 1A collapsed the three frames to two: the product's own
-    /// score IS the quad form now, so the baseline is the winner and the only
-    /// overlay left is the text rung.
-    #[test]
-    fn the_gate_frames_differ_only_inside_the_heros_band_rect() {
-        let (base, band) = gate_baseline();
-        let text = render_variant(&variant("gate-digits-text"), 0).unwrap();
-        assert_eq!(*base.area(), Rect::new(0, 0, GATE_COLS, GATE_ROWS), "gate size");
-
-        // `gate_text` repaints the band as it stands — that rect is its whole
-        // permitted footprint, and nothing may change outside it.
-        let mut inside = 0usize;
-        let mut outside: Vec<(u16, u16)> = Vec::new();
-        for y in 0..GATE_ROWS {
-            for x in 0..GATE_COLS {
-                let (a, b) = (&base[(x, y)], &text[(x, y)]);
-                if a.symbol() == b.symbol() && a.fg == b.fg && a.bg == b.bg {
-                    continue;
-                }
-                if band.contains(ratatui::layout::Position { x, y }) {
-                    inside += 1;
-                } else {
-                    outside.push((x, y));
-                }
-            }
-        }
-        assert!(
-            outside.is_empty(),
-            "gate-digits-text changed {} cells outside band_rect {band:?}: first ten {:?}\n{}",
-            outside.len(),
-            &outside[..outside.len().min(10)],
-            text_of(&text)
-        );
-        assert!(
-            inside > 0,
-            "gate-digits-text changed nothing at all — the overlay never ran\n{}",
-            text_of(&text)
-        );
-
-        // Contained *and* actually the form each stem is named for: the
-        // baseline — the shipping board — is drawn from the quadrant table
-        // (sitting-1 pick 1A), and the text frame is `score_block`'s own bold
-        // `27 - 24` arm with no glyph left in the band.
-        let (text_text, base_text) = (text_of(&text), text_of(&base));
-        assert!(
-            base_text.contains("▀▀█") || base_text.contains("█▀█"),
-            "the shipping hero must draw quad digits:\n{base_text}"
-        );
-        assert!(text_text.contains(" - "), "text frame has no `N - N` score:\n{text_text}");
-        let band_rows: String = (band.y..band.bottom())
-            .map(|y| (band.x..band.right()).map(|x| text[(x, y)].symbol()).collect::<String>())
-            .collect();
-        assert!(
-            !band_rows.contains('\u{2580}') && !band_rows.contains('\u{2584}') && !band_rows.contains('\u{2588}'),
-            "the text rung must leave no quadrant glyph in the band:\n{text_text}"
         );
     }
 
@@ -1341,6 +978,15 @@ mod tests {
         assert!(
             narrow.lines().any(|l| l.contains("RED ZONE")),
             "80x24 board: the hero still names its state:\n{narrow}"
+        );
+        // §1b, sitting-1 pick 1A: at the bracket the spec named as the defect
+        // the hero's score is drawn from the quadrant table, not a text row.
+        // (This assertion is the surviving half of the retired `gate-digits-*`
+        // contrast — the winner is the product, so the product frame carries
+        // the receipt.)
+        assert!(
+            narrow.contains("▀▀█") || narrow.contains("█▀█"),
+            "80x24 board: the hero must draw quad digits:\n{narrow}"
         );
         assert!(!wide.contains('┃'), "the meter column is gone");
     }

@@ -21,8 +21,10 @@ cargo run -- dump      # capture gallery into out/ (no network; --tick N picks t
 `config-error` (unparseable config.toml); and `nudge-seq-1/-2/-3`, three
 frames around the scripted re-sort showing the `↑n` gutter appear and hold.
 Each is written as `.html` + `.ansi`, plus `.png` when headless Chrome is
-installed. Set `GAMEDAY_DUMP_FONT=/path/to/CascadiaMono.ttf` so PNGs carry the
-sextant glyphs.
+installed. The board draws its big scores and mark art from quadrant blocks
+(`▀▄█`), which every mono font has; set
+`GAMEDAY_DUMP_FONT=/path/to/CascadiaMono.ttf` if you want the PNGs' rules and
+meter tracks to render as crisply as the terminal draws them.
 
 Config: `~/.config/gameday/config.toml`
 
@@ -60,6 +62,11 @@ A config.toml that doesn't parse is reported with its line and left alone — th
 ## Keys
 
 space pin/unpin · enter/z zoom · esc back · j/k move · [ ] date · / filter · : command · ? keys · t fav home team · s sort · v tv · c theme · tab/h/l tabs · r refresh · q quit
+
+While a score is on screen — the two-row band or the full takeover — enter
+jumps to *that* game instead of the selected one (the band says so itself:
+`enter jump · clears in 3s`). It goes back to zooming the selection the moment
+the cut clears.
 
 ## Data
 

@@ -310,6 +310,27 @@ fn a_theme_file_can_reassign_roles_and_scope_team_color() {
     let bad_scope = base.replace("team = \"hero\"", "team = \"everywhere\"");
     let err = theme::parse_theme(&bad_scope).unwrap_err();
     assert!(err.contains("roles.team") && err.contains("hero+marks"), "{err}");
+    assert!(!err.contains("never"), "`never` is retired and must not be offered: {err}");
+}
+
+/// v3.3 deleted `TeamColorScope::Never`: nothing read it, so `never` and
+/// `hero` drew the same pixels and the config value was a lie. A user theme
+/// on disk that still says it must keep loading — as the value it always
+/// behaved as, not as an error and not as a different board.
+#[test]
+fn a_theme_file_still_saying_team_never_loads_as_hero() {
+    let base = theme::to_toml("mine", &theme::builtin("broadcast"));
+    let retired = base.replace("team = \"hero\"", "team = \"never\"");
+    assert!(retired.contains("team = \"never\""), "the fixture must actually say never");
+    let (name, th) = theme::parse_theme(&retired).expect("a retired scope must not fail the load");
+    assert_eq!(name, "mine");
+    assert_eq!(
+        th.roles().team,
+        theme::TeamColorScope::Hero,
+        "`never` maps to the scope it always drew as"
+    );
+    // And round-trips as the honest spelling, so re-saving the file heals it.
+    assert!(theme::to_toml("mine", &th).contains("team = \"hero\""));
 }
 
 #[test]

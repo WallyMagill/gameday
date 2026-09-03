@@ -46,6 +46,15 @@ const GUTTER: u16 = 4;
 
 /// How many table columns fit `width` for `table`: two once the frame is wide
 /// enough and there is something to split, one otherwise.
+///
+/// Receipt for the `> 4`: a one-group table splits by halving its rows
+/// ([`sections`], `div_ceil(2)`), and each half pays a title line of its own
+/// (`NAME · 1-n`) plus the column header. At 5 rows the halves are 3 and 2 —
+/// the short side is still a table. At 4 they are 2 and 2, so the second
+/// column costs two lines of chrome to show two lines of teams and reads as a
+/// stub beside 48 columns of air. Four is therefore the last row count that
+/// stays one column; five is the first that earns a split. (Multi-group
+/// leagues split by group instead and never consult this number.)
 fn column_count(table: &StandingsTable, width: u16) -> usize {
     if width >= TWO_COL_MIN && (table.groups.len() > 1 || table.groups[0].rows.len() > 4) {
         2

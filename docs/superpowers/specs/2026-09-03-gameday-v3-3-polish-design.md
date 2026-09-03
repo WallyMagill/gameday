@@ -25,6 +25,8 @@ Two distinct problems, one spike then one fix wave.
 - If coverage is broadly fine → sextants stay default, quadrant becomes the fallback config, README documents the one-liner.
 The decision is recorded in the plan ledger with the matrix as its receipt. No rewrite happens on the cold-eye reviewer's inference alone.
 
+> **Deviated as built — see `## Decisions`.** The spike found real tofu, so quadrant became the default (1A); the "sextants an opt-in `config` value" clause did NOT ship — ruling R40 refused the toggle (quad is the design, not a fallback) and the sextant path was deleted outright.
+
 **1b. Mid-size digit readability [RENDER-GATE].** At 80×24 the shipped hero digits do not resolve into readable numbers; the A′ reference's digits at the same width are unmistakable. Deliverable: at least two redesigned mid-size digit treatments (e.g. quadrant-block 4-row digits; bold double-width text digits) rendered at 80×24 and 100×30 beside the current one. Walter picks. The chosen form slots into the existing Full → mid → text ladder without changing bracket rules (R28/R32).
 
 ## §2 TV overhaul
@@ -45,7 +47,7 @@ The weakest frame. All items in one task:
 
 ## §4 Grid discipline (the board)
 
-- **Tier-1 score legibility**: tier-1 rows gain a plain, readable score on the SAME five-column grid as tier-2/FINAL rows (both reviewers independently: featured rows are the only rows whose score you can't read at a glance). The sextant mini-digits move from "the score" to "the garnish": glyphs stay if they fit, but the plain numerals are always present and aligned to the shared grid. Tier-1 keeps its identity via the accent bar, bold weight, and the indented fragment/play lines. [RENDER-GATE: current vs re-gridded, one frame each.]
+- **Tier-1 score legibility**: tier-1 rows gain a plain, readable score on the SAME five-column grid as tier-2/FINAL rows (both reviewers independently: featured rows are the only rows whose score you can't read at a glance). The sextant mini-digits move from "the score" to "the garnish": glyphs stay if they fit, but the plain numerals are always present and aligned to the shared grid. *(Deviated as built — see `## Decisions`: sitting 1 pick 2A dropped the garnish entirely (R39). The plain numerals shipped; the glyphs did not stay, and dropping them is what aligned tier-1's clock to tier-2's x.)* Tier-1 keeps its identity via the accent bar, bold weight, and the indented fragment/play lines. [RENDER-GATE: current vs re-gridded, one frame each.]
 - **Mark column**: the hot/nudge gutter aligns to one column across all tiers (today it reads ragged between tier-1 blocks and one-line rows).
 - **2-char abbrs**: pad to the 3-char cell so the grid gap is constant (`KC ` not `KC`), matching the reference's optical rhythm.
 - **Bare section headers**: a section with zero rows renders nothing — no `LATER ───` orphan. Applies to all four sections. (Certain fix, no gate.)
