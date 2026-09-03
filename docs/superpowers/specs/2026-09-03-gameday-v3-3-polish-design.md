@@ -123,3 +123,73 @@ Sitting 2 — from rendered frames at 120×36/40:
 - gruvbox: **true #282828** (4A) — canonical dark0; the warm dark0_soft variant was rendered and declined.
 - Config screen: **centered** (5A) — Walter asked for the recommendation; the top-anchored variant was rendered and re-created the §5 dead-space defect, so centered was confirmed by frames.
 - Carried out of the sittings: 40×12 takeover (bold word, no labels) shipped tested but uneyeballed — final review triages; `TeamColorScope::Never` is a dead value — meaning-or-delete at final review.
+
+## Verification (2026-09-03)
+
+Task 16's §11 DoD sweep, run on the final-wave commit (branch `v3-3-polish`, worktree `.worktrees/v3-3-polish`). Every line below is the command's own output.
+
+**Full suite, default parallelism** — `cargo test`, 10 suites, 455 tests, 0 failed:
+
+```
+Running unittests src/lib.rs   test result: ok. 261 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+Running unittests src/main.rs  test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/config.rs        test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/draw.rs          test result: ok. 113 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+Running tests/home.rs          test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/logo.rs          test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+Running tests/map_espn.rs      test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+Running tests/poll.rs          test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+Running tests/theme.rs         test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+Doc-tests gameday              test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+**Clippy** — `cargo clippy --all-targets`, zero warnings:
+
+```
+    Checking gameday v0.1.0 (/Users/wallymagill/personal-projects/game-day/.worktrees/v3-3-polish)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.58s
+```
+
+**Hard-rule and carried-receipt spot-runs** (named, each run individually after the wave):
+
+| Rule / receipt | Test | Result |
+|---|---|---|
+| One score formatter, cut ↔ hero, both bracket rungs (120×40 Full, 80×19 quad) | `draw::the_takeover_and_the_hero_agree_on_every_digit_cell` | ok |
+| One score formatter, zoom ↔ hero | `draw::zoom_overview_reuses_the_hero_and_shows_the_matchup_line` | ok |
+| Logos never move a digit (incl. mismatched mark heights) | `draw::zoom_logo_flanks_are_symmetric_or_absent` | ok |
+| R24: order frozen between events; nudges mark risers | `rank::order_is_frozen_between_events_and_nudges_mark_risers` | ok |
+| R24: a faller loses its arrow inside the window | `rank::a_row_that_falls_back_loses_its_arrow_inside_the_window` | ok |
+| R24: a new game joins without scrambling the rest | `rank::a_new_game_joins_without_scrambling_the_rest` | ok |
+| v3.2 size sweep, 42 combos (7 widths × 6 heights, 40×12 → 180×60) | `draw::the_board_survives_every_size_the_app_will_draw_at` | ok |
+| Task 7 screen sweep (the re-laid-out screens at every size) | `draw::the_re_laid_out_screens_survive_every_size` | ok |
+| Task 7 screen sweep (no screen floats a dead column) | `draw::no_screen_floats_a_dead_column` | ok |
+| Band no-jump pair — board | `draw::the_board_never_jumps_when_a_band_fires` | ok |
+| Band no-jump pair — TV | `draw::tv_never_jumps_when_a_band_fires` | ok |
+| Mark codepoint guard (all 38 bundled marks, quadrant blocks only) | `board::logo::no_bundled_mark_uses_a_symbol_outside_the_quadrant_blocks` | ok |
+| Digit table codepoint guard | `tiles::quad_digits::the_table_is_only_quadrant_blocks_and_is_rectangular` | ok |
+
+**CPU** — method as in the v3.2 receipt: `./target/release/gameday --demo` in a detached 120×40 tmux session, 30 s idle, then `ps -o %cpu` three times 3 s apart (a lifetime-average metric, so it is the honest comparison to v3.2's number).
+
+```
+pid=96164
+  0.0
+  0.0
+  0.0
+etime 00:39   %cpu 0.0
+```
+
+0.0 / 0.0 / 0.0 against v3.2's 1.19%. Row-doubled jumbotron digits and the reserved band rows cost nothing measurable — the frame is only redrawn on a tick or a key, and the demo's idle cadence is unchanged. Independently observed at the same numbers by the whole-branch review.
+
+**README pass.** Keys line carries the enter-jump note (`enter` jumps to the cut's game while a band or takeover is up, and goes back to the selection when it clears). Themes paragraph names the three built-ins (broadcast / studio / gruvbox) and says the eight retired palettes still ship in `assets/themes/` and still load as user files; no `daygame` mention (parked, sitting 2). No `glyphs` config value documented — none ships (R40). The `dump` paragraph lists exactly the 22 product stems and the `GAMEDAY_DUMP_FONT` line no longer claims sextants: the board draws quadrant blocks, and the font is belt-and-braces for the PNGs' rules and meter tracks.
+
+**Gallery.** `cargo run --release -- dump` regenerated cleanly; stale `out/gate-*` swept. 22 stems on disk (`.html` + `.ansi` + `.png` each), exactly the list `gallery_stems_are_the_promised_fixed_names` asserts, gate-free:
+
+```
+board-broadcast board-studio board-gruvbox board-narrow board-sixty tv cut-full cut-band
+zoom plays-feed standings config filter theme-picker help home-live offline stale
+config-error nudge-seq-1 nudge-seq-2 nudge-seq-3
+```
+
+Eyeballed `out/board-broadcast.png` (MY GAMES rule hoisted into the reservation with its air row, Full digits with symmetric quad-art flanks, one amber score column through tier-1 and tier-2, RED ZONE meter, SCORES lane, lowercase footer) and `out/tv.png` (2×-doubled digits filling the frame, team-colored nameplates and linescore, three stamped plays, two-column ALSO LIVE). Both read as intended; nothing regressed by the gate deletion.
+
+**Deviation from the brief's step 4, stated plainly:** the gate stems were deleted, not folded behind a `--gate` flag. R38 allowed either; the sittings are decided, so a flag would have kept dead frames alive behind a switch nobody would throw. The one assertion the gate frames carried that the product does not otherwise make — quad digits at 80×24, §1b's defect — moved onto `board-narrow` so the receipt survives its frames.
