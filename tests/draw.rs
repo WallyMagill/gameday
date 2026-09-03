@@ -1138,12 +1138,14 @@ fn brackets_step_the_viewed_date_and_header_marks_it() {
     let s = buf_text(&t);
     assert!(s.contains('‹') && s.contains('›'), "header shows the viewed date:\n{s}");
 
-    // A merged dated board replaces the league's visible games.
-    let date = time::OffsetDateTime::now_local()
-        .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
-        .date()
-        .previous_day()
-        .unwrap();
+    // A merged dated board replaces the league's visible games. The date has
+    // to be the one the APP is viewing: `mk()` builds it at `UtcOffset::UTC`,
+    // so a fixture keyed off `now_local()` missed the board by a day in every
+    // wall-clock window where the local date and the UTC date differ (this
+    // test failed every evening west of UTC). Ask the app.
+    let date = app
+        .viewed_date(League::Nfl)
+        .expect("one step back is a traveled date");
     let mut final_game = g("d1", "DAL", "PHI", false);
     final_game.status = Status::Final;
     app.merge_dated_board(League::Nfl, date, vec![final_game]);
