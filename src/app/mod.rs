@@ -1667,20 +1667,37 @@ impl App {
         // `!c.full` is explicit rather than implied by the early return above:
         // a full cut whose game left the board falls through to here, and a
         // takeover must never degrade into a band.
-        if let Some(cut) = self.cuts.active(self.tick).filter(|c| !c.full).cloned() {
-            if let Some(game) = self.game_by_id(&cut.game_id) {
-                if body.height > crate::board::cut::BAND_ROWS {
-                    let band = Rect { height: crate::board::cut::BAND_ROWS, ..body };
-                    body = Rect {
-                        y: band.bottom(),
-                        height: body.height - crate::board::cut::BAND_ROWS,
-                        ..body
-                    };
-                    crate::board::cut::draw_band(frame, band, &game, &cut, self.tick);
-                }
-            }
+        let band = self
+            .cuts
+            .active(self.tick)
+            .filter(|c| !c.full)
+            .cloned()
+            .and_then(|cut| self.game_by_id(&cut.game_id).map(|game| (cut, game)))
+            .filter(|_| body.height > crate::board::cut::BAND_ROWS)
+            .map(|(cut, game)| (Rect { height: crate::board::cut::BAND_ROWS, ..body }, cut, game));
+        // Spec §3, v3.3: the Board and TV RESERVE the band's rows up front
+        // (`layout::TierPlan::band_rows`), so the band is painted over rows
+        // they already set aside and nothing moves. Every other view is a
+        // measured block or a list of its own with no reservation, so there
+        // the band still costs the body two rows — the v3.2 behavior, and the
+        // only place a fire still shifts anything.
+        //
+        // The one reserving case with no reservation to land on: a board with
+        // nothing live (`band_rows == 0`) whose last game went final ON the
+        // scoring play that fired the cut. The band then covers a section rule
+        // for its three seconds instead of moving it — still no jump, which is
+        // the property being bought, and not worth a row on every finals-only
+        // board to avoid.
+        let reserves_band = matches!(self.view, View::Board | View::ThemePicker | View::Tv);
+        if let (Some((slot, ..)), false) = (&band, reserves_band) {
+            body = Rect { y: slot.bottom(), height: body.height - slot.height, ..body };
         }
         let content_end = views::draw(self, frame, body);
+        // After the view, not before: a reserved band is drawn ON the rows the
+        // view just laid out (and left for it), so it has to land last.
+        if let Some((slot, cut, game)) = band {
+            crate::board::cut::draw_band(frame, slot, &game, &cut, self.tick);
+        }
         if ticker_h > 0 {
             self.draw_ticker(frame, chunks[2]);
         }

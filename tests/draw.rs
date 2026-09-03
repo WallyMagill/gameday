@@ -2344,8 +2344,13 @@ fn a_truncated_section_renders_no_orphan_rule() {
     assert!(!row_contains(&term, "FINAL ─"), "no orphan FINAL rule at 60x16:\n{s}");
     assert!(!row_contains(&term, "LATER ─"), "no orphan LATER rule either at 60x16:\n{s}");
     assert!(s.contains("SCORES"), "the lane still fires for the truncated games:\n{s}");
-    assert!(s.contains("6 FINAL"), "the lane still counts every final game:\n{s}");
-    assert!(s.contains("6 LATER"), "the lane still counts every later game:\n{s}");
+    // v3.3 §3: two of this window's 16 rows are the band's reservation, so a
+    // LIVE game is off-screen here too — and the lane names live games before
+    // it counts anything (spec §1), which is the whole point of the lane.
+    assert!(
+        s.contains("NYJ 15 NE 12"),
+        "the lane names the off-screen live game:\n{s}"
+    );
 }
 
 #[test]
@@ -2386,7 +2391,11 @@ fn pinned_games_sit_in_a_band_that_never_resorts() {
             .iter()
             .position(|l| l.contains("MY GAMES"))
             .expect("MY GAMES rule");
-        lines[at + 1..at + 3].iter().map(|l| l.trim().to_string()).collect()
+        // v3.3 §3: the MY GAMES rule is hoisted into the band's reserved two
+        // rows, so the row directly under it is the reservation's air and the
+        // band's own rows start one lower.
+        assert!(lines[at + 1].trim().is_empty(), "the reserved air row:\n{s}");
+        lines[at + 2..at + 4].iter().map(|l| l.trim().to_string()).collect()
     };
     let forward = band_rows(vec![pin("p0"), pin("p1")]);
     let backward = band_rows(vec![pin("p1"), pin("p0")]);
@@ -2531,13 +2540,15 @@ fn the_ticker_is_gone_at_40_rows_and_the_lane_appears_when_truncated() {
     // on screen and it is LATER that ran out of rows (Task 5's note), so the
     // lane degrades to the counts rather than naming a live game twice.
     let drawn = lines[..lines.len() - 2].join("\n");
-    // 16 games; the 22-row body holds the hero (6 rows), the 9 other live
-    // rows, both finals and one LATER row — so three LATER games are off.
+    // 16 games; the 22-row body holds the band's two reserved rows (v3.3 §3),
+    // the hero (6 rows), the 9 other live rows, the IN PLAY and FINAL rules
+    // and both finals — so all four LATER games are off, and LATER's rule
+    // goes with them rather than standing over nothing.
     assert!(
-        lane.contains("3 OFF-SCREEN") && lane.contains("3 LATER"),
+        lane.contains("4 OFF-SCREEN") && lane.contains("4 LATER"),
         "the lane counts exactly what is not drawn:\n{s}"
     );
-    assert_eq!(drawn.matches("LATER").count(), 1, "one LATER section:\n{s}");
+    assert_eq!(drawn.matches("LATER").count(), 0, "no orphan LATER rule:\n{s}");
 }
 
 #[test]
@@ -2961,6 +2972,107 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     assert_ne!(b[(0, 3)].bg, r.hot, "the fill stops at the band: row 3 is the board");
 }
 
+/// A live board with one pinned game (so MY GAMES is the board's top rule)
+/// and a score on the *unpinned* game — which is a band, not a takeover.
+/// `fired` says whether the band is still up: the two frames are the same
+/// board, the same tick's data, differing only in the band.
+fn band_frames(fired: bool) -> Terminal<TestBackend> {
+    let mut app = mk();
+    app.tick = 400; // past the 30 s startup suppression
+    let mut before = cut_game("1");
+    before.away_score = 17;
+    before.last_plays = vec![Play {
+        text: "Mahomes pass short right to Kelce for 6 yards".into(),
+        ..Default::default()
+    }];
+    let other = g("2", "DAL", "PHI", true);
+    app.apply_boards(League::Nfl, vec![before, other.clone()], false);
+    app.pins.push(gameday::config::Pin {
+        game_id: "2".into(),
+        league: League::Nfl,
+        final_at: None,
+    });
+    let mut after = cut_game("1");
+    after.last_plays = vec![scoring_play()];
+    app.apply_boards(League::Nfl, vec![after, other], false);
+    assert!(
+        !app.cuts.active(app.tick).expect("the unpinned score fires a band").full,
+        "the fixture's cut must be the quiet band, not a takeover"
+    );
+    if !fired {
+        app.tick += gameday::board::cut::CUT_TICKS + 1; // the band has cleared
+    }
+    render(&mut app, 120, 40)
+}
+
+#[test]
+fn the_board_never_jumps_when_a_band_fires() {
+    // Spec §3 / v3.3: the band's two rows are RESERVED whenever anything is
+    // live (`TierPlan::band_rows`), so a band that fires draws into rows the
+    // board already gave up — the last layout jump in the app. The IN PLAY
+    // rule is the witness: same y, cell for cell, band or no band.
+    let quiet = band_frames(false);
+    let fired = band_frames(true);
+    let qs = buf_text(&quiet);
+    let fs = buf_text(&fired);
+    assert!(
+        fs.lines().nth(1).is_some_and(|l| l.starts_with("▲ TOUCHDOWN")),
+        "the fired frame must have the band up:\n{fs}"
+    );
+    assert!(
+        !qs.lines().nth(1).is_some_and(|l| l.starts_with("▲")),
+        "the quiet frame must have no band:\n{qs}"
+    );
+    // The band is an opaque bar, not a tint: the rule it covers must not read
+    // through it. (It only ever covers rows the board reserved for it, so the
+    // most it can hide is one section label for three seconds.)
+    for y in 1..=2usize {
+        let row = fs.lines().nth(y).expect("a band row");
+        assert!(
+            !row.contains('─') && !row.contains("PINNED"),
+            "the covered rule shows through band row {y}:\n{fs}"
+        );
+    }
+    let rule_y = |s: &str| {
+        s.lines()
+            .position(|l| l.contains("IN PLAY"))
+            .unwrap_or_else(|| panic!("IN PLAY rule:\n{s}")) as u16
+    };
+    let (qy, fy) = (rule_y(&qs), rule_y(&fs));
+    assert_eq!(qy, fy, "the IN PLAY rule moved when the band fired\nquiet:\n{qs}\nfired:\n{fs}");
+    // Cell level: not just the row index — the whole rule row is identical.
+    let (qb, fb) = (quiet.backend().buffer(), fired.backend().buffer());
+    for x in 0..120u16 {
+        assert_eq!(
+            qb[(x, qy)].symbol(),
+            fb[(x, fy)].symbol(),
+            "row {qy} cell {x} differs between quiet and fired\nquiet:\n{qs}\nfired:\n{fs}"
+        );
+    }
+}
+
+#[test]
+fn the_reserved_rows_earn_their_keep_when_quiet() {
+    // The reservation is not two blank lines: the board's top section rule
+    // moves up into it, leaving one row of air under it, and the first
+    // content row follows immediately below the reservation.
+    let quiet = band_frames(false);
+    let s = buf_text(&quiet);
+    let rows: Vec<&str> = s.lines().collect();
+    assert!(
+        rows[1].starts_with("MY GAMES"),
+        "the top section rule sits in the reservation's first row:\n{s}"
+    );
+    assert!(
+        rows[2].trim().is_empty(),
+        "the reservation's second row is air, not content:\n{s}"
+    );
+    assert!(
+        !rows[3].trim().is_empty(),
+        "the board's first content row follows the reservation:\n{s}"
+    );
+}
+
 #[test]
 fn enter_during_a_band_zooms_the_bands_game_not_the_selection() {
     // spec v3.3 §3: while a band is up, enter is the jump to the game that
@@ -3151,6 +3263,77 @@ fn a_locked_game_going_final_never_leaves_tv_saying_nothing_is_live() {
     assert!(!text.contains("nothing is live"), "five games are live:\n{text}");
     assert!(text.contains("DAL") && text.contains("PHI"), "the next live game leads:\n{text}");
     assert!(text.contains("4 GAMES"), "the strip counts the remaining live games:\n{text}");
+}
+
+#[test]
+fn tv_never_jumps_when_a_band_fires() {
+    // Spec §3 / v3.3: TV reserves the band's two rows exactly as the board
+    // does (Task 4's interim — "the band draws over the strip's top rows" —
+    // closes here). The ALSO LIVE rule is the witness: same y, band or no.
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let frame = |fired: bool| -> Terminal<TestBackend> {
+        let mut app = mk();
+        app.tick = 400;
+        let mut games = tv_slate();
+        app.apply_boards(League::Nfl, games.clone(), false);
+        app.tab = Tab::League(League::Nfl);
+        app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
+        let shown = app.tv_shown.clone().expect("TV shows a game");
+        // Score on a game that is neither shown nor MY GAMES: a band, not a
+        // takeover (spec v3.3 §9 decision B).
+        let other = games.iter_mut().find(|g| g.id != shown).expect("another live game");
+        other.away_score += 7;
+        other.last_plays = vec![scoring_play()];
+        app.apply_boards(League::Nfl, games, false);
+        let cut = app.cuts.active(app.tick).expect("the unshown score fires a cut");
+        assert!(!cut.full, "an unshown, unpinned game's cut is the quiet band");
+        if !fired {
+            app.tick += gameday::board::cut::CUT_TICKS + 1;
+        }
+        render(&mut app, 120, 40)
+    };
+    let (quiet, fired) = (frame(false), frame(true));
+    let (qs, fs) = (buf_text(&quiet), buf_text(&fired));
+    assert!(
+        fs.lines().nth(1).is_some_and(|l| l.starts_with('▲')),
+        "the fired frame must have the band up:\n{fs}"
+    );
+    // The reservation is what makes the band harmless: when nothing is
+    // firing those two rows are air, so the band covers no TV content at all.
+    // (Without it the band landed on the shown game's nameplate row.)
+    for y in 1..=2usize {
+        assert!(
+            qs.lines().nth(y).is_some_and(|l| l.trim().is_empty()),
+            "TV's reserved row {y} must be air when quiet:\n{qs}"
+        );
+    }
+    let strip_y = |s: &str| {
+        s.lines()
+            .position(|l| l.contains("ALSO LIVE"))
+            .unwrap_or_else(|| panic!("ALSO LIVE rule:\n{s}")) as u16
+    };
+    assert_eq!(
+        strip_y(&qs),
+        strip_y(&fs),
+        "TV's strip moved when the band fired\nquiet:\n{qs}\nfired:\n{fs}"
+    );
+    // Cell level, and the whole screen: the ONLY rows that may differ are the
+    // band's own two. The nameplate, the digits, the plays and the strip are
+    // all where they were — without the reservation the band painted straight
+    // over TV's nameplate row, which is what Task 4 left open.
+    let (qb, fb) = (quiet.backend().buffer(), fired.backend().buffer());
+    for y in 0..40u16 {
+        if (1..=2).contains(&y) {
+            continue; // the reserved rows: air when quiet, the band when fired
+        }
+        for x in 0..120u16 {
+            assert_eq!(
+                qb[(x, y)].symbol(),
+                fb[(x, y)].symbol(),
+                "TV moved at ({x},{y})\nquiet:\n{qs}\nfired:\n{fs}"
+            );
+        }
+    }
 }
 
 #[test]

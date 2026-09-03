@@ -73,6 +73,29 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         return;
     };
 
+    // ----------------------------------------------------- the band's rows
+    // Spec §3: the scoring band is reserved here exactly as it is on the
+    // board (`layout::TierPlan::band_rows`) — TV is a live surface by
+    // definition (it drew a game, so something is live), and until this
+    // reservation existed a band fired over TV shoved the jumbotron down two
+    // rows and squeezed the strip. `App::draw` paints the band into these
+    // rows; when nothing is firing they are air above the nameplate, which is
+    // where a jumbotron wants air anyway.
+    let band_rows = crate::board::layout::plan(
+        area.width,
+        area.height,
+        d.in_play.len().max(1),
+        d.finals.len(),
+        d.later.len(),
+        0,
+    )
+    .band_rows;
+    let area = Rect {
+        y: area.y + band_rows,
+        height: area.height - band_rows,
+        ..area
+    };
+
     // ----------------------------------------------------------- the strip
     let others: Vec<&&Game> = slate.iter().filter(|g| g.id != game.id).collect();
     let strip_rows = if others.is_empty() {

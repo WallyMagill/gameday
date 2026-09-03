@@ -270,6 +270,28 @@ pub fn gallery() -> Vec<Variant> {
         // asked for. The BEFORE frame is the same stem rendered from the
         // pre-task commit.
         sized("gate-tier1-after", 120, 36, home as fn(&mut App)),
+        // The v3.3 band-geometry gate (spec §3). Three frames of the SAME
+        // 120×36 demo board for the owner's sitting:
+        //   -reserved  the quiet board, its two band rows already spent (the
+        //              MY GAMES rule hoisted into them, one row of air under)
+        //   -fired     a band up in those rows — every other row identical,
+        //              which is the whole point of the reservation
+        //   -amber     the one-off: the same band drawn inside the IN PLAY
+        //              section in `roles.digits` amber instead of hot, the
+        //              placement/colour the mockup asks about. DUMP-ONLY —
+        //              composed by the overlay hook, no product path can draw
+        //              a band there or in that colour.
+        sized("gate-band-reserved", 120, 36, home as fn(&mut App)),
+        sized("gate-band-fired", 120, 36, cut_band as fn(&mut App)),
+        Variant {
+            stem: "gate-band-amber",
+            cols: 120,
+            rows: 36,
+            theme: "broadcast",
+            tick: None,
+            setup: home as fn(&mut App),
+            overlay: Some(gate_amber as fn(&mut Frame, &App)),
+        },
     ]);
     out
 }
@@ -379,6 +401,66 @@ fn gate_text(frame: &mut Frame, app: &App) {
     let short = Rect { height: 2, ..band };
     crate::board::hero::score_block(frame, short, &game, false);
     crate::board::hero::draw_center_column(frame, band, &game, &plan, Some(short.y));
+}
+
+/// `gate-band-amber`: the mockup's question — what if the band lived *inside*
+/// the IN PLAY section, in the scoreboard's amber (`roles.digits`), instead of
+/// riding the reserved rows in the alert colour?
+///
+/// Composed entirely on this side of the line: it finds the IN PLAY rule on
+/// the finished frame, asks the product's own [`crate::board::cut::draw_band`]
+/// to draw there, then swaps the `hot` fill for `digits` cell by cell. The
+/// shipping band gained no colour parameter and no second home — there is
+/// still exactly one band renderer, and the product can only put it in the
+/// rows [`crate::board::layout::TierPlan::band_rows`] reserved.
+fn gate_amber(frame: &mut Frame, app: &App) {
+    use crate::board::cut::{Cut, BAND_ROWS};
+    let area = frame.area();
+    // The band a demo board actually fires (see `cut_band`): a game nobody
+    // follows scored, so the quiet two-row form is the honest subject.
+    let Some(game) = app
+        .boards
+        .values()
+        .flatten()
+        .find(|g| g.id == "nhl-live")
+        .cloned()
+    else {
+        return;
+    };
+    let Some(play) = game.scoring_plays.last().or_else(|| game.last_plays.first()).cloned() else {
+        return;
+    };
+    // Where the IN PLAY rule ended up on this frame, read off the buffer
+    // rather than recomputed — the gate must land on the board that was drawn.
+    let label = "IN PLAY";
+    let Some(y) = (0..area.height).find(|&y| {
+        (0..label.len() as u16)
+            .zip(label.chars())
+            .all(|(dx, want)| frame.buffer_mut()[(area.x + dx, y)].symbol() == want.to_string())
+    }) else {
+        return;
+    };
+    if y + BAND_ROWS > area.bottom() {
+        return;
+    }
+    let rect = Rect { x: area.x, y, width: area.width, height: BAND_ROWS };
+    let cut = Cut {
+        game_id: game.id.clone(),
+        play,
+        full: false,
+        until_tick: app.tick + crate::board::cut::CUT_TICKS,
+    };
+    crate::board::cut::draw_band(frame, rect, &game, &cut, app.tick);
+    let r = theme::current().roles();
+    let buf = frame.buffer_mut();
+    for y in rect.y..rect.bottom() {
+        for x in rect.x..rect.right() {
+            let cell = &mut buf[(x, y)];
+            if cell.bg == r.hot {
+                cell.set_bg(r.digits);
+            }
+        }
+    }
 }
 
 /// Run `f` with `name` as the current theme, restoring the caller's theme
@@ -832,6 +914,9 @@ mod tests {
                 "gate-digits-quad",
                 "gate-digits-text",
                 "gate-tier1-after",
+                "gate-band-reserved",
+                "gate-band-fired",
+                "gate-band-amber",
             ],
             "gallery stems are a stable contract for other tasks"
         );

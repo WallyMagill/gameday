@@ -335,6 +335,11 @@ pub fn draw_band(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick: u6
     let r = th.roles();
     let on_hot = Style::default().fg(r.ground).bg(r.hot);
     let bold = on_hot.add_modifier(Modifier::BOLD);
+    // `Clear` first: since v3.3 the band lands on rows the board RESERVED and
+    // has already drawn into (the hoisted section rule), and a `Block` style
+    // alone only recolors cells — the dashes and caption underneath survived
+    // and read straight through the bar. The band is opaque or it is a tint.
+    frame.render_widget(Clear, area);
     frame.render_widget(Block::default().style(on_hot), area);
 
     let (name, _) = split_surname(&play.text);

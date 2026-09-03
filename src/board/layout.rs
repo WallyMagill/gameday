@@ -7,6 +7,10 @@
 //! only the runout cascade *below* the bracket (tier1 → tier2 → finals →
 //! later), not the bracket itself.
 //!
+//! The scoring band (spec §3) is reserved, never inserted: `band_rows` is 2
+//! on any board with a live game, charged before the tiers, so the board a
+//! firing band lands on is the board that was already drawn.
+//!
 //! FINAL/LATER truncation legitimately fires `scores_lane` on its own, with
 //! every live game still fully shown — spec §1's `2 OFF-SCREEN · 2 FINAL ·
 //! 4 LATER` lane example is exactly that case.
@@ -29,6 +33,14 @@ pub struct TierPlan {
     pub hero_rows: u16, // 0 = no hero fits (only < 12 total rows)
     pub hero_digits_full: bool, // 8-row PixelSize::Full vs 4x3 sextant
     pub tier1: usize,   // promoted 3-row rows (0..=3)
+    /// The scoring band's rows (spec §3), reserved at the TOP of the body:
+    /// [`crate::board::cut::BAND_ROWS`] whenever something is live, 0 when
+    /// nothing is. Reserved, not inserted on fire — a band that appeared out
+    /// of nowhere shoved the whole board down two rows and back up again
+    /// three seconds later, which was the last layout jump in the app. The
+    /// rows are charged before the tiers (like the lane's row) so the board
+    /// under a firing band is the board that was already there.
+    pub band_rows: u16,
     /// The off-screen SCORES lane (spec §1) — on exactly when tier2, finals,
     /// or later got cut short of what the raw counts asked for.
     pub scores_lane: bool,
@@ -95,6 +107,7 @@ pub fn plan(width: u16, height: u16, live: usize, finals: usize, later: usize, m
         hero_rows: full.hero_rows,
         hero_digits_full: full.hero_digits_full,
         tier1: full.tier1,
+        band_rows: full.band_rows,
         scores_lane: full.scores_lane,
     }
 }
@@ -111,6 +124,7 @@ struct FullPlan {
     tier2: usize,
     finals: usize,
     later: usize,
+    band_rows: u16,
     scores_lane: bool,
 }
 
@@ -147,9 +161,24 @@ fn plan_detailed(width: u16, height: u16, live: usize, finals: usize, later: usi
         0
     };
 
+    // spec §3: the scoring band's two rows, reserved up front whenever a band
+    // could fire at all. Receipt for the 2: `cut::draw_band` draws exactly
+    // `BAND_ROWS` rows — a headline and an affordance — and nothing else in
+    // the app may decide that number. Charged here, before the tiers, for the
+    // same reason the lane's row is: a row spent later is a row the board
+    // already drew in, i.e. a jump. The `>` (not `>=`) keeps at least one
+    // content row under the reservation — two rows of band over an empty body
+    // is a takeover with extra steps, and at that size there is no board to
+    // protect from jumping anyway.
+    let band_rows = if live > 0 && height.saturating_sub(hero_rows) > crate::board::cut::BAND_ROWS {
+        crate::board::cut::BAND_ROWS
+    } else {
+        0
+    };
+
     // spec §1 MY GAMES band: 1 line per pinned/favorite row, off the same
     // budget as everything below the hero.
-    let budget = height.saturating_sub(hero_rows);
+    let budget = height.saturating_sub(hero_rows).saturating_sub(band_rows);
     let (_my_games_rows, my_games_cost) = section_alloc(my_games, budget);
     let budget = budget.saturating_sub(my_games_cost);
 
@@ -187,6 +216,7 @@ fn plan_detailed(width: u16, height: u16, live: usize, finals: usize, later: usi
         tier2,
         finals: finals_rows,
         later: later_rows,
+        band_rows,
         scores_lane: would_truncate,
     }
 }
@@ -219,6 +249,7 @@ mod tests {
         for (w, h) in [(40u16, 12u16), (60, 20), (100, 30), (200, 60)] {
             let p = plan_detailed(w, h, 12, 5, 8, 2);
             let used = p.hero_rows
+                + p.band_rows
                 + 3 * p.tier1 as u16
                 + p.tier2 as u16
                 + p.finals as u16
@@ -250,6 +281,28 @@ mod tests {
         assert_eq!(public.hero_digits_full, short.hero_digits_full);
         assert_eq!(public.tier1, short.tier1);
         assert_eq!(public.scores_lane, short.scores_lane);
+    }
+
+    /// spec §3: the scoring band is TWO rows (`cut::BAND_ROWS`, and
+    /// `draw_band` draws exactly that many), and they are *reserved* whenever
+    /// a band could fire — i.e. whenever something is live. A board with no
+    /// live game cannot fire one, so it reserves nothing and its budget is
+    /// exactly the one Task 5 gave it.
+    #[test]
+    fn no_live_games_means_no_reservation() {
+        let finals_only = plan(120, 36, 0, 5, 4, 0);
+        assert_eq!(finals_only.band_rows, 0, "no live game can fire a band");
+        let live = plan(120, 36, 6, 5, 4, 0);
+        assert_eq!(live.band_rows, crate::board::cut::BAND_ROWS);
+        // The reservation is charged before the tiers, like the lane's row:
+        // a live board at H allocates the content a finals-only board would
+        // have allocated at H - BAND_ROWS, never more.
+        let reserved = plan_detailed(120, 30, 6, 2, 3, 0);
+        let shorter = plan_detailed(120, 30 - crate::board::cut::BAND_ROWS, 6, 2, 3, 0);
+        assert_eq!(reserved.tier1, shorter.tier1);
+        assert_eq!(reserved.tier2, shorter.tier2);
+        assert_eq!(reserved.finals, shorter.finals);
+        assert_eq!(reserved.later, shorter.later);
     }
 
     #[test]
@@ -293,6 +346,7 @@ mod tests {
                     .filter(|&present| present)
                     .count() as u16;
                     let used = p.hero_rows
+                        + p.band_rows
                         + 3 * p.tier1 as u16
                         + p.tier2 as u16
                         + p.finals as u16

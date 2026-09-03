@@ -206,15 +206,54 @@ fn board_walk<'a>(
         index += games.len();
     }
 
+    // ------------------------------------------------------ the reservation
+    // spec §3: the band's two rows belong to the board whether or not a band
+    // is firing (`plan.band_rows`) — `App::draw` draws the band straight into
+    // them, over whatever is there, so nothing below ever moves.
+    //
+    // They are not two blank lines: the board's top section rule moves up
+    // into the reservation, leaving one row of air under it, and the list
+    // below starts at the reservation's bottom. That rule is then out of the
+    // window entirely, so the reservation's real cost to the list is one row,
+    // not two. A firing band covers the rule for its three seconds — a label
+    // is the cheapest thing on the board to spend, and the alternative (the
+    // band over the hero's nameplate, or the list) is worse.
+    //
+    // A board whose first block is the hero (no MY GAMES band: the hero sits
+    // above the IN PLAY rule as the headline) has no rule to hoist, so its
+    // reservation is air above the headline.
+    let hoisted = if plan.band_rows > 0 && matches!(blocks.first(), Some(Block::Rule(..))) {
+        Some(blocks.remove(0))
+    } else {
+        None
+    };
+    let body = Rect {
+        y: area.y + plan.band_rows,
+        height: area.height - plan.band_rows,
+        ..area
+    };
+
     // ---------------------------------------------------------- the window
     // The lane costs a row, so it is decided before the window is measured:
     // anything that does not fit the body means a lane, and the lane's row
     // comes off the body. (`plan.scores_lane` says the same thing about the
     // budget; the window is what actually knows.)
     let total: u16 = blocks.iter().map(|b| b.rows()).sum();
-    let lane = total > area.height;
-    let window = area.height - u16::from(lane);
+    let lane = total > body.height;
+    let window = body.height - u16::from(lane);
     let first = first_visible(&blocks, selected, window);
+
+    // The hoisted rule is a header for the list's top, so it is drawn only
+    // while that top is actually on screen — a scrolled board would otherwise
+    // caption rows from a different section.
+    if let (Some(Block::Rule(label, caption)), 0) = (&hoisted, first) {
+        draw_rule(
+            frame,
+            Rect { x: area.x, y: area.y, width: area.width, height: layout::RULE_ROWS },
+            label,
+            caption,
+        );
+    }
 
     let mut y = 0u16;
     let mut drawn: Vec<usize> = Vec::new();
@@ -245,9 +284,9 @@ fn board_walk<'a>(
             }
         }
         let rect = Rect {
-            x: area.x,
-            y: area.y + y,
-            width: area.width,
+            x: body.x,
+            y: body.y + y,
+            width: body.width,
             height: rows,
         };
         match block {
