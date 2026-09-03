@@ -143,6 +143,11 @@ fn ink(ctx: &RowCtx) -> Color {
 
 /// A team abbr. Team color only for a pinned game, and only where the theme
 /// allows marks to carry it (spec §6); everything else is ink.
+///
+/// Padded to a 3-cell minimum (spec v3.3 §4: `format!("{:<3}", abbr)`) so a
+/// two-letter abbr (`KC`) fills the same cell a three-letter one (`BUF`)
+/// does — the pad is part of the styled span, not a coincidence of the
+/// field's blank background.
 fn abbr_span(game_pinned: bool, team: &crate::domain::Team, ctx: &RowCtx) -> Line<'static> {
     let th = theme::current();
     let color = if game_pinned && th.roles().team == TeamColorScope::HeroMarks {
@@ -150,7 +155,8 @@ fn abbr_span(game_pinned: bool, team: &crate::domain::Team, ctx: &RowCtx) -> Lin
     } else {
         ink(ctx)
     };
-    Line::from(Span::styled(team.abbr.clone(), Style::default().fg(color).add_modifier(Modifier::BOLD)))
+    let padded = format!("{:<3}", team.abbr);
+    Line::from(Span::styled(padded, Style::default().fg(color).add_modifier(Modifier::BOLD)))
 }
 
 /// A score. Amber, bold in the live tiers — the one color a row spends on a
@@ -200,10 +206,11 @@ fn situation_summary(game: &Game) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" "))
 }
 
-/// The two gutters, drawn down `rows` rows. `bar` is false for tier 3, whose
-/// mark is a dot: a final has no hotness to report, and a bar there reads as
-/// a live row from across the room.
-fn gutters(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
+/// The hot mark, column 0 — the one cell every tier draws identically (spec
+/// v3.3 §4: one mark column). `▌` in `hot`/`dim` for a bar row, `·` in `dim`
+/// for tier 3's dot; drawn down `rows` rows so tier 1's taller (3-row) block
+/// gets the same mark at every row, never shifted by the layout above it.
+fn mark_cell(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
     let r = theme::current().roles();
     let (glyph, color) = if !bar {
         ("·", r.dim)
@@ -215,6 +222,14 @@ fn gutters(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
     for y in 0..rows.min(area.height) {
         col(frame, area, 0, 1, y, Alignment::Left, Line::from(Span::styled(glyph, Style::default().fg(color))));
     }
+}
+
+/// The two gutters, drawn down `rows` rows. `bar` is false for tier 3, whose
+/// mark is a dot: a final has no hotness to report, and a bar there reads as
+/// a live row from across the room.
+fn gutters(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
+    mark_cell(frame, area, ctx, rows, bar);
+    let r = theme::current().roles();
     // Selection wins the gutter over a nudge: the caret says where the
     // keyboard is, which the viewer needs more than why the row moved.
     let mark = if ctx.selected {
@@ -540,7 +555,10 @@ mod tests {
         assert_eq!(buf[(0, 0)].symbol(), "▌", "the hot mark owns column 0\n{text}");
         // The frame's grid: abbr right-aligned into the gutter's shoulder,
         // score right-aligned two columns later, home pair mirrored.
-        assert_eq!(col_of(buf, 0, "GB"), Some(AWAY_ABBR_X + ABBR_W - 2), "away abbr right-aligned\n{text}");
+        // spec v3.3 §4: the abbr pads to a 3-cell minimum, so a 2-char abbr
+        // right-aligned in the 4-cell field now starts one column left of
+        // where the unpadded text used to (ABBR_W-3, not ABBR_W-2).
+        assert_eq!(col_of(buf, 0, "GB"), Some(AWAY_ABBR_X + ABBR_W - 3), "away abbr right-aligned\n{text}");
         assert_eq!(col_of(buf, 0, "13"), Some(AWAY_SCORE_X + SCORE_W - 2), "away score right-aligned\n{text}");
         assert_eq!(col_of(buf, 0, "CHI"), Some(HOME_ABBR_X), "home abbr left-aligned\n{text}");
         assert_eq!(col_of(buf, 0, "10"), Some(HOME_SCORE_X + SCORE_W - 2), "home score right-aligned\n{text}");
@@ -700,7 +718,8 @@ mod tests {
         let text = text_of(buf);
         assert_eq!(col_of(buf, 0, "4:25 PM"), Some(CLOCK_X), "fmt_start(ctx.now) in the clock column\n{text}");
         assert!(!text.contains("2026-"), "never an ISO stamp\n{text}");
-        assert_eq!(col_of(buf, 0, "TB"), Some(AWAY_ABBR_X + ABBR_W - 2), "away abbr right-aligned\n{text}");
+        // spec v3.3 §4: padded to a 3-cell minimum, ABBR_W-3 not ABBR_W-2.
+        assert_eq!(col_of(buf, 0, "TB"), Some(AWAY_ABBR_X + ABBR_W - 3), "away abbr right-aligned\n{text}");
         assert_eq!(col_of(buf, 0, "@"), Some(AWAY_SCORE_X + 1), "the @ takes the score column\n{text}");
         assert_eq!(col_of(buf, 0, "ATL"), Some(HOME_ABBR_X), "home abbr left-aligned\n{text}");
         assert_eq!(col_of(buf, 0, "FOX"), Some(TEXT_X), "broadcast\n{text}");
@@ -786,6 +805,53 @@ mod tests {
         let term = render(120, 1, &game, &ctx(), draw_tier1);
         let text = text_of(term.backend().buffer());
         assert!(text.contains("17"), "a one-row tier 1 still prints its score\n{text}");
+    }
+
+    #[test]
+    fn the_mark_column_is_column_zero_in_every_tier() {
+        // spec v3.3 §4: one mark column — tier 1's taller (3-row) layout must
+        // not shift the mark off x==0, same as tiers 2 and 3.
+        let game = live_game("DAL", "PHI");
+        let hot = RowCtx { hot: true, ..ctx() };
+        let t1 = render(120, 3, &game, &hot, draw_tier1);
+        let t2 = render(120, 1, &game, &hot, draw_tier2);
+        let t3 = render(120, 1, &game, &hot, draw_tier3);
+        let b1 = t1.backend().buffer();
+        let b2 = t2.backend().buffer();
+        // Tier 3's mark is a dot (no hotness reported by a final/later row),
+        // so only its position — not its glyph or color — is compared here.
+        let b3 = t3.backend().buffer();
+        assert_eq!(b1[(0, 0)].symbol(), "▌", "tier1 mark at (0,0)");
+        assert_eq!(b1[(0, 0)].fg, theme::current().roles().hot, "tier1 mark is hot");
+        assert_eq!(b2[(0, 0)].symbol(), "▌", "tier2 mark at (0,0)");
+        assert_eq!(b2[(0, 0)].fg, theme::current().roles().hot, "tier2 mark is hot");
+        assert_eq!(b3[(0, 0)].symbol(), "·", "tier3 mark at (0,0)");
+    }
+
+    #[test]
+    fn two_char_abbrs_occupy_the_three_char_cell() {
+        // spec v3.3 §4: abbrs pad to a fixed cell so the score column never
+        // shifts with the abbr's length — KC (2 chars) vs BUF (3 chars).
+        let r = theme::current().roles();
+        let short = tier2_game_with("KC", "TB");
+        let long = tier2_game_with("BUF", "MIA");
+        let a = render(120, 1, &short, &ctx(), draw_tier2);
+        let b = render(120, 1, &long, &ctx(), draw_tier2);
+        let (ba, bb) = (a.backend().buffer(), b.backend().buffer());
+        let score_x = |buf: &Buffer| -> u16 {
+            (0..buf.area().width).find(|&x| buf[(x, 0)].fg == r.digits).unwrap()
+        };
+        assert_eq!(score_x(ba), score_x(bb), "the score column doesn't move with abbr length");
+        // KC's cell pads right with a space, one past the "KC" glyphs.
+        let kc_end = col_of(ba, 0, "KC").unwrap() + 2;
+        assert_eq!(ba[(kc_end, 0)].symbol(), " ", "KC's cell pads right with a space");
+    }
+
+    fn tier2_game_with(away: &str, home: &str) -> Game {
+        let mut g = tier2_game();
+        g.away = team(away, [0, 34, 68]);
+        g.home = team(home, [0, 76, 84]);
+        g
     }
 
     #[test]

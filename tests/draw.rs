@@ -1972,6 +1972,34 @@ fn the_board_is_one_ranked_list_with_sections() {
 }
 
 #[test]
+fn a_section_with_no_rows_renders_no_header() {
+    // spec v3.3 §4: an empty section prints no rule at all — no orphan
+    // "FINAL ───" or "LATER ───" over nothing. Cell-scan every row (not a
+    // whole-buffer string search) so a header hiding off the visible window
+    // would not falsely pass.
+    let row_contains = |term: &Terminal<TestBackend>, needle: &str| -> bool {
+        let buf = term.backend().buffer();
+        let area = *buf.area();
+        (0..area.height).any(|y| {
+            let row: String = (0..area.width).map(|x| buf[(x, y)].symbol()).collect();
+            row.contains(needle)
+        })
+    };
+
+    // Live games, zero later: no LATER header anywhere in the buffer.
+    let mut app = board_app(6, 2, 0);
+    let term = render(&mut app, 120, 40);
+    assert!(!row_contains(&term, "LATER"), "no later games, no LATER header");
+    assert!(row_contains(&term, "FINAL"), "the FINAL section still renders");
+
+    // Live games, zero finals: no FINAL header anywhere in the buffer.
+    let mut app = board_app(6, 0, 2);
+    let term = render(&mut app, 120, 40);
+    assert!(!row_contains(&term, "FINAL"), "no final games, no FINAL header");
+    assert!(row_contains(&term, "LATER"), "the LATER section still renders");
+}
+
+#[test]
 fn pinned_games_sit_in_a_band_that_never_resorts() {
     // Two pinned LATER games: neither can be the hero (the hero is the top of
     // MY GAMES only when it is live), so both show as band rows in pin order.
