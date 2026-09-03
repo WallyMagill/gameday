@@ -459,19 +459,27 @@ fn draw_flanks(frame: &mut Frame, band: Rect, game: &Game, spots: ScoreSpots) {
     // leave its own margin empty while the other side still drew — a lone
     // logo reads as a rendering bug, not as "one team has art and one
     // doesn't". So the gate lives here, before either side is drawn, not
-    // inside the per-side loop where it can only skip one of them.
+    // inside a per-side loop where it can only skip one of them.
     let (Some(away_mark), Some(home_mark)) =
         (crate::board::logo::hero_mark(&game.away.logo_key), crate::board::logo::hero_mark(&game.home.logo_key))
     else {
         return;
     };
-    for (flank, mark) in [(left, away_mark), (right, home_mark)] {
-        // Whole mark or none: a clipped mark is a smear, not an identity.
-        if mark.width > MARK_COLS.min(flank.width) || mark.height > flank.height {
-            continue;
-        }
-        crate::board::logo::draw_hero_mark(frame, flank, mark);
+    // Whole mark or none: a clipped mark is a smear, not an identity. Width
+    // can't half-fit — bundled marks are a constant 16 cols and the 18-col
+    // check above already covers it — but bundled heights range 4–10 rows,
+    // so a short-art team beside a tall-art team can fit one flank and not
+    // the other at an in-between band height. That fit check has to join
+    // the same symmetric gate as presence: both sides fit, or neither
+    // draws — never one flank alone because its own mark happened to be
+    // shorter.
+    let away_fits = away_mark.width <= MARK_COLS.min(left.width) && away_mark.height <= left.height;
+    let home_fits = home_mark.width <= MARK_COLS.min(right.width) && home_mark.height <= right.height;
+    if !away_fits || !home_fits {
+        return;
     }
+    crate::board::logo::draw_hero_mark(frame, left, away_mark);
+    crate::board::logo::draw_hero_mark(frame, right, home_mark);
 }
 
 #[cfg(test)]

@@ -1950,7 +1950,7 @@ fn zoom_logo_flanks_are_symmetric_or_absent() {
     let painted = |term: &Terminal<TestBackend>, xs: std::ops::Range<u16>| -> usize {
         let buf = term.backend().buffer();
         let mut n = 0;
-        for y in 1..h {
+        for y in 1..buf.area().height {
             for x in xs.clone() {
                 let c = &buf[(x, y)];
                 if c.symbol() != " " || c.bg != ratatui::style::Color::Reset {
@@ -1977,6 +1977,24 @@ fn zoom_logo_flanks_are_symmetric_or_absent() {
     let term = render(&both);
     assert!(painted(&term, 0..20) > 0, "both marks committed: away flank must draw");
     assert!(painted(&term, 100..120) > 0, "both marks committed: home flank must draw");
+
+    // The height axis: nfl/kc is 6 rows tall, nfl/tb is 8. At a band height
+    // of 7 (h=8, one row under the nameplate less than the reference 12),
+    // KC's mark fits and TB's doesn't — the per-side fit check used to draw
+    // KC's flank alone. Both-or-neither has to hold here too.
+    let render_at = |g: &Game, h: u16| -> Terminal<TestBackend> {
+        let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+        term.draw(|f| draw_hero(f, f.area(), g, &plan())).unwrap();
+        term
+    };
+    let mismatched = game("nfl/kc", "nfl/tb");
+    let term = render_at(&mismatched, 8); // band.height = 7: KC (6) fits, TB (8) doesn't
+    assert_eq!(painted(&term, 0..20), 0, "a short mark must not draw when the tall one doesn't fit");
+    assert_eq!(painted(&term, 100..120), 0, "…on either side");
+
+    let term = render_at(&mismatched, 9); // band.height = 8: both KC and TB fit
+    assert!(painted(&term, 0..20) > 0, "both marks fit the taller band: away flank must draw");
+    assert!(painted(&term, 100..120) > 0, "both marks fit the taller band: home flank must draw");
 }
 
 #[test]
