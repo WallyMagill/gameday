@@ -1,7 +1,9 @@
 //! The three row tiers of the ranked board (spec §1): everything under the
 //! hero is one ranked list, and a game's tier is how loudly that list says
-//! it. Tier 1 is a three-row block with sextant digits, tier 2 is one line,
-//! tier 3 is one dim line for finals and later games.
+//! it. Tier 1 is a three-row block, tier 2 is one line, tier 3 is one dim
+//! line for finals and later games. All three print the score as a plain
+//! numeral in the same column (spec v3.3 §4) — tier 1's sextant digits are
+//! garnish beside that numeral, never the score itself.
 //!
 //! Three rules hold across all three tiers:
 //!
@@ -99,15 +101,24 @@ const TEXT_X: u16 = 38;
 /// Broadcast field on a LATER row, before the odds (`FOX`, `ESPN`, `PRIME`).
 const BCAST_W: u16 = 7;
 
-// Tier 1 runs its own grid: the sextant digits are 4 cells per glyph, so the
-// two score fields are 12 wide (three digits) and everything after them sits
-// further right than the one-line tiers.
-const T1_ABBR_X: u16 = GUTTER;
-const T1_AWAY_DIGITS_X: u16 = 9;
-/// Three sextant digits at `tiles::glyph_cell(false).0` = 4 cells each.
-const DIGIT_FIELD_W: u16 = 12;
-const T1_HOME_ABBR_X: u16 = 22;
-const T1_HOME_DIGITS_X: u16 = 27;
+// Tier 1 shares the one-line tiers' nameplate grid (spec v3.3 §4): the same
+// `pair_line` draws `GB 13 CHI 10` at the same columns a tier-2 row does, so
+// the score of a promoted row is read the same way — and in the same place —
+// as every row under it. What tier 1 adds is height, not a second grid: the
+// sextant digits are garnish beside the numerals, and the clock and prose
+// start further right to leave room for them.
+/// The sextant garnish field (spec v3.3 §4): it starts one column of air
+/// after the shared nameplate's last score cell and stops one short of the
+/// clock, so the glyphs sit *beside* the row's real score rather than in
+/// place of it. 17 cells wide, which is exactly what a two-digit pair costs
+/// — 4 cells per sextant glyph (`tiles::glyph_cell(false).0`), 8 a side,
+/// plus the one-cell gap. Three digits a side (25) doesn't fit, and the
+/// garnish drops rather than shrinking the numerals it decorates.
+const T1_GARNISH_X: u16 = HOME_SCORE_X + SCORE_W + 1;
+const T1_GARNISH_W: u16 = T1_CLOCK_X - T1_GARNISH_X - 1;
+/// Air between the two garnish scores — one cell, the same separation the
+/// nameplate's `13 CHI` keeps.
+const T1_GARNISH_GAP: u16 = 1;
 const T1_CLOCK_X: u16 = 40;
 const T1_TEXT_X: u16 = 53;
 /// The tier-1 state chip's field. It rides on row 1, where nothing sits
@@ -257,15 +268,16 @@ pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     let r = th.roles();
     gutters(frame, area, ctx, SEXTANT_ROWS, true);
 
-    col(frame, area, T1_ABBR_X, ABBR_W, 0, Alignment::Right, abbr_span(ctx.pinned, &game.away, ctx));
-    col(frame, area, T1_HOME_ABBR_X, ABBR_W, 0, Alignment::Left, abbr_span(ctx.pinned, &game.home, ctx));
+    // The nameplate is tier 2's line, cell for cell (spec v3.3 §4): abbrs and
+    // plain bold amber numerals on the shared columns. A promoted row is
+    // louder than the rows below it — accent bar, bold weight, the indented
+    // fragment and last-play rows — but its score is read the same way.
+    pair_line(frame, area, game, ctx, true);
     if ctx.league_tag {
         let tag = Span::styled(game.league.slug().to_uppercase(), Style::default().fg(r.dim));
-        col(frame, area, T1_ABBR_X, ABBR_W, 1, Alignment::Right, Line::from(tag));
+        col(frame, area, AWAY_ABBR_X, ABBR_W, 1, Alignment::Right, Line::from(tag));
     }
-
-    digits(frame, area, game.away_score, T1_AWAY_DIGITS_X, Alignment::Right, r.digits);
-    digits(frame, area, game.home_score, T1_HOME_DIGITS_X, Alignment::Left, r.digits);
+    garnish_digits(frame, area, game, r.digits);
 
     let state = state_text(game, ctx.now);
     if !state.is_empty() {
@@ -293,29 +305,29 @@ pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     }
 }
 
-/// One score as sextant glyphs in a [`DIGIT_FIELD_W`] field at `x`, aligned
-/// inside it. A block too short (or too narrow) for the glyphs prints the
-/// number as bold amber text instead — the hero's ladder, one rung shorter:
-/// never a blank score.
-fn digits(frame: &mut Frame, area: Rect, value: u16, x: u16, align: Alignment, color: Color) {
-    if x >= area.width {
+/// The sextant pair as *garnish* (spec v3.3 §4), centered in the field
+/// between the nameplate and the clock. It is drawn only when the whole pair
+/// fits at full size and the block is tall enough — the numerals in
+/// [`pair_line`] already carry the score, so garnish that doesn't fit simply
+/// isn't drawn. It never shrinks, never substitutes for the numerals, and
+/// (Task 9) is the first thing to go on a terminal whose font tofus the
+/// sextant range.
+fn garnish_digits(frame: &mut Frame, area: Rect, game: &Game, color: Color) {
+    let (gw, gh) = tiles::glyph_cell(false);
+    if area.height < gh || T1_GARNISH_X >= area.width {
         return;
     }
-    let field = DIGIT_FIELD_W.min(area.width - x);
-    let (gw, gh) = tiles::glyph_cell(false);
-    let want = value.to_string().len() as u16 * gw;
-    if area.height >= gh && want <= field {
-        let gx = match align {
-            Alignment::Right => x + field - want,
-            _ => x,
-        };
-        let rect = Rect { x: area.x + gx, y: area.y, width: want, height: gh };
-        if tiles::digit_glyphs(frame, rect, value, color, false) {
-            return;
-        }
+    let field = T1_GARNISH_W.min(area.width - T1_GARNISH_X);
+    let away_w = game.away_score.to_string().len() as u16 * gw;
+    let home_w = game.home_score.to_string().len() as u16 * gw;
+    let want = away_w + T1_GARNISH_GAP + home_w;
+    if want > field {
+        return;
     }
-    let style = Style::default().fg(color).add_modifier(Modifier::BOLD);
-    col(frame, area, x, field, 0, align, Line::from(Span::styled(value.to_string(), style)));
+    let x = area.x + T1_GARNISH_X + (field - want) / 2;
+    let slot = |x, width| Rect { x, y: area.y, width, height: gh };
+    tiles::digit_glyphs(frame, slot(x, away_w), game.away_score, color, false);
+    tiles::digit_glyphs(frame, slot(x + away_w + T1_GARNISH_GAP, home_w), game.home_score, color, false);
 }
 
 /// Tier 2: one line — mark │ nudge │ ABBR n ABBR n │ clock │ [league] │
@@ -756,20 +768,22 @@ mod tests {
         let buf = term.backend().buffer();
         let text = text_of(buf);
 
-        // Sextant digits: 4x3 cells per glyph, so amber cells appear on every
-        // row of the block — above the baseline, not only on it.
-        let field = Rect { x: T1_AWAY_DIGITS_X, y: 0, width: DIGIT_FIELD_W, height: 3 };
+        // spec v3.3 §4: the sextant digits moved out of the score columns and
+        // into the garnish field between the nameplate and the clock. 4x3
+        // cells per glyph, so amber cells appear on every row of the block.
+        let field = Rect { x: T1_GARNISH_X, y: 0, width: T1_GARNISH_W, height: 3 };
         for y in 0..3 {
             let row = Rect { y, height: 1, ..field };
-            assert!(cells_with_fg(buf, row, r.digits) >= 2, "sextant digit cells on row {y}\n{text}");
+            assert!(cells_with_fg(buf, row, r.digits) >= 2, "sextant garnish cells on row {y}\n{text}");
         }
         assert!(!text.contains("17 - 17"), "the glyph form fits at 120 cols\n{text}");
 
-        // The stack: abbr over league tag, then the clock and the two text
-        // rows the A′ frame puts to the right of the digits.
-        assert_eq!(col_of(buf, 0, "DAL"), Some(T1_ABBR_X + ABBR_W - 3), "away abbr, row 0\n{text}");
-        assert_eq!(col_of(buf, 1, "NFL"), Some(T1_ABBR_X + ABBR_W - 3), "league under it, row 1\n{text}");
-        assert_eq!(col_of(buf, 0, "PHI"), Some(T1_HOME_ABBR_X), "home abbr, row 0\n{text}");
+        // spec v3.3 §4: the stack sits on the shared nameplate grid — abbr
+        // over league tag at tier 2's own columns — and the clock and the two
+        // text rows follow to the right of the garnish.
+        assert_eq!(col_of(buf, 0, "DAL"), Some(AWAY_ABBR_X + ABBR_W - 3), "away abbr, row 0\n{text}");
+        assert_eq!(col_of(buf, 1, "NFL"), Some(AWAY_ABBR_X + ABBR_W - 3), "league under it, row 1\n{text}");
+        assert_eq!(col_of(buf, 0, "PHI"), Some(HOME_ABBR_X), "home abbr, row 0\n{text}");
         assert_eq!(col_of(buf, 0, "Q4 0:48"), Some(T1_CLOCK_X), "clock column, row 0\n{text}");
         assert_eq!(col_of(buf, 0, "PHI 3RD & 6 AT DAL 38"), Some(T1_TEXT_X), "situation, row 0\n{text}");
         assert_eq!(col_of(buf, 1, "▸ Hurts hit"), Some(T1_TEXT_X), "last play, row 1\n{text}");
@@ -806,6 +820,74 @@ mod tests {
         let term = render(120, 1, &game, &ctx(), draw_tier1);
         let text = text_of(term.backend().buffer());
         assert!(text.contains("17"), "a one-row tier 1 still prints its score\n{text}");
+    }
+
+    #[test]
+    fn tier1_score_is_readable_text_on_the_shared_grid() {
+        // spec v3.3 §4: a tier-1 row's score is a plain numeral in the SAME
+        // column tier 2 puts it in — both reviews flagged tier 1 as the one
+        // row whose score can't be read at a glance, sitting off the grid the
+        // rows below share.
+        let game = tier2_game(); // GB 13 CHI 10 — two distinguishable scores
+        let r = theme::current().roles();
+        let t1 = render(120, 3, &game, &ctx(), draw_tier1);
+        let t2 = render(120, 1, &game, &ctx(), draw_tier2);
+        let (b1, b2) = (t1.backend().buffer(), t2.backend().buffer());
+        let (text1, text2) = (text_of(b1), text_of(b2));
+
+        for needle in ["GB", "13", "CHI", "10"] {
+            assert_eq!(
+                col_of(b1, 0, needle),
+                col_of(b2, 0, needle),
+                "{needle} shares tier 2's column\n{text1}\n---\n{text2}"
+            );
+        }
+        assert_eq!(col_of(b1, 0, "13"), Some(AWAY_SCORE_X + SCORE_W - 2), "away numeral\n{text1}");
+        assert_eq!(col_of(b1, 0, "10"), Some(HOME_SCORE_X + SCORE_W - 2), "home numeral\n{text1}");
+        // Amber and bold, the score's one color, on both numerals.
+        for x in [AWAY_SCORE_X + 1, AWAY_SCORE_X + 2, HOME_SCORE_X + 1, HOME_SCORE_X + 2] {
+            let c = &b1[(x, 0)];
+            assert_eq!(c.fg, r.digits, "numeral cell {x} is amber ({:?})\n{text1}", c.symbol());
+            assert!(c.modifier.contains(Modifier::BOLD), "numeral cell {x} is bold\n{text1}");
+        }
+    }
+
+    #[test]
+    fn tier1_glyph_garnish_never_replaces_the_numerals() {
+        // spec v3.3 §4: the sextant digits are garnish. They appear when the
+        // field between the nameplate and the clock holds the pair, they
+        // vanish when it doesn't, and the numerals never move either way.
+        let game = tier2_game();
+        let r = theme::current().roles();
+        let wide = render(120, 3, &game, &ctx(), draw_tier1);
+        let bw = wide.backend().buffer();
+        let wt = text_of(bw);
+        let field = Rect { x: T1_GARNISH_X, y: 0, width: T1_GARNISH_W, height: SEXTANT_ROWS };
+        for y in 0..SEXTANT_ROWS {
+            let row = Rect { y, height: 1, ..field };
+            assert!(cells_with_fg(bw, row, r.digits) >= 2, "garnish glyph cells on row {y}\n{wt}");
+        }
+        assert_eq!(col_of(bw, 0, "13"), Some(AWAY_SCORE_X + SCORE_W - 2), "numerals with garnish\n{wt}");
+
+        // A block one row tall has no room for a 3-row glyph; a 100+ score
+        // needs 12 cells a side, past the garnish field. Both drop the
+        // garnish and keep the numerals exactly where they were.
+        let flat = render(120, 1, &game, &ctx(), draw_tier1);
+        let bf = flat.backend().buffer();
+        let ft = text_of(bf);
+        assert_eq!(cells_with_fg(bf, Rect { height: 1, ..field }, r.digits), 0, "no garnish in one row\n{ft}");
+        assert_eq!(col_of(bf, 0, "13"), Some(AWAY_SCORE_X + SCORE_W - 2), "numerals unmoved\n{ft}");
+        assert_eq!(col_of(bf, 0, "10"), Some(HOME_SCORE_X + SCORE_W - 2), "numerals unmoved\n{ft}");
+
+        let mut big = game.clone();
+        big.away_score = 101;
+        big.home_score = 98;
+        let term = render(120, 3, &big, &ctx(), draw_tier1);
+        let bb = term.backend().buffer();
+        let bt = text_of(bb);
+        assert_eq!(cells_with_fg(bb, field, r.digits), 0, "12+12 cells don't fit the garnish field\n{bt}");
+        assert_eq!(col_of(bb, 0, "101"), Some(AWAY_SCORE_X), "a three-digit score fills the field\n{bt}");
+        assert_eq!(col_of(bb, 0, "98"), Some(HOME_SCORE_X + SCORE_W - 2), "home numeral\n{bt}");
     }
 
     #[test]

@@ -263,6 +263,13 @@ pub fn gallery() -> Vec<Variant> {
         gate("gate-digits-current", None),
         gate("gate-digits-quad", Some(gate_quad as fn(&mut Frame, &App))),
         gate("gate-digits-text", Some(gate_text as fn(&mut Frame, &App))),
+        // The v3.3 tier-1 re-grid gate (spec §4). No overlay and no new
+        // mechanism: the tier-1 rows ARE the product's, so the gate is just
+        // the demo board at 120×36 — tall enough that the plan promotes tier-1
+        // blocks with tier-2 rows under them, which is the comparison being
+        // asked for. The BEFORE frame is the same stem rendered from the
+        // pre-task commit.
+        sized("gate-tier1-after", 120, 36, home as fn(&mut App)),
     ]);
     out
 }
@@ -824,6 +831,7 @@ mod tests {
                 "gate-digits-current",
                 "gate-digits-quad",
                 "gate-digits-text",
+                "gate-tier1-after",
             ],
             "gallery stems are a stable contract for other tasks"
         );
