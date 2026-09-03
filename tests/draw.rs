@@ -3453,28 +3453,111 @@ fn the_plays_feed_fills_the_width() {
 fn the_re_laid_out_screens_survive_every_size() {
     // spec v3.3 §5 does width arithmetic on three more screens (two-column
     // standings, the full-width feed, the two-panel editor), so they take the
-    // board's own sweep: no panic anywhere on the ladder, and each still says
-    // what it is.
+    // board's own sweep — and the sweep asserts the layout, not just survival:
+    // nothing writes past the frame, the two-column gate flips at exactly 100
+    // (receipt: two 48-col tables + a 4-col gutter), and the gutter stays a
+    // gutter instead of the right column bleeding into the left one's rule.
     use gameday::views::View;
-    for (name, view, needle) in [
-        ("standings", View::Standings(League::Nfl), "STANDINGS"),
-        ("plays feed", View::PlaysFeed, "PLAYS"),
-        ("config", View::ConfigView, "CONFIG"),
+    // (name, view, header needle, the right column's first word)
+    for (name, view, needle, right) in [
+        ("standings", View::Standings(League::Nfl), "STANDINGS", Some("NATIONAL")),
+        ("plays feed", View::PlaysFeed, "PLAYS", None),
+        ("config", View::ConfigView, "CONFIG", Some("FAVORITES")),
     ] {
-        for w in [40u16, 55, 60, 80, 99, 100, 120, 180] {
+        for w in [40u16, 55, 60, 80, 99, 100, 101, 120, 180] {
             for h in [12u16, 16, 24, 30, 40, 60] {
                 let mut app = mk();
                 app.config.enabled_tabs = vec![League::Nfl];
-                app.apply_boards(League::Nfl, vec![with_scoring(g("1", "KC", "TB", true))], false);
-                app.merge_standings(tall_standings_table());
+                let mut nfl = g("1", "KC", "TB", true);
+                nfl.last_plays = vec![Play {
+                    clock: "1:27".into(),
+                    team: "KC".into(),
+                    text: "Mahomes to Kelce, 12 yd".into(),
+                    scoring: true,
+                    ..Default::default()
+                }];
+                app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
+                // The two-group fixture, not the tall one: the gate is about
+                // width, and this table fits every height on the ladder.
+                app.merge_standings(standings_table());
                 app.view = view.clone();
                 let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
                 t.draw(|f| app.draw(f)).unwrap();
                 let s = buf_text(&t);
-                assert!(s.contains(needle), "{name} at {w}x{h} lost its header:\n{s}");
+                let at = format!("{name} at {w}x{h}");
+                assert!(s.contains(needle), "{at} lost its header:\n{s}");
+                // Nothing renders past the frame's last column.
+                let widest = s.lines().map(|l| l.trim_end().chars().count()).max().unwrap();
+                assert!(widest <= w as usize, "{at} wrote to column {widest} of {w}:\n{s}");
+
+                match right {
+                    // The gate: two columns at 100 and up, one below it.
+                    Some(right) => {
+                        let paired = s
+                            .lines()
+                            .find(|l| l.contains(right) && l.contains(if name == "standings" {
+                                "AMERICAN"
+                            } else {
+                                "TABS"
+                            }));
+                        if w >= 100 {
+                            let row = paired
+                                .unwrap_or_else(|| panic!("{at} must be two columns:\n{s}"));
+                            // The gutter is real: the left column's rule stops
+                            // before the right column's title.
+                            let cut = row.find(right).unwrap();
+                            assert!(
+                                row[..cut].ends_with("  "),
+                                "{at} has no gutter before {right}: {row:?}"
+                            );
+                        } else {
+                            assert!(paired.is_none(), "{at} must be one column:\n{s}");
+                        }
+                    }
+                    // The feed has no gate — every row reaches the frame's
+                    // edge at every width (flush-right score, or clipped text).
+                    None => {
+                        let row = s
+                            .lines()
+                            .find(|l| l.contains("TOUCHDOWN"))
+                            .unwrap_or_else(|| panic!("{at} lost its play row:\n{s}"));
+                        let end = row.trim_end().chars().count();
+                        assert!(end + 3 >= w as usize, "{at} row ends at {end} of {w}: {row:?}");
+                    }
+                }
             }
         }
     }
+}
+
+#[test]
+fn a_resize_that_shortens_the_standings_does_not_swallow_a_keypress() {
+    // The renderer clamps `standings_scroll` and writes it back: scrolled to
+    // the bottom of a one-column 80x14 table, then redrawn at 120x40 where two
+    // columns make the same table fit, the stored offset is 0 — so the next j
+    // moves the table instead of being spent snapping the stale offset back.
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Nfl);
+    app.merge_standings(tall_standings_table());
+    let mut small = Terminal::new(TestBackend::new(80, 14)).unwrap();
+    small.draw(|f| app.draw(f)).unwrap();
+    for _ in 0..60 {
+        gameday::input::handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
+    }
+    small.draw(|f| app.draw(f)).unwrap();
+    let bottom = app.standings_scroll;
+    assert!(bottom > 0, "the 80-col table must scroll at all: {bottom}");
+
+    let mut wide = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    wide.draw(|f| app.draw(f)).unwrap();
+    assert_eq!(app.standings_scroll, 0, "a table that now fits carries no offset");
+    let before = buf_text(&wide);
+    gameday::input::handle_key(&mut app, KeyCode::Char('k'), KeyModifiers::NONE);
+    assert_eq!(app.standings_scroll, 0, "k at the top stays at the top");
+    // And the table is drawn from the top, not from the stale offset.
+    assert!(before.contains("ATEAM00"), "the top of the table is on screen:\n{before}");
 }
 
 #[test]
