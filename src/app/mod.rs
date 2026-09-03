@@ -417,16 +417,14 @@ impl App {
             || matches!(self.view, View::ThemePicker)
     }
 
-    /// Does this game earn the whole screen? Pinned, favorited, or TV mode —
-    /// where the one game on screen is the only thing there is.
+    /// Does this game earn the whole screen? Pinned or favorited games always
+    /// do. In TV mode, the game currently shown on screen does too — but any
+    /// other game is a band drawn over TV, not a takeover (spec v3.3 §9
+    /// decision B: only the shown game and MY GAMES teams take the full
+    /// screen in TV).
     fn cut_is_full(&self, game: &Game) -> bool {
-        matches!(self.view, View::Tv)
-            || self.pins.iter().any(|p| p.game_id == game.id)
-            || self.config.favorites.iter().any(|f| {
-                f.league == game.league
-                    && (f.team_abbr.eq_ignore_ascii_case(&game.away.abbr)
-                        || f.team_abbr.eq_ignore_ascii_case(&game.home.abbr))
-            })
+        self.is_my_game(game)
+            || (matches!(self.view, View::Tv) && self.tv_shown.as_deref() == Some(game.id.as_str()))
     }
 
     pub fn tab_list(&self) -> Vec<Tab> {

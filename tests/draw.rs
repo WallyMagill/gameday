@@ -2861,15 +2861,86 @@ fn tv_never_panics_and_never_blanks_the_score() {
 }
 
 #[test]
-fn every_scoring_play_takes_the_screen_in_tv() {
-    // Spec §3: in TV mode the one game on screen is all there is, so every
-    // cut is a takeover — not just a pinned or favorited game's.
+fn in_tv_only_the_shown_game_and_my_teams_take_the_screen() {
+    // spec v3.3 §9 decision B: TV mode no longer promotes every scoring play
+    // to a takeover. Only the game currently shown and MY GAMES (pinned or
+    // favorited) teams earn the whole screen; everything else is the quiet
+    // band, drawn over TV the same way it's drawn over the board.
     let mut app = mk();
     app.tick = 400;
+
+    let mut cur1 = cut_game("1"); // KC vs BUF — TV's shown game
+    cur1.away_score = 17;
+    let mut cur2 = g("2", "DAL", "PHI", true); // pinned, not shown
+    let mut cur3 = g("3", "SF", "NYG", true); // unrelated, not shown
+
+    app.apply_boards(
+        League::Nfl,
+        vec![cur1.clone(), cur2.clone(), cur3.clone()],
+        false,
+    );
+    app.pins.push(gameday::config::Pin {
+        game_id: "2".into(),
+        league: League::Nfl,
+        final_at: None,
+    });
     app.view = gameday::views::View::Tv;
-    land_a_score(&mut app, false); // unpinned, unfavorited
-    let cut = app.cuts.active(app.tick).expect("the delta fires a cut");
-    assert!(cut.full, "every cut is full in TV, pinned or not");
+    app.tv_shown = Some("1".into());
+
+    // Delta on the shown game: takeover.
+    cur1 = cut_game("1");
+    cur1.last_plays = vec![scoring_play()];
+    app.apply_boards(
+        League::Nfl,
+        vec![cur1.clone(), cur2.clone(), cur3.clone()],
+        false,
+    );
+    let cut = app.cuts.active(app.tick).expect("a delta fires a cut");
+    assert!(cut.full, "the shown game takes the whole screen");
+    assert_eq!(cut.game_id, "1");
+
+    app.tick += 31; // clear the takeover (CUT_TICKS is 30) before the next fire
+
+    // Delta on the pinned game, not shown: still a takeover — MY GAMES.
+    cur2.away_score += 3;
+    cur2.last_plays = vec![Play {
+        team: "DAL".into(),
+        text: "Prescott 9 Yd pass — TOUCHDOWN".into(),
+        scoring: true,
+        ..Default::default()
+    }];
+    app.apply_boards(
+        League::Nfl,
+        vec![cur1.clone(), cur2.clone(), cur3.clone()],
+        false,
+    );
+    let cut = app.cuts.active(app.tick).expect("a delta fires a cut");
+    assert!(cut.full, "a pinned/favorited game takes the whole screen even unshown");
+    assert_eq!(cut.game_id, "2");
+
+    app.tick += 31;
+
+    // Delta on an unrelated game: the quiet band, not a takeover.
+    cur3.away_score += 3;
+    cur3.last_plays = vec![Play {
+        team: "SF".into(),
+        text: "Purdy 5 Yd pass — TOUCHDOWN".into(),
+        scoring: true,
+        ..Default::default()
+    }];
+    app.apply_boards(League::Nfl, vec![cur1, cur2, cur3], false);
+    let cut = app.cuts.active(app.tick).expect("a delta fires a cut").clone();
+    assert!(!cut.full, "an unrelated game's cut is the quiet band, not a takeover");
+    assert_eq!(cut.game_id, "3");
+
+    // The band draws over TV's top rows; TV's own body still renders
+    // beneath it — the shown game's nameplate (a TV-only cell) survives.
+    let term = render(&mut app, 120, 40);
+    let s = buf_text(&term);
+    assert!(
+        s.contains("KC") && s.contains("BUF"),
+        "TV's shown game survives under the band:\n{s}"
+    );
 }
 
 
