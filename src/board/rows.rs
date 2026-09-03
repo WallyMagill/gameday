@@ -110,6 +110,12 @@ const T1_HOME_ABBR_X: u16 = 22;
 const T1_HOME_DIGITS_X: u16 = 27;
 const T1_CLOCK_X: u16 = 40;
 const T1_TEXT_X: u16 = 53;
+/// The tier-1 state chip's field. It rides on row 1, where nothing sits
+/// between the clock column and the play text, so it gets the whole gap
+/// rather than the clock's own [`CLOCK_W`] — at 11 cells the longest chips
+/// `rank::watchability` emits ("BASES LOADED", "TYING RUN ON", both 12) were
+/// clipped to a word that isn't one.
+const T1_CHIP_W: u16 = T1_TEXT_X - T1_CLOCK_X;
 /// A sextant glyph is three rows tall; a shorter block falls to text.
 const SEXTANT_ROWS: u16 = 3;
 
@@ -255,7 +261,7 @@ pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     // chip is the hero's alone (spec §1).
     if let Some(chip) = ctx.chip {
         let span = Span::styled(chip, Style::default().fg(r.hot).add_modifier(Modifier::BOLD));
-        col(frame, area, T1_CLOCK_X, CLOCK_W, 1, Alignment::Left, Line::from(span));
+        col(frame, area, T1_CLOCK_X, T1_CHIP_W, 1, Alignment::Left, Line::from(span));
     }
     let room = (area.width.saturating_sub(T1_TEXT_X)) as usize;
     if let Some(fragment) = situation_summary(game) {
@@ -766,6 +772,15 @@ mod tests {
         assert_eq!(col_of(buf, 1, "▸ Hurts hit"), Some(T1_TEXT_X), "the play keeps its column\n{text}");
         let bare = text_of(render(120, 3, &game, &ctx(), draw_tier1).backend().buffer());
         assert!(!bare.contains("2-MIN"), "no chip, no row\n{bare}");
+
+        // The longest chip the ranker emits fits whole — the clock column's
+        // 11 cells clipped "BASES LOADED" to "BASES LOADE".
+        for chip in ["BASES LOADED", "TYING RUN ON"] {
+            let c = RowCtx { chip: Some(chip), ..ctx() };
+            let term = render(120, 3, &game, &c, draw_tier1);
+            let text = text_of(term.backend().buffer());
+            assert!(text.contains(chip), "{chip} must not be clipped\n{text}");
+        }
 
         // Too short for a sextant: the score is text, never blank.
         let term = render(120, 1, &game, &ctx(), draw_tier1);

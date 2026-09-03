@@ -33,11 +33,15 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
             Span::styled(marker, Style::default().fg(th.star)),
             Span::styled(format!("{:<18}", entry.name), name_style),
         ];
-        // The palette in five cells: live, green, cyan, magenta, star.
-        for c in [p.live, p.green, p.cyan, p.magenta, p.star] {
+        // The ROLES in six cells, in the order the board spends them:
+        // ground, ink, dim, digits, hot, cool. Not the raw palette — v3.2 §6
+        // makes a theme a role mapping, and two of the three built-ins share
+        // a palette outright (broadcast and studio), so a palette strip drew
+        // them as the same theme.
+        let r = p.roles();
+        for c in [r.ground, r.ink, r.dim, r.digits, r.hot, r.cool] {
             spans.push(Span::styled("■", Style::default().fg(c)));
         }
-        spans.push(Span::styled("■", Style::default().fg(p.fg)));
         if entry.user {
             spans.push(Span::styled("  user", Style::default().fg(th.muted)));
         } else if entry.name == "broadcast" {

@@ -1,5 +1,9 @@
-# studio — the broadcast palette at discipline level 3: only scores, logos,
-# the league chips and LIVE/scoring red stay colored. Everything else is gray.
+# studio — the broadcast palette, calm. Same ground, same red; the difference
+# is in the ROLES: row scores are white instead of amber, and the section
+# structure recedes to `dim`. What is left in color is the hero and the live
+# mark, which is the identity floor. (Before v3.2 studio differed from
+# broadcast only in `[discipline]`, so at the role layer the two were the same
+# theme — this is what makes them two looks.)
 name = "studio"
 
 [palette]
@@ -26,14 +30,16 @@ nhl = "#46c8dc"
 epl = "#5ad282"
 mls = "#3cc8b4"
 
-# Same roles as broadcast; the identity floor is team color on the hero only.
+# The calm mapping: white row scores (`bright`, not the amber `star`) and a
+# section structure one step back (`dim`, not `border`). `hot` stays `live` —
+# red is the identity floor no theme is allowed to spend.
 [roles]
 ground = "bg"
 ink = "fg"
 dim = "muted"
-digits = "star"
+digits = "bright"
 hot = "live"
-cool = "border"
+cool = "dim"
 team = "hero"
 
 [discipline]

@@ -1,6 +1,6 @@
 # gameday
 
-Terminal sports board. Pin games, they tile. NFL first, college football when you turn the tab on.
+Terminal sports board. One ranked list — the game most worth watching leads it, and the rest fall in behind. NFL first, college football when you turn the tab on.
 
 No account. No API key.
 
@@ -12,25 +12,42 @@ cargo run -- --demo    # scripted demo slate, no network
 cargo run -- dump      # capture gallery into out/ (no network; --tick N picks the sim frame)
 ```
 
-`dump` writes fixed names: `board-<theme>` for every built-in theme
-(`board-broadcast`, `board-studio`, `board-ceefax`, `board-phosphor`,
-`board-gruvbox`, `board-tokyo-night`, `board-nord`, `board-catppuccin-mocha`,
-`board-rose-pine`, `board-everforest`, `board-dracula`), `board-compact`,
-`tab-nfl`, `focus`, `help`, `narrow`
-(80x24), `zoom-stats`, `plays-feed`, `standings`, `config`, `filter`,
-`theme-picker`, and the four state captures `home-live` (first boot),
-`offline` (no board, failed fetch), `stale` (board from cache), and
-`config-error` (unparseable config.toml) — each as `.html` + `.ansi`, plus
-`.png` when headless Chrome is installed. Set `GAMEDAY_DUMP_FONT=/path/to/CascadiaMono.ttf` so PNGs carry the
+`dump` writes fixed names: the ranked board in each built-in theme
+(`board-broadcast`, `board-studio`, `board-gruvbox`) and at two more sizes
+(`board-narrow` 80x24, `board-sixty` 60x40); the surfaces `tv`, `cut-full`,
+`cut-band`, `zoom`, `plays-feed`, `standings`, `config`, `filter`,
+`theme-picker`, `help`; the four state captures `home-live` (first boot),
+`offline` (no board, failed fetch), `stale` (board from cache) and
+`config-error` (unparseable config.toml); and `nudge-seq-1/-2/-3`, three
+frames around the scripted re-sort showing the `↑n` gutter appear and hold.
+Each is written as `.html` + `.ansi`, plus `.png` when headless Chrome is
+installed. Set `GAMEDAY_DUMP_FONT=/path/to/CascadiaMono.ttf` so PNGs carry the
 sextant glyphs.
 
 Config: `~/.config/gameday/config.toml`
 
 ```toml
 enabled_tabs = ["Nfl", "Cfb"]   # default: all nine leagues
-theme = "broadcast"             # any loaded theme: the 11 built-ins or a file in themes/
+theme = "broadcast"             # broadcast | studio | gruvbox, or a file in themes/
 sort = "watch"                  # watch | time | league
 ```
+
+## Themes
+
+Three built-ins: **broadcast** (the default — amber scores, colored chrome),
+**studio** (the same palette, calm: white scores, the structure a step back),
+and **gruvbox** (the one warm-ground community palette). A theme is a palette
+read through *roles* — `ground`, `ink`, `dim`, `digits`, `hot`, `cool` and a
+`team` scope saying where team color is allowed — so two themes can share
+every hue and still be two looks.
+
+Drop a `.toml` in `<config-dir>/themes/` and it loads at startup; a file that
+names a built-in replaces it. The eight palettes that used to be built in —
+`ceefax`, `phosphor`, `tokyo-night`, `nord`, `catppuccin-mocha`, `rose-pine`,
+`everforest`, `dracula` — still ship in `assets/themes/` and still load as
+user files, so `theme = "nord"` keeps working once you copy that file across.
+A broken file is skipped with a line naming the file, the key and the
+expected form; the board keeps running.
 
 Old `layout` and `score_style` keys from before v3.2 are ignored if present — they
 no longer do anything and are not written back.
@@ -46,6 +63,6 @@ space pin/unpin · enter/z zoom · esc back · j/k move · [ ] date · / filter 
 
 ## Data
 
-Unofficial ESPN JSON (`site.web.api.espn.com`). Polling, not a websocket. Last good payload stays on disk; the board shows `stale` rather than going blank. Every tile shows the scoreboard's last play; the full play-by-play and box score are fetched only for the game you zoom (`z`), which keeps polling to ~45 requests/min with nine leagues live.
+Unofficial ESPN JSON (`site.web.api.espn.com`). Polling, not a websocket. Last good payload stays on disk; the board shows `stale` rather than going blank. Every row shows the scoreboard's last play; the full play-by-play and box score are fetched only for the game you zoom (`z`), which keeps polling to ~45 requests/min with nine leagues live.
 
 Not affiliated with ESPN or the NFL.

@@ -4,10 +4,12 @@
 //! the optional `[roles]` table in a theme file decides which palette key
 //! plays which part.
 //!
-//! The pre-v3.2 `discipline` knobs (`chip`, `section_label`, `team_text`,
-//! `clock`, `sidebar_header`) are still here and still read by the board that
-//! has not been rebuilt yet; `[discipline]` in a *user* file parses, is
-//! compat-only, and says so once in the log.
+//! Four pre-v3.2 `discipline` knobs are still spent by surfaces the role layer
+//! has not reached — `chip` (the `[NFL]` tag on the plays feed and the ticker
+//! lane), `section_label`, `team_text` and `clock` — so the built-ins keep
+//! their `[discipline]` tables. The knobs the v3.1 sidebar owned are gone with
+//! it (`league_text`, `sidebar_header`); `[discipline]` in a *user* file
+//! parses, is compat-only, and says so once in the log.
 //!
 //! One TOML format serves the built-ins (compiled in from `assets/themes/`)
 //! and user files in `<config_dir>/themes/*.toml`; a user file wins on a name
@@ -36,8 +38,11 @@ const BUILTIN_TOML: [&str; 3] = [
     include_str!("../assets/themes/gruvbox.toml"),
 ];
 
-/// How the three sidebar headers (⚑ GLOBAL ALERTS / TOP PLAYS / RECORDS) are
-/// colored: each its own hue, one shared accent (`star`), or gray.
+/// v3.1's sidebar-header coloring knob. The sidebar itself is deleted (v3.2
+/// §7) and nothing reads this any more — it survives only so that a theme
+/// file written for v3.1 still *parses* (`[discipline]` is compat-only, and
+/// `deny_unknown_fields` would otherwise reject every one of the eight
+/// retired built-ins now shipped as user themes).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SidebarHeaders {
@@ -136,14 +141,6 @@ pub struct Roles {
     /// rules, legend keys, structure
     pub cool: Color,
     pub team: TeamColorScope,
-}
-
-/// Which sidebar header a draw call is coloring.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SidebarHeader {
-    Alerts,
-    TopPlays,
-    Records,
 }
 
 /// Semantic palette + discipline. Field names are roles, not hues —
@@ -254,34 +251,12 @@ impl Theme {
         self.art_color(primary)
     }
 
-    /// League accent on play-row text (the sidebar's TOP PLAYS lines): the
-    /// same knob as team color on abbrs — both are "color on play text".
-    pub fn league_text(&self, league: League) -> Color {
-        if self.discipline.play_abbrs {
-            self.league_accent(league)
-        } else {
-            self.fg
-        }
-    }
-
     /// Clock digits: `cyan`, or `muted`.
     pub fn clock(&self) -> Color {
         if self.discipline.clocks {
             self.cyan
         } else {
             self.muted
-        }
-    }
-
-    pub fn sidebar_header(&self, which: SidebarHeader) -> Color {
-        match self.discipline.sidebar_headers {
-            SidebarHeaders::Multi => match which {
-                SidebarHeader::Alerts => self.live,
-                SidebarHeader::TopPlays => self.star,
-                SidebarHeader::Records => self.magenta,
-            },
-            SidebarHeaders::Single => self.star,
-            SidebarHeaders::Muted => self.muted,
         }
     }
 }

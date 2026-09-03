@@ -142,11 +142,10 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         y += ls_rows;
     }
     for play in plays.iter().take(plays_rows as usize) {
-        let stamp = if play.clock.is_empty() {
-            play.period.clone()
-        } else {
-            play.clock.clone()
-        };
+        // One stamp formatter for every feed (`tiles::play_stamp`): TV and
+        // the zoom must never disagree about what a baseball play's `[B7]`
+        // looks like.
+        let stamp = crate::tiles::play_stamp(play);
         let text_room = (body.width as usize).saturating_sub(STAMP_W + 6);
         frame.render_widget(
             Paragraph::new(Line::from(vec![

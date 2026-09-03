@@ -3,27 +3,33 @@
 //! when headless Chrome is available. This is the visual iteration loop:
 //! compare out/board-broadcast.png to the reference image. The gallery:
 //!
-//!   board-<theme> — home board, big scores, one per BUILT-IN theme (three:
-//!       board-broadcast/-studio/-gruvbox, selected programmatically, not via env)
-//!   board-compact — the same ranked board; the stem outlives `ScoreStyle`
-//!       (deleted with the tile grammar) until Task 15 respecs the gallery
-//!   tab-nfl       — NFL league tab with the slate visible and a slate row selected
-//!   focus         — a focused game view
-//!   help          — the '?' overlay over the dimmed board
-//!   narrow        — 80x24, the sidebar-less layout
-//!   zoom-stats    — the Zoom STATS tab, box score from the committed fixture
+//!   board-broadcast/-studio/-gruvbox — the ranked board, one per BUILT-IN
+//!       theme (selected programmatically, not via env). Three identities,
+//!       not eleven palettes (spec §6).
+//!   board-narrow  — the same board at 80x24
+//!   board-sixty   — and at 60x40: the tall, narrow end of the ladder
+//!   tv            — `:tv`, the jumbotron hero and the ALSO LIVE strip
+//!   cut-full      — the scoring takeover (spec §3)
+//!   cut-band      — the quiet two-row band a score you don't follow gets
+//!   zoom          — the zoomed game: hero, linescore, matchup line, feed
 //!   plays-feed    — the global scoring feed (:plays)
 //!   standings     — the NFL standings table from the committed fixture
 //!   config        — the in-app config editor (:config)
 //!   filter        — the NFL tab narrowed by a committed /kc filter
 //!   theme-picker  — the `:theme` picker panel over the home board
+//!   help          — the '?' overlay over the dimmed board
 //!   home-live     — the first-boot Home frame, every live demo game on it
 //!   offline       — no board at all, a named fetch failure and its retry
 //!   stale         — a board served from cache, backdated to read STALE 4m
 //!   config-error  — an unparseable config.toml, named line and valid values
+//!   nudge-seq-1/-2/-3 — three frames bracketing `sim::NUDGE_TICK`, the one
+//!       scripted beat that re-sorts the live list: before, the tick the
+//!       bases load, and the tick after — the `↑n` gutter appearing and
+//!       holding while the row does not move a cell.
 //!
-//! Every capture is the sim state at a fixed tick (`--tick N`, default 0), so
-//! repeated runs are pixel-deterministic. No timestamps in file names.
+//! Every capture is the sim state at a fixed tick (`--tick N`, default 0;
+//! the `nudge-seq` stems pin their own), so repeated runs are
+//! pixel-deterministic. No timestamps in file names.
 
 use crate::app::{App, Tab};
 use crate::demo;
@@ -41,9 +47,11 @@ use std::time::{Duration, Instant};
 
 pub const DUMP_COLS: u16 = 120;
 pub const DUMP_ROWS: u16 = 36;
-/// Whole-gallery runtime budget from the task spec (a target, not a measured
-/// number); overruns print actual vs budget naming the slow phase.
-const BUDGET: Duration = Duration::from_secs(20);
+/// Whole-gallery runtime budget. Rendering the buffers is milliseconds; the
+/// cost is Chrome. At [`SHOT_BATCH`] = 4 the 22-page gallery is 6 batches of
+/// a measured ~16 s, so ~100 s is the expected run and 150 s is the line past
+/// which something is wrong. Overruns print actual vs budget naming the phase.
+const BUDGET: Duration = Duration::from_secs(150);
 
 /// One gallery capture: which surface, at what size, in which theme.
 pub struct Variant {
@@ -52,6 +60,10 @@ pub struct Variant {
     pub rows: u16,
     /// A built-in theme name (`theme::BUILTIN_NAMES`).
     pub theme: &'static str,
+    /// Pins this capture to one sim tick regardless of `--tick`. Only the
+    /// `nudge-seq` frames use it: they are a sequence, and a sequence whose
+    /// frames all moved with a flag would stop being one.
+    pub tick: Option<u64>,
     setup: fn(&mut App),
 }
 
@@ -69,38 +81,46 @@ pub const BOARD_STEMS: [(&str, &str); 3] = [
 /// these exact paths, so renames here are breaking.
 pub fn gallery() -> Vec<Variant> {
     fn home(_: &mut App) {}
-    fn tab_nfl(app: &mut App) {
-        app.tab = Tab::League(League::Nfl);
-        // Land the selection past the live rows, on the first FINAL/LATER
-        // row, so the ▸ caret is part of the capture. (Gallery stems are
-        // redesigned in Task 15; this only keeps the stem building.)
-        let d = app.derive();
-        app.selected = d.my_games.len() + d.in_play.len();
+    fn tv(app: &mut App) {
+        app.open_tv();
     }
-    fn focus(app: &mut App) {
-        // The demo NFL live game, zoomed: tab bar + expanded single-game view.
+    // The zoomed game is the baseball one on purpose: MLB is the only demo
+    // sport whose zoom exercises all three rows under the hero at once — the
+    // linescore with H/E, the `P: … AB: … DUE UP` matchup line (spec §5), and
+    // an inning-stamped feed (`[B7]`).
+    fn zoom(app: &mut App) {
+        let mut p = MemoryProvider::new();
+        p.stats.insert("nfl-live".into(), demo::demo_stats());
+        let _ = p.stats(League::Nfl, "nfl-live");
         app.view = View::Zoom {
-            game_id: "nfl-live".into(),
+            game_id: "mlb-live".into(),
             tab: ZoomTab::Overview,
         };
     }
+    /// The newest scoring play of a demo game, for the cut captures.
+    fn scoring_play(app: &App, id: &str) -> crate::domain::Play {
+        app.boards
+            .values()
+            .flatten()
+            .find(|g| g.id == id)
+            .and_then(|g| g.scoring_plays.last().or_else(|| g.last_plays.first()))
+            .cloned()
+            .unwrap_or_else(|| panic!("demo game {id} must carry a scoring play"))
+    }
+    // The takeover: a game you follow scored. `full = true` is the caller's
+    // judgment in the live app (pinned/favorited/TV) — here it is stated
+    // outright, because the capture's subject IS the full size.
+    fn cut_full(app: &mut App) {
+        let play = scoring_play(app, "nfl-live");
+        app.cuts.fire("nfl-live", &play, true, app.tick);
+    }
+    // The band: someone else scored. Same formatter, two rows, board intact.
+    fn cut_band(app: &mut App) {
+        let play = scoring_play(app, "nhl-live");
+        app.cuts.fire("nhl-live", &play, false, app.tick);
+    }
     fn help(app: &mut App) {
         app.help_open = true;
-    }
-    // The stats/standings captures feed through MemoryProvider — the same
-    // trait path the live poll uses, no network. Standings come from the
-    // committed fixture; the box score is the demo game's own (the fixture
-    // is a real TEN@SEA game, and its players under KC/TB columns made the
-    // capture contradict itself).
-    fn zoom_stats(app: &mut App) {
-        let mut p = MemoryProvider::new();
-        p.stats.insert("nfl-live".into(), demo::demo_stats());
-        let (stats, _) = p.stats(League::Nfl, "nfl-live").expect("seeded stats");
-        app.merge_stats("nfl-live", stats);
-        app.view = View::Zoom {
-            game_id: "nfl-live".into(),
-            tab: ZoomTab::Stats,
-        };
     }
     fn plays_feed(app: &mut App) {
         app.view = View::PlaysFeed;
@@ -168,34 +188,49 @@ pub fn gallery() -> Vec<Variant> {
         cols: DUMP_COLS,
         rows: DUMP_ROWS,
         theme,
+        tick: None,
         setup,
+    };
+    let sized = |stem, cols, rows, setup| Variant {
+        stem,
+        cols,
+        rows,
+        theme: "broadcast",
+        tick: None,
+        setup,
+    };
+    let at_tick = |stem, tick| Variant {
+        stem,
+        cols: DUMP_COLS,
+        rows: DUMP_ROWS,
+        theme: "broadcast",
+        tick: Some(tick),
+        setup: home as fn(&mut App),
     };
     let mut out: Vec<Variant> = BOARD_STEMS
         .iter()
         .map(|(name, stem)| full(*stem, *name, home as fn(&mut App)))
         .collect();
     out.extend([
-        full("board-compact", "broadcast", home),
-        full("tab-nfl", "broadcast", tab_nfl),
-        full("focus", "broadcast", focus),
-        full("help", "broadcast", help),
-        Variant {
-            stem: "narrow",
-            cols: 80,
-            rows: 24,
-            theme: "broadcast",
-            setup: home,
-        },
-        full("zoom-stats", "broadcast", zoom_stats),
+        sized("board-narrow", 80, 24, home as fn(&mut App)),
+        sized("board-sixty", 60, 40, home),
+        full("tv", "broadcast", tv),
+        full("cut-full", "broadcast", cut_full),
+        full("cut-band", "broadcast", cut_band),
+        full("zoom", "broadcast", zoom),
         full("plays-feed", "broadcast", plays_feed),
         full("standings", "broadcast", standings),
         full("config", "broadcast", config),
         full("filter", "broadcast", filter),
         full("theme-picker", "broadcast", theme_picker),
+        full("help", "broadcast", help),
         full("home-live", "broadcast", home_live),
         full("offline", "broadcast", offline),
         full("stale", "broadcast", stale),
         full("config-error", "broadcast", config_error),
+        at_tick("nudge-seq-1", crate::sim::NUDGE_TICK - 1),
+        at_tick("nudge-seq-2", crate::sim::NUDGE_TICK),
+        at_tick("nudge-seq-3", crate::sim::NUDGE_TICK + 1),
     ]);
     out
 }
@@ -211,11 +246,21 @@ fn with_theme<T>(name: &str, f: impl FnOnce() -> T) -> T {
     out
 }
 
+/// Sim ticks replayed before the captured one. Two would be enough for a
+/// score flash; three is what a *nudge* needs, because the ↑n gutter is the
+/// difference between two consecutive applies and the frame AFTER the re-sort
+/// still has to show it (`OrderState` holds an arrow for 10 s). Replaying is
+/// cheap — `boards_at` is a few dozen pure steps — so the number is set by
+/// what the captures must be able to say, not by cost.
+const REPLAY_TICKS: u64 = 3;
+
 /// Demo app at simulation tick `tick` (0 = the seed board in demo.rs).
 /// Advancing is pure — N scripted steps, no wall clock — so `dump --tick N`
-/// always captures the same frame. Boards for tick-1 are applied first so a
-/// score that changes AT `tick` is caught mid-flash, exactly like the live
-/// loop would show it (`--tick 15` captures the KC TD flash).
+/// always captures the same frame. The [`REPLAY_TICKS`] ticks before it are
+/// applied first, each at its own `app.tick`, so a score that changes AT
+/// `tick` is caught mid-flash and a re-sort a tick or two back still shows
+/// its arrows — exactly like the live loop would (`--tick 15` captures the KC
+/// TD flash; `--tick 41` still shows the ↑2 earned at 40).
 pub fn demo_app(config_dir: PathBuf, tick: u64) -> App {
     // The demo data is Eastern, so captures render its clocks in Eastern too —
     // never the capturing machine's zone, which would make dumps unstable.
@@ -228,14 +273,13 @@ pub fn demo_app(config_dir: PathBuf, tick: u64) -> App {
     // The captures' wall clock is frozen too: a dump names a fixed instant so
     // "TODAY 8:20 PM" can't turn into "SEP 13 8:20 PM" between runs.
     app.now_override = Some(time::macros::datetime!(2026-08-31 21:30:01 -4));
-    if tick > 0 {
-        for (league, games) in crate::sim::Simulator::boards_at(tick - 1) {
+    let mut sim = crate::sim::Simulator::new();
+    for t in tick.saturating_sub(REPLAY_TICKS)..=tick {
+        sim.advance_to(t);
+        app.tick = t;
+        for (league, games) in sim.boards().clone() {
             app.apply_boards(league, games, false);
         }
-    }
-    app.tick = tick;
-    for (league, games) in crate::sim::Simulator::boards_at(tick) {
-        app.apply_boards(league, games, false);
     }
     app
 }
@@ -253,6 +297,7 @@ pub fn render_demo_buffer(cols: u16, rows: u16, tick: u64) -> std::io::Result<Bu
 /// the render and restores the caller's theme after, so variants can't leak
 /// palettes into each other (or into tests on the same thread).
 pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
+    let tick = v.tick.unwrap_or(tick);
     with_theme(v.theme, || {
         let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
@@ -327,28 +372,31 @@ pub fn write_pages(out_dir: &Path, pages: &[Page]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Phase 2: one headless-Chrome instance per PNG, all spawned in parallel —
-/// Chrome startup dominates the runtime, so serial capture would blow the
-/// budget at 8+ images while parallel stays well inside it. Returns whether
-/// Chrome was available (and thus whether PNGs should be expected).
+/// Phase 2: one headless-Chrome instance per PNG, in batches of
+/// [`SHOT_BATCH`] — Chrome startup dominates the runtime, so serial capture
+/// would be glacial, but past a handful of cold instances they contend for
+/// each other and none of them finish. Returns whether Chrome was available
+/// (and thus whether PNGs should be expected).
 pub fn screenshot_pages(out_dir: &Path, pages: &[Page]) -> bool {
     let chrome = Path::new(CHROME).exists();
     if !chrome {
         eprintln!("png skipped: Chrome not found at {CHROME} (open the .html files instead)");
         return false;
     }
-    let mut shots: Vec<Shot> = pages.iter().map(|p| Shot::spawn(out_dir, p)).collect();
-    wait_for_screenshots(&mut shots);
-    for shot in shots {
-        if shot.png_done {
-            eprintln!("wrote {}", shot.png.display());
-        } else {
-            eprintln!(
-                "png skipped for {}: chrome produced no stable PNG within {}s (open {stem}.html instead)",
-                shot.stem,
-                SHOT_DEADLINE.as_secs(),
-                stem = shot.stem
-            );
+    for batch in pages.chunks(SHOT_BATCH) {
+        let mut shots: Vec<Shot> = batch.iter().map(|p| Shot::spawn(out_dir, p)).collect();
+        wait_for_screenshots(&mut shots);
+        for shot in shots {
+            if shot.png_done {
+                eprintln!("wrote {}", shot.png.display());
+            } else {
+                eprintln!(
+                    "png skipped for {}: chrome produced no stable PNG within {}s (open {stem}.html instead)",
+                    shot.stem,
+                    SHOT_DEADLINE.as_secs(),
+                    stem = shot.stem
+                );
+            }
         }
     }
     true
@@ -377,10 +425,17 @@ pub fn verify_pages(out_dir: &Path, pages: &[Page], expect_png: bool) -> std::io
 }
 
 const CHROME: &str = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-/// Per-run screenshot deadline. A guess with headroom, not a measurement:
-/// 8 parallel cold-started Chromes finished in ~2s on the dev machine; 15s
-/// keeps the whole gallery inside the 20s budget on a slower box.
-const SHOT_DEADLINE: Duration = Duration::from_secs(15);
+/// Cold Chrome instances in flight at once. Measured 2026-09-02 on the dev
+/// machine against these very pages: 1 instance writes its PNG in ~9 s, 4 in
+/// ~16 s, 8 in ~46 s, and the whole 22-page gallery at once produces *zero*
+/// PNGs in 60 s — the instances starve each other. 4 is the last batch size
+/// that stays close to a single shot's cost.
+const SHOT_BATCH: usize = 4;
+/// Per-BATCH screenshot deadline. A batch of [`SHOT_BATCH`] measured ~16 s;
+/// 45 s is that with room for a loaded machine. (The old 15 s was written
+/// when the cost was believed to be ~2 s, and expired every capture once the
+/// gallery grew.)
+const SHOT_DEADLINE: Duration = Duration::from_secs(45);
 
 /// One in-flight Chrome screenshot. Chrome's new headless mode sometimes
 /// never exits after writing the screenshot (observed here with fresh
@@ -600,21 +655,25 @@ mod tests {
                 "board-broadcast",
                 "board-studio",
                 "board-gruvbox",
-                "board-compact",
-                "tab-nfl",
-                "focus",
-                "help",
-                "narrow",
-                "zoom-stats",
+                "board-narrow",
+                "board-sixty",
+                "tv",
+                "cut-full",
+                "cut-band",
+                "zoom",
                 "plays-feed",
                 "standings",
                 "config",
                 "filter",
                 "theme-picker",
+                "help",
                 "home-live",
                 "offline",
                 "stale",
                 "config-error",
+                "nudge-seq-1",
+                "nudge-seq-2",
+                "nudge-seq-3",
             ],
             "gallery stems are a stable contract for other tasks"
         );
@@ -642,25 +701,42 @@ mod tests {
         }
     }
 
+    /// The zoom capture is the receipt for spec §5's matchup line: three
+    /// fields sub-project 1 mapped and nothing ever drew until Task 13.
     #[test]
-    fn zoom_stats_variant_renders_rows_and_leaders_of_the_zoomed_game() {
-        let text = text_of(&render_variant(&variant("zoom-stats"), 0).unwrap());
-        assert!(text.contains("STATS"), "zoom tab bar with STATS missing:\n{text}");
-        assert!(text.contains("Total Yards"), "stat row missing:\n{text}");
-        assert!(text.contains("LEADERS"), "leaders block missing:\n{text}");
-        // The capture zooms KC@TB, so every leader line must belong to KC or
-        // TB — no TEN/SEA players from the mapper fixture under KC/TB columns.
-        let leaders: Vec<&str> = text
-            .lines()
-            .filter(|l| l.contains("PASSING YARDS") || l.contains("TACKLES"))
-            .collect();
-        assert!(!leaders.is_empty(), "no leader lines:\n{text}");
-        for line in &leaders {
-            let team = line.split_whitespace().next().unwrap_or("");
-            assert!(team == "KC" || team == "TB", "leader from another game: {line:?}");
-        }
-        assert!(text.contains("Mahomes"), "KC leader missing:\n{text}");
-        assert!(!text.contains("TEN ") && !text.contains("SEA "), "fixture teams leaked:\n{text}");
+    fn zoom_variant_shows_the_linescore_the_matchup_line_and_an_inning_stamped_feed() {
+        let text = text_of(&render_variant(&variant("zoom"), 0).unwrap());
+        assert!(text.contains("NYY") && text.contains("TOR"), "the zoomed game:\n{text}");
+        // The MLB linescore row carries R/H/E.
+        assert!(text.contains(" H ") || text.contains("H  E"), "linescore H/E:\n{text}");
+        // The matchup line: pitcher, batter, due up (spec §5).
+        assert!(text.contains("C. Schmidt"), "pitcher missing:\n{text}");
+        assert!(text.contains("A. Kirk"), "batter missing:\n{text}");
+        assert!(text.contains("DUE UP"), "due-up block missing:\n{text}");
+        // v3.1 deferred item: a baseball play stamps its half-inning, not an
+        // invented game clock.
+        assert!(text.contains("[B7]"), "inning-tagged play stamp missing:\n{text}");
+        assert!(!text.contains("[0:42]"), "a baseball play has no game clock:\n{text}");
+    }
+
+    /// The two cut sizes, one formatter (spec §3).
+    #[test]
+    fn cut_variants_are_a_takeover_and_a_two_row_band() {
+        let full = text_of(&render_variant(&variant("cut-full"), 0).unwrap());
+        assert!(full.contains("TOUCHDOWN"), "the takeover names the score:\n{full}");
+        // A takeover owns the frame: the board's sections are not behind it.
+        assert!(!full.contains("IN PLAY"), "the takeover is a takeover:\n{full}");
+
+        let band = text_of(&render_variant(&variant("cut-band"), 0).unwrap());
+        assert!(band.contains("GOAL"), "the band names the score:\n{band}");
+        assert!(band.contains("IN PLAY"), "the board never moves for a band:\n{band}");
+    }
+
+    #[test]
+    fn tv_variant_is_the_jumbotron_with_its_also_live_strip() {
+        let text = text_of(&render_variant(&variant("tv"), 0).unwrap());
+        assert!(text.contains("ALSO LIVE"), "the ALSO LIVE strip missing:\n{text}");
+        assert!(!text.contains("IN PLAY"), ":tv is one game, not the list:\n{text}");
     }
 
     #[test]
@@ -670,6 +746,13 @@ mod tests {
         // Scoring plays from more than one demo league land in the feed.
         assert!(text.contains("TOUCHDOWN"), "NFL scoring play missing:\n{text}");
         assert!(text.contains("GOAL"), "NHL/EPL scoring play missing:\n{text}");
+        // Every row is stamped, including the sports with no game clock: the
+        // MLB line carries its half-inning, not an empty column.
+        let mlb = text
+            .lines()
+            .find(|l| l.contains("[MLB]"))
+            .unwrap_or_else(|| panic!("no MLB row in the feed:\n{text}"));
+        assert!(mlb.contains("T7"), "the MLB row must carry its inning stamp: {mlb:?}");
     }
 
     #[test]
@@ -771,50 +854,68 @@ mod tests {
     }
 
     #[test]
-    fn tab_nfl_variant_shows_the_later_section_with_a_selected_row() {
-        let text = text_of(&render_variant(&variant("tab-nfl"), 0).unwrap());
-        // v3.2 §7: the boxed SLATE strip is gone — its games are the board's
-        // own FINAL/LATER sections now.
-        assert!(text.contains("LATER"), "NFL tab must render the LATER section:\n{text}");
-        assert!(text.contains('▸'), "the selected row carries the caret:\n{text}");
-    }
-
-    #[test]
-    fn focus_variant_renders_the_focused_game() {
-        let text = text_of(&render_variant(&variant("focus"), 0).unwrap());
-        assert!(text.contains("FOCUS KC@TB"), "footer must show the focused game:\n{text}");
-        assert!(text.contains("BACK"), "focused footer offers [ESC] BACK:\n{text}");
-    }
-
-    #[test]
     fn help_variant_renders_the_overlay() {
         let text = text_of(&render_variant(&variant("help"), 0).unwrap());
         assert!(text.contains(" KEYS "), "help overlay panel missing:\n{text}");
     }
 
+    /// The two size captures are the ladder's ends (spec §4): the same
+    /// ranked board, no sidebar at any width, and a score in some form at both.
     #[test]
-    fn narrow_variant_is_80x24_without_the_sidebar() {
-        let v = variant("narrow");
-        assert_eq!((v.cols, v.rows), (80, 24));
-        let buf = render_variant(&v, 0).unwrap();
-        assert_eq!((buf.area().width, buf.area().height), (80, 24));
-        let text = text_of(&buf);
-        assert!(
-            !text.contains("GLOBAL ALERTS"),
+    fn the_two_size_captures_are_the_same_board_at_their_own_sizes() {
+        for (stem, want) in [("board-narrow", (80u16, 24u16)), ("board-sixty", (60, 40))] {
+            let v = variant(stem);
+            assert_eq!((v.cols, v.rows), want, "{stem} size");
+            let buf = render_variant(&v, 0).unwrap();
+            assert_eq!((buf.area().width, buf.area().height), want, "{stem} buffer");
+            let text = text_of(&buf);
             // v3.2 §7: there is no sidebar at any width any more.
-            "the sidebar is deleted:\n{text}"
-        );
+            assert!(!text.contains("GLOBAL ALERTS"), "{stem}: the sidebar is deleted:\n{text}");
+            assert!(text.contains("IN PLAY"), "{stem}: the ranked board:\n{text}");
+        }
     }
 
-    /// v3.2 §7: `ScoreStyle` is deleted with the tile grammar (Task 13) —
-    /// every score on every surface is now a hero digit glyph or amber row
-    /// text. The stem stays until Task 15 respecs the gallery, so what it
-    /// must still prove is that it captures the ranked board at all.
+    /// The nudge sequence is the whole point of three stems instead of one:
+    /// before the scripted re-sort there is no arrow, at it the risen game
+    /// wears one, and a tick later it still does — while the row itself never
+    /// moves a cell (A′ calls #6/#7).
     #[test]
-    fn compact_variant_still_captures_the_board() {
-        let text = text_of(&render_variant(&variant("board-compact"), 0).unwrap());
-        assert!(text.contains("IN PLAY"), "the ranked board:\n{text}");
-        assert!(!text.contains("27 - 24"), "no tile score row on the board:\n{text}");
+    fn the_nudge_sequence_shows_an_arrow_appear_and_hold_without_moving_the_row() {
+        let frames: Vec<String> = ["nudge-seq-1", "nudge-seq-2", "nudge-seq-3"]
+            .iter()
+            .map(|s| text_of(&render_variant(&variant(s), 0).unwrap()))
+            .collect();
+        // The nudge lives at column 2 of the 4-cell row gutter and nowhere
+        // else — the footer's `↑↓ move` legend carries the same glyph one
+        // column over and is not a nudge.
+        let gutter_nudges = |text: &str| -> Vec<String> {
+            text.lines()
+                .filter(|l| l.chars().nth(2) == Some('↑'))
+                .map(|l| l.chars().take(4).collect::<String>().trim().to_string())
+                .collect()
+        };
+        assert!(gutter_nudges(&frames[0]).is_empty(), "frame 1 is the quiet board:\n{}", frames[0]);
+        for (i, f) in frames.iter().enumerate().skip(1) {
+            assert_eq!(
+                gutter_nudges(f),
+                vec!["▌ ↑2".to_string()],
+                "frame {} must show the risen game's ↑2 and nothing else:\n{f}",
+                i + 1
+            );
+        }
+        // The bases loading is what re-sorted it, and the chip says so.
+        assert!(frames[1].contains("BASES LOADED"), "the cause is on screen:\n{}", frames[1]);
+        // The risen row keeps its columns: the NYY/TOR pair sits at the same
+        // offset within its line in every frame.
+        // Character columns, not byte offsets: `↑` is three bytes, so a byte
+        // index would report the arrow itself as a shift.
+        let col_of = |text: &str| -> Option<usize> {
+            text.lines()
+                .find(|l| l.contains("NYY"))
+                .map(|l| l[..l.find("NYY").unwrap()].chars().count())
+        };
+        assert_eq!(col_of(&frames[0]), col_of(&frames[1]), "the row must not shift for a nudge");
+        assert_eq!(col_of(&frames[1]), col_of(&frames[2]), "nor for the arrow persisting");
     }
 
     #[test]
@@ -859,17 +960,12 @@ mod tests {
             wide.lines().any(|l| l.contains("BALL ON TB 3")),
             "120x36 board: the hero's fragment line is missing:\n{wide}"
         );
-        let narrow = text_of(&render_variant(&variant("narrow"), 0).unwrap());
+        let narrow = text_of(&render_variant(&variant("board-narrow"), 0).unwrap());
         assert!(
             narrow.lines().any(|l| l.contains("RED ZONE")),
             "80x24 board: the hero still names its state:\n{narrow}"
         );
-        let focus = text_of(&render_variant(&variant("focus"), 0).unwrap());
-        assert!(
-            focus.lines().any(|l| l.contains("RED ZONE") && l.contains("3 TO GOAL")),
-            "zoom overview: red zone row missing:\n{focus}"
-        );
-        assert!(!wide.contains('┃') && !focus.contains('┃'), "the meter column is gone");
+        assert!(!wide.contains('┃'), "the meter column is gone");
     }
 
     #[test]

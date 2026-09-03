@@ -102,7 +102,13 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool) -> Line<'a> {
                 .fg(th.chip(game.league))
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!(" {:>5} ", play.clock), Style::default().fg(th.clock())),
+        // `play_stamp`, not `play.clock`: a baseball play carries its
+        // half-inning in `period` and no clock at all, and printing the clock
+        // field left the MLB rows of the feed with a blank stamp column.
+        Span::styled(
+            format!(" {:>5} ", crate::tiles::play_stamp(play)),
+            Style::default().fg(th.clock()),
+        ),
         Span::styled(
             format!("{:<4}", play.team),
             Style::default()

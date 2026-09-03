@@ -70,10 +70,60 @@ fn broadcast_is_loud_and_studio_is_the_same_palette_disciplined() {
             sidebar_headers: SidebarHeaders::Muted,
         }
     );
-    // Same palette, different discipline.
-    let mut s_as_b = s;
-    s_as_b.discipline = b.discipline;
-    assert_eq!(s_as_b, b, "studio must be broadcast's palette");
+    // Same palette — every one of the eleven colors and every league accent.
+    for (label, a, c) in [
+        ("bg", b.bg, s.bg),
+        ("fg", b.fg, s.fg),
+        ("bright", b.bright, s.bright),
+        ("muted", b.muted, s.muted),
+        ("dim", b.dim, s.dim),
+        ("border", b.border, s.border),
+        ("live", b.live, s.live),
+        ("green", b.green, s.green),
+        ("cyan", b.cyan, s.cyan),
+        ("magenta", b.magenta, s.magenta),
+        ("star", b.star, s.star),
+    ] {
+        assert_eq!(a, c, "studio must be broadcast's palette: {label}");
+    }
+    for league in League::ALL {
+        assert_eq!(b.league_accent(league), s.league_accent(league), "{league:?} accent");
+    }
+    // …and a different identity, at the ROLE layer, not only in
+    // `[discipline]`: studio's row scores are white and its section structure
+    // sits one step back. Before v3.2 the two themes had identical `[roles]`,
+    // which made "studio" a discipline flag rather than a look.
+    assert_ne!(b.roles(), s.roles(), "studio must differ as a role mapping");
+    assert_eq!(b.roles().digits, b.star, "broadcast scores are amber");
+    assert_eq!(s.roles().digits, s.bright, "studio scores are white");
+    assert_eq!(s.roles().cool, s.dim, "studio's structure recedes");
+    // The identity floor holds in both: red is red, and the ground is shared.
+    assert_eq!(b.roles().hot, s.roles().hot);
+    assert_eq!(b.roles().ground, s.roles().ground);
+}
+
+/// v3.2 §6 cut the built-ins from eleven to three, and the README promises
+/// the other eight still work — as user files. That promise is only true if
+/// the retired TOMLs still *parse and select* under the v3.2 theme format
+/// (they carry `[discipline]` tables, which `deny_unknown_fields` would
+/// reject the moment those keys were deleted). One retired name is enough to
+/// pin it: they all ship from the same directory in the same shape.
+#[test]
+fn a_retired_builtin_still_loads_and_selects_as_a_user_theme() {
+    let dir = tmp("retired");
+    fs::write(
+        dir.join("themes/nord.toml"),
+        include_str!("../assets/themes/nord.toml"),
+    )
+    .unwrap();
+    assert!(theme::lookup("nord").is_none(), "nord is not a built-in any more");
+    theme::install_user_themes(&dir);
+    let entry = theme::lookup("nord").expect("nord loads as a user file");
+    assert!(entry.user, "and is reported as a user theme");
+    assert_eq!(theme::set_current("nord").unwrap(), "nord");
+    assert_eq!(theme::current(), entry.theme);
+    assert!(theme::names().iter().any(|n| n == "nord"), "it is offered in the picker");
+    theme::set_current("broadcast").unwrap();
 }
 
 #[test]
@@ -398,18 +448,11 @@ fn discipline_toggles_recolor_section_label_meter_and_play_abbr_cells() {
 }
 
 #[test]
-fn sidebar_header_modes_and_clock_knob_map_to_roles() {
+fn clock_knob_maps_to_a_palette_color() {
+    // v3.2 §7: the sidebar is deleted, and its `sidebar_header`/`league_text`
+    // knobs went with it. `clocks` is one of the four discipline knobs the
+    // surviving chrome still spends.
     let mut th = theme::builtin("broadcast");
-    th.discipline.sidebar_headers = SidebarHeaders::Multi;
-    assert_eq!(th.sidebar_header(theme::SidebarHeader::Alerts), th.live);
-    assert_eq!(th.sidebar_header(theme::SidebarHeader::TopPlays), th.star);
-    assert_eq!(th.sidebar_header(theme::SidebarHeader::Records), th.magenta);
-    th.discipline.sidebar_headers = SidebarHeaders::Single;
-    for h in [theme::SidebarHeader::Alerts, theme::SidebarHeader::TopPlays, theme::SidebarHeader::Records] {
-        assert_eq!(th.sidebar_header(h), th.star, "{h:?} single -> star");
-    }
-    th.discipline.sidebar_headers = SidebarHeaders::Muted;
-    assert_eq!(th.sidebar_header(theme::SidebarHeader::Records), th.muted);
     th.discipline.clocks = true;
     assert_eq!(th.clock(), th.cyan);
     th.discipline.clocks = false;

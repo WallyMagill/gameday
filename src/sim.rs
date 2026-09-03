@@ -20,6 +20,10 @@ pub const KC_TD_TICK: u64 = 15;
 pub const MLB_INNING_TICK: u64 = 24;
 /// Tick when the NHL penalty (42s at tick 0, 1s per tick) expires.
 pub const NHL_PENALTY_CLEAR_TICK: u64 = 42;
+/// The scripted re-sort: NYY load the bases in the 8th, which is the one
+/// scripted beat that changes the *order* of the live list rather than just a
+/// score. `dump`'s `nudge-seq-*` captures bracket it.
+pub const NUDGE_TICK: u64 = 40;
 
 /// Remaining game clocks at tick 0, in seconds (NFL "1:27", NBA "4:38",
 /// NHL "1:03" from the demo board).
@@ -94,24 +98,45 @@ fn fmt_clock(secs: u64) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
 }
 
-/// Newest play goes on top; the tile shows a handful, keep a small window.
+/// Newest play goes on top; the feeds show a handful, keep a small window.
+///
+/// A sport with a running clock stamps the play with it; a sport without one
+/// (baseball, soccer) fills `Play::period` instead — the field the mapper
+/// uses for exactly this, and the one that makes a feed row read `[B7]`.
 fn push_play(g: &mut Game, team: &str, text: &str, scoring: bool) {
-    let clock = if g.clock.is_empty() {
-        g.period.clone()
+    let (clock, period) = if g.clock.is_empty() {
+        (String::new(), period_tag(&g.period))
     } else {
-        g.clock.clone()
+        (g.clock.clone(), String::new())
     };
     g.last_plays.insert(
         0,
         Play {
             clock,
-            period: String::new(),
+            period,
             team: team.into(),
             text: text.into(),
             scoring,
         },
     );
     g.last_plays.truncate(6);
+}
+
+/// `BOT 7TH` → `B7`, `TOP 8TH` → `T8`; anything else (soccer's `79'`) is
+/// already short enough to stamp a play with as-is.
+fn period_tag(period: &str) -> String {
+    let mut it = period.split_whitespace();
+    match (it.next(), it.next()) {
+        (Some(half), Some(inning)) => {
+            let n = inning.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+            match (half, n.is_empty()) {
+                ("TOP" | "MID", false) => format!("T{n}"),
+                ("BOT" | "END", false) => format!("B{n}"),
+                _ => period.to_string(),
+            }
+        }
+        _ => period.to_string(),
+    }
 }
 
 /// KC @ TB, Q4: goal-line stand, TD at [`KC_TD_TICK`], PAT, kickoff, TB's
@@ -227,8 +252,34 @@ fn step_mlb(g: &mut Game, t: u64) {
             push_play(g, "NYY", "Anthony Volpe singles to center", false);
             if let Some(sit) = &mut g.situation {
                 sit.on_base = Some([true, false, false]);
+                sit.batter = Some("J. Chisholm Jr.".into());
             }
             g.meter = Some(Meter::Diamond { occupied: [true, false, false] });
+        }
+        39 => {
+            push_play(g, "NYY", "Jazz Chisholm Jr. doubles, Volpe to third", false);
+            if let Some(sit) = &mut g.situation {
+                sit.on_base = Some([false, true, true]);
+                sit.batter = Some("A. Judge".into());
+            }
+            g.meter = Some(Meter::Diamond { occupied: [false, true, true] });
+        }
+        // The scripted re-sort (the `nudge-seq` captures). Loading the bases
+        // is worth +30 in `rank::watchability` and flips the game hot, which
+        // is what moves the rank fingerprint and makes `OrderState` re-sort:
+        // NYY@TOR climbs two places and the rows under it show `↑2`.
+        NUDGE_TICK => {
+            push_play(g, "NYY", "Aaron Judge walks on four pitches — bases loaded", false);
+            if let Some(sit) = &mut g.situation {
+                sit.on_base = Some([true, true, true]);
+                sit.balls = Some(0);
+                sit.strikes = Some(0);
+                sit.batter = Some("C. Bellinger".into());
+                if let Some(h) = sit.mlb_count_headline() {
+                    sit.down_distance = h;
+                }
+            }
+            g.meter = Some(Meter::Diamond { occupied: [true, true, true] });
         }
         _ => {}
     }
@@ -352,6 +403,72 @@ mod tests {
             nhl.meter,
             Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 1 })
         );
+    }
+
+    /// The scripted re-sort: at [`NUDGE_TICK`] the bases load, which is worth
+    /// +30 and flips the game hot — the two things `App::maybe_reorder`'s
+    /// fingerprint watches. The tick before it, none of that is true.
+    #[test]
+    fn the_nudge_tick_loads_the_bases_and_makes_the_game_the_top_ranked_one() {
+        let now = time::macros::datetime!(2026-08-31 21:30:01 -4);
+        let watch = |boards: &HashMap<League, Vec<Game>>, l, id| {
+            crate::rank::watchability(game(boards, l, id), now)
+        };
+
+        let before = Simulator::boards_at(NUDGE_TICK - 1);
+        let b = watch(&before, League::Mlb, "mlb-live");
+        assert!(!b.hot, "the tick before is a quiet board: {b:?}");
+
+        let after = Simulator::boards_at(NUDGE_TICK);
+        let mlb = game(&after, League::Mlb, "mlb-live");
+        let sit = mlb.situation.as_ref().expect("situation");
+        assert_eq!(sit.on_base, Some([true; 3]));
+        assert_eq!(mlb.meter, Some(Meter::Diamond { occupied: [true; 3] }));
+        let a = watch(&after, League::Mlb, "mlb-live");
+        assert_eq!(a.chip, Some("BASES LOADED"));
+        assert!(a.hot, "the fingerprint's hot flag must flip: {a:?}");
+        // And it outranks every other live game, having been third before —
+        // the ↑2 the `nudge-seq` captures are built on.
+        let others = [
+            (League::Nba, "nba-live"),
+            (League::Nhl, "nhl-live"),
+            (League::Epl, "epl-live"),
+        ];
+        for (league, id) in others {
+            let other = watch(&after, league, id);
+            assert!(
+                a.score > other.score,
+                "mlb {} must outrank {id} {} at NUDGE_TICK",
+                a.score,
+                other.score
+            );
+        }
+        let above_before = others
+            .iter()
+            .filter(|(l, id)| watch(&before, *l, id).score > b.score)
+            .count();
+        assert_eq!(above_before, 2, "mlb must be third the tick before, so the climb is ↑2");
+    }
+
+    /// v3.1 deferred item: a sport with no play clock stamps its plays with
+    /// the half-inning, which is the form `[B7]` the feed rows print.
+    #[test]
+    fn a_clockless_sport_stamps_plays_with_a_period_tag_not_an_invented_clock() {
+        assert_eq!(period_tag("BOT 7TH"), "B7");
+        assert_eq!(period_tag("TOP 8TH"), "T8");
+        assert_eq!(period_tag("MID 5TH"), "T5");
+        assert_eq!(period_tag("END 8TH"), "B8");
+        assert_eq!(period_tag("79'"), "79'", "soccer's own label is already short");
+
+        let boards = Simulator::boards_at(MLB_INNING_TICK);
+        let mlb = game(&boards, League::Mlb, "mlb-live");
+        let p = &mlb.last_plays[0];
+        assert_eq!(p.period, "B7", "the out that ended the 7th is stamped B7: {p:?}");
+        assert!(p.clock.is_empty(), "and carries no game clock: {p:?}");
+        // A sport WITH a clock is unchanged.
+        let nfl = game(&boards, League::Nfl, "nfl-live");
+        let p = nfl.last_plays.first().expect("a play");
+        assert!(!p.clock.is_empty() && p.period.is_empty(), "{p:?}");
     }
 
     #[test]
