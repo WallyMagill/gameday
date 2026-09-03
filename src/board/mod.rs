@@ -219,10 +219,30 @@ fn board_walk<'a>(
     let mut y = 0u16;
     let mut drawn: Vec<usize> = Vec::new();
     let mut zones: Vec<(Rect, crate::keymap::Hit)> = Vec::new();
-    for block in &blocks[first..] {
+    let visible = &blocks[first..];
+    for (i, block) in visible.iter().enumerate() {
         let rows = block.rows();
         if y + rows > window {
             break;
+        }
+        // spec v3.3 §4: a rule that fits is still an orphan if the window
+        // runs out immediately after it — the truncation path, not just the
+        // empty-list one (`if games.is_empty() { continue; }` above only
+        // catches a section with zero games). Distinguish that from IN
+        // PLAY's legitimate zero-content case (the section's only game is
+        // the hero, drawn above the rule, so no tier1/tier2 block follows
+        // it in `blocks` at all — that rule stands on its own by design,
+        // never suppressed). Only when a real content block for this
+        // section *exists* right after the rule, but doesn't fit the
+        // window, is the rule an orphan — skip it and stop, since nothing
+        // after it fits either (`y` only grows) and the SCORES lane already
+        // accounts for every row that didn't make the window.
+        if matches!(block, Block::Rule(..)) {
+            if let Some(next) = visible.get(i + 1) {
+                if !matches!(next, Block::Rule(..)) && y + rows + next.rows() > window {
+                    break;
+                }
+            }
         }
         let rect = Rect {
             x: area.x,

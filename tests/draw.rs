@@ -1977,26 +1977,74 @@ fn a_section_with_no_rows_renders_no_header() {
     // "FINAL ───" or "LATER ───" over nothing. Cell-scan every row (not a
     // whole-buffer string search) so a header hiding off the visible window
     // would not falsely pass.
-    let row_contains = |term: &Terminal<TestBackend>, needle: &str| -> bool {
-        let buf = term.backend().buffer();
-        let area = *buf.area();
-        (0..area.height).any(|y| {
-            let row: String = (0..area.width).map(|x| buf[(x, y)].symbol()).collect();
-            row.contains(needle)
-        })
-    };
 
     // Live games, zero later: no LATER header anywhere in the buffer.
     let mut app = board_app(6, 2, 0);
     let term = render(&mut app, 120, 40);
-    assert!(!row_contains(&term, "LATER"), "no later games, no LATER header");
-    assert!(row_contains(&term, "FINAL"), "the FINAL section still renders");
+    assert!(!row_contains(&term, "LATER ─"), "no later games, no LATER header");
+    assert!(row_contains(&term, "FINAL ─"), "the FINAL section still renders");
 
     // Live games, zero finals: no FINAL header anywhere in the buffer.
     let mut app = board_app(6, 0, 2);
     let term = render(&mut app, 120, 40);
-    assert!(!row_contains(&term, "FINAL"), "no final games, no FINAL header");
-    assert!(row_contains(&term, "LATER"), "the LATER section still renders");
+    assert!(!row_contains(&term, "FINAL ─"), "no final games, no FINAL header");
+    assert!(row_contains(&term, "LATER ─"), "the LATER section still renders");
+}
+
+/// True when `needle` appears whole inside some row of the buffer — a
+/// cell-level scan, not a whole-buffer string search, so a header that
+/// wrapped across a row boundary (it never does; Paragraph doesn't wrap
+/// mid-word) couldn't slip past.
+fn row_contains(term: &Terminal<TestBackend>, needle: &str) -> bool {
+    let buf = term.backend().buffer();
+    let area = *buf.area();
+    (0..area.height).any(|y| {
+        let row: String = (0..area.width).map(|x| buf[(x, y)].symbol()).collect();
+        row.contains(needle)
+    })
+}
+
+#[test]
+fn a_truncated_section_renders_no_orphan_rule() {
+    // spec v3.3 §4, fix round 1: the empty-list guard (above) only catches a
+    // section with zero games. A *non-empty* section whose row budget the
+    // window cuts to zero must not draw its rule either — the reviewer's
+    // exact reproductions at 60x13 and 60x16.
+
+    // LATER orphan: 8 finals + 8 later at 60x13 — the window runs out right
+    // after FINAL's rows, so LATER's rule used to draw with nothing under it.
+    let mut app = board_app(0, 8, 8);
+    let term = render(&mut app, 60, 13);
+    let s = buf_text(&term);
+    assert!(!row_contains(&term, "LATER ─"), "no orphan LATER rule at 60x13:\n{s}");
+    assert!(s.contains("SCORES"), "the lane still fires for the truncated games:\n{s}");
+    assert!(s.contains("8 LATER"), "the lane still counts every later game:\n{s}");
+
+    // FINAL orphan: 6 live + 6 final + 6 later at 60x16, selection at the
+    // top — IN PLAY's rows eat the window, FINAL's rule used to draw bare
+    // directly above the SCORES lane.
+    let mut app = board_app(6, 6, 6);
+    app.selected = 0;
+    let term = render(&mut app, 60, 16);
+    let s = buf_text(&term);
+    assert!(!row_contains(&term, "FINAL ─"), "no orphan FINAL rule at 60x16:\n{s}");
+    assert!(!row_contains(&term, "LATER ─"), "no orphan LATER rule either at 60x16:\n{s}");
+    assert!(s.contains("SCORES"), "the lane still fires for the truncated games:\n{s}");
+    assert!(s.contains("6 FINAL"), "the lane still counts every final game:\n{s}");
+    assert!(s.contains("6 LATER"), "the lane still counts every later game:\n{s}");
+}
+
+#[test]
+fn a_section_granted_rows_still_shows_its_rule() {
+    // Regression pin alongside the truncation-path fix: a non-empty section
+    // that DOES get visible rows still gets its header — the fix must not
+    // over-suppress rules that fit along with real content.
+    let mut app = board_app(2, 2, 2);
+    let term = render(&mut app, 120, 40);
+    let s = buf_text(&term);
+    assert!(row_contains(&term, "FINAL ─"), "FINAL still renders when it has room:\n{s}");
+    assert!(row_contains(&term, "LATER ─"), "LATER still renders when it has room:\n{s}");
+    assert!(!s.contains("SCORES"), "everything fits, no lane needed:\n{s}");
 }
 
 #[test]
