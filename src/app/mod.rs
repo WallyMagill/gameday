@@ -1059,12 +1059,19 @@ impl App {
     /// `z`/Enter on the board: zoom the selected game, opening on Overview.
     fn zoom_selected(&mut self) {
         if let Some(game) = self.selected_game() {
-            self.view = View::Zoom {
-                game_id: game.id,
-                tab: ZoomTab::Overview,
-            };
-            self.zoom_scroll = 0;
+            self.zoom_game_id(&game.id);
         }
+    }
+
+    /// Zoom a game by id, opening on Overview. The selection is not the only
+    /// way in any more: the band's `enter` jump (spec v3.3 §3) names the game
+    /// that just scored, which is rarely the one under the cursor.
+    pub(crate) fn zoom_game_id(&mut self, game_id: &str) {
+        self.view = View::Zoom {
+            game_id: game_id.to_string(),
+            tab: ZoomTab::Overview,
+        };
+        self.zoom_scroll = 0;
     }
 
     fn cycle_zoom_tab(&mut self, delta: isize) {
@@ -1654,7 +1661,7 @@ impl App {
                     height: area.height - 1,
                     ..area
                 };
-                crate::board::cut::draw_takeover(frame, below, &game, &cut.play);
+                crate::board::cut::draw_takeover(frame, below, &game, &cut, self.tick);
                 return;
             }
         }
@@ -1671,7 +1678,7 @@ impl App {
                         height: body.height - crate::board::cut::BAND_ROWS,
                         ..body
                     };
-                    crate::board::cut::draw_band(frame, band, &game, &cut.play);
+                    crate::board::cut::draw_band(frame, band, &game, &cut, self.tick);
                 }
             }
         }

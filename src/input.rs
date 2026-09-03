@@ -61,6 +61,19 @@ pub fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                     app.status_line = None;
                     app.mode = InputMode::Filter { buf: String::new() };
                 }
+                // spec v3.3 §3: while a cut is on screen, enter is the jump
+                // to the game that just scored — the band says so on its
+                // second row. It lives here rather than in `on_key_board` so
+                // it holds from whatever view the band is drawn over, and so
+                // that a prompt's enter (handled by the arms below) can never
+                // be stolen by it.
+                KeyCode::Enter if !modal && app.cuts.active(app.tick).is_some() => {
+                    app.status_line = None;
+                    let game_id = app.cuts.active(app.tick).map(|c| c.game_id.clone());
+                    if let Some(game_id) = game_id {
+                        app.zoom_game_id(&game_id);
+                    }
+                }
                 _ => {
                     app.status_line = None;
                     app.on_key(code, mods);

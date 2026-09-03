@@ -129,6 +129,16 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
     }
 }
 
+/// Where the away and home digits actually land inside `area`, for the same
+/// `full` the caller will hand [`score_block`]. Public so the takeover can
+/// hang a team label under each column without re-deriving — or disagreeing
+/// with — the digit math: the digits are placed first, and the labels take
+/// what is left (spec §1's logos-never-move-a-digit discipline).
+pub fn score_columns(area: Rect, game: &Game, full: bool) -> (Rect, Rect) {
+    let spots = score_spots(area, game, full);
+    (spots.away, spots.home)
+}
+
 /// The score digits alone — mirror pair, team colors through
 /// [`theme::hero_pair`]. The cut overlay and `:tv` call this same function:
 /// one formatter for the score, everywhere, always (spec §1 hard rule).

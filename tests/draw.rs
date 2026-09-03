@@ -2545,7 +2545,13 @@ fn the_takeover_and_the_hero_agree_on_every_digit_cell() {
     assert!(slot.width > 0 && slot.height > 0, "the takeover must reserve a score band");
 
     let mut cut = Terminal::new(TestBackend::new(120, 40)).unwrap();
-    cut.draw(|f| gameday::board::cut::draw_takeover(f, area, &game, &play))
+    let fired = gameday::board::cut::Cut {
+        game_id: game.id.clone(),
+        play: play.clone(),
+        full: true,
+        until_tick: gameday::board::cut::CUT_TICKS,
+    };
+    cut.draw(|f| gameday::board::cut::draw_takeover(f, area, &game, &fired, 0))
         .unwrap();
     let mut hero = Terminal::new(TestBackend::new(120, 40)).unwrap();
     hero.draw(|f| gameday::board::hero::score_block(f, slot, &game, full))
@@ -2619,7 +2625,13 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     // Spec §3 / ruling R33: `▲ HOME RUN · TEX Seager (32) · ATH 0 TEX 5` on a
     // hot ground, two rows, above an intact list.
     assert!(rows[1].starts_with("▲ TOUCHDOWN! · KC MAHOMES · KC 24 BUF 21"), "band headline:\n{s}");
-    assert!(rows[2].contains("12 YD PASS TO KELCE"), "the band's second row is the play:\n{s}");
+    // spec v3.3 §3: row two stopped repeating the play and became the
+    // affordance — what enter does, and how long the band has left.
+    assert!(
+        rows[2].starts_with("enter jump · clears in"),
+        "the band's second row is the jump affordance:\n{s}"
+    );
+    assert!(!rows[2].contains("KELCE"), "the play is not said twice:\n{s}");
     assert!(s.contains("IN PLAY"), "the board is still there under the band:\n{s}");
     // Cell level: the mark, and the hot fill across both rows including the
     // empty tail — the band is a bar of alert color, not a bare line.
@@ -2633,6 +2645,53 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
         }
     }
     assert_ne!(b[(0, 3)].bg, r.hot, "the fill stops at the band: row 3 is the board");
+}
+
+#[test]
+fn enter_during_a_band_zooms_the_bands_game_not_the_selection() {
+    // spec v3.3 §3: while a band is up, enter is the jump to the game that
+    // just scored — the one interaction the band adds.
+    use gameday::input::{handle_key, InputMode};
+    use gameday::views::View;
+    use ratatui::crossterm::event::{KeyCode, KeyModifiers};
+
+    let zoomed = |app: &App| match &app.view {
+        View::Zoom { game_id, .. } => Some(game_id.clone()),
+        _ => None,
+    };
+
+    // No band: enter zooms the selection, exactly as before.
+    let mut app = mk();
+    app.tick = 400;
+    app.apply_boards(League::Nfl, vec![cut_game("1"), g("2", "DAL", "PHI", true)], false);
+    app.selected = 0;
+    handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(zoomed(&app), Some("1".into()), "with no band, enter still zooms the selection");
+
+    // A band for game 2 while game 1 is selected: enter follows the band.
+    let mut app = mk();
+    app.tick = 400;
+    let mut before = g("2", "DAL", "PHI", true);
+    before.away_score = 3;
+    app.apply_boards(League::Nfl, vec![cut_game("1"), before.clone()], false);
+    app.selected = 0;
+    let mut after = before.clone();
+    after.away_score = 10;
+    after.last_plays = vec![scoring_play()];
+    app.apply_boards(League::Nfl, vec![cut_game("1"), after], false);
+    let cut = app.cuts.active(app.tick).expect("the unpinned score fires a band");
+    assert!(!cut.full && cut.game_id == "2");
+    handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(zoomed(&app), Some("2".into()), "enter jumped to the band's game, not the selection");
+
+    // A prompt is open: enter belongs to the prompt, and nothing jumps.
+    let mut app = mk();
+    app.tick = 400;
+    land_a_score(&mut app, false);
+    assert!(app.cuts.active(app.tick).is_some(), "the band is up");
+    app.mode = InputMode::Filter { buf: "kc".into() };
+    handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(zoomed(&app), None, "a prompt's enter never jumps");
 }
 
 #[test]

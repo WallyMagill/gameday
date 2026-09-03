@@ -54,6 +54,19 @@ pub struct Cut {
     pub until_tick: u64,
 }
 
+impl Cut {
+    /// Whole seconds left before this cut clears, rounded up — what the
+    /// takeover's strip and the band's affordance count down (spec §3).
+    ///
+    /// Receipt: [`LIVE_TICKS_PER_SEC`] is 10, so a band's 15 remaining ticks
+    /// is 1.5 s and reads `2s`. Ceiling, not truncation: a cut that is still
+    /// on screen must never say `0s`, and rounding down would spend the last
+    /// half second lying. Zero is reserved for expired.
+    pub fn remaining_secs(&self, tick: u64) -> u64 {
+        self.until_tick.saturating_sub(tick).div_ceil(LIVE_TICKS_PER_SEC)
+    }
+}
+
 /// The single active cut. At most one — two scores inside three seconds are
 /// one moment, not two overlays.
 #[derive(Default)]
@@ -136,6 +149,10 @@ struct Plan {
     word_rect: Rect,
     score: Rect,
     score_full: bool,
+    /// The row the team labels hang on, when the middle has a spare row after
+    /// the word and the score have taken theirs. `None` is a frame too short
+    /// for them — a label never costs the digits a row (spec §1).
+    labels: Option<Rect>,
 }
 
 fn plan(area: Rect, word: &str) -> Plan {
@@ -173,13 +190,12 @@ fn plan(area: Rect, word: &str) -> Plan {
     let top = area.y + brackets.min(1);
     let word_y = top + middle.saturating_sub(stack) / 2;
     let word_rect = Rect { y: word_y, height: word_form.rows(), ..area };
-    Plan {
-        brackets,
-        word_form,
-        word_rect,
-        score: Rect { y: word_rect.bottom(), height: score_rows, ..area },
-        score_full,
-    }
+    let score = Rect { y: word_rect.bottom(), height: score_rows, ..area };
+    // The labels are the last thing planned, and only out of a row the word
+    // and the score did not want. `stack < middle` is exactly the condition
+    // that leaves `score.bottom()` inside the middle.
+    let labels = (stack < middle).then(|| Rect { y: score.bottom(), height: 1, ..area });
+    Plan { brackets, word_form, word_rect, score, score_full, labels }
 }
 
 /// The rect the takeover hands [`hero::score_block`], and the `full` flag it
@@ -193,10 +209,11 @@ pub fn score_slot(area: Rect, game: &Game, play: &Play) -> (Rect, bool) {
 /// Draw the takeover: the caller keeps the header row; everything from here
 /// down is the cut. Chip line, the scoring word in block letters, the score
 /// through [`hero::score_block`], one detail line, a dim bottom strip.
-pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, play: &Play) {
+pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick: u64) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+    let play = &cut.play;
     let th = theme::current();
     let r = th.roles();
     // The board behind is not drawn dimmed or blurred — it is gone. A cut
@@ -205,7 +222,7 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, play: &Play) {
     frame.render_widget(Block::default().style(Style::default().bg(th.bg).fg(th.fg)), area);
 
     let word = word_for(game, play);
-    let Plan { brackets, word_form, word_rect, score, score_full } = plan(area, word);
+    let Plan { brackets, word_form, word_rect, score, score_full, labels } = plan(area, word);
 
     if brackets > 0 {
         frame.render_widget(
@@ -233,21 +250,76 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, play: &Play) {
     // score. It asks the hero's own formatter, so the cut and the board
     // behind it are the same digits, cell for cell.
     hero::score_block(frame, score, game, score_full);
+    if let Some(row) = labels {
+        draw_labels(frame, row, score, game, score_full);
+    }
     if brackets > 0 {
         let bottom = area.bottom();
         frame.render_widget(
             Paragraph::new(detail_line(game, play, area.width)).alignment(Alignment::Center),
             Rect { y: bottom - 2, height: 1, ..area },
         );
+        let strip = Rect { y: bottom - 1, height: 1, ..area };
+        let dim = Style::default().fg(r.dim);
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                strip_text(game),
-                Style::default().fg(r.dim),
-            ))
-            .alignment(Alignment::Center),
-            Rect { y: bottom - 1, height: 1, ..area },
+            Paragraph::new(Span::styled(strip_text(game), dim)).alignment(Alignment::Center),
+            strip,
+        );
+        // The timer is the strip's right end. Rendered as its own
+        // right-aligned paragraph over the same row: the matchup is centered
+        // and short, so the two never meet on any width that fits both.
+        frame.render_widget(
+            Paragraph::new(Span::styled(timer_text(cut, tick), dim)).alignment(Alignment::Right),
+            strip,
         );
     }
+}
+
+/// `KC` under the away digits, `BUF` under the home digits, each in the color
+/// its own score is wearing. The rects come from [`hero::score_columns`], so
+/// a label can only ever sit under the digits it belongs to — and the
+/// takeover never asks where the digits *should* be, only where they are.
+///
+/// Both abbrs or neither: one lonely label reads as a rendering fault.
+fn draw_labels(frame: &mut Frame, row: Rect, score: Rect, game: &Game, score_full: bool) {
+    let th = theme::current();
+    // The pair straight from `hero_pair` — the same call `score_block` makes.
+    // v3.2 routed these through `App::team_color`, which knows nothing about
+    // the hero's lift or its lookalike rule, and painted the away side
+    // neutral whenever the theme's discipline withheld play-row team color.
+    let (away_color, home_color, _) = theme::hero_pair(&th, game.away.color, game.home.color);
+    let (away_col, home_col) = hero::score_columns(score, game, score_full);
+    let bold = Modifier::BOLD;
+    // Centered under its column, clamped inside the row.
+    let slot = |col: Rect, text: &str| -> Option<Rect> {
+        let w = text.chars().count() as u16;
+        if w == 0 || w > row.width {
+            return None;
+        }
+        let x = (col.x + col.width / 2).saturating_sub(w / 2).min(row.right() - w).max(row.x);
+        Some(Rect { x, width: w, ..row })
+    };
+    let (away, home) = (game.away.abbr.to_uppercase(), game.home.abbr.to_uppercase());
+    let (Some(a), Some(h)) = (slot(away_col, &away), slot(home_col, &home)) else {
+        return;
+    };
+    if a.right() >= h.x {
+        return; // no room to name both without them touching
+    }
+    frame.render_widget(
+        Paragraph::new(Span::styled(away, Style::default().fg(away_color).add_modifier(bold))),
+        a,
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(home, Style::default().fg(home_color).add_modifier(bold))),
+        h,
+    );
+}
+
+/// `clears in 3s` — the cut's own countdown, in the lowercase legend voice
+/// the footer uses (spec §5).
+fn timer_text(cut: &Cut, tick: u64) -> String {
+    format!("clears in {}s", cut.remaining_secs(tick))
 }
 
 /// Draw the band into the 2 rows above the list (spec §3, ruling R33): both
@@ -255,10 +327,11 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, play: &Play) {
 /// the first, the rest of the play on the second. Ink is the theme's ground
 /// throughout — team color on a hot fill is unreadable, and the band's job is
 /// to be a bar of the alert color that the eye catches above the list.
-pub fn draw_band(frame: &mut Frame, area: Rect, game: &Game, play: &Play) {
+pub fn draw_band(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick: u64) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+    let play = &cut.play;
     let th = theme::current();
     let r = th.roles();
     let on_hot = Style::default().fg(r.ground).bg(r.hot);
@@ -282,20 +355,31 @@ pub fn draw_band(frame: &mut Frame, area: Rect, game: &Game, play: &Play) {
         Rect { height: 1, ..area },
     );
     if area.height >= 2 {
-        // The second row is the play itself. No dim role here: `dim` is a
-        // ground-relative gray and vanishes on the hot fill.
-        let (_, rest) = split_surname(&play.text);
-        let clock = format!("{} {}", play.period, play.clock).trim().to_string();
-        let tail = if clock.is_empty() {
-            rest.to_uppercase()
-        } else {
-            format!("{} · {clock}", rest.to_uppercase())
-        };
+        // spec v3.3 §3: the second row is the affordance, not the play again.
+        // The headline above already carries the word, the team, the scorer
+        // and the score; a second helping of the same sentence told the
+        // reader nothing, while what enter does and how long the band lasts
+        // are the two things they cannot see anywhere else.
+        //
+        // Still the ground role, not `dim`: `dim` is a ground-relative gray
+        // and vanishes on the hot fill (the v3.2 receipt). The affordance is
+        // quieted by weight instead — the headline is bold, this row is not.
+        let tail = format!("{} jump · {}", jump_key(), timer_text(cut, tick));
         frame.render_widget(
             Paragraph::new(Span::styled(truncate(&tail, area.width as usize), on_hot)),
             Rect { y: area.y + 1, height: 1, ..area },
         );
     }
+}
+
+/// The key cap the band's affordance names. Read out of the board legend's
+/// own `zoom` chord rather than spelled again here: the band adds a target to
+/// that gesture, not a second key, and the two can never drift apart.
+fn jump_key() -> &'static str {
+    crate::keymap::BOARD_LEGEND
+        .iter()
+        .find(|(_, label)| *label == "zoom")
+        .map_or("enter", |(key, _)| key)
 }
 
 /// `▲ SCORING PLAY · KC` (spec §3, ruling R33) — the takeover's one filled
@@ -420,6 +504,30 @@ fn strip_text(game: &Game) -> String {
 mod tests {
     use super::*;
     use crate::domain::{League, Status, Team};
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+    use ratatui::Terminal;
+
+    /// Render one closure into a fresh buffer of this size.
+    fn drawn(w: u16, h: u16, f: impl FnOnce(&mut Frame)) -> Buffer {
+        let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+        t.draw(f).unwrap();
+        t.backend().buffer().clone()
+    }
+
+    /// The characters of one buffer row, as a string.
+    fn row_text(b: &Buffer, y: u16) -> String {
+        (0..b.area.width).map(|x| b[(x, y)].symbol()).collect()
+    }
+
+    fn a_cut(full: bool, tick: u64, p: &Play) -> Cut {
+        Cut {
+            game_id: "1".into(),
+            play: p.clone(),
+            full,
+            until_tick: tick + if full { CUT_TICKS } else { BAND_TICKS },
+        }
+    }
 
     fn play(text: &str) -> Play {
         Play {
@@ -593,5 +701,161 @@ mod tests {
         let line = detail_line(&mlb, &p, 80);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text, "J. ORTIZ · STRIKEOUT · T9");
+    }
+
+    /// Contiguous non-space cells on a row, split wherever the color changes:
+    /// `(x, text, fg)`. The cut's rows are short labels on a wide field, so
+    /// this is how a test asks "what is painted here, and in what color".
+    fn runs(b: &Buffer, y: u16) -> Vec<(u16, String, ratatui::style::Color)> {
+        let mut out: Vec<(u16, String, ratatui::style::Color)> = Vec::new();
+        for x in 0..b.area.width {
+            let cell = &b[(x, y)];
+            if cell.symbol() == " " {
+                continue;
+            }
+            match out.last_mut() {
+                Some((sx, s, fg))
+                    if *sx + s.chars().count() as u16 == x && *fg == cell.fg =>
+                {
+                    s.push_str(cell.symbol())
+                }
+                _ => out.push((x, cell.symbol().to_string(), cell.fg)),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_takeover_names_both_teams_in_their_colors() {
+        // spec v3.3 §3: the takeover names who is playing, and each abbr
+        // wears the same color as its own digits — including the away side,
+        // which v3.2 left neutral.
+        let mut g = game();
+        g.away.color = [227, 24, 55]; // KC red
+        g.home.color = [0, 51, 141]; // BUF blue
+        let p = play("Mahomes 12 Yd pass to Kelce");
+        let cut = a_cut(true, 0, &p);
+        let area = Rect::new(0, 0, 120, 39);
+        let b = drawn(120, 39, |f| draw_takeover(f, area, &g, &cut, 0));
+
+        let th = theme::current();
+        let (away_color, home_color, fell) = theme::hero_pair(&th, g.away.color, g.home.color);
+        assert!(!fell, "KC red against BUF blue is not a lookalike pair");
+        // The labels hang off the score's own rect: the digits are placed
+        // first and the labels take what is left, never the other way round.
+        let (score, _) = score_slot(area, &g, &p);
+        let labels = runs(&b, score.bottom());
+        assert_eq!(
+            labels.iter().map(|(_, s, _)| s.as_str()).collect::<Vec<_>>(),
+            ["KC", "BUF"],
+            "both teams are named under the score, away first"
+        );
+        assert_eq!(labels[0].2, away_color, "the away label wears the away digits' color");
+        assert_eq!(labels[1].2, home_color, "the home label wears the home digits' color");
+
+        // A lookalike pair: the HOME side is the one that falls back to
+        // amber (theme::hero_pair's rule) — the away side keeps its color.
+        let mut look = game();
+        look.away.color = [12, 44, 86]; // SEA navy
+        look.home.color = [19, 41, 75]; // BOS navy
+        let (away2, home2, fell2) = theme::hero_pair(&th, look.away.color, look.home.color);
+        assert!(fell2 && home2 == th.roles().digits, "the lookalike rule fired");
+        let b = drawn(120, 39, |f| draw_takeover(f, area, &look, &cut, 0));
+        let (score, _) = score_slot(area, &look, &p);
+        let labels = runs(&b, score.bottom());
+        assert_eq!(labels[0].2, away2, "away is never the neutral fallback");
+        assert_ne!(labels[0].2, th.roles().digits, "away keeps its own color when home lifts");
+        assert_eq!(labels[1].2, home2);
+
+        // Down the ladder: both abbrs or neither, never one, and never two
+        // that touch. A label is the first thing the frame gives up.
+        let mut named_at: Vec<(u16, u16)> = Vec::new();
+        for w in [40u16, 60, 80, 100, 120] {
+            for h in [12u16, 16, 24, 40] {
+                let area = Rect::new(0, 0, w, h);
+                let b = drawn(w, h, |f| draw_takeover(f, area, &g, &cut, 0));
+                let (score, _) = score_slot(area, &g, &p);
+                if score.bottom() >= area.bottom() {
+                    continue;
+                }
+                let named = runs(&b, score.bottom());
+                let named: Vec<&str> = named.iter().map(|(_, s, _)| s.as_str()).collect();
+                assert!(
+                    named.is_empty() || named == ["KC", "BUF"],
+                    "{w}x{h} label row is {named:?}"
+                );
+                if !named.is_empty() {
+                    named_at.push((w, h));
+                }
+            }
+        }
+        for size in [(80, 24), (120, 40)] {
+            assert!(named_at.contains(&size), "{size:?} has room to name both: {named_at:?}");
+        }
+    }
+
+    #[test]
+    fn the_takeover_has_a_dimmed_strip_and_timer() {
+        // spec v3.3 §3: the bottom strip is dim, names the matchup, and
+        // carries the clear timer right-aligned.
+        let g = game();
+        let p = play("Mahomes 12 Yd pass to Kelce");
+        let cut = a_cut(true, 0, &p);
+        let area = Rect::new(0, 0, 120, 39);
+        let b = drawn(120, 39, |f| draw_takeover(f, area, &g, &cut, 0));
+        let r = theme::current().roles();
+
+        let y = area.bottom() - 1;
+        let text = row_text(&b, y);
+        assert!(text.contains("CHIEFS AT BILLS"), "the strip names the game: {text:?}");
+        // Zero ticks elapsed against CUT_TICKS (3 s at LIVE_TICKS_PER_SEC = 10).
+        assert_eq!(cut.remaining_secs(0), 3);
+        assert!(text.ends_with("clears in 3s"), "the timer is right-aligned: {text:?}");
+        for x in 0..area.width {
+            if b[(x, y)].symbol() != " " {
+                assert_eq!(b[(x, y)].fg, r.dim, "the whole strip is dim, at ({x},{y})");
+            }
+        }
+        // The clock actually moves: 1.2 s in, the strip says two.
+        let b = drawn(120, 39, |f| draw_takeover(f, area, &g, &cut, 12));
+        assert!(row_text(&b, y).ends_with("clears in 2s"));
+    }
+
+    #[test]
+    fn the_band_second_row_offers_the_jump_and_counts_down() {
+        // spec v3.3 §3: the band's second row stops repeating the play and
+        // becomes the affordance — what enter does, and how long it lasts.
+        let p = play("Mahomes 12 Yd pass to Kelce");
+        let cut = a_cut(false, 0, &p);
+        assert_eq!(cut.until_tick, BAND_TICKS);
+        // 15 ticks = 1.5 s left, and the countdown ceils so the band never
+        // shows a 0 it is still on screen for.
+        assert_eq!(cut.remaining_secs(0), 2);
+        assert_eq!(cut.remaining_secs(5), 1);
+        assert_eq!(cut.remaining_secs(14), 1);
+        assert_eq!(cut.remaining_secs(15), 0, "expired means zero, not underflow");
+        assert_eq!(cut.remaining_secs(9_999), 0);
+
+        let area = Rect::new(0, 0, 120, 2);
+        let b = drawn(120, 2, |f| draw_band(f, area, &game(), &cut, 0));
+        let text = row_text(&b, 1);
+        assert!(
+            text.starts_with("enter jump · clears in 2s"),
+            "the affordance is the second row: {text:?}"
+        );
+        assert!(!text.contains("KELCE"), "the play is not repeated on row two: {text:?}");
+        let r = theme::current().roles();
+        // Ink stays the ground role on the hot fill — `dim` is a
+        // ground-relative gray and vanishes on hot (the v3.2 receipt) — so
+        // the affordance is quieted by weight instead: row 0 is bold, this
+        // one is not.
+        assert_eq!(b[(0, 1)].fg, r.ground);
+        assert_eq!(b[(0, 1)].bg, r.hot);
+        assert!(b[(0, 0)].modifier.contains(Modifier::BOLD), "the headline is bold");
+        assert!(!b[(0, 1)].modifier.contains(Modifier::BOLD), "the affordance is not");
+
+        // One second later it counts down with the clock.
+        let b = drawn(120, 2, |f| draw_band(f, area, &game(), &cut, 10));
+        assert!(row_text(&b, 1).starts_with("enter jump · clears in 1s"));
     }
 }
