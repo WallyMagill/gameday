@@ -5,7 +5,8 @@
 //!
 //!   board-<theme> — home board, big scores, one per BUILT-IN theme (three:
 //!       board-broadcast/-studio/-gruvbox, selected programmatically, not via env)
-//!   board-compact — broadcast theme, compact score_style
+//!   board-compact — the same ranked board; the stem outlives `ScoreStyle`
+//!       (deleted with the tile grammar) until Task 15 respecs the gallery
 //!   tab-nfl       — NFL league tab with the slate visible and a slate row selected
 //!   focus         — a focused game view
 //!   help          — the '?' overlay over the dimmed board
@@ -30,7 +31,6 @@ use crate::domain::League;
 use crate::provider::memory::MemoryProvider;
 use crate::provider::{map, SportsProvider};
 use crate::theme;
-use crate::tiles::ScoreStyle;
 use crate::views::{View, ZoomTab};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
@@ -52,7 +52,6 @@ pub struct Variant {
     pub rows: u16,
     /// A built-in theme name (`theme::BUILTIN_NAMES`).
     pub theme: &'static str,
-    pub style: ScoreStyle,
     setup: fn(&mut App),
 }
 
@@ -164,41 +163,39 @@ pub fn gallery() -> Vec<Variant> {
             "config.toml:7: unknown variant `NFLL` — valid leagues: nfl|cfb|cbb|nba|wnba|nhl|mlb|epl|mls".into(),
         ));
     }
-    let full = |stem, theme, style, setup| Variant {
+    let full = |stem, theme, setup| Variant {
         stem,
         cols: DUMP_COLS,
         rows: DUMP_ROWS,
         theme,
-        style,
         setup,
     };
     let mut out: Vec<Variant> = BOARD_STEMS
         .iter()
-        .map(|(name, stem)| full(*stem, *name, ScoreStyle::Big, home as fn(&mut App)))
+        .map(|(name, stem)| full(*stem, *name, home as fn(&mut App)))
         .collect();
     out.extend([
-        full("board-compact", "broadcast", ScoreStyle::Compact, home),
-        full("tab-nfl", "broadcast", ScoreStyle::Big, tab_nfl),
-        full("focus", "broadcast", ScoreStyle::Big, focus),
-        full("help", "broadcast", ScoreStyle::Big, help),
+        full("board-compact", "broadcast", home),
+        full("tab-nfl", "broadcast", tab_nfl),
+        full("focus", "broadcast", focus),
+        full("help", "broadcast", help),
         Variant {
             stem: "narrow",
             cols: 80,
             rows: 24,
             theme: "broadcast",
-            style: ScoreStyle::Big,
             setup: home,
         },
-        full("zoom-stats", "broadcast", ScoreStyle::Big, zoom_stats),
-        full("plays-feed", "broadcast", ScoreStyle::Big, plays_feed),
-        full("standings", "broadcast", ScoreStyle::Big, standings),
-        full("config", "broadcast", ScoreStyle::Big, config),
-        full("filter", "broadcast", ScoreStyle::Big, filter),
-        full("theme-picker", "broadcast", ScoreStyle::Big, theme_picker),
-        full("home-live", "broadcast", ScoreStyle::Big, home_live),
-        full("offline", "broadcast", ScoreStyle::Big, offline),
-        full("stale", "broadcast", ScoreStyle::Big, stale),
-        full("config-error", "broadcast", ScoreStyle::Big, config_error),
+        full("zoom-stats", "broadcast", zoom_stats),
+        full("plays-feed", "broadcast", plays_feed),
+        full("standings", "broadcast", standings),
+        full("config", "broadcast", config),
+        full("filter", "broadcast", filter),
+        full("theme-picker", "broadcast", theme_picker),
+        full("home-live", "broadcast", home_live),
+        full("offline", "broadcast", offline),
+        full("stale", "broadcast", stale),
+        full("config-error", "broadcast", config_error),
     ]);
     out
 }
@@ -243,16 +240,7 @@ pub fn demo_app(config_dir: PathBuf, tick: u64) -> App {
     app
 }
 
-pub fn render_demo_buffer(
-    cols: u16,
-    rows: u16,
-    tick: u64,
-    // Task 10 (spec §9) deleted `Config::score_style` — the board never read
-    // it, only the zoom's legacy tile did, and that now hardcodes its style
-    // until Task 13 deletes the tile grammar wholesale. Kept as a parameter
-    // so every call site below still names its intent for that day.
-    _score_style: ScoreStyle,
-) -> std::io::Result<Buffer> {
+pub fn render_demo_buffer(cols: u16, rows: u16, tick: u64) -> std::io::Result<Buffer> {
     let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     let mut app = demo_app(dir, tick);
@@ -269,9 +257,6 @@ pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
         let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         let mut app = demo_app(dir, tick);
-        // `v.style` is inert since Task 10 deleted `Config::score_style` —
-        // see `render_demo_buffer`'s comment.
-        let _ = v.style;
         (v.setup)(&mut app);
         let mut term = Terminal::new(TestBackend::new(v.cols, v.rows))?;
         term.draw(|f| app.draw(f))?;
@@ -821,10 +806,10 @@ mod tests {
         );
     }
 
-    /// v3.2 §7: `ScoreStyle` no longer reaches the board — its scores are
-    /// hero digit glyphs and amber row text, and the compact tile lives only
-    /// inside the zoom. The stem stays until Task 15 respecs the gallery, so
-    /// what it must still prove is that it captures the ranked board at all.
+    /// v3.2 §7: `ScoreStyle` is deleted with the tile grammar (Task 13) —
+    /// every score on every surface is now a hero digit glyph or amber row
+    /// text. The stem stays until Task 15 respecs the gallery, so what it
+    /// must still prove is that it captures the ranked board at all.
     #[test]
     fn compact_variant_still_captures_the_board() {
         let text = text_of(&render_variant(&variant("board-compact"), 0).unwrap());
@@ -834,7 +819,7 @@ mod tests {
 
     #[test]
     fn demo_board_renders_the_redzone_grammar() {
-        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0, ScoreStyle::Compact).unwrap();
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0).unwrap();
         let mut text = String::new();
         for y in 0..DUMP_ROWS {
             for x in 0..DUMP_COLS {
@@ -859,8 +844,8 @@ mod tests {
     /// v3.2 §1: the four inline meters were a tile feature. Only the hero
     /// has room for state now, and at the 10-row bracket even its meter row
     /// yields to the fragment (ruling R30) — so what every size must still
-    /// show is the hero SAYING its state. The zoom keeps the tile meter
-    /// until Task 13 rebuilds it.
+    /// show is the hero SAYING its state. The zoom's 12-row hero bracket
+    /// (spec §5) is where the meter row itself still fits.
     #[test]
     fn tick_zero_board_names_the_heros_state_at_every_size() {
         // 2x2 at 120x36, the 80x24 narrow board, and the zoom overview all
@@ -890,7 +875,7 @@ mod tests {
     #[test]
     fn default_dump_uses_big_scores_and_shows_the_shot_clock_chip() {
         let th = theme::current();
-        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0, ScoreStyle::default()).unwrap();
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0).unwrap();
         let mut text = String::new();
         let mut star_bg = 0;
         for y in 0..DUMP_ROWS {
@@ -917,7 +902,7 @@ mod tests {
 
     #[test]
     fn dump_at_td_tick_renders_the_new_score() {
-        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, crate::sim::KC_TD_TICK, ScoreStyle::Compact).unwrap();
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, crate::sim::KC_TD_TICK).unwrap();
         let mut text = String::new();
         for y in 0..DUMP_ROWS {
             for x in 0..DUMP_COLS {
@@ -938,7 +923,7 @@ mod tests {
 
     #[test]
     fn html_dump_contains_colored_cells() {
-        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0, ScoreStyle::default()).unwrap();
+        let buf = render_demo_buffer(DUMP_COLS, DUMP_ROWS, 0).unwrap();
         let html = buffer_to_html(&buf);
         assert!(html.contains("color:#"));
         // Cells are individually wrapped in spans; strip tags to check content.

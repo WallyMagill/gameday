@@ -15,7 +15,6 @@ use crate::input::{CompletionState, InputMode};
 use crate::keymap;
 use crate::theme;
 use crate::ticker;
-use crate::tiles::TileFx;
 use crate::views::{self, View, ZoomTab};
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -1706,23 +1705,6 @@ impl App {
             .find(|g| g.id == id)
             .cloned()
     }
-
-    /// Per-tile animation state: pure in (tick, flash table) so a dump at a
-    /// fixed tick always renders the same frame.
-    pub(crate) fn tile_fx(&self, game: &Game) -> TileFx {
-        TileFx {
-            flash: self.flash_active(&game.id),
-            live_bright: live_pulse_bright(self.tick),
-            pinned: self.pins.iter().any(|p| p.game_id == game.id),
-            favorite: self.config.favorites.iter().any(|f| {
-                f.league == game.league
-                    && (f.team_abbr.eq_ignore_ascii_case(&game.away.abbr)
-                        || f.team_abbr.eq_ignore_ascii_case(&game.home.abbr))
-            }),
-            now: self.now(),
-        }
-    }
-
 }
 
 #[cfg(test)]

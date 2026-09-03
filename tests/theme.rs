@@ -5,7 +5,9 @@
 
 use gameday::domain::{Game, League, Meter, Play, Situation, Status, Team};
 use gameday::theme::{self, Discipline, Entry, SidebarHeaders, Theme};
-use gameday::tiles::{render_tile, Density, ScoreStyle, TileFx};
+use gameday::app::App;
+use gameday::config::Config;
+use gameday::views::{View, ZoomTab};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::style::Color;
@@ -322,12 +324,17 @@ fn demo_game() -> Game {
     }
 }
 
+/// The zoom's Overview tab — the surface that still carries all three of the
+/// rendered discipline grants (a section label, a meter label, a play abbr)
+/// now that Task 13 deleted the tile grammar those cells used to live in.
 fn render(game: &Game) -> Buffer {
-    let mut term = Terminal::new(TestBackend::new(60, 18)).unwrap();
-    term.draw(|f| {
-        render_tile(f, f.area(), game, Density::Standard, false, TileFx::default(), ScoreStyle::Compact)
-    })
-    .unwrap();
+    let dir = std::env::temp_dir().join(format!("gameday-theme-render-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
+    app.apply_boards(game.league, vec![game.clone()], false);
+    app.view = View::Zoom { game_id: game.id.clone(), tab: ZoomTab::Overview };
+    let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
     term.backend().buffer().clone()
 }
 
@@ -353,7 +360,7 @@ fn install_variant(name: &str, discipline: Discipline) -> Theme {
 }
 
 #[test]
-fn discipline_toggles_recolor_chip_label_abbr_and_clock_cells() {
+fn discipline_toggles_recolor_section_label_meter_and_play_abbr_cells() {
     let game = demo_game();
     let loud = install_variant(
         "loud",
@@ -366,7 +373,9 @@ fn discipline_toggles_recolor_chip_label_abbr_and_clock_cells() {
         },
     );
     let buf = render(&game);
-    assert_eq!(fg_of(&buf, "[NFL]"), loud.league_accent(League::Nfl), "chip in league accent");
+    // v3.2 §7: the `[NFL]` tile chip and the tile's `27 - 24` score row died
+    // with the tile grammar (Task 13); the three grants that still render are
+    // the section label, the meter label and the play abbr.
     assert_eq!(fg_of(&buf, "LAST PLAYS"), loud.league_accent(League::Nfl), "section label in accent");
     assert_eq!(fg_of(&buf, "LEAD"), loud.league_accent(League::Nfl), "meter label in accent");
     assert_eq!(fg_of(&buf, "KC  Mahomes"), theme::rgb([227, 24, 55]), "play abbr in team color");
@@ -382,13 +391,9 @@ fn discipline_toggles_recolor_chip_label_abbr_and_clock_cells() {
         },
     );
     let buf = render(&game);
-    assert_eq!(fg_of(&buf, "[NFL]"), quiet.fg, "chips=false: chip drops to fg");
     assert_eq!(fg_of(&buf, "LAST PLAYS"), quiet.muted, "section_labels=false: label muted");
     assert_eq!(fg_of(&buf, "LEAD"), quiet.muted, "meter label muted");
     assert_eq!(fg_of(&buf, "KC  Mahomes"), quiet.fg, "play_abbrs=false: abbr in fg");
-    // The identity floor never moves: score digits stay in team color.
-    assert_eq!(fg_of(&buf, "27 - 24"), theme::rgb([227, 24, 55]), "scores keep team color");
-    assert_eq!(fg_of(&buf, "LIVE"), quiet.live, "LIVE keeps the live role");
     theme::set_current("broadcast").unwrap();
 }
 

@@ -38,6 +38,7 @@
 pub mod cut;
 pub mod hero;
 pub mod layout;
+pub mod linescore;
 pub mod logo;
 pub mod rows;
 

@@ -17,7 +17,7 @@
 
 use crate::app::App;
 use crate::board::{hero, rows};
-use crate::domain::{Extras, Game};
+use crate::domain::Game;
 use crate::text::truncate;
 use crate::theme;
 use ratatui::layout::{Alignment, Rect};
@@ -30,9 +30,9 @@ use ratatui::Frame;
 /// clock stamps".
 const PLAY_ROWS: u16 = 3;
 
-/// A linescore is a header plus both sides or it is nothing (the same rule
-/// `views::zoom` keeps: a headless strip is worse than no strip).
-const LINESCORE_ROWS: u16 = 3;
+/// A linescore is a header plus both sides or it is nothing (a headless
+/// strip is worse than no strip) — [`crate::board::linescore::ROWS`].
+const LINESCORE_ROWS: u16 = crate::board::linescore::ROWS;
 
 /// What the hero owes before TV spends a row on anything else: the nameplate,
 /// the 8 rows of `PixelSize::Full` digits (`tiles::glyph_cell(true).1`), and
@@ -94,7 +94,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     let mut spare = body.height.saturating_sub(HERO_MIN_ROWS);
     let plays_rows = spare.min(plays.len() as u16);
     spare -= plays_rows;
-    let linescore = linescore_lines(game).filter(|_| spare >= LINESCORE_ROWS);
+    let linescore = crate::board::linescore::lines(game).filter(|_| spare >= LINESCORE_ROWS);
     let ls_rows = if linescore.is_some() { LINESCORE_ROWS } else { 0 };
     let hero_rows = body.height - plays_rows - ls_rows;
 
@@ -135,8 +135,6 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
 
     let mut y = body.y + hero_rows;
     if let Some(lines) = linescore {
-        // Task 13 may replace this with its own linescore helper; until then
-        // TV borrows the zoom view's (v3.1) formatting.
         frame.render_widget(
             Paragraph::new(lines).alignment(Alignment::Center),
             Rect { y, height: ls_rows, ..body },
@@ -232,49 +230,4 @@ fn draw_strip(
             },
         );
     }
-}
-
-/// Per-period box-score rows — `   1  2  3 …  R`, then a row per side, with
-/// baseball's H and E. Lifted from `views::zoom` (v3.1) so TV has one while
-/// Task 13 decides where the shared helper lives; `None` when the feed
-/// carried no linescore.
-fn linescore_lines(game: &Game) -> Option<Vec<Line<'static>>> {
-    if game.linescore.is_empty() {
-        return None;
-    }
-    let th = theme::current();
-    let (hits, errors) = match &game.extras {
-        Extras::Baseball { hits, errors } => (*hits, *errors),
-        _ => (None, None),
-    };
-    let cell = |s: String| format!("{s:>3}");
-    let mut head = format!("{:<5}", "");
-    let mut away = format!("{:<5}", game.away.abbr);
-    let mut home = format!("{:<5}", game.home.abbr);
-    for (i, (a, h)) in game.linescore.iter().enumerate() {
-        head.push_str(&cell((i + 1).to_string()));
-        away.push_str(&cell(a.to_string()));
-        home.push_str(&cell(h.to_string()));
-    }
-    // Totals are the game's own score, never a sum of the periods.
-    head.push_str(&format!("{:>4}", "R"));
-    away.push_str(&format!("{:>4}", game.away_score));
-    home.push_str(&format!("{:>4}", game.home_score));
-    for (label, pair) in [("H", hits), ("E", errors)] {
-        let Some((a, h)) = pair else { continue };
-        head.push_str(&cell(label.to_string()));
-        away.push_str(&cell(a.to_string()));
-        home.push_str(&cell(h.to_string()));
-    }
-    let team_row = |text: String, color: [u8; 3]| {
-        Line::from(Span::styled(
-            text,
-            Style::default().fg(th.team_text(color)).add_modifier(Modifier::BOLD),
-        ))
-    };
-    Some(vec![
-        Line::from(Span::styled(head, Style::default().fg(th.roles().dim))),
-        team_row(away, game.away.color),
-        team_row(home, game.home.color),
-    ])
 }

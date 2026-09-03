@@ -1,12 +1,16 @@
 //! Zoomed single-game view (`z`/Enter): a tab bar — OVERVIEW │ PLAYS │ STATS
-//! — over one game's full-body surface. Overview is the expanded tile the old
-//! focus mode rendered; Plays is the game's full feed with a j/k highlight;
-//! Stats fills in Task 4.
+//! — over one game's full-body surface.
+//!
+//! Overview is spec §5: the same [`hero`] block the board and `:tv` draw, the
+//! shared [`linescore`] table, one per-sport matchup line, then the feed.
+//! Plays is the game's full feed with a j/k highlight; Stats is the box score.
 
 use crate::app::App;
-use crate::domain::Game;
+use crate::board::{hero, linescore};
+use crate::domain::{EventKind, Extras, Game, League, Status};
+use crate::text::truncate;
 use crate::theme;
-use crate::tiles::{render_tile, Density};
+use crate::tiles;
 use crate::views::ZoomTab;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -82,96 +86,277 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: Rect, game: &Game, activ
     );
 }
 
-/// The old focus view: the game as one full-area tile (LED digits, field
-/// bar, plays, timeline all live inside the tile renderer).
+/// What the hero asks for in a zoom: the nameplate row, 8 rows of
+/// `PixelSize::Full` digits (`tiles::glyph_cell(true).1`), and the three
+/// optional rows the hero's own keep order can spend (fragment, meter, last
+/// play) — `hero.rs`'s full budget. The zoom is the one surface with room to
+/// grant all of it; a shorter pane falls through the hero's own ladder.
+const HERO_ROWS: u16 = 1 + 8 + 3;
+
+/// Rows the feed needs before the linescore and the matchup line may take
+/// any: the dim rule, the LAST PLAYS label, and three plays. Below that the
+/// section is a header over a void.
+const FEED_MIN: u16 = 5;
+
+/// The overview body, top down: hero, linescore, matchup line, feed (spec
+/// §5). Everything under the hero is charged against what the hero left, in
+/// that order — the same "the hero shrinks last" rule the board runs on.
 fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
-    let fx = app.tile_fx(game);
-    // A linescore is three rows or it is nothing (header + both sides), so a
-    // short pane keeps the tile whole instead of showing a headless strip.
-    let linescore = linescore_lines(game).filter(|_| area.height >= 20);
-    let strip = if linescore.is_some() { 3 } else { 0 };
-    let tile_area = Rect { height: area.height - strip, ..area };
-    // v3.2 §7 deleted the packer; a zoom was always one tile filling the pane
-    // (the whole area, `Density::Full`), and the packer's narrow branch is
-    // the only other case a single tile could hit.
-    let density = if tile_area.width < 60 {
-        Density::Compact
-    } else {
-        Density::Full
-    };
-    {
-        render_tile(
-            frame,
-            tile_area,
-            game,
-            density,
-            true,
-            fx,
-            // Task 10 deleted `Config::score_style` — the board never read
-            // it, only this legacy tile does. Hardcoded until Task 13
-            // deletes the tile grammar wholesale.
-            crate::tiles::ScoreStyle::Big,
-        );
-    }
+    let hero_rows = HERO_ROWS.min(area.height);
+    let mut rest = area.height - hero_rows;
+    let linescore = linescore::lines(game).filter(|_| rest >= linescore::ROWS + FEED_MIN);
+    let ls_rows = if linescore.is_some() { linescore::ROWS } else { 0 };
+    rest -= ls_rows;
+    let matchup = matchup_line(game, area.width as usize).filter(|_| rest > FEED_MIN);
+    let matchup_rows = u16::from(matchup.is_some());
+    rest -= matchup_rows;
+
+    let now = app.now();
+    hero::draw_hero(
+        frame,
+        Rect { height: hero_rows, ..area },
+        game,
+        &hero::HeroPlan {
+            // The zoom is a full-width surface, so it takes the board's own
+            // >=100-col bracket for the big digits and the flanking marks.
+            // Spec §0 makes the marks hero-only and names TV, the cut and the
+            // row tiers as the logo-free surfaces; the zoom IS the hero
+            // block, at the width the marks were measured for.
+            digits_full: area.width >= 100,
+            chip: crate::rank::watchability(game, now).chip,
+            now,
+            pinned: app.pins.iter().any(|p| p.game_id == game.id),
+            favorite: app.is_my_game(game),
+            show_logos: area.width >= 100,
+            // Nothing is selectable inside a zoom.
+            selected: false,
+        },
+    );
+
+    let mut y = area.y + hero_rows;
     if let Some(lines) = linescore {
-        let rect = Rect {
-            y: area.y + area.height - strip,
-            height: strip,
-            ..area
-        };
         frame.render_widget(
             Paragraph::new(lines).style(Style::default().bg(theme::current().bg)),
-            rect,
+            Rect { y, height: ls_rows, ..area },
         );
+        y += ls_rows;
+    }
+    if let Some(line) = matchup {
+        frame.render_widget(
+            Paragraph::new(line).alignment(Alignment::Center),
+            Rect { y, height: 1, ..area },
+        );
+        y += matchup_rows;
+    }
+    if rest > 0 {
+        draw_feed(frame, Rect { y, height: rest, ..area }, game);
     }
 }
 
-/// Per-period line under the zoomed tile — the box-score row a scoreboard
-/// owes you: `   1  2  3 …  R`, then a row per side. Baseball adds `H E` from
-/// [`crate::domain::Extras::Baseball`]; every other sport stops at R.
-/// None when the feed carried no linescore.
-fn linescore_lines(game: &Game) -> Option<Vec<Line<'static>>> {
-    use crate::domain::Extras;
-    if game.linescore.is_empty() {
+/// Match events shown on the soccer line. Three fits inside 80 columns with
+/// surnames, and is the same count the play feeds elsewhere are given.
+const MATCH_EVENTS: usize = 3;
+
+/// Timeouts each side starts a half with (NFL and NBA rules). A feed value
+/// above it simply draws that many filled pips rather than lying about the
+/// total.
+const TIMEOUTS_PER_HALF: u8 = 3;
+
+/// The per-sport matchup/state line under the linescore (spec §5). Every
+/// string here comes from a field sub-project 1 mapped and nothing ever drew:
+/// `Situation::{pitcher,batter,due_up}`, `Game::timeouts`, and
+/// `Extras::Soccer::events`. `None` when the sport has no such line, or when
+/// the feed has not filled the fields it would be made of.
+fn matchup_line(game: &Game, width: usize) -> Option<Line<'static>> {
+    let th = theme::current();
+    let r = th.roles();
+    let label = Style::default().fg(r.dim);
+    let ink = Style::default().fg(r.ink).add_modifier(Modifier::BOLD);
+    let sep = || Span::styled("  ·  ", Style::default().fg(r.dim));
+    let team_color = |abbr: &str| {
+        let (a, h, _) = theme::hero_pair(&th, game.away.color, game.home.color);
+        if abbr.eq_ignore_ascii_case(&game.home.abbr) {
+            h
+        } else {
+            a
+        }
+    };
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    match game.league {
+        League::Mlb => {
+            let sit = game.situation.as_ref()?;
+            for (tag, who) in [("P: ", sit.pitcher.as_deref()), ("AB: ", sit.batter.as_deref())] {
+                let Some(who) = who.filter(|s| !s.is_empty()) else { continue };
+                if !spans.is_empty() {
+                    spans.push(sep());
+                }
+                spans.push(Span::styled(tag, label));
+                spans.push(Span::styled(who.to_string(), ink));
+            }
+            if !sit.due_up.is_empty() {
+                if !spans.is_empty() {
+                    spans.push(sep());
+                }
+                spans.push(Span::styled("DUE UP ", label));
+                spans.push(Span::styled(sit.due_up.join(", "), Style::default().fg(r.ink)));
+            }
+        }
+        League::Nfl | League::Cfb | League::Nba | League::Wnba | League::Cbb => {
+            let (away, home) = game.timeouts?;
+            spans.push(Span::styled("TIMEOUTS ", label));
+            spans.push(Span::styled(pips(away), Style::default().fg(r.ink)));
+            spans.push(Span::styled(" │ ", Style::default().fg(r.dim)));
+            spans.push(Span::styled(pips(home), Style::default().fg(r.ink)));
+            // `KC BALL` is the hero fragment line's last phrase whenever the
+            // hero has one (football), and the zoom's 12-row bracket always
+            // draws it — printing it again three rows down read as two
+            // different claims. So possession is this line's business only
+            // for the sports the hero says nothing about (basketball).
+            if let Some(poss) = hero::fragment_line(game)
+                .is_none()
+                .then(|| game.situation.as_ref().and_then(|s| s.possession.as_deref()))
+                .flatten()
+                .filter(|s| !s.is_empty())
+            {
+                spans.push(sep());
+                spans.push(Span::styled(
+                    format!("{} BALL", poss.to_uppercase()),
+                    Style::default().fg(team_color(poss)).add_modifier(Modifier::BOLD),
+                ));
+            }
+        }
+        League::Epl | League::Mls => {
+            let Extras::Soccer { events } = &game.extras else {
+                return None;
+            };
+            if events.is_empty() {
+                return None;
+            }
+            // Newest last, three at most: the line is the shape of the match,
+            // not its log — the PLAYS tab has the whole thing.
+            for ev in &events[events.len().saturating_sub(MATCH_EVENTS)..] {
+                if !spans.is_empty() {
+                    spans.push(sep());
+                }
+                spans.push(Span::styled(format!("{} ", ev.minute), Style::default().fg(th.clock())));
+                spans.push(Span::styled(
+                    format!("{} ", event_letter(ev.kind)),
+                    Style::default().fg(team_color(&ev.team)).add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(ev.player.clone(), Style::default().fg(r.ink)));
+            }
+        }
+        League::Nhl => return None,
+    }
+    if spans.is_empty() {
         return None;
     }
+    // Drop whole trailing spans rather than clip a name in half.
+    let mut used = 0usize;
+    let mut out: Vec<Span<'static>> = Vec::new();
+    for span in spans {
+        let w = span.content.chars().count();
+        if used + w > width {
+            break;
+        }
+        used += w;
+        out.push(span);
+    }
+    (!out.is_empty()).then(|| Line::from(out))
+}
+
+/// Terminal-legal event letters — never emoji, which are double-width on
+/// some terminals and blank on others (the global terminal rule).
+fn event_letter(kind: EventKind) -> &'static str {
+    match kind {
+        EventKind::Goal => "G",
+        EventKind::OwnGoal => "OG",
+        EventKind::Penalty => "PEN",
+        EventKind::Yellow => "Y",
+        EventKind::Red => "R",
+        EventKind::Sub => "SUB",
+    }
+}
+
+/// Timeouts remaining as filled/empty pips against [`TIMEOUTS_PER_HALF`].
+fn pips(left: u8) -> String {
+    (0..left.max(TIMEOUTS_PER_HALF))
+        .map(|i| if i < left { '●' } else { '○' })
+        .collect()
+}
+
+/// LAST PLAYS over the game's feed, then SCORING over `game.scoring_plays` —
+/// the two sections the old focus tile ended with, unchanged in content.
+fn draw_feed(frame: &mut Frame, area: Rect, game: &Game) {
     let th = theme::current();
-    // Baseball's hits/errors ride the same row as R; other sports have none.
-    let (hits, errors) = match &game.extras {
-        Extras::Baseball { hits, errors } => (*hits, *errors),
-        _ => (None, None),
-    };
-    let cell = |s: String| format!("{s:>3}");
-    let mut head = format!("{:<5}", "");
-    let mut away = format!("{:<5}", game.away.abbr);
-    let mut home = format!("{:<5}", game.home.abbr);
-    for (i, (a, h)) in game.linescore.iter().enumerate() {
-        head.push_str(&cell((i + 1).to_string()));
-        away.push_str(&cell(a.to_string()));
-        home.push_str(&cell(h.to_string()));
-    }
-    // Totals are the game's own score, not a sum of the periods: a feed can
-    // hand us a partial linescore and the score is still the truth.
-    head.push_str(&format!("{:>4}", "R"));
-    away.push_str(&format!("{:>4}", game.away_score));
-    home.push_str(&format!("{:>4}", game.home_score));
-    for (label, pair) in [("H", hits), ("E", errors)] {
-        let Some((a, h)) = pair else { continue };
-        head.push_str(&cell(label.to_string()));
-        away.push_str(&cell(a.to_string()));
-        home.push_str(&cell(h.to_string()));
-    }
-    let team_row = |text: String, color: [u8; 3]| {
+    let r = th.roles();
+    let width = area.width as usize;
+    let rule = || {
         Line::from(Span::styled(
-            text,
-            Style::default().fg(th.team_text(color)).add_modifier(Modifier::BOLD),
+            "─".repeat(width.saturating_sub(2)),
+            Style::default().fg(r.cool),
         ))
     };
-    Some(vec![
-        Line::from(Span::styled(head, Style::default().fg(th.muted))),
-        team_row(away, game.away.color),
-        team_row(home, game.home.color),
-    ])
+    let mut lines: Vec<Line<'static>> = vec![
+        rule(),
+        Line::from(Span::styled(
+            " LAST PLAYS",
+            Style::default()
+                .fg(th.section_label(th.league_accent(game.league)))
+                .add_modifier(Modifier::BOLD),
+        )),
+    ];
+    if game.last_plays.is_empty() {
+        // A pre-game zoom has no plays; its line is the betting line (dim —
+        // odds are context, never chrome-loud).
+        let empty = match (&game.status, &game.odds) {
+            (Status::Pre, Some(odds)) => format!(" {odds}"),
+            _ => " no plays yet".to_string(),
+        };
+        lines.push(Line::from(Span::styled(empty, Style::default().fg(r.dim))));
+    } else {
+        // Half of what is left after the two headers and the SCORING rule
+        // goes to the live feed, so a long drive can never push SCORING off
+        // the pane.
+        let room = ((area.height as usize).saturating_sub(4) / 2).max(1);
+        lines.extend(
+            game.last_plays
+                .iter()
+                .take(room)
+                .map(|p| tiles::play_line(game, p, width)),
+        );
+    }
+    lines.push(rule());
+    lines.push(Line::from(Span::styled(
+        " SCORING",
+        Style::default().fg(r.hot).add_modifier(Modifier::BOLD),
+    )));
+    let word = theme::scoring_word(game.league);
+    for p in game.scoring_plays.iter().rev() {
+        let color = if p.team.eq_ignore_ascii_case(&game.away.abbr) {
+            th.team_text(game.away.color)
+        } else {
+            th.team_text(game.home.color)
+        };
+        let head = format!(" [{}] {:<3} ", tiles::play_stamp(p), p.team);
+        let used = head.chars().count() + word.chars().count() + 1;
+        lines.push(Line::from(vec![
+            Span::styled(head, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{word} "), Style::default().fg(r.hot).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                truncate(&p.text, width.saturating_sub(used + 1)),
+                Style::default().fg(r.ink),
+            ),
+        ]));
+    }
+    if game.scoring_plays.is_empty() {
+        lines.push(Line::from(Span::styled(" no scoring yet", Style::default().fg(r.dim))));
+    }
+    lines.truncate(area.height as usize);
+    frame.render_widget(
+        Paragraph::new(lines).style(Style::default().bg(th.bg)),
+        area,
+    );
 }
 
 /// Full play feed for this game (its `last_plays`, newest first as mapped);

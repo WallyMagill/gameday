@@ -2370,3 +2370,194 @@ fn every_scoring_play_takes_the_screen_in_tv() {
 }
 
 
+
+// ---------------------------------------------------------------- zoom (§5)
+// The Overview tab is hero + linescore + a per-sport matchup line, which is
+// where sub-project 1's mapped-but-never-drawn fields (situation.pitcher /
+// batter / due_up, Game.timeouts, Extras::Soccer.events) finally render.
+
+fn zoom_team(league: &str, abbr: &str, color: [u8; 3]) -> Team {
+    Team {
+        id: abbr.into(),
+        abbr: abbr.into(),
+        name: abbr.into(),
+        color,
+        alt_color: [255, 255, 255],
+        // No committed art under these keys, so the hero draws no flanks and
+        // the only `█` cells in the frame are the score glyphs.
+        logo_key: format!("{league}/{}", abbr.to_lowercase()),
+        ..Default::default()
+    }
+}
+
+fn mlb_zoom_game() -> Game {
+    Game {
+        id: "m1".into(),
+        league: League::Mlb,
+        away: zoom_team("mlb", "SEA", [0, 92, 92]),
+        home: zoom_team("mlb", "BOS", [189, 48, 57]),
+        away_score: 4,
+        home_score: 3,
+        status: Status::Live,
+        period: "B7".into(),
+        clock: String::new(),
+        situation: Some(Situation {
+            down_distance: "2 OUT · 1-2".into(),
+            balls: Some(1),
+            strikes: Some(2),
+            outs: Some(2),
+            on_base: Some([true, false, true]),
+            pitcher: Some("G. Kirby".into()),
+            batter: Some("R. Devers".into()),
+            due_up: vec![
+                "A. Riley (2-3, HR)".into(),
+                "J. Duran (1-4)".into(),
+                "T. Story (0-3)".into(),
+            ],
+            ..Default::default()
+        }),
+        meter: Some(Meter::Diamond { occupied: [true, false, true] }),
+        last_plays: vec![Play {
+            period: "B7".into(),
+            team: "BOS".into(),
+            text: "Devers singles to right field".into(),
+            ..Default::default()
+        }],
+        linescore: vec![(0, 1), (2, 0), (0, 0), (1, 1), (0, 0), (1, 0), (0, 1)],
+        extras: Extras::Baseball { hits: Some((8, 7)), errors: Some((0, 1)) },
+        ..Game::default()
+    }
+}
+
+/// The score glyphs of a rendered frame, cropped to their bounding box:
+/// every `█` cell with its fg. Position-independent, so the same score drawn
+/// at two different y offsets compares equal.
+fn digit_grid(term: &Terminal<TestBackend>) -> Vec<Vec<(String, ratatui::style::Color)>> {
+    let b = term.backend().buffer();
+    let area = b.area();
+    let mut cells = Vec::new();
+    for y in 0..area.height {
+        for x in 0..area.width {
+            if b[(x, y)].symbol() == "█" {
+                cells.push((x, y));
+            }
+        }
+    }
+    assert!(!cells.is_empty(), "no score glyphs were drawn at all");
+    let (x0, x1) = (
+        cells.iter().map(|c| c.0).min().unwrap(),
+        cells.iter().map(|c| c.0).max().unwrap(),
+    );
+    let (y0, y1) = (
+        cells.iter().map(|c| c.1).min().unwrap(),
+        cells.iter().map(|c| c.1).max().unwrap(),
+    );
+    (y0..=y1)
+        .map(|y| {
+            (x0..=x1)
+                .map(|x| (b[(x, y)].symbol().to_string(), b[(x, y)].fg))
+                .collect()
+        })
+        .collect()
+}
+
+fn zoomed(app: &mut App, game: &Game) {
+    use gameday::views::{View, ZoomTab};
+    app.view = View::Zoom { game_id: game.id.clone(), tab: ZoomTab::Overview };
+}
+
+#[test]
+fn zoom_overview_reuses_the_hero_and_shows_the_matchup_line() {
+    let game = mlb_zoom_game();
+    let mut app = mk();
+    app.apply_boards(League::Mlb, vec![game.clone()], false);
+    app.tab = Tab::League(League::Mlb);
+
+    // The board's hero for this game.
+    let mut board = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    board.draw(|f| app.draw(f)).unwrap();
+    let board_digits = digit_grid(&board);
+
+    zoomed(&mut app, &game);
+    let mut zoom = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    zoom.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&zoom);
+
+    // Spec §5: the matchup line, from fields the mapper has filled since v3.1.
+    assert!(s.contains("P: G. Kirby"), "pitcher missing:\n{s}");
+    assert!(s.contains("AB: R. Devers"), "batter missing:\n{s}");
+    assert!(s.contains("DUE UP"), "due up missing:\n{s}");
+    assert!(s.contains("A. Riley"), "the first due-up hitter missing:\n{s}");
+    // …and the linescore table.
+    assert!(
+        s.lines().any(|l| l.contains("SEA") && l.trim_end().ends_with(" 0")),
+        "away linescore row (R H E ending in E=0) missing:\n{s}"
+    );
+    assert!(s.contains("LAST PLAYS"), "the feed survived the rebuild:\n{s}");
+
+    // Spec §1's hard rule: one score formatter. The zoom hero IS the board
+    // hero, so the digits match cell for cell — chars and colors.
+    assert_eq!(
+        digit_grid(&zoom),
+        board_digits,
+        "the zoom hero's digits differ from the board hero's for the same game"
+    );
+}
+
+#[test]
+fn football_zoom_shows_timeouts_and_possession() {
+    let mut game = g("1", "KC", "TB", true);
+    game.timeouts = Some((2, 3));
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![game.clone()], false);
+    app.tab = Tab::League(League::Nfl);
+    zoomed(&mut app, &game);
+    let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("TIMEOUTS"), "timeouts label missing:\n{s}");
+    assert!(
+        s.contains("●●○ │ ●●●"),
+        "2-of-3 away / 3-of-3 home pips missing:\n{s}"
+    );
+    // The hero's fragment line owns `KC BALL` on football; the matchup line
+    // must not print a second copy of it three rows down.
+    assert_eq!(s.matches("KC BALL").count(), 1, "possession said twice:\n{s}");
+}
+
+#[test]
+fn soccer_zoom_lists_match_events_with_minute_and_letter() {
+    let mut game = g("s1", "NFO", "NEW", true);
+    game.league = League::Epl;
+    game.away = zoom_team("epl", "NFO", [221, 0, 0]);
+    game.home = zoom_team("epl", "NEW", [45, 41, 38]);
+    game.away_score = 1;
+    game.home_score = 2;
+    game.period = "70'".into();
+    game.clock = String::new();
+    game.situation = None;
+    game.meter = None;
+    game.extras = Extras::Soccer {
+        events: vec![
+            MatchEvent { minute: "12'".into(), kind: EventKind::Yellow, team: "NEW".into(), player: "B. Burn".into() },
+            MatchEvent { minute: "24'".into(), kind: EventKind::Goal, team: "NEW".into(), player: "D. Ndoye".into() },
+            MatchEvent { minute: "61'".into(), kind: EventKind::Yellow, team: "NFO".into(), player: "O. Aina".into() },
+            MatchEvent { minute: "70'".into(), kind: EventKind::Penalty, team: "NFO".into(), player: "M. Gibbs-White".into() },
+        ],
+    };
+    let mut app = mk();
+    app.apply_boards(League::Epl, vec![game.clone()], false);
+    app.tab = Tab::League(League::Epl);
+    zoomed(&mut app, &game);
+    let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    // The last three events, newest last, letters not emoji (terminal-legal).
+    assert!(s.contains("24' G D. Ndoye"), "goal event missing:\n{s}");
+    assert!(s.contains("61' Y O. Aina"), "card event missing:\n{s}");
+    assert!(s.contains("70' PEN M. Gibbs-White"), "penalty event missing:\n{s}");
+    assert!(!s.contains("12' Y B. Burn"), "only the last three events:\n{s}");
+    for emoji in ['⚽', '🟨', '🟥'] {
+        assert!(!s.contains(emoji), "emoji {emoji} in a terminal frame:\n{s}");
+    }
+}
