@@ -88,6 +88,8 @@ Every non-board screen converts to the board's grammar in one wave:
 - C. As B, plus a `:tv all` toggle to restore A per-session.
 Recommendation: **B** — TV's job is watching one game with awareness of the rest; the band preserves awareness without hijacking the jumbotron. C is B with a knob we can add later if the live feel demands it (YAGNI now).
 
+Direction (Walter, 2026-09-03): **B** — full takeover in TV only for the shown game and MY GAMES teams; other scores band over TV. Reasoning: TV is for watching one game with awareness. Reopens if the live feel shows the band under-serves big moments.
+
 ## §10 Non-goals
 
 - No provider/data-mapping changes (sub-project 4).
