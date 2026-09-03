@@ -7,6 +7,8 @@
 //! `meter_line` is the inline gauge the hero and the zoom draw, and
 //! `play_stamp`/`play_line` format one play row for the zoom's feed.
 
+pub mod quad_digits;
+
 use crate::domain::{Game, Meter};
 use crate::text::truncate;
 use crate::theme;

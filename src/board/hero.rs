@@ -288,6 +288,60 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
 /// line, the meter row, the last play. Every row below the band is optional
 /// and is charged only while the band keeps [`DIGIT_FLOOR_ROWS`] — that is
 /// the "hero shrinks last" ladder applied inside the hero itself.
+/// How a hero `area` splits: the digit band's row count, then which of
+/// fragment / meter / play survived under it. The one place the split is
+/// computed — [`draw_hero`] draws it and [`band_rect`] reports it, so a
+/// caller asking *where the digits are* can never disagree with the draw.
+///
+/// Ruling R29: the digits are charged FIRST. The bracket asked for a form
+/// (`digits_full`), so the band reserves the rows that form needs and the
+/// optional rows below split whatever is left. The Full → sextant → text
+/// ladder is for brackets too short to hold the form — never something a
+/// meter row can take away. (Before this, the flagship 10-row bracket spent
+/// three rows on options and rendered sextants.)
+///
+/// Keep order, ruling R30: fragment → meter → play. The fragment carries the
+/// only down-and-distance on screen; the meter's own label repeats the chip
+/// ("RED ZONE" twice at the 6-row bracket), so it yields first of the two,
+/// and the play stamp is the last nice-to-have.
+fn row_plan(area: Rect, have: [bool; 3], digits_full: bool) -> (u16, [bool; 3]) {
+    let under_nameplate = area.height.saturating_sub(1);
+    let full_rows = tiles::glyph_cell(true).1;
+    let digit_rows = if digits_full && under_nameplate >= full_rows {
+        full_rows
+    } else if under_nameplate >= DIGIT_FLOOR_ROWS {
+        DIGIT_FLOOR_ROWS
+    } else {
+        under_nameplate.min(1)
+    };
+    let mut spare = under_nameplate - digit_rows;
+    let mut want = have;
+    for slot in &mut want {
+        if *slot && spare > 0 {
+            spare -= 1;
+        } else {
+            *slot = false;
+        }
+    }
+    // Rows the options declined stay with the band, so a taller-than-bracket
+    // hero grows its digits' breathing room rather than stranding rows.
+    (under_nameplate - want.iter().filter(|w| **w).count() as u16, want)
+}
+
+/// The digit band inside a hero `area` — the rect [`draw_hero`] hands
+/// [`score_block`] and [`score_columns`]. Public so a caller that needs to
+/// find the score on an already-rendered hero (the v3.3 gate captures) reads
+/// the geometry instead of guessing at it.
+pub fn band_rect(area: Rect, game: &Game, digits_full: bool) -> Rect {
+    let have = [
+        fragment_line(game).is_some(),
+        tiles::meter_line(game, area.width as usize).is_some(),
+        !game.last_plays.is_empty(),
+    ];
+    let (band_rows, _) = row_plan(area, have, digits_full);
+    Rect { y: area.y + 1, height: band_rows, ..area }
+}
+
 pub fn draw_hero(frame: &mut Frame, area: Rect, game: &Game, plan: &HeroPlan) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -299,38 +353,12 @@ pub fn draw_hero(frame: &mut Frame, area: Rect, game: &Game, plan: &HeroPlan) {
     let meter = tiles::meter_line(game, area.width as usize);
     let play = game.last_plays.first().map(|p| p.text.clone());
 
-    // Ruling R29: the digits are charged FIRST. The bracket asked for a form
-    // (`digits_full`), so the band reserves the rows that form needs and the
-    // optional rows below split whatever is left. The Full → sextant → text
-    // ladder is for brackets too short to hold the form — never something a
-    // meter row can take away. (Before this, the flagship 10-row bracket
-    // spent three rows on options and rendered sextants.)
-    let under_nameplate = area.height.saturating_sub(1);
-    let full_rows = tiles::glyph_cell(true).1;
-    let digit_rows = if plan.digits_full && under_nameplate >= full_rows {
-        full_rows
-    } else if under_nameplate >= DIGIT_FLOOR_ROWS {
-        DIGIT_FLOOR_ROWS
-    } else {
-        under_nameplate.min(1)
-    };
-    // Keep order, ruling R30: fragment → meter → play. The fragment carries
-    // the only down-and-distance on screen; the meter's own label repeats the
-    // chip ("RED ZONE" twice at the 6-row bracket), so it yields first of the
-    // two, and the play stamp is the last nice-to-have.
-    let mut spare = under_nameplate - digit_rows;
-    let mut want = [fragment.is_some(), meter.is_some(), play.is_some()];
-    for slot in &mut want {
-        if *slot && spare > 0 {
-            spare -= 1;
-        } else {
-            *slot = false;
-        }
-    }
+    let (band_rows, want) = row_plan(
+        area,
+        [fragment.is_some(), meter.is_some(), play.is_some()],
+        plan.digits_full,
+    );
     let [show_fragment, show_meter, show_play] = want;
-    // Rows the options declined stay with the band, so a taller-than-bracket
-    // hero grows its digits' breathing room rather than stranding rows.
-    let band_rows = under_nameplate - want.iter().filter(|w| **w).count() as u16;
 
     let name_row = Rect { height: 1, ..area };
     let half = area.width / 2;
@@ -395,7 +423,13 @@ pub fn draw_hero(frame: &mut Frame, area: Rect, game: &Game, plan: &HeroPlan) {
 /// filled background. `taken` is a band row the score already owns; the
 /// column steps around it, because a clock written over the score is worse
 /// than no clock at all.
-fn draw_center_column(frame: &mut Frame, band: Rect, game: &Game, plan: &HeroPlan, taken: Option<u16>) {
+pub(crate) fn draw_center_column(
+    frame: &mut Frame,
+    band: Rect,
+    game: &Game,
+    plan: &HeroPlan,
+    taken: Option<u16>,
+) {
     let th = theme::current();
     let r = th.roles();
     let third = band.width / 3;
@@ -826,6 +860,40 @@ mod tests {
         assert_eq!((tier.hero_rows, tier.hero_digits_full), (2, false));
         let term = render(55, tier.hero_rows, &game, &plan());
         assert!(text_of(term.backend().buffer()).contains("24 - 21"));
+    }
+
+    /// `band_rect` is the public answer to "where are the digits?", and the
+    /// v3.3 gate captures overpaint exactly that rect. If it and `draw_hero`
+    /// ever disagree, a capture silently lies about what it is comparing.
+    #[test]
+    fn band_rect_is_the_band_draw_hero_actually_uses() {
+        let th = theme::current();
+        for game in [nfl_game(), mlb_game()] {
+            let (away_color, ..) = theme::hero_pair(&th, game.away.color, game.home.color);
+            // Every bracket that draws a glyph form; the text arm has no
+            // band to speak of (it lies across the whole width by design).
+            for (w, h) in [(120u16, 12u16), (100, 10), (80, 6), (80, 5), (60, 4)] {
+                let mut p = plan();
+                p.digits_full = h >= 10;
+                let band = band_rect(Rect { x: 0, y: 0, width: w, height: h }, &game, p.digits_full);
+                let term = render(w, h, &game, &p);
+                let buf = term.backend().buffer();
+                let inked: Vec<u16> = (0..h)
+                    // 4+ away-colored cells in the left third is a digit row;
+                    // the nameplate's `KC` and the flank art never reach it.
+                    .filter(|y| (0..w / 3).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 4)
+                    .collect();
+                assert!(!inked.is_empty(), "no away digits at {w}x{h}\n{}", text_of(buf));
+                assert!(
+                    inked.iter().all(|y| (band.y..band.bottom()).contains(y)),
+                    "{w}x{h}: digits on rows {inked:?}, band_rect says {}..{}\n{}",
+                    band.y,
+                    band.bottom(),
+                    text_of(buf)
+                );
+                assert!(band.y == 1 && band.bottom() <= h, "{w}x{h}: band {band:?} escapes the hero");
+            }
+        }
     }
 
     #[test]

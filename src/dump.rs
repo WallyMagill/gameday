@@ -40,8 +40,9 @@ use crate::theme;
 use crate::views::{View, ZoomTab};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
-use ratatui::style::{Color, Modifier};
-use ratatui::Terminal;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::{Frame, Terminal};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -65,6 +66,17 @@ pub struct Variant {
     /// frames all moved with a flag would stop being one.
     pub tick: Option<u64>,
     setup: fn(&mut App),
+    /// Ran over the finished frame, after `app.draw`. The v3.3 digit gate is
+    /// the only user: it repaints the hero's score band with a *candidate*
+    /// mid-size form so the three `gate-digits-*` captures differ in the
+    /// digits and nothing else.
+    ///
+    /// This is why the hook is a field on `Variant` and not a flag on
+    /// [`crate::board::hero::score_block`]: `Variant` is constructed only by
+    /// [`gallery`], the product path never builds one, and `App::draw` is
+    /// handed no capture state at all. The one-formatter rule (spec §1) is
+    /// intact — the shipping score renderer gained no variant.
+    overlay: Option<fn(&mut Frame, &App)>,
 }
 
 /// `board-<theme>` stems, one per built-in, in `BUILTIN_NAMES` order. Static
@@ -190,6 +202,7 @@ pub fn gallery() -> Vec<Variant> {
         theme,
         tick: None,
         setup,
+        overlay: None,
     };
     let sized = |stem, cols, rows, setup| Variant {
         stem,
@@ -198,6 +211,7 @@ pub fn gallery() -> Vec<Variant> {
         theme: "broadcast",
         tick: None,
         setup,
+        overlay: None,
     };
     let at_tick = |stem, tick| Variant {
         stem,
@@ -206,6 +220,21 @@ pub fn gallery() -> Vec<Variant> {
         theme: "broadcast",
         tick: Some(tick),
         setup: home as fn(&mut App),
+        overlay: None,
+    };
+    // The v3.3 mid-size digit gate (spec §1b). Three captures of the SAME
+    // 80×24 board — the size where the spec says the score stops resolving —
+    // differing only in how the hero's score is drawn. `Variant` already
+    // carried per-stem `cols`/`rows` (`board-narrow` is 80×24), so the gate
+    // needed no size mechanism at all: `sized` is it.
+    let gate = |stem, overlay| Variant {
+        stem,
+        cols: GATE_COLS,
+        rows: GATE_ROWS,
+        theme: "broadcast",
+        tick: None,
+        setup: home as fn(&mut App),
+        overlay,
     };
     let mut out: Vec<Variant> = BOARD_STEMS
         .iter()
@@ -231,8 +260,118 @@ pub fn gallery() -> Vec<Variant> {
         at_tick("nudge-seq-1", crate::sim::NUDGE_TICK - 1),
         at_tick("nudge-seq-2", crate::sim::NUDGE_TICK),
         at_tick("nudge-seq-3", crate::sim::NUDGE_TICK + 1),
+        gate("gate-digits-current", None),
+        gate("gate-digits-quad", Some(gate_quad as fn(&mut Frame, &App))),
+        gate("gate-digits-text", Some(gate_text as fn(&mut Frame, &App))),
     ]);
     out
+}
+
+/// The gate frames' size. 80×24 is the bracket the v3.3 spec names as the
+/// defect ("at 80×24 the hero digits don't resolve into a readable number") —
+/// and it is the size `board-narrow` already captures, so the gate is
+/// comparing against a frame the gallery has been shipping all along.
+const GATE_COLS: u16 = 80;
+const GATE_ROWS: u16 = 24;
+
+/// The hero on a frame the app just drew: its rect, the game in it, and the
+/// digit form the bracket asked for.
+///
+/// The rect is read back from the click zones the board registers — the board
+/// pushes `Hit::Row(i)` for every block it draws, and `i` indexes
+/// `Derived::selection`, so the hero's own rect is exact rather than guessed.
+fn hero_zone(app: &App) -> Option<(Rect, crate::domain::Game, bool)> {
+    let d = app.derive();
+    let hero_id = d.hero_id.clone()?;
+    let i = d.selection.iter().position(|g| g.id == hero_id)?;
+    let rect = app.hit_zones.iter().find_map(|(r, hit)| match hit {
+        crate::keymap::Hit::Row(j) if *j == i => Some(*r),
+        _ => None,
+    })?;
+    // `TierPlan::hero_digits_full` was computed over the *board* rect, which
+    // is not reachable from a finished frame — so read the answer off the
+    // hero's own height, using `draw_hero`'s own condition: Full digits are
+    // drawn only when the rows under the nameplate can hold an 8-row glyph.
+    let digits_full = rect.height.saturating_sub(1) >= crate::tiles::glyph_cell(true).1;
+    Some((rect, d.selection[i].clone(), digits_full))
+}
+
+/// Paint `rect` back to the theme's ground — the same fill `App::draw_frame`
+/// lays down before anything else, so a repainted band is indistinguishable
+/// from one that was never drawn on.
+fn erase(frame: &mut Frame, rect: Rect) {
+    let th = theme::current();
+    // `Block`'s style alone only re-styles the cells it covers — the symbols
+    // underneath survive, which left the old digits legible through the new
+    // ones. `Clear` blanks the symbols; the block puts the ground back.
+    frame.render_widget(ratatui::widgets::Clear, rect);
+    frame.render_widget(
+        ratatui::widgets::Block::default().style(Style::default().bg(th.bg).fg(th.fg)),
+        rect,
+    );
+}
+
+/// The hero's band and the plan the center column needs, for a gate overlay.
+fn gate_band(app: &App) -> Option<(Rect, crate::domain::Game, crate::board::hero::HeroPlan)> {
+    let (hero, game, digits_full) = hero_zone(app)?;
+    let band = crate::board::hero::band_rect(hero, &game, digits_full);
+    let plan = crate::board::hero::HeroPlan {
+        digits_full,
+        chip: crate::rank::watchability(&game, app.now()).chip,
+        now: app.now(),
+        pinned: false,
+        favorite: false,
+        // The gate is at 80 cols, under the board's own 100-col flank floor.
+        show_logos: false,
+        selected: false,
+    };
+    Some((band, game, plan))
+}
+
+/// `gate-digits-quad`: the same 80×24 board, with the hero's score redrawn in
+/// the candidate quadrant-block form. The nameplates, meter, play row and
+/// everything below the hero are the real board's, untouched; the center
+/// column is redrawn by the hero's own `draw_center_column`, so the only
+/// thing that differs from `gate-digits-current` is the digits themselves.
+///
+/// The band grows to [`quad_digits::QUAD_ROWS`], which at this bracket costs
+/// the fragment line one row — that cost is part of what the gate is asking
+/// about, so it is shown rather than hidden.
+fn gate_quad(frame: &mut Frame, app: &App) {
+    let Some((band, game, plan)) = gate_band(app) else {
+        return;
+    };
+    use crate::tiles::quad_digits::{quad_digits, quad_size, QUAD_ROWS};
+    let band = Rect { height: band.height.max(QUAD_ROWS), ..band };
+    erase(frame, band);
+    let th = theme::current();
+    let (away_color, home_color, _) = theme::hero_pair(&th, game.away.color, game.home.color);
+    let third = band.width / 3;
+    let (aw, _) = quad_size(u32::from(game.away_score));
+    let (hw, _) = quad_size(u32::from(game.home_score));
+    let y = band.y + (band.height - QUAD_ROWS) / 2;
+    // Away right-aligned in the left third, home left-aligned in the right
+    // third — the mirror `score_spots` draws, at the new cell size.
+    let away = Rect { x: band.x + third.saturating_sub(aw), y, width: aw, height: QUAD_ROWS };
+    let home = Rect { x: band.right() - third, y, width: hw, height: QUAD_ROWS };
+    quad_digits(frame, away, u32::from(game.away_score), away_color);
+    quad_digits(frame, home, u32::from(game.home_score), home_color);
+    crate::board::hero::draw_center_column(frame, band, &game, &plan, None);
+}
+
+/// `gate-digits-text`: the honest bottom of the ladder. No new renderer and
+/// no flag — `score_block` is handed a band too short for any glyph form, so
+/// it takes its own text arm (`24 - 21`, bold, team-colored) exactly as it
+/// does on a real terminal that ran out of rows.
+fn gate_text(frame: &mut Frame, app: &App) {
+    let Some((band, game, plan)) = gate_band(app) else {
+        return;
+    };
+    erase(frame, band);
+    // Two rows is under the sextant floor, so `score_spots` returns `Text`.
+    let short = Rect { height: 2, ..band };
+    crate::board::hero::score_block(frame, short, &game, false);
+    crate::board::hero::draw_center_column(frame, band, &game, &plan, Some(short.y));
 }
 
 /// Run `f` with `name` as the current theme, restoring the caller's theme
@@ -304,7 +443,12 @@ pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
         let mut app = demo_app(dir, tick);
         (v.setup)(&mut app);
         let mut term = Terminal::new(TestBackend::new(v.cols, v.rows))?;
-        term.draw(|f| app.draw(f))?;
+        term.draw(|f| {
+            app.draw(f);
+            if let Some(overlay) = v.overlay {
+                overlay(f, &app);
+            }
+        })?;
         Ok(term.backend().buffer().clone())
     })
 }
@@ -674,9 +818,50 @@ mod tests {
                 "nudge-seq-1",
                 "nudge-seq-2",
                 "nudge-seq-3",
+                // Ruling R38: the gate stems JOIN this list while they exist.
+                // They are a temporary sitting artifact — when v3.3 §1b picks
+                // a mid-size form, the two losers and this entry go together.
+                "gate-digits-current",
+                "gate-digits-quad",
+                "gate-digits-text",
             ],
             "gallery stems are a stable contract for other tasks"
         );
+    }
+
+    /// The gate is only a gate if the three frames differ in the score and
+    /// agree on everything else: same size, same board, same hero.
+    #[test]
+    fn the_three_gate_frames_differ_only_in_how_the_score_is_drawn() {
+        let names = ["gate-digits-current", "gate-digits-quad", "gate-digits-text"];
+        let frames: Vec<Vec<String>> = names
+            .iter()
+            .map(|s| {
+                let v = variant(s);
+                assert_eq!((v.cols, v.rows), (GATE_COLS, GATE_ROWS), "{s} is not a gate size");
+                text_of(&render_variant(&v, 0).unwrap()).lines().map(String::from).collect()
+            })
+            .collect();
+        // Every frame is the same board: the nameplate row and everything
+        // below the hero are identical, so the eye is comparing digits.
+        for f in &frames {
+            assert_eq!(f.len(), GATE_ROWS as usize);
+        }
+        let differing: Vec<usize> = (0..GATE_ROWS as usize)
+            .filter(|y| frames[0][*y] != frames[1][*y] || frames[0][*y] != frames[2][*y])
+            .collect();
+        assert!(
+            !differing.is_empty() && differing.len() <= 5,
+            "gate frames must differ in the hero band only, differ in rows {differing:?}"
+        );
+        // The quad frame really is drawn from the quadrant table, and the
+        // text frame really is `score_block`'s bold `24 - 21` arm.
+        let quad = frames[1].join("\n");
+        let text = frames[2].join("\n");
+        assert!(quad.contains("█▀█") || quad.contains("▀▀█"), "quad frame has no quad digits:\n{quad}");
+        assert!(text.contains(" - "), "text frame has no `N - N` score:\n{text}");
+        // …and the current frame is neither: it is today's sextant hero.
+        assert!(!frames[0].join("\n").contains("█▀█"), "current frame must be untouched");
     }
 
     #[test]
