@@ -2,7 +2,7 @@
 //! functions of the Game — the clock grammar strings come straight from the
 //! mapper (fixtures verified per league), and an unparsed string scores 0 so
 //! bad data can never lead the board (spec §2).
-use crate::domain::{Game, League, Meter, Status};
+use crate::domain::{Extras, Game, League, Meter, Status};
 use std::collections::HashMap;
 use time::OffsetDateTime;
 
@@ -253,7 +253,26 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             }
         }
         League::Nhl => {
-            if matches!(g.meter, Some(Meter::Penalty { .. })) {
+            // R49: real NHL strength is summary-derived, and the summary
+            // lands only for the game the viewer has zoomed. Scoring it
+            // would put a POWER PLAY chip and the hot flag on that one board
+            // row while an identical unzoomed power play three rows down
+            // wore nothing — a board that changes with where the viewer has
+            // been looking, and an ordering bonus only the zoomed game could
+            // earn. So no real penalty meter is ever stored on a `Game`
+            // (`Extras::penalty_meter` is derived at the zoom instead), and
+            // this arm refuses one anyway if a future change puts it there:
+            // `Extras::Hockey` is the receipt that the data came from a
+            // summary, built by the same mapper in the same place.
+            //
+            // What is left firing is demo and sim data (`demo.rs`,
+            // `sim.rs`), which set a penalty meter with no `Extras::Hockey`
+            // — so the gallery keeps its showcase. Real NHL strength reaches
+            // the board when the October scoreboard probe says which field
+            // carries it; promotion is additive and this arm is where it
+            // lands.
+            let summary_derived = matches!(g.extras, Extras::Hockey { .. });
+            if !summary_derived && matches!(g.meter, Some(Meter::Penalty { .. })) {
                 bonus!(25, Some("POWER PLAY"));
             }
         }

@@ -1067,10 +1067,13 @@ fn nhl_strength_is_structural_and_current() {
     // minor at 15:37 (the 702 tail is PIT's play at 16:56, inside the two
     // minutes), and `seconds` is the nominal length, not time remaining.
     assert_eq!(
-        s.meter,
+        s.extras.penalty_meter(),
         Some(Meter::Penalty { team_abbr: "WSH".into(), seconds: 120 }),
         "the special-teams tail builds the penalty meter"
     );
+    // R49: derived on demand, never stored on the shared game — the board
+    // and :tv read `game.meter` and must not see a zoom-only state.
+    assert_eq!(s.meter, None, "the summary carries no meter of its own");
 }
 
 #[test]
@@ -1079,7 +1082,8 @@ fn a_finished_game_has_no_penalty_meter() {
     // carries: the fixture's game-ending play is 701, so nothing is being
     // served and no meter is built.
     let json = include_str!("../fixtures/live/nhl_summary_final_full.json");
-    assert_eq!(map_summary(League::Nhl, json).unwrap().meter, None);
+    let s = map_summary(League::Nhl, json).unwrap();
+    assert_eq!(s.extras.penalty_meter(), None);
 }
 
 #[test]

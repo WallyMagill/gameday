@@ -102,6 +102,20 @@ const FEED_MIN: u16 = 5;
 /// §5). Everything under the hero is charged against what the hero left, in
 /// that order — the same "the hero shrinks last" rule the board runs on.
 fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
+    // The NHL penalty meter is the zoom's alone (R49). `hero::draw_hero`
+    // reads `game.meter`, the same field the board and `:tv` read, so the
+    // meter is attached to a local copy here instead of being stored on the
+    // shared game — the surfaces that must not show it read a field it was
+    // never written to. The clone happens only for an NHL game actually on a
+    // power play; every other game draws from the borrowed one.
+    let with_meter;
+    let game = match game.extras.penalty_meter() {
+        Some(meter) if game.meter.is_none() => {
+            with_meter = Game { meter: Some(meter), ..game.clone() };
+            &with_meter
+        }
+        _ => game,
+    };
     let th = theme::current();
     let hero_rows = HERO_ROWS.min(area.height);
     let mut rest = area.height - hero_rows;

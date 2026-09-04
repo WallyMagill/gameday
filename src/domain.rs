@@ -231,6 +231,50 @@ pub enum Extras {
     Hockey { strength: HockeyStrength, penalties: Vec<PenaltyEvent> },
 }
 
+impl Extras {
+    /// `Meter::Penalty` for a special-teams situation the feed itself
+    /// declares. Derived on demand rather than stored on [`Game`]: only the
+    /// zoomed game has a summary, so a stored meter would light a chip and a
+    /// meter row on that one board row while an identical unzoomed power
+    /// play showed nothing (R49). The zoom calls this; the board and `:tv`
+    /// read `game.meter`, so they cannot see it.
+    ///
+    /// Gate: the current strength is PowerPlay or Shorthanded — ESPN
+    /// stamping either on the newest play IS the statement that a penalty is
+    /// being served right now, and it is the only expiry signal the payload
+    /// has. (Receipt: the fixture's game-ending play is 701, so a finished
+    /// game yields no meter.) The team named is the penalized one — the side
+    /// serving it, which is what the meter's label reads as.
+    ///
+    /// `seconds` is the penalty's nominal length, `minutes × 60`, NOT time
+    /// remaining. Elapsed math would need the live game clock minus the
+    /// penalty's clock, and the only NHL fixture we have is a final (no live
+    /// clock) whose per-period clock counts *up* — a direction no live NHL
+    /// capture exists to confirm. A static, honest 2:00 beats arithmetic we
+    /// cannot check; the countdown becomes real when a live NHL fixture
+    /// lands.
+    ///
+    /// Known gap, deliberately not coded around: a 903 (empty net) stamp on
+    /// the newest play during a 6-on-4 drops the chip and the meter until
+    /// the next 702/703 play. Keeping the meter alive through it would mean
+    /// deciding the penalty is "still running", which is exactly the
+    /// elapsed-clock arithmetic this refuses to guess — and widening the
+    /// gate to 903 would resurrect a first-period minor under a late-game
+    /// empty net, since the penalty list is the whole game's. Rare,
+    /// self-correcting on the next play, and a blank beats a wrong clock.
+    pub fn penalty_meter(&self) -> Option<Meter> {
+        let Extras::Hockey { strength, penalties } = self else { return None };
+        if !matches!(strength, HockeyStrength::PowerPlay | HockeyStrength::Shorthanded) {
+            return None;
+        }
+        let newest = penalties.last()?;
+        Some(Meter::Penalty {
+            team_abbr: newest.team.clone(),
+            seconds: u16::from(newest.minutes) * 60,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Game {
     pub id: String,

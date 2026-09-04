@@ -4330,9 +4330,9 @@ fn nhl_zoom_game() -> Game {
         status: Status::Live,
         period: "2ND".into(),
         clock: "15:37".into(),
-        // What the summary mapper builds from the real fixture's shape: WSH
-        // took the minor, so PIT is the side with the man advantage.
-        meter: Some(Meter::Penalty { team_abbr: "WSH".into(), seconds: 120 }),
+        // R49: the penalty meter is derived from these extras at the zoom,
+        // never stored here — the board and :tv read `meter`.
+        meter: None,
         extras: Extras::Hockey {
             strength: HockeyStrength::PowerPlay,
             penalties: vec![PenaltyEvent {
@@ -4391,25 +4391,40 @@ fn the_zoom_shows_the_penalty_meter_and_pp_chip() {
     assert!(cells.contains('▮'), "the countdown bar draws filled cells: {cells:?}");
     assert!(cells.contains("2:00"), "a minor's clock: {cells:?}");
 
-    // The chip's source is `strength`, not the meter: strip the meter and it
-    // still says POWER PLAY (rank's own NHL bonus keys off the meter, so
-    // without this the assertion above could not tell the two apart).
-    let mut no_meter = nhl_zoom_game();
-    no_meter.meter = None;
+}
+
+#[test]
+fn the_board_never_wears_the_zoomed_games_power_play() {
+    // R49: strength reaches only the zoomed game, so scoring it would give
+    // that one row a chip, the hot flag and a rank bonus no identical
+    // unzoomed power play could earn. Same game, two surfaces.
+    let game = nhl_zoom_game();
     let mut app = mk();
-    app.apply_boards(League::Nhl, vec![no_meter.clone()], false);
+    app.apply_boards(League::Nhl, vec![game.clone()], false);
     app.tab = Tab::League(League::Nhl);
-    zoomed(&mut app, &no_meter);
-    let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
-    t.draw(|f| app.draw(f)).unwrap();
-    let b = t.backend().buffer();
-    let mut chip = String::new();
-    for y in 0..b.area().height {
-        for x in 0..b.area().width {
-            if b[(x, y)].bg == hot {
-                chip.push_str(b[(x, y)].symbol());
+
+    let hot = gameday::theme::current().roles().hot;
+    let render = |app: &mut App| -> (String, String) {
+        let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        t.draw(|f| app.draw(f)).unwrap();
+        let b = t.backend().buffer();
+        let mut chip = String::new();
+        for y in 0..b.area().height {
+            for x in 0..b.area().width {
+                if b[(x, y)].bg == hot {
+                    chip.push_str(b[(x, y)].symbol());
+                }
             }
         }
-    }
-    assert_eq!(chip.trim(), "POWER PLAY", "strength alone earns the chip: {chip:?}");
+        (chip, buf_text(&t))
+    };
+
+    let (chip, text) = render(&mut app);
+    assert_eq!(chip.trim(), "", "no hot-filled chip on the board: {chip:?}");
+    assert!(!text.contains("PENALTY"), "and no penalty meter row either:\n{text}");
+
+    zoomed(&mut app, &game);
+    let (chip, text) = render(&mut app);
+    assert_eq!(chip.trim(), "POWER PLAY", "the zoom is where it shows: {chip:?}");
+    assert!(text.contains("PENALTY"), "with its meter:\n{text}");
 }

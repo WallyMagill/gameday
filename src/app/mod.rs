@@ -1178,10 +1178,26 @@ impl App {
         // Score-change flash fires ONLY here — from data. A first sighting
         // (startup, new game) seeds last_scores without flashing.
         for g in &mut games {
-            // Carry the accumulated scoring plays across the wholesale replace.
-            if g.scoring_plays.is_empty() {
-                if let Some(prev) = prev_board.iter().find(|p| p.id == g.id) {
+            // Carry the accumulated scoring plays across the wholesale
+            // replace — and, since v3.4 §4, the NHL strength only a summary
+            // can produce. The scoreboard carries no strength field at all,
+            // so without this carry the zoom's power-play chip and penalty
+            // meter (both derived from `Extras::Hockey`) would blink out on
+            // every scoreboard poll and back in on the next summary — a 15s
+            // flicker for the length of the power play.
+            //
+            // NHL and live only, deliberately: MLB and soccer extras are
+            // scoreboard-owned, and a game that just went Final has no power
+            // play to still be on.
+            if let Some(prev) = prev_board.iter().find(|p| p.id == g.id) {
+                if g.scoring_plays.is_empty() {
                     g.scoring_plays = prev.scoring_plays.clone();
+                }
+                if g.league == League::Nhl
+                    && g.status == Status::Live
+                    && g.extras == crate::domain::Extras::None
+                {
+                    g.extras = prev.extras.clone();
                 }
             }
             // A cached payload is an OLDER snapshot, not news: its diff
@@ -1311,15 +1327,12 @@ impl App {
                     game.scoring_plays = sp;
                 }
                 // Per-sport facts only the summary carries (spec v3.4 §4:
-                // NHL strength + penalties, and the penalty meter derived
-                // from them). `Extras::None` is "this summary had nothing to
-                // say", never an instruction to erase what the scoreboard
-                // mapped — same for a `None` meter.
+                // NHL strength + penalties). `Extras::None` is "this summary
+                // had nothing to say", never an instruction to erase what
+                // the scoreboard mapped. The meter that rides these is NOT
+                // stored on the game (R49) — the zoom derives it.
                 if summary.extras != crate::domain::Extras::None {
                     game.extras = summary.extras.clone();
-                }
-                if summary.meter.is_some() {
-                    game.meter = summary.meter.clone();
                 }
                 if !summary.last_plays.is_empty() {
                     let mut last_plays = summary.last_plays;
@@ -1356,13 +1369,13 @@ impl App {
                 }
             }
         }
-        // No reorder here. Scores and status still arrive only via the
-        // scoreboard, so the ordering they drive is never stale. Since v3.4
-        // §4 an NHL summary can also land a penalty meter, which the rank
-        // bonus reads — the zoomed game's board position then updates on the
-        // next scoreboard poll rather than the instant the summary lands.
-        // That is deliberate: a board that re-sorts under a zoom is the
-        // reorder-while-you-look bug v3.2 fixed.
+        // No reorder here, and nothing a summary carries can cause one
+        // elsewhere either. The rank fingerprint is (scores, status, hot),
+        // all three scoreboard-owned; the one thing a summary now adds that
+        // rank could have read — v3.4 §4's NHL strength — reaches no meter
+        // field and is refused by `watchability`'s NHL arm besides (R49),
+        // precisely so zooming a game can never move it. Zoom and unzoom
+        // leave the order exactly where the last scoreboard apply put it.
     }
 
     /// The zoomed game's (league, id) — the stats poll's only target. None
@@ -2757,6 +2770,105 @@ mod tests {
             20,
             "no 8-row truncation in the model"
         );
+    }
+
+    /// A live NHL game the way the scoreboard maps one: no strength, no
+    /// meter — those exist only in the summary (spec v3.4 §4).
+    fn nhl_live(id: &str) -> Game {
+        let mut x = g(id, "PIT", "WSH", true);
+        x.league = League::Nhl;
+        x.period = "2ND".into();
+        x.clock = "15:37".into();
+        x.situation = None;
+        x.meter = None;
+        x
+    }
+
+    fn power_play_summary() -> Summary {
+        Summary {
+            last_plays: vec![Play {
+                text: "Sidney Crosby Slap Shot saved by Logan Thompson".into(),
+                team: "PIT".into(),
+                ..Default::default()
+            }],
+            scoring_plays: vec![],
+            // R49: the summary never carries the meter — the zoom derives it
+            // from these extras.
+            meter: None,
+            extras: crate::domain::Extras::Hockey {
+                strength: crate::domain::HockeyStrength::PowerPlay,
+                penalties: vec![crate::domain::PenaltyEvent {
+                    team: "WSH".into(),
+                    minutes: 2,
+                    kind: "Minor".into(),
+                    period: 2,
+                    clock: "15:37".into(),
+                }],
+            },
+        }
+    }
+
+    #[test]
+    fn summary_strength_and_penalty_meter_survive_the_next_scoreboard_poll() {
+        // R49 / v3.4 §4: the scoreboard poll replaces the board wholesale
+        // every 15s and carries no NHL strength at all. Without the carry
+        // the zoom's chip and meter blink out until the next summary lands.
+        let mut app = app_with(vec![], vec![]);
+        app.apply_boards(League::Nhl, vec![nhl_live("n1")], false);
+        app.merge_summary("n1", power_play_summary());
+        let live = |app: &App| app.game_by_id("n1").unwrap();
+        assert!(
+            matches!(live(&app).extras, crate::domain::Extras::Hockey { .. }),
+            "the summary lands the strength"
+        );
+
+        app.apply_boards(League::Nhl, vec![nhl_live("n1")], false);
+        let after = live(&app);
+        assert!(
+            matches!(after.extras, crate::domain::Extras::Hockey { .. }),
+            "the strength holds across the scoreboard replace: {:?}",
+            after.extras
+        );
+        assert_eq!(
+            after.extras.penalty_meter(),
+            Some(Meter::Penalty { team_abbr: "WSH".into(), seconds: 120 }),
+            "so the zoom's penalty meter is still derivable"
+        );
+        assert_eq!(after.meter, None, "and the shared meter field stays empty (R49)");
+
+        // A game going Final drops it: no power play survives the horn.
+        let mut done = nhl_live("n1");
+        done.status = Status::Final;
+        app.apply_boards(League::Nhl, vec![done], false);
+        assert_eq!(app.game_by_id("n1").unwrap().extras, crate::domain::Extras::None);
+    }
+
+    #[test]
+    fn a_zoomed_power_play_never_reaches_the_board_ranking() {
+        // R49: the summary lands only for the zoomed game, so scoring its
+        // strength would give that one row a chip, the hot flag and a rank
+        // bonus no identical unzoomed power play could earn.
+        let mut app = app_with(vec![], vec![]);
+        app.apply_boards(League::Nhl, vec![nhl_live("n1"), nhl_live("n2")], false);
+        let before = ord(&app);
+        let fps = app.rank_fingerprints.clone();
+        app.merge_summary("n1", power_play_summary());
+        let now = app.now();
+        let watch = crate::rank::watchability(&app.game_by_id("n1").unwrap(), now);
+        assert_eq!(watch.chip, None, "no board chip for a summary-derived power play");
+        assert!(!watch.hot, "and it does not read hot");
+
+        // Another poll: the order and the fingerprint set are untouched, so
+        // zooming a game can never move the board (R24).
+        app.apply_boards(League::Nhl, vec![nhl_live("n1"), nhl_live("n2")], false);
+        assert_eq!(ord(&app), before, "zooming did not reorder the board");
+        assert_eq!(app.rank_fingerprints, fps, "nor did it move a fingerprint");
+
+        // Demo and sim penalty meters carry no Extras::Hockey — they still
+        // light the chip, so the gallery keeps its showcase.
+        let mut demo = nhl_live("n3");
+        demo.meter = Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 42 });
+        assert_eq!(crate::rank::watchability(&demo, now).chip, Some("POWER PLAY"));
     }
 
     #[test]
