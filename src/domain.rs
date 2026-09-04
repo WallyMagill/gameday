@@ -104,7 +104,10 @@ pub enum PlayKind {
     RedCard,
     // NHL penalty plays (meta lives in Extras::Hockey, Task 7).
     HockeyPenalty,
-    // Hoops, DERIVED: shootingPlay && score_value == Some(3).
+    // Hoops, DERIVED: scoringPlay && score_value == Some(3). Not
+    // shootingPlay: CBB's endpoint stamps scoreValue on missed threes too
+    // (v3.4 T3 review: CBB stamps scoreValue on misses), so shootingPlay
+    // alone would tag a miss as a make.
     ThreePointer,
     /// Everything unmapped.
     #[default]

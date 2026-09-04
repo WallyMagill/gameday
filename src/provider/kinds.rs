@@ -27,9 +27,14 @@ pub fn football_kind(type_id: &str, scoring_type: Option<&str>) -> PlayKind {
 
 /// NBA/WNBA and CBB use different id spaces *and* different spellings for
 /// the same shot, so they get separate tables even though the derivation
-/// rule (three-pointer = shooting play worth 3) is shared.
-pub fn hoops_kind(type_id: &str, shooting: bool, score_value: Option<u8>, cbb: bool) -> PlayKind {
-    if shooting && score_value == Some(3) {
+/// rule (three-pointer = scoring play worth 3) is shared. `scoring` must be
+/// the play's own `scoringPlay` flag, not `shootingPlay`: CBB's endpoint
+/// stamps `scoreValue: 3` on a missed three exactly as it does on a made
+/// one (v3.4 T3 review: CBB stamps scoreValue on misses), so `shootingPlay`
+/// alone would tag a miss as a make. NBA/WNBA don't exhibit this, but the
+/// gate is correct for both since a make is always `scoringPlay: true`.
+pub fn hoops_kind(type_id: &str, scoring: bool, score_value: Option<u8>, cbb: bool) -> PlayKind {
+    if scoring && score_value == Some(3) {
         let three = if cbb {
             matches!(type_id, "558") // 558 JumpShot (CBB) (research §2)
         } else {
@@ -99,6 +104,15 @@ mod tests {
         assert_eq!(hoops_kind("92", true, Some(3), false), PlayKind::ThreePointer);
         assert_eq!(hoops_kind("558", true, Some(3), true), PlayKind::ThreePointer);
         assert_eq!(hoops_kind("92", true, Some(3), true), PlayKind::Other); // NBA id through CBB table stays honest
+    }
+
+    #[test]
+    fn cbb_missed_three_stays_other() {
+        // CBB's endpoint stamps scoreValue: 3 on a missed three exactly as
+        // it does on a make (v3.4 T3 review, proved from
+        // fixtures/cbb_summary_full.json: 7 misses carry scoreValue 3 with
+        // scoringPlay false) — scoring: false must gate it out.
+        assert_eq!(hoops_kind("558", false, Some(3), true), PlayKind::Other);
     }
 
     #[test]

@@ -614,10 +614,19 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                 let score_value = p["scoreValue"].as_u64().map(|v| v.min(u8::MAX as u64) as u8);
                 let kind = match league {
                     League::Nba | League::Wnba | League::Cbb => {
-                        let shooting = p["shootingPlay"].as_bool().unwrap_or(false);
-                        kinds::hoops_kind(type_id, shooting, score_value, league == League::Cbb)
+                        // scoringPlay, not shootingPlay: CBB's endpoint
+                        // stamps scoreValue:3 on missed threes too (v3.4 T3
+                        // review: CBB stamps scoreValue on misses) —
+                        // shootingPlay alone would tag a miss as a make.
+                        kinds::hoops_kind(type_id, scoring, score_value, league == League::Cbb)
                     }
                     League::Nhl => {
+                        // No fixture distinguishes a `type.penaltyMinutes`
+                        // that's absent from one that's present-but-null, so
+                        // this can't be proven either way from what we have;
+                        // `.is_some()` treats an explicit null as "has
+                        // penalty minutes," which only matters if ESPN ever
+                        // sends that shape.
                         let has_penalty_minutes = p["type"].get("penaltyMinutes").is_some();
                         kinds::nhl_kind(type_id, has_penalty_minutes)
                     }

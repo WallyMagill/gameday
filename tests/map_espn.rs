@@ -262,7 +262,17 @@ fn cbb_uses_its_own_table() {
     let s = map_summary(League::Cbb, json).unwrap();
     assert!(
         s.last_plays.iter().any(|p| p.kind == PlayKind::ThreePointer),
-        "expected a made three (558/shooting/scoreValue 3) to map ThreePointer"
+        "expected a made three (558/scoringPlay/scoreValue 3) to map ThreePointer"
+    );
+    // v3.4 T3 review: fixtures/cbb_summary_full.json carries 7 missed
+    // threes (id 558, scoringPlay: false) that CBB's endpoint still stamps
+    // scoreValue: 3 on — the gate must be scoringPlay, not shootingPlay, or
+    // every miss maps ThreePointer.
+    assert!(
+        s.last_plays
+            .iter()
+            .any(|p| !p.scoring && p.score_value == Some(3) && p.kind == PlayKind::Other),
+        "expected a missed three (558/scoreValue 3/scoringPlay false) to stay Other"
     );
 }
 
