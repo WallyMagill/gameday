@@ -18,7 +18,7 @@
 //! (single-threaded) sees the theme the app set, and each test thread can set
 //! its own deterministically.
 
-use crate::domain::League;
+use crate::domain::{League, Play, PlayKind};
 use ratatui::style::Color;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -775,52 +775,38 @@ pub fn scoring_word(league: League) -> &'static str {
 }
 
 /// The word for one specific scoring play. The league word is the answer
-/// everywhere except football, where the play text itself distinguishes the
-/// three ways a score happens, and baseball, where the league word is a
-/// specific event that most runs are not.
+/// everywhere except football, where `PlayKind` distinguishes the three ways
+/// a score happens, and baseball, where the league word is a specific event
+/// that most runs are not.
 ///
-/// The model carries no play *kind* — `Play` is `{clock, period, team, text,
-/// scoring}`, and ESPN's scoreboard `lastPlay` (where a captured scoring play
-/// comes from) gives us the sentence, not a type id. So the sharpening is
-/// read out of the sentence ESPN wrote ("Butker 41 Yd Field Goal", "…tackled
-/// in End Zone for a Safety") and nothing else; a text that doesn't say so
-/// keeps the league's word rather than being guessed at.
-pub fn scoring_word_for_play(league: League, text: &str) -> &'static str {
-    if matches!(league, League::Nfl | League::Cfb) {
-        let lower = text.to_lowercase();
-        // Order matters, and touchdown wins (ruling R34). ESPN writes the
-        // whole play as one sentence, so a kick-return score really does read
-        // "Blocked Field Goal returned 62 yards for a TOUCHDOWN" — matching
-        // "field goal" first puts FIELD GOAL! on screen for a touchdown. The
-        // score delta was considered as a discriminator and rejected: a TD
-        // and its extra point batch into one +7 apply, and a two-point
-        // conversion and a safety are both +2.
-        if lower.contains("touchdown") {
-            return scoring_word(league);
-        }
-        if lower.contains("field goal") {
-            return "FIELD GOAL";
-        }
-        if lower.contains("safety") {
-            return "SAFETY";
-        }
+/// spec v3.4 §2: structure over parsing. Before Task 3 wired `Play.kind` from
+/// ESPN's own type ids, this read the play *sentence* instead — the v3.3 R34
+/// dance where a kick-return score really does read "Blocked Field Goal
+/// returned 62 yards for a TOUCHDOWN", so matching "field goal" first put
+/// FIELD GOAL! on screen for a touchdown, and had to be ordered around it.
+/// A structural kind makes that ordering unnecessary: `Touchdown` just is a
+/// touchdown, whatever the sentence says.
+pub fn scoring_word_for_play(league: League, play: &Play) -> &'static str {
+    match play.kind {
+        PlayKind::Touchdown => scoring_word(league),
+        PlayKind::FieldGoal => "FIELD GOAL",
+        PlayKind::Safety => "SAFETY",
+        PlayKind::HomeRun => scoring_word(league),
+        PlayKind::RunScoringPlay => "RUN SCORES",
+        // OwnGoal: the scorer's misfortune is the detail line's job, not the
+        // scoring word's — it reads GOAL like every other net.
+        PlayKind::Goal | PlayKind::OwnGoal | PlayKind::PenaltyGoal => "GOAL",
+        // v3.3 §7's word set has no THREE; BUCKET is the honest hold until a
+        // sharper word is asked for.
+        PlayKind::ThreePointer => "BUCKET",
+        // Cards and hockey penalties are never scoring plays; Other is the
+        // honest fallback where the mapper didn't (or couldn't) classify a
+        // scoring play — the league word rather than a guess.
+        PlayKind::YellowCard
+        | PlayKind::RedCard
+        | PlayKind::HockeyPenalty
+        | PlayKind::Other => scoring_word(league),
     }
-    if league == League::Mlb {
-        // MLB is the one league whose league word names a *specific* play
-        // rather than any score: "GOAL!" is true of every hockey goal, but
-        // most runs are not home runs. The live captures caught HOME RUN! in
-        // block letters over an RBI walk ("Walk — J. Sanoja") and a run that
-        // scored on a strikeout — the screen stating a fact that didn't
-        // happen. So the word is earned from the sentence or it is the
-        // honest generic; nothing is guessed from the score delta (a
-        // two-run double and back-to-back solo shots are both +2).
-        let lower = text.to_lowercase();
-        if lower.contains("home run") || lower.contains("homer") {
-            return scoring_word(league);
-        }
-        return "RUN SCORES";
-    }
-    scoring_word(league)
 }
 
 /// Floor for `art_color`, in redmean distance. Measured on the demo slate:
@@ -958,28 +944,69 @@ mod tests {
         assert_eq!(builtin("gruvbox").league_accent(League::Nhl), Color::Rgb(0x8e, 0xc0, 0x7c));
     }
 
+    fn kinded_play(kind: PlayKind) -> Play {
+        Play { kind, ..Default::default() }
+    }
+
     #[test]
     fn no_scoring_word_carries_an_exclamation() {
         // spec v3.3 §7: scoring words lost their bang at the definition, not
-        // per call site — cover the league word and every sharpened
-        // NFL/CFB/MLB path scoring_word_for_play can take.
+        // per call site — cover the league word and every kind
+        // scoring_word_for_play can take.
         for league in League::ALL {
             assert!(!scoring_word(league).contains('!'), "{league:?}: {}", scoring_word(league));
         }
         let cases = [
-            (League::Nfl, "Mahomes 12 Yd pass to Kelce"),
-            (League::Nfl, "Butker 41 Yd Field Goal"),
-            (League::Nfl, "Jones sacked in end zone for a Safety"),
-            (League::Cfb, "Butker 41 Yd Field Goal"),
-            (League::Mlb, "Home Run — K. Schwarber"),
-            (League::Mlb, "Walk — J. Sanoja"),
-            (League::Nba, "Jokic makes 3-pt field goal"),
-            (League::Nhl, "goal scored"),
+            (League::Nfl, PlayKind::Touchdown),
+            (League::Nfl, PlayKind::FieldGoal),
+            (League::Nfl, PlayKind::Safety),
+            (League::Cfb, PlayKind::FieldGoal),
+            (League::Mlb, PlayKind::HomeRun),
+            (League::Mlb, PlayKind::RunScoringPlay),
+            (League::Nba, PlayKind::ThreePointer),
+            (League::Nhl, PlayKind::Goal),
         ];
-        for (league, text) in cases {
-            let word = scoring_word_for_play(league, text);
-            assert!(!word.contains('!'), "{league:?} {text:?}: {word}");
+        for (league, kind) in cases {
+            let word = scoring_word_for_play(league, &kinded_play(kind));
+            assert!(!word.contains('!'), "{league:?} {kind:?}: {word}");
         }
+    }
+
+    #[test]
+    fn the_blocked_fg_returned_for_td_is_now_trivially_right() {
+        // v3.3 R34's text-priority dance ("Blocked Field Goal returned ...
+        // TOUCHDOWN" had to match "touchdown" before "field goal" or the
+        // screen would lie) is gone: the kind says what actually happened,
+        // no matter what the sentence says.
+        let play = Play {
+            text: "Blocked Field Goal returned 62 yards for a TOUCHDOWN".into(),
+            kind: PlayKind::Touchdown,
+            ..Default::default()
+        };
+        assert_eq!(scoring_word_for_play(League::Nfl, &play), "TOUCHDOWN");
+    }
+
+    #[test]
+    fn mlb_words_come_from_kinds() {
+        assert_eq!(scoring_word_for_play(League::Mlb, &kinded_play(PlayKind::HomeRun)), "HOME RUN");
+        // A bases-loaded walk carries a scoring-play kind, not a home run one.
+        let walk = Play {
+            text: "Walk — J. Sanoja".into(),
+            kind: PlayKind::RunScoringPlay,
+            ..Default::default()
+        };
+        assert_eq!(scoring_word_for_play(League::Mlb, &walk), "RUN SCORES");
+    }
+
+    #[test]
+    fn kind_other_falls_back_to_the_league_word() {
+        // spec v3.4 §2: an unclassified scoring play (fixture predates
+        // mapper coverage, or the feed's id table didn't land in a named
+        // variant) keeps the league's honest generic rather than a guess.
+        assert_eq!(scoring_word_for_play(League::Nfl, &kinded_play(PlayKind::Other)), "TOUCHDOWN");
+        assert_eq!(scoring_word_for_play(League::Mlb, &kinded_play(PlayKind::Other)), "HOME RUN");
+        assert_eq!(scoring_word_for_play(League::Nhl, &kinded_play(PlayKind::Other)), "GOAL");
+        assert_eq!(scoring_word_for_play(League::Nba, &kinded_play(PlayKind::Other)), "BUCKET");
     }
 
     /// Chroma of a truecolor: `max(r,g,b) - min(r,g,b)`, 0 for a pure gray.

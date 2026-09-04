@@ -104,11 +104,12 @@ impl CutState {
     }
 }
 
-/// The word this play earns: the league's scoring word, sharpened by the play
-/// text where the text actually says something more specific (football's
-/// field goals and safeties — see [`theme::scoring_word_for_play`]).
+/// The word this play earns: the league's scoring word, sharpened by the
+/// play's structural kind where the kind says something more specific
+/// (football's field goals and safeties — see
+/// [`theme::scoring_word_for_play`]).
 fn word_for(game: &Game, play: &Play) -> &'static str {
-    theme::scoring_word_for_play(game.league, &play.text)
+    theme::scoring_word_for_play(game.league, play)
 }
 
 /// Which size the scoring word ended up at, and the rows it costs.
@@ -514,7 +515,7 @@ fn strip_text(game: &Game) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{League, Status, Team};
+    use crate::domain::{League, PlayKind, Status, Team};
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
     use ratatui::Terminal;
@@ -603,43 +604,87 @@ mod tests {
         assert_eq!(cuts.active(200).unwrap().game_id, "3");
     }
 
-    #[test]
-    fn the_word_follows_the_play_text_where_the_text_is_specific() {
-        assert_eq!(word_for(&game(), &play("Mahomes 12 Yd pass to Kelce")), "TOUCHDOWN"); // spec v3.3 §7
-        assert_eq!(word_for(&game(), &play("Butker 41 Yd Field Goal")), "FIELD GOAL"); // spec v3.3 §7
-        assert_eq!(word_for(&game(), &play("Jones sacked in end zone for a Safety")), "SAFETY"); // spec v3.3 §7
-        // Ruling R34: touchdown wins over every other word in the sentence.
-        // ESPN really writes these, and FIELD GOAL! on a return score is a
-        // lie the screen tells for three seconds.
-        assert_eq!(
-            word_for(&game(), &play("Blocked Field Goal returned 62 yards for a TOUCHDOWN")),
-            "TOUCHDOWN"
-        );
-        assert_eq!(
-            word_for(&game(), &play("Fumble on the Safety, recovered for a Touchdown")),
-            "TOUCHDOWN"
-        );
-        let mut nba = game();
-        nba.league = League::Nba;
-        // Basketball has no field goals in this sense: "field goal" arms are
-        // football-only, so a basketball play keeps the league word.
-        assert_eq!(word_for(&nba, &play("Jokic makes 3-pt field goal")), "BUCKET"); // spec v3.3 §7
+    /// `play()` with a specific structural kind — the word now reads the
+    /// kind, not the sentence.
+    fn kinded(text: &str, kind: PlayKind) -> Play {
+        Play { kind, ..play(text) }
     }
 
     #[test]
-    fn mlb_says_home_run_only_when_the_play_was_one() {
+    fn the_word_follows_the_plays_structural_kind() {
+        // spec v3.4 §2: the kind decides, whatever the sentence says.
+        assert_eq!(
+            word_for(&game(), &kinded("Mahomes 12 Yd pass to Kelce", PlayKind::Touchdown)),
+            "TOUCHDOWN"
+        );
+        assert_eq!(
+            word_for(&game(), &kinded("Butker 41 Yd Field Goal", PlayKind::FieldGoal)),
+            "FIELD GOAL"
+        );
+        assert_eq!(
+            word_for(&game(), &kinded("Jones sacked in end zone for a Safety", PlayKind::Safety)),
+            "SAFETY"
+        );
+        // Ruling R34, now trivially right: ESPN really writes "Blocked Field
+        // Goal returned 62 yards for a TOUCHDOWN", and the v3.3 text-priority
+        // dance this used to require (touchdown must beat field goal in the
+        // sentence, or the screen lies) is gone — the kind already says
+        // Touchdown.
+        assert_eq!(
+            word_for(
+                &game(),
+                &kinded("Blocked Field Goal returned 62 yards for a TOUCHDOWN", PlayKind::Touchdown)
+            ),
+            "TOUCHDOWN"
+        );
+        assert_eq!(
+            word_for(
+                &game(),
+                &kinded("Fumble on the Safety, recovered for a Touchdown", PlayKind::Touchdown)
+            ),
+            "TOUCHDOWN"
+        );
+        // An NFL play the mapper didn't classify: the honest league fallback,
+        // not a guess from the sentence.
+        assert_eq!(word_for(&game(), &play("Mahomes 12 Yd pass to Kelce")), "TOUCHDOWN");
+
+        let mut nba = game();
+        nba.league = League::Nba;
+        assert_eq!(
+            word_for(&nba, &kinded("Jokic makes 3-pt field goal", PlayKind::ThreePointer)),
+            "BUCKET"
+        ); // spec v3.3 §7
+    }
+
+    #[test]
+    fn mlb_says_home_run_only_when_the_kind_was_one() {
         let mut mlb = game();
         mlb.league = League::Mlb;
         // The two real texts off the wire on 2026-09-02 that rendered
         // HOME RUN! in block letters (T16 live captures cut-live-1 and the
         // 22:47:42 band): a bases-loaded walk and a run scoring on a
-        // strikeout. Neither is a home run.
-        assert_eq!(word_for(&mlb, &play("Walk — J. Sanoja")), "RUN SCORES"); // spec v3.3 §7
-        assert_eq!(word_for(&mlb, &play("Strikeout — J. Ortiz")), "RUN SCORES"); // spec v3.3 §7
-        assert_eq!(word_for(&mlb, &play("Play Result — J. Marsee")), "RUN SCORES"); // spec v3.3 §7
-        // Earned by the sentence, in either of ESPN's two spellings.
-        assert_eq!(word_for(&mlb, &play("Home Run — K. Schwarber")), "HOME RUN"); // spec v3.3 §7
-        assert_eq!(word_for(&mlb, &play("A. Judge homers to left center")), "HOME RUN"); // spec v3.3 §7
+        // strikeout. Neither is a home run, and both carry RunScoringPlay,
+        // not HomeRun.
+        assert_eq!(word_for(&mlb, &kinded("Walk — J. Sanoja", PlayKind::RunScoringPlay)), "RUN SCORES");
+        assert_eq!(
+            word_for(&mlb, &kinded("Strikeout — J. Ortiz", PlayKind::RunScoringPlay)),
+            "RUN SCORES"
+        );
+        assert_eq!(
+            word_for(&mlb, &kinded("Play Result — J. Marsee", PlayKind::RunScoringPlay)),
+            "RUN SCORES"
+        );
+        assert_eq!(
+            word_for(&mlb, &kinded("Home Run — K. Schwarber", PlayKind::HomeRun)),
+            "HOME RUN"
+        );
+        assert_eq!(
+            word_for(&mlb, &kinded("A. Judge homers to left center", PlayKind::HomeRun)),
+            "HOME RUN"
+        );
+        // A wire text the mapper didn't classify: the league's honest
+        // generic, not a guess from the sentence's "home run"/"homer".
+        assert_eq!(word_for(&mlb, &play("Ruling under review")), "HOME RUN");
     }
 
     #[test]
@@ -707,6 +752,7 @@ mod tests {
         p.team = "CHC".into();
         p.period = "T9".into();
         p.clock = String::new();
+        p.kind = PlayKind::RunScoringPlay; // spec v3.4 §2: the kind, not the sentence
         let (name, rest) = split_surname(&p.text);
         assert_eq!(name, Some("J. Ortiz"));
         assert_eq!(rest, "Strikeout");
