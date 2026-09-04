@@ -481,7 +481,7 @@ fn soccer_details_become_match_events() {
     let games =
         map_scoreboard(League::Epl, include_str!("../fixtures/epl_scoreboard.json"), et()).unwrap();
     let g = games.iter().find(|g| g.id == "401879314").unwrap();
-    let gameday::domain::Extras::Soccer { events } = &g.extras else {
+    let gameday::domain::Extras::Soccer { events, .. } = &g.extras else {
         panic!("soccer extras")
     };
     assert!(!events.is_empty());
@@ -491,6 +491,99 @@ fn soccer_details_become_match_events() {
         .unwrap();
     assert!(goal.minute.ends_with('\''), "{}", goal.minute);
     assert!(!goal.player.is_empty());
+    // Every event names the athlete ESPN credited (spec v3.4 §5) — the id is
+    // what makes a second yellow countable.
+    assert_eq!(goal.athlete_id.as_deref().map(str::is_empty), Some(false), "{goal:?}");
+}
+
+/// Spec v3.4 §5: the men-on-field count is derivable from the scoreboard
+/// alone — no summary, no extra request. `fixtures/live/epl_scoreboard_redcard.json`
+/// is a real EPL slate; João Gomes (athlete 301524, Aston Villa / team 362,
+/// the AWAY side) takes a straight red at 40'.
+#[test]
+fn a_red_card_yields_ten_men_from_the_scoreboard_alone() {
+    let games = map_scoreboard(
+        League::Epl,
+        include_str!("../fixtures/live/epl_scoreboard_redcard.json"),
+        et(),
+    )
+    .unwrap();
+    let g = games.iter().find(|g| g.id == "401879297").unwrap();
+    assert_eq!(g.away.abbr, "AVL", "the carded side is the away team");
+    let gameday::domain::Extras::Soccer { men, .. } = &g.extras else {
+        panic!("soccer extras")
+    };
+    assert_eq!(*men, Some((10, 11)), "one red on the away side");
+
+    // Every other game on the slate is 11 v 11, so it carries no men state at
+    // all — `None` is the board's "nothing to say here".
+    for other in games.iter().filter(|x| x.id != "401879297") {
+        let gameday::domain::Extras::Soccer { men, .. } = &other.extras else {
+            panic!("soccer extras")
+        };
+        assert_eq!(*men, None, "{} is 11 v 11", other.id);
+    }
+}
+
+/// The defensive half of the rule (spec v3.4 §5): ESPN's second-yellow
+/// encoding is UNOBSERVED, so two yellows on one athlete count as a red
+/// whether or not a 93 ever arrives — and when both arrive, the athlete is
+/// counted once.
+#[test]
+fn two_yellows_on_one_athlete_count_as_a_red() {
+    let slate = |details: &str| {
+        format!(
+            r#"{{"events":[{{"id":"1","date":"2026-09-03T19:00Z","competitions":[{{
+              "status":{{"type":{{"state":"in"}},"period":2,"displayClock":"70'"}},
+              "details":[{details}],
+              "competitors":[
+                {{"homeAway":"away","score":"0","team":{{"id":"10","abbreviation":"AVL"}}}},
+                {{"homeAway":"home","score":"0","team":{{"id":"20","abbreviation":"BHA"}}}}]}}]}}]}}"#
+        )
+    };
+    let yellow = |team: &str, ath: &str, min: &str| {
+        format!(
+            r#"{{"type":{{"id":"94","text":"Yellow Card"}},"yellowCard":true,"redCard":false,
+               "clock":{{"displayValue":"{min}"}},"team":{{"id":"{team}"}},
+               "athletesInvolved":[{{"id":"{ath}","shortName":"J. Gomes"}}]}}"#
+        )
+    };
+    let red = |team: &str, ath: &str, min: &str| {
+        format!(
+            r#"{{"type":{{"id":"93","text":"Red Card"}},"yellowCard":false,"redCard":true,
+               "clock":{{"displayValue":"{min}"}},"team":{{"id":"{team}"}},
+               "athletesInvolved":[{{"id":"{ath}","shortName":"J. Gomes"}}]}}"#
+        )
+    };
+    let men_of = |json: String| -> Option<(u8, u8)> {
+        let games = map_scoreboard(League::Epl, &json, et()).unwrap();
+        let gameday::domain::Extras::Soccer { men, .. } = &games[0].extras else {
+            panic!("soccer extras")
+        };
+        *men
+    };
+
+    // Two yellows, one athlete, no explicit red: ten men.
+    let two = format!("{},{}", yellow("10", "301524", "22'"), yellow("10", "301524", "58'"));
+    assert_eq!(men_of(slate(&two)), Some((10, 11)), "a second yellow is a red");
+
+    // Two yellows on DIFFERENT athletes are two bookings, not a sending-off.
+    let split = format!("{},{}", yellow("10", "301524", "22'"), yellow("10", "162843", "58'"));
+    assert_eq!(men_of(slate(&split)), None, "two players, two yellows, eleven men");
+
+    // Both spellings for the same sending-off — a 93 AND the second 94 —
+    // must not count the player twice.
+    let both = format!(
+        "{},{},{}",
+        yellow("10", "301524", "22'"),
+        yellow("10", "301524", "58'"),
+        red("10", "301524", "58'")
+    );
+    assert_eq!(men_of(slate(&both)), Some((10, 11)), "one athlete, one sending-off");
+
+    // Both sides down to ten.
+    let each = format!("{},{}", red("10", "301524", "58'"), red("20", "999999", "61'"));
+    assert_eq!(men_of(slate(&each)), Some((10, 10)));
 }
 
 #[test]
@@ -889,7 +982,7 @@ fn live_fixtures_carry_live_state() {
                 assert!(sit.on_base.is_some(), "{name}: {live_id} carries no base state");
             }
             League::Epl | League::Mls => {
-                let gameday::domain::Extras::Soccer { events } = &g.extras else {
+                let gameday::domain::Extras::Soccer { events, .. } = &g.extras else {
                     panic!("{name}: {live_id} soccer game without Soccer extras");
                 };
                 assert!(!events.is_empty(), "{name}: {live_id} carries no match events");

@@ -471,10 +471,13 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
             // it the zoom of an EPL game had nothing under the linescore.
             extras: Extras::Soccer {
                 events: vec![
-                    MatchEvent { minute: "51'".into(), kind: EventKind::Yellow, team: "ARS".into(), player: "Rice".into() },
-                    MatchEvent { minute: "64'".into(), kind: EventKind::Goal, team: "ARS".into(), player: "Saka".into() },
-                    MatchEvent { minute: "76'".into(), kind: EventKind::Goal, team: "LIV".into(), player: "Salah".into() },
+                    MatchEvent { minute: "51'".into(), kind: EventKind::Yellow, team: "ARS".into(), player: "Rice".into(), athlete_id: Some("d-rice".into()) },
+                    MatchEvent { minute: "64'".into(), kind: EventKind::Goal, team: "ARS".into(), player: "Saka".into(), athlete_id: Some("d-saka".into()) },
+                    MatchEvent { minute: "76'".into(), kind: EventKind::Goal, team: "LIV".into(), player: "Salah".into(), athlete_id: Some("d-salah".into()) },
                 ],
+                // Eleven a side: the demo slate's soccer match is a
+                // showcase for the matchup line, not the men chip.
+                men: None,
             },
             broadcast: Some("NBC".into()),
             ..Game::default()

@@ -781,7 +781,10 @@ mod tests {
 
         // The longest chip the ranker emits fits whole — the clock column's
         // 11 cells clipped "BASES LOADED" to "BASES LOADE".
-        for chip in ["BASES LOADED", "TYING RUN 3RD", "GO-AHEAD 3RD"] { // spec v3.3 §7
+        // "10 MEN" (spec v3.4 §5) is the shortest of the family and the
+        // reason the men chip could not name the side: "AVL 10 MEN" is 10
+        // cells but the chip is a `&'static str`, not a format.
+        for chip in ["BASES LOADED", "TYING RUN 3RD", "GO-AHEAD 3RD", "10 MEN"] { // spec v3.3 §7
             let c = RowCtx { chip: Some(chip), ..ctx() };
             let term = render(120, 3, &game, &c, draw_tier1);
             let text = text_of(term.backend().buffer());

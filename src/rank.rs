@@ -277,6 +277,33 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             }
         }
         League::Epl | League::Mls => {
+            // A sending-off, first (spec v3.4 §5). It outranks STOPPAGE for
+            // the chip because it is the state that reshapes everything left
+            // of the match, while stoppage time is the minute you are in.
+            //
+            // Value 40 — the CLUTCH class (RED ZONE 40, CLUTCH 40, the MLB
+            // tying/go-ahead run 40), not the POWER PLAY class. The receipt
+            // is duration: a power play (25) is a two-minute advantage that
+            // expires on its own, and STOPPAGE (30) is a handful of minutes;
+            // a red card is permanent — a side plays a man down for every
+            // minute remaining, exactly the "watch this one now" the top
+            // tier is for. It is also the only one of the four that cannot
+            // un-happen.
+            //
+            // The chip is a `&'static str` like every other, so these are
+            // the spellings rather than a `format!`. Seven cells at worst
+            // ("11 MEN" is unreachable), well inside `rows::T1_CHIP_W`'s 13.
+            // Below eight men the match is abandoned, so the ladder stops
+            // there and anything lower reads as the floor rather than
+            // inventing a word for a scoreline that cannot exist.
+            if let Extras::Soccer { men: Some((a, h)), .. } = &g.extras {
+                let chip = match (*a).min(*h) {
+                    10 => Some("10 MEN"),
+                    9 => Some("9 MEN"),
+                    _ => Some("8 MEN"),
+                };
+                bonus!(40, chip);
+            }
             let stoppage = g.period.contains('+') || lateness(g.league, &g.period, "") >= 95;
             if stoppage && margin <= 1 {
                 bonus!(30, Some("STOPPAGE"));
@@ -887,5 +914,46 @@ mod tests {
         assert_eq!(w.chip, Some("STOPPAGE"));
         let w2 = watchability(&g(League::Epl, "90'+2'", "", 4, 0), now());
         assert!(!w2.hot, "a stoppage blowout is not hot");
+    }
+
+    /// Spec v3.4 §5: a sending-off is hot at any scoreline, names the count,
+    /// and outranks STOPPAGE for the chip.
+    #[test]
+    fn a_sending_off_is_hot_at_any_scoreline() {
+        let carded = |men: Option<(u8, u8)>, period: &str, away, home| {
+            let mut x = g(League::Epl, period, "", away, home);
+            x.extras = Extras::Soccer { events: vec![], men };
+            x
+        };
+
+        // Even a 4-0 rout at 63' — a scoreline with a closeness of 0 — is hot
+        // once a side is down to ten.
+        let w = watchability(&carded(Some((10, 11)), "63'", 4, 0), now());
+        assert!(w.hot);
+        assert_eq!(w.chip, Some("10 MEN"));
+        assert_eq!(w.score, 40, "the bonus is the CLUTCH tier, on a base of 0");
+
+        // The chip names the SHORT side's count, whichever side that is.
+        assert_eq!(
+            watchability(&carded(Some((11, 9)), "63'", 1, 1), now()).chip,
+            Some("9 MEN")
+        );
+        // Nine-a-side floors at the last spelling rather than inventing one.
+        assert_eq!(
+            watchability(&carded(Some((7, 11)), "63'", 1, 1), now()).chip,
+            Some("8 MEN")
+        );
+
+        // Stoppage time on top adds its bonus but not its chip: the card is
+        // the state that shapes what is left of the match.
+        let both = watchability(&carded(Some((10, 11)), "90'+2'", 1, 1), now());
+        assert_eq!(both.chip, Some("10 MEN"));
+        // 95 = the stoppage lateness floor at a closeness of 100.
+        assert_eq!(both.score, 95 + 40 + 30, "both bonuses still score");
+
+        // Eleven a side says nothing at all.
+        let quiet = watchability(&carded(None, "63'", 4, 0), now());
+        assert!(!quiet.hot);
+        assert_eq!(quiet.chip, None);
     }
 }

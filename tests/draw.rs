@@ -3973,11 +3973,12 @@ fn soccer_zoom_lists_match_events_with_minute_and_letter() {
     game.meter = None;
     game.extras = Extras::Soccer {
         events: vec![
-            MatchEvent { minute: "12'".into(), kind: EventKind::Yellow, team: "NEW".into(), player: "B. Burn".into() },
-            MatchEvent { minute: "24'".into(), kind: EventKind::Goal, team: "NEW".into(), player: "D. Ndoye".into() },
-            MatchEvent { minute: "61'".into(), kind: EventKind::Yellow, team: "NFO".into(), player: "O. Aina".into() },
-            MatchEvent { minute: "70'".into(), kind: EventKind::Penalty, team: "NFO".into(), player: "M. Gibbs-White".into() },
+            MatchEvent { minute: "12'".into(), kind: EventKind::Yellow, team: "NEW".into(), player: "B. Burn".into(), athlete_id: None },
+            MatchEvent { minute: "24'".into(), kind: EventKind::Goal, team: "NEW".into(), player: "D. Ndoye".into(), athlete_id: None },
+            MatchEvent { minute: "61'".into(), kind: EventKind::Yellow, team: "NFO".into(), player: "O. Aina".into(), athlete_id: None },
+            MatchEvent { minute: "70'".into(), kind: EventKind::Penalty, team: "NFO".into(), player: "M. Gibbs-White".into(), athlete_id: None },
         ],
+        men: None,
     };
     let mut app = mk();
     app.apply_boards(League::Epl, vec![game.clone()], false);
@@ -3994,6 +3995,89 @@ fn soccer_zoom_lists_match_events_with_minute_and_letter() {
     for emoji in ['⚽', '🟨', '🟥'] {
         assert!(!s.contains(emoji), "emoji {emoji} in a terminal frame:\n{s}");
     }
+}
+
+/// Spec v3.4 §5: a sending-off is a board-wide state, not a zoom detail —
+/// the count comes from the scoreboard every game already has, so the chip
+/// rides the tier-1 row for every short-handed match at once.
+#[test]
+fn the_ten_men_chip_renders_hot() {
+    let r = gameday::theme::current().roles();
+    let mut game = g("s1", "AVL", "BHA", true);
+    game.league = League::Epl;
+    game.away_score = 1;
+    game.home_score = 1;
+    game.period = "63'".into();
+    game.clock = String::new();
+    game.situation = None;
+    game.meter = None;
+    game.last_plays = vec![];
+    game.extras = Extras::Soccer {
+        events: vec![MatchEvent {
+            minute: "40'".into(),
+            kind: EventKind::Red,
+            team: "AVL".into(),
+            player: "J. Gomes".into(),
+            athlete_id: Some("301524".into()),
+        }],
+        men: Some((10, 11)),
+    };
+    // A stoppage-time thriller outranks the sending-off, so the carded match
+    // is a tier-1 BOARD ROW, not the hero — which is the whole claim: the
+    // count comes off the scoreboard, so every row can carry it.
+    let mut thriller = g("s0", "ARS", "LIV", true);
+    thriller.league = League::Epl;
+    thriller.away_score = 2;
+    thriller.home_score = 2;
+    thriller.period = "90'+3'".into();
+    thriller.clock = String::new();
+    thriller.situation = None;
+    thriller.meter = None;
+    thriller.last_plays = vec![];
+    thriller.extras = Extras::Soccer { events: vec![], men: None };
+
+    let mut app = mk();
+    app.apply_boards(League::Epl, vec![game, thriller], false);
+    app.tab = Tab::League(League::Epl);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("10 MEN"), "the short-handed chip is on the board:\n{s}");
+    assert!(s.contains("STOPPAGE"), "and the hero is the other match:\n{s}");
+
+    // Cell level: the chip's own cells are hot, not merely present. The row
+    // chip is drawn in the hot foreground (the hero's is filled instead).
+    let b = t.backend().buffer();
+    // Byte offsets are not columns — the row's left rail is a multi-byte
+    // block character, so the chip's cell x has to be counted in chars.
+    let (cx, cy) = s
+        .lines()
+        .enumerate()
+        .find_map(|(y, line)| {
+            line.find("10 MEN")
+                .map(|b| (line[..b].chars().count() as u16, y as u16))
+        })
+        .expect("chip located");
+    for i in 0..6u16 {
+        assert_eq!(b[(cx + i, cy)].fg, r.hot, "chip cell {i} is hot\n{s}");
+    }
+    assert!(!s[..s.find("10 MEN").unwrap()].contains("MEN"), "one chip, one match:\n{s}");
+
+    // 11 v 11 says nothing.
+    let mut quiet = g("s2", "ARS", "LIV", true);
+    quiet.league = League::Epl;
+    quiet.period = "63'".into();
+    quiet.clock = String::new();
+    quiet.situation = None;
+    quiet.meter = None;
+    quiet.last_plays = vec![];
+    quiet.extras = Extras::Soccer { events: vec![], men: None };
+    let mut app = mk();
+    app.apply_boards(League::Epl, vec![quiet], false);
+    app.tab = Tab::League(League::Epl);
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    assert!(!buf_text(&t).contains("MEN"), "no chip at full strength");
 }
 
 // ── spec v3.3 §5: screen layouts — no screen floats a narrow column in a

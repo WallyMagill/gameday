@@ -186,6 +186,12 @@ pub struct MatchEvent {
     pub kind: EventKind,
     pub team: String,
     pub player: String,
+    /// ESPN's `athletesInvolved[0].id` — the stable identity `player` (a
+    /// display name) is not. It is what makes a second yellow countable:
+    /// two 94s on the same id are one sending-off, two 94s on two ids are
+    /// two bookings. `None` when the detail credits no athlete (kickoff
+    /// markers, team-level events).
+    pub athlete_id: Option<String>,
 }
 
 /// NHL `plays[].strength.id`, the ids the v3.4 research probe pinned: 701
@@ -225,7 +231,11 @@ pub enum Extras {
     #[default]
     None,
     Baseball { hits: Option<(u16, u16)>, errors: Option<(u16, u16)> },
-    Soccer { events: Vec<MatchEvent> },
+    /// Soccer, from `competition.details[]` on the SCOREBOARD — the one
+    /// live-state win in v3.4 that costs no extra request, so it is
+    /// board-wide by construction (spec §5). `men` is the derived
+    /// (away, home) on-field count, `None` at eleven a side.
+    Soccer { events: Vec<MatchEvent>, men: Option<(u8, u8)> },
     /// NHL, from the summary's play list (spec v3.4 §4): the current
     /// strength and every penalty called so far, oldest first.
     Hockey { strength: HockeyStrength, penalties: Vec<PenaltyEvent> },

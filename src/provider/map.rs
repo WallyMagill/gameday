@@ -416,9 +416,11 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
             hits: hits.0.zip(hits.1),
             errors: errors.0.zip(errors.1),
         },
-        League::Epl | League::Mls => Extras::Soccer {
-            events: details_from(&comp["details"], &abbr_for_id),
-        },
+        League::Epl | League::Mls => {
+            let events = details_from(&comp["details"], &abbr_for_id);
+            let men = men_from_events(&events, &away.abbr, &home.abbr);
+            Extras::Soccer { events, men }
+        }
         // Football drive text lives on the summary, not the scoreboard, and
         // shots on goal weren't confirmable without a live NHL feed — neither
         // has a source here, so neither gets a variant until one does.
@@ -553,9 +555,69 @@ fn details_from(details: &Value, abbr_for_id: &dyn Fn(Option<&str>) -> Option<St
                     .and_then(|a| a["shortName"].as_str())
                     .unwrap_or("")
                     .to_string(),
+                athlete_id: d["athletesInvolved"]
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(|a| a["id"].as_str())
+                    .map(str::to_string),
             })
         })
         .collect()
+}
+
+/// Men on the field per side, (away, home), from the mapped match events
+/// alone — spec v3.4 §5. `None` at eleven a side, which is the overwhelming
+/// majority of matches: the board only says something when there is
+/// something to say.
+///
+/// The rule is deliberately defensive:
+///
+/// > `reds(team) = |{ explicit red cards }  ∪  { athletes with ≥ 2 yellows }|`
+///
+/// ESPN's second-yellow encoding is UNOBSERVED. The one red card we have a
+/// real capture of (`fixtures/live/epl_scoreboard_redcard.json`, João Gomes
+/// 40') is a *straight* red — a lone type 93. A second yellow could plausibly
+/// arrive as a third 94, as a 93, or as both, and this rule is correct under
+/// all three: the yellow-pair clause catches the 94-only spelling, the
+/// explicit clause catches the 93-only spelling, and taking the UNION over
+/// athlete ids means a feed that sends both does not send a side down to
+/// nine. Only a card whose detail credits no athlete falls outside the union
+/// (it can only be an explicit red, and it is counted on its own).
+///
+/// Eleven is the starting count, not a cap on reality: a team can finish
+/// with seven. `saturating_sub` keeps a malformed feed from wrapping.
+fn men_from_events(events: &[MatchEvent], away_abbr: &str, home_abbr: &str) -> Option<(u8, u8)> {
+    let reds = |team: &str| -> u8 {
+        if team.is_empty() {
+            return 0;
+        }
+        let mine = || events.iter().filter(|e| e.team == team);
+        let mut sent_off: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut anonymous = 0u8;
+        for e in mine().filter(|e| e.kind == EventKind::Red) {
+            match e.athlete_id.as_deref() {
+                Some(id) => {
+                    sent_off.insert(id);
+                }
+                // No id to dedupe on; it can still only be one sending-off.
+                None => anonymous = anonymous.saturating_add(1),
+            }
+        }
+        let mut yellows: std::collections::HashMap<&str, u8> = std::collections::HashMap::new();
+        for e in mine().filter(|e| e.kind == EventKind::Yellow) {
+            if let Some(id) = e.athlete_id.as_deref() {
+                *yellows.entry(id).or_default() += 1;
+            }
+        }
+        for (id, n) in yellows {
+            if n >= 2 {
+                sent_off.insert(id);
+            }
+        }
+        (sent_off.len().min(u8::MAX as usize) as u8).saturating_add(anonymous)
+    };
+    let (a, h) = (11u8.saturating_sub(reds(away_abbr)), 11u8.saturating_sub(reds(home_abbr)));
+    (a < 11 || h < 11).then_some((a, h))
 }
 
 pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {

@@ -32,6 +32,11 @@ pub enum Tab {
     League(League),
 }
 
+/// One live game's ordering identity (R24): away score, home score, status,
+/// the hot flag, and soccer's on-field count. Two equal fingerprints mean
+/// nothing the board sorts on has moved, so the order is left alone.
+type RankFingerprint = (u16, u16, Status, bool, Option<(u8, u8)>);
+
 /// Render ticks per second while anything is live (main's `LIVE_TICK` is
 /// 100ms). Every seconds→ticks conversion (score flash, alert cooldown and
 /// banner) derives from this one number.
@@ -169,10 +174,16 @@ pub struct App {
     /// this to detect data-driven score changes.
     last_scores: HashMap<String, (u16, u16)>,
     /// What the live band looked like the last time it was allowed to
-    /// re-sort: id -> (away, home, status, hot). A poll that only advanced the
-    /// clock leaves every fingerprint equal, so no reorder happens — the order
-    /// is frozen even though watchability keeps rising (R24 / spec §2).
-    rank_fingerprints: HashMap<String, (u16, u16, Status, bool)>,
+    /// re-sort: id -> (away, home, status, hot, men). A poll that only advanced
+    /// the clock leaves every fingerprint equal, so no reorder happens — the
+    /// order is frozen even though watchability keeps rising (R24 / spec §2).
+    ///
+    /// `men` is soccer's on-field count (spec v3.4 §5). `hot` alone would not
+    /// carry it: a match already hot on STOPPAGE that then loses a man would
+    /// show the same fingerprint, and the sending-off — the biggest thing to
+    /// happen to that match — would never move the board. The count, not a
+    /// boolean, so a SECOND red is its own event too.
+    rank_fingerprints: HashMap<String, RankFingerprint>,
     /// game id -> tick when its score last changed; drives the one-shot flash.
     flashes: HashMap<String, u64>,
     /// Favorite-score alert diff state (own score memory + per-game cooldown).
@@ -1123,7 +1134,7 @@ impl App {
     fn maybe_reorder(&mut self) {
         let live = self.live_all();
         let now = self.now();
-        let fps: HashMap<String, (u16, u16, Status, bool)> = live
+        let fps: HashMap<String, RankFingerprint> = live
             .iter()
             .map(|g| {
                 (
@@ -1133,6 +1144,10 @@ impl App {
                         g.home_score,
                         g.status,
                         crate::rank::watchability(g, now).hot,
+                        match &g.extras {
+                            crate::domain::Extras::Soccer { men, .. } => *men,
+                            _ => None,
+                        },
                     ),
                 )
             })
@@ -2869,6 +2884,76 @@ mod tests {
         let mut demo = nhl_live("n3");
         demo.meter = Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 42 });
         assert_eq!(crate::rank::watchability(&demo, now).chip, Some("POWER PLAY"));
+    }
+
+    /// A live EPL match the scoreboard maps: minute in `period`, no clock,
+    /// eleven a side.
+    fn epl_live(id: &str, minute: &str, away: u16, home: u16) -> Game {
+        let mut x = g(id, "AVL", "BHA", true);
+        x.league = League::Epl;
+        x.period = minute.into();
+        x.clock = String::new();
+        x.away_score = away;
+        x.home_score = home;
+        x.situation = None;
+        x.meter = None;
+        x.extras = crate::domain::Extras::Soccer { events: vec![], men: None };
+        x
+    }
+
+    /// Spec v3.4 §5 + R24: a sending-off is a real event, so it earns exactly
+    /// ONE reorder. The men state is board-wide (it comes off the scoreboard
+    /// every game already has), so unlike the NHL's summary strength it has
+    /// no zoom asymmetry to defend against — what it must defend against is
+    /// re-firing on every poll that repeats the same card.
+    #[test]
+    fn a_red_card_reorders_once_and_freezes() {
+        let mut app = app_with(vec![], vec![]);
+        app.apply_boards(
+            League::Epl,
+            vec![epl_live("a", "20'", 1, 0), epl_live("b", "63'", 1, 0)],
+            false,
+        );
+        assert_eq!(ord(&app), vec!["b", "a"], "the later close match leads");
+
+        // The card lands: "a" is down to ten and jumps the board.
+        let mut carded = epl_live("a", "20'", 1, 0);
+        carded.extras = crate::domain::Extras::Soccer {
+            events: vec![crate::domain::MatchEvent {
+                minute: "20'".into(),
+                kind: crate::domain::EventKind::Red,
+                team: "AVL".into(),
+                player: "J. Gomes".into(),
+                athlete_id: Some("301524".into()),
+            }],
+            men: Some((10, 11)),
+        };
+        let now = app.now();
+        let w = crate::rank::watchability(&carded, now);
+        assert_eq!(w.chip, Some("10 MEN"), "the card names the state");
+        assert!(w.hot, "a red card is hot by definition");
+
+        app.apply_boards(League::Epl, vec![carded.clone(), epl_live("b", "63'", 1, 0)], false);
+        assert_eq!(ord(&app), vec!["a", "b"], "one honest reorder");
+        let after = ord(&app);
+        let fps = app.rank_fingerprints.clone();
+
+        // The same card, poll after poll, is not an event. The minute keeps
+        // climbing on both matches and the board holds.
+        for minute in ["21'", "22'", "23'"] {
+            let mut still = carded.clone();
+            still.period = minute.into();
+            app.apply_boards(League::Epl, vec![still, epl_live("b", "63'", 1, 0)], false);
+            assert_eq!(ord(&app), after, "the card fires once, not once per poll (R24)");
+        }
+        assert_eq!(app.rank_fingerprints, fps, "nor did the fingerprint move");
+
+        // A SECOND sending-off is a new event: the fingerprint carries the
+        // count, not merely "somebody is short-handed".
+        let mut two = carded.clone();
+        two.extras = crate::domain::Extras::Soccer { events: vec![], men: Some((9, 11)) };
+        app.apply_boards(League::Epl, vec![two, epl_live("b", "63'", 1, 0)], false);
+        assert_ne!(app.rank_fingerprints, fps, "nine men is not ten men");
     }
 
     #[test]

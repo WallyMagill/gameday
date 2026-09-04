@@ -264,7 +264,7 @@ fn matchup_line(game: &Game, width: usize) -> Option<Line<'static>> {
             }
         }
         League::Epl | League::Mls => {
-            let Extras::Soccer { events } = &game.extras else {
+            let Extras::Soccer { events, .. } = &game.extras else {
                 return None;
             };
             if events.is_empty() {
