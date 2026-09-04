@@ -265,7 +265,8 @@ pub const KEYMAP: &[Binding] = &[
 /// whole chord list, least valuable first. HELP and QUIT are deliberately
 /// absent: whatever gets clipped, the way out and the way to the full keymap
 /// stay visible.
-pub const FOOTER_DROP_ORDER: &[&str] = &["MOVE", "PIN", "LEAGUE", "FILTER", "CMD"];
+pub const FOOTER_DROP_ORDER: &[&str] =
+    &["MOVE", "PIN", "LEAGUE", "CYCLE", "EDIT", "TOGGLE", "FILTER", "CMD"];
 
 /// The Board footer's legend (spec §1): `↑↓ move  enter zoom  space pin
 /// / filter  s sort  v tv  ? help  q quit`, fixed order, lowercase, no

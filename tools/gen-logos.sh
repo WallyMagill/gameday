@@ -220,7 +220,7 @@ render_light() {
         subs+=("$key  darkened 69,115  readable share $share -> $after")
         # One pass, like the dark path's one lift. What is still short of the
         # floor here is short by a hair (mlb/pit's gold lands at 0.280 linear
-        # luminance against the 0.263 the floor wants — 2.85:1, not 3:1) or is
+        # luminance against the 0.263 the floor wants — 2.89:1, not 3:1) or is
         # a mark with no dark tone to find; darkening it further would buy the
         # ratio by turning a brand color to mud.
         if awk "BEGIN{exit !($after < $LIFT_SHARE)}"; then

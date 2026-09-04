@@ -788,6 +788,46 @@ mod tests {
         assert!(text.contains("Saka opens the scoring"), "{text}");
     }
 
+    /// v3.4 T9 review: an outsized headline (a 200-char string, far past
+    /// anything ESPN sends) at a narrow tier-3 width truncates with an
+    /// ellipsis and never overflows the row — no panic, no bleeding past
+    /// the frame's own width.
+    #[test]
+    fn a_200_char_headline_truncates_with_ellipsis_at_60_cols() {
+        let mut fin = live_game("ARS", "BHA");
+        fin.league = League::Epl;
+        fin.status = Status::Final;
+        fin.headline = Some("A".repeat(200));
+        let term = render(60, 1, &fin, &ctx(), draw_tier3);
+        let buf = term.backend().buffer();
+        let text = text_of(buf);
+        assert_eq!(text.chars().count(), 60, "row must stay exactly the frame's width, no overflow\n{text}");
+        assert!(text.contains('…'), "a 200-char headline at 60 cols must be truncated with an ellipsis\n{text}");
+        assert!(!text.contains(&"A".repeat(23)), "the headline itself must be cut, not just clipped by the terminal\n{text}");
+    }
+
+    /// v3.4 T9 review: a final that already carries a headline, then gets a
+    /// later refresh that appends a newer scoring play (e.g. a correction or
+    /// a stats-pass update landing after the game went final) — the ladder
+    /// must still show the headline, not fall to the newly-appended play.
+    #[test]
+    fn a_headline_survives_a_later_scoring_play_refresh() {
+        let mut fin = live_game("ARS", "BHA");
+        fin.league = League::Epl;
+        fin.status = Status::Final;
+        fin.headline = Some("Arsenal beat Brighton to go top of the table".into());
+        fin.scoring_plays = vec![Play { text: "Saka opens the scoring".into(), scoring: true, ..Default::default() }];
+        assert_eq!(final_story(&fin, None).as_deref(), Some("Arsenal beat Brighton to go top of the table"));
+
+        // A refresh lands a newer scoring play on top of the existing one.
+        fin.scoring_plays.push(Play { text: "Ødegaard doubles the lead".into(), scoring: true, ..Default::default() });
+        assert_eq!(
+            final_story(&fin, None).as_deref(),
+            Some("Arsenal beat Brighton to go top of the table"),
+            "the headline must survive a later scoring-play refresh"
+        );
+    }
+
     #[test]
     fn tier1_is_three_rows_on_the_shared_grid() {
         let game = live_game("DAL", "PHI");

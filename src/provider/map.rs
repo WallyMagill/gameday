@@ -1086,6 +1086,19 @@ mod tests {
     }
 
     #[test]
+    fn yards_to_goal_boundaries_for_both_possession_sides() {
+        // v3.4 T5 review: pin the formula at the yardLine extremes for both
+        // sides. yardLine 0 = home goal line, 100 = away goal line; home
+        // attacks 100, away attacks 0.
+        assert_eq!(yards_to_goal(0, true), 100, "home at its own goal line: 100 to go");
+        assert_eq!(yards_to_goal(50, true), 50, "midfield: 50 to go either way");
+        assert_eq!(yards_to_goal(100, true), 0, "home at the away goal line: 0 to go");
+        assert_eq!(yards_to_goal(0, false), 0, "away at the home goal line: 0 to go");
+        assert_eq!(yards_to_goal(50, false), 50, "midfield: 50 to go either way");
+        assert_eq!(yards_to_goal(100, false), 100, "away at its own goal line: 100 to go");
+    }
+
+    #[test]
     fn win_pct_counts_the_third_column_as_half_a_win() {
         // The NHL's own table: 40-20-20 is 100 points in 80 games (.625 of
         // the points available); 41-39-0 is 82 in 80. Sorting on wins alone

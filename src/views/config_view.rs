@@ -112,8 +112,13 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> u16 {
             }
         }
     }
-    let (columns, cursor_line) = if two {
-        (vec![tabs, side], cursor_at.1)
+    // `cursor_col` is which rendered column the cursor sits in, so only that
+    // column's scroll follows it — v3.3 review: a single shared skip walked
+    // the *other* panel's rows off-screen too whenever a tall TABS list
+    // pushed FAVORITES/DISPLAY into view, even though that panel had room to
+    // just show its own top.
+    let (columns, cursor_line, cursor_col) = if two {
+        (vec![tabs, side], cursor_at.1, cursor_at.0)
     } else {
         // One column: the sections stack, so the cursor's line moves down by
         // everything the TABS panel drew.
@@ -122,7 +127,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> u16 {
         let mut all = tabs;
         all.push(Line::from(""));
         all.extend(side);
-        (vec![all], line)
+        (vec![all], line, 0)
     };
     let height = columns.iter().map(Vec::len).max().unwrap_or(0);
     let pane_h = pane.height.max(1) as usize;
@@ -134,7 +139,10 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> u16 {
     let x = pane.x + (pane.width as usize).saturating_sub(block_w) as u16 / 2;
     let y = pane.y + (pane_h - visible) as u16 / 2;
     for (i, col) in columns.into_iter().enumerate() {
-        let lines: Vec<Line> = col.into_iter().skip(skip).take(visible).collect();
+        // Only the cursor's own column scrolls; every other column renders
+        // from its own top.
+        let col_skip = if i == cursor_col { skip } else { 0 };
+        let lines: Vec<Line> = col.into_iter().skip(col_skip).take(visible).collect();
         let rect = Rect {
             x: x + (i * (panel_w + GUTTER)) as u16,
             y,

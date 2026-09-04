@@ -758,6 +758,25 @@ fn narrow_footer_sheds_low_value_chords_but_keeps_help_and_quit() {
     assert!(!footer.contains("move"), "move should be shed first: {footer:?}");
 }
 
+#[test]
+fn config_footer_at_40_cols_keeps_help() {
+    // v3.3 T7 follow-up: FOOTER_DROP_ORDER lacked entries for config's
+    // toggle/edit/cycle rows, so at 40 cols they never shed and `? help`
+    // got clipped off the right edge instead — HELP must never shed.
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::ConfigView;
+    let mut t = Terminal::new(TestBackend::new(40, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let footer = s
+        .lines()
+        .find(|l| l.contains("esc") || l.contains("back"))
+        .unwrap_or_default()
+        .to_string();
+    assert!(footer.contains("? help"), "help clipped: {s}");
+}
+
 /// Longest run of consecutive ASCII-uppercase letters in `s`, excluding the
 /// footer's known status readouts (`FOCUS`, `UPD`, `GAME`) — those are
 /// clock-shaped status text, not the "NAV:" chord grammar spec v3.3 §5
@@ -993,6 +1012,36 @@ fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
     // Row 0 (the NFL play — enabled-tab order) carries the ▸ marker.
     assert!(nfl_row.contains("▸"), "marker must start on row 0: {nfl_row}");
     assert!(!nba_row.contains("▸"), "only one row is marked: {nba_row}");
+}
+
+#[test]
+fn plays_feed_truncates_long_play_text_and_keeps_the_score() {
+    // v3.3 T7 follow-up: the row's stamp/abbr columns pad but never
+    // truncated the play text, so an absurdly long play could push the
+    // matchup score off the right edge. It must survive at 80 cols.
+    use gameday::views::View;
+    let mut app = mk();
+    let mut nfl = g("1", "KC", "TB", true);
+    nfl.last_plays = vec![Play {
+        clock: "1:27".into(),
+        team: "KC".into(),
+        text: "Mahomes scrambles left, evades three defenders, laterals to Kelce \
+               who breaks two tackles and dives for the pylon on a truly absurd play"
+            .into(),
+        scoring: true,
+        ..Default::default()
+    }];
+    app.apply_boards(League::Nfl, vec![with_scoring(nfl)], false);
+    app.view = View::PlaysFeed;
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let row = s
+        .lines()
+        .find(|l| l.contains("Mahomes scrambles"))
+        .unwrap_or_else(|| panic!("play row missing:\n{s}"));
+    assert!(row.contains('…'), "long play text should be truncated with an ellipsis: {row:?}");
+    assert!(row.contains("KC@TB") && row.contains("27-24"), "score must survive: {row:?}");
 }
 
 #[test]
@@ -1633,6 +1682,36 @@ fn config_view_renders_every_section() {
     ] {
         assert!(s.contains(needle), "missing {needle:?} in config view:\n{s}");
     }
+}
+
+#[test]
+fn config_scroll_is_per_panel_not_shared() {
+    // v3.3 review, optional item: a single `skip` used to be applied to
+    // BOTH the TABS panel and the FAVORITES/DISPLAY panel. With the cursor
+    // scrolled to the bottom of the right panel (SORT) and a pane too short
+    // to show everything, the shared skip walked the TABS panel's own
+    // top row (NFL) off-screen too, even though TABS never needed to
+    // scroll on its own. Each panel must scroll independently.
+    use gameday::views::{config_view, View};
+    let mut app = App::new(Config::default_all(), vec![], config_dir("panelscroll"), time::UtcOffset::UTC);
+    app.view = View::ConfigView;
+    // Move the cursor to the last row: 9 tabs, ADD FAVORITE, THEME, SORT.
+    for _ in 0..League::ALL.len() + 3 {
+        key(&mut app, crossterm::event::KeyCode::Char('j'));
+    }
+    // Wide enough for two panels (>= 100), short enough that the block
+    // (9 tab rows) doesn't fit in the pane.
+    let area = ratatui::layout::Rect { x: 0, y: 0, width: 120, height: 5 };
+    let mut t = Terminal::new(TestBackend::new(120, 5)).unwrap();
+    t.draw(|f| {
+        config_view::draw(&app, f, area);
+    })
+    .unwrap();
+    let s = buf_text(&t);
+    assert!(
+        s.contains("NFL"),
+        "TABS panel's own top row must stay visible — it never needed to scroll:\n{s}"
+    );
 }
 
 #[test]

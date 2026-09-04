@@ -708,6 +708,22 @@ fn a_scoring_non_homer_is_run_scoring_play() {
 }
 
 #[test]
+fn mlb_narrative_play_with_no_joined_pitch_row_stays_other() {
+    // v3.4 T4 review: a narrative row (type 57 Play Result) whose atBatId
+    // has no P row in the feed at all — pass 1's join map has no entry for
+    // it, so `mlb_pitch_type_by_at_bat.get` misses. That must fall back to
+    // Other, not panic.
+    let json = r#"{"header":{"competitions":[{"competitors":[{"team":{"id":"1","abbreviation":"BOS"}}]}]},
+      "plays":[
+        {"summaryType":"N","atBatId":"orphan-1","type":{"id":"57"},"scoreValue":0,"scoringPlay":false,"text":"Devers grounds out to short.","team":{"id":"1"},"period":{"type":"Bottom","number":3}}
+      ]}"#;
+    let s = map_summary(League::Mlb, json).unwrap();
+    assert_eq!(s.last_plays.len(), 1);
+    assert_eq!(s.last_plays[0].text, "Devers grounds out to short.");
+    assert_eq!(s.last_plays[0].kind, PlayKind::Other, "join miss must fall back to Other, not panic");
+}
+
+#[test]
 fn summary_is_not_truncated_to_eight() {
     // 20 flat plays with the scoring play at index 3 — the old split_off(len-8)
     // dropped it and every scoring surface went blank (review finding #2).

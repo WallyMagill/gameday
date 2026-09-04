@@ -114,16 +114,20 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool, width: usize) -> Line<
     let stamp = crate::tiles::play_stamp(play);
     let word = theme::scoring_word(game.league);
     let score = format!("{}@{} {lead}-{trail} ", game.away.abbr, game.home.abbr);
-    // Everything left of the play text is fixed-width, so the gap that pushes
-    // the score to the right edge is the row's width minus what is spoken.
-    let spoken = marker.chars().count()
+    // Everything but the play text is fixed-width; the play text gets
+    // whatever's left after that budget and the score, minimum a 2-cell gap
+    // — long play text is truncated with an ellipsis rather than letting it
+    // push the score off the row's right edge (v3.3 T7 follow-up).
+    let fixed = marker.chars().count()
         + CHIP_W
         + 7 // " {stamp:>5} "
         + 4 // team abbr column
         + word.chars().count()
         + 1
-        + play.text.chars().count()
         + score.chars().count();
+    let text_budget = width.saturating_sub(fixed + 2);
+    let text = crate::text::truncate(&play.text, text_budget);
+    let spoken = fixed + text.chars().count();
     let gap = width.saturating_sub(spoken).max(2);
     Line::from(vec![
         Span::styled(marker, Style::default().fg(th.star)),
@@ -147,7 +151,7 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool, width: usize) -> Line<
             format!("{word} "),
             Style::default().fg(th.live).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(play.text.clone(), text_style),
+        Span::styled(text, text_style),
         Span::raw(" ".repeat(gap)),
         Span::styled(score, Style::default().fg(th.muted)),
     ])
