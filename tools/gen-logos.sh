@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Regenerate assets/logos/**/*.ans from ESPN's team art via chafa, then
-# rewrite the embed table `src/board/logo_sources.rs`.
+# Regenerate assets/logos/**/*.ans (dark ground) and assets/logos-light/**/*.ans
+# (light ground) from ESPN's team art via chafa, then rewrite the embed table
+# `src/board/logo_sources.rs`.
 # Dev-time only: the app ships the committed .ans files and never fetches art.
 #
 #   tools/gen-logos.sh                 # every league, 16x10 cells, quadrants
@@ -46,8 +47,44 @@ SYMBOLS="${SYMBOLS:-space+solid+half+quad}"
 API="https://site.api.espn.com/apis/site/v2/sports"
 LEAGUES="${LEAGUES:-nfl nba wnba nhl mlb epl mls cfb cbb}"
 
-# Downloads survive between runs: ~190 PNGs is a lot to re-pull from a CDN
-# just to retune chafa flags. Delete the dir to force a refetch.
+# ---------------------------------------------------------- the light set
+# v3.4 §7. Every mark is rendered twice: once over black (the dark themes)
+# and once over daygame's paper ground (`assets/candidates/daygame.toml`,
+# bg = #f5f2ea). One art set cannot serve both — a gold Pirates P is a
+# perfect mark on black and an invisible one on paper.
+PAPER="${PAPER:-#f5f2ea}"
+# A pixel clears the WCAG 3:1 graphics floor against the paper when its
+# relative luminance is <= 0.263: contrast = (0.889 + 0.05) / (L + 0.05) = 3
+# with the paper's L = 0.889 (the receipt in daygame.toml).
+#
+# That 0.263 is *linear* light, which ImageMagick's plain `-colorspace gray`
+# does not give: it computes Rec709 luma over the gamma-encoded channels
+# (`xc:#e31837 -colorspace gray` measures 0.272 where the relative luminance
+# is 0.171), which reads saturated brand colors as far darker than they are —
+# the difference between flagging a gold Pirates P and shipping it invisible.
+# `-evaluate Pow 2.2` first puts the channels in linear light, and then gray
+# is the luminance WCAG means (checked: #f5f2ea -> 0.892, #808080 -> 0.220).
+READABLE_LUMA="${READABLE_LUMA:-26.3%}"
+# A mark is "contrast-hostile on paper" when the MAJORITY of its own opaque
+# pixels miss that floor — the median pixel of the mark is illegible. Half is
+# the one non-arbitrary place to put that line, and it is what asks ESPN for
+# its on-white art: a swap that costs nothing, since the answer is the team's
+# own logo either way. 40 of the committed 230 fall below it; for 15 of them
+# ESPN's on-white file actually measures better and is taken.
+READABLE_SHARE="${READABLE_SHARE:-0.5}"
+# Darkening is not free — it moves a brand colour — so the lift waits for a
+# lower line: less than a fifth of the mark reading, where what is left is
+# speckle rather than shape. The fifth comes off the gate frame by eye, not
+# out of arithmetic: the KC arrowhead reads at 0.39 and is a perfectly legible
+# arrowhead on paper (lift it and its white interior turns gray, which is
+# worse art), while the Pirates' gold P reads at 0.00 and is a ghost. Eight
+# marks are under it: mlb/pit, mlb/sf and ncaa/2633 at 0.00, nfl/pit 0.15,
+# ncaa/130 0.16, nfl/ten 0.16, nba/phx 0.17, soccer/362 0.19.
+LIFT_SHARE="${LIFT_SHARE:-0.2}"
+
+# Downloads survive between runs: 230 PNGs (plus the on-white variants the
+# light set asks for) is a lot to re-pull from a CDN just to retune chafa
+# flags. Delete the dir to force a refetch.
 CACHE="${LOGO_CACHE:-${TMPDIR:-/tmp}/gameday-logo-cache}"
 mkdir -p "$CACHE"
 
@@ -72,8 +109,16 @@ league_spec() {
 
 skipped=()
 written=0
+written_light=0
+subs=()
+stubborn=()
 
-# key<TAB>href for every team in a league, off ESPN's own logos[] rel tags.
+# key<TAB>href<TAB>on-white-href for every team in a league, off ESPN's own
+# logos[] rel tags. The third column is the `primary_logo_on_white_color`
+# variant — ESPN's own answer to "this mark is going on white paper". It is
+# published for every US league and for MLS, and for nobody in the EPL
+# (checked 2026-09-03: 0 of 20 clubs), so it is a column that is often empty
+# and the light path has to survive that.
 resolve_league() {
   local sport="$1" comp="$2" ns="$3" keyby="$4" url json
   if [ "$keyby" = poll ]; then
@@ -88,7 +133,8 @@ resolve_league() {
       ([.rankings[] | select(.shortName | test("AP"; "i"))] + .rankings)[0]
       | .ranks[]? | select(.current >= 1 and .current <= 25)
       | [ "\($ns)/\(.team.id)",
-          ([.team.logos[]? | select((.rel|index("full")) and (.rel|index("default"))) | .href] | first // "")
+          ([.team.logos[]? | select((.rel|index("full")) and (.rel|index("default"))) | .href] | first // ""),
+          ([.team.logos[]? | select(.rel|index("primary_logo_on_white_color")) | .href] | first // "")
         ] | @tsv' <<<"$json"
   else
     url="$API/$sport/$comp/teams?limit=1000"
@@ -96,25 +142,112 @@ resolve_league() {
     jq -r --arg ns "$ns" --arg keyby "$keyby" '
       .sports[0].leagues[0].teams[].team
       | [ (if $keyby == "id" then "\($ns)/\(.id)" else "\($ns)/\(.abbreviation | ascii_downcase)" end),
-          ([.logos[]? | select((.rel|index("full")) and (.rel|index("default"))) | .href] | first // "")
+          ([.logos[]? | select((.rel|index("full")) and (.rel|index("default"))) | .href] | first // ""),
+          ([.logos[]? | select(.rel|index("primary_logo_on_white_color")) | .href] | first // "")
         ] | @tsv' <<<"$json"
   fi
 }
 
+# Cache-or-download; echoes the cached path. `$3` distinguishes the variants
+# of one key in the cache ("" for the default mark, "-onwhite" for ESPN's).
+fetch() {
+  local key="$1" href="$2" suffix="${3:-}" cached
+  cached="$CACHE/${key//\//-}$suffix.png"
+  if [ ! -s "$cached" ]; then
+    if ! curl -fsSL --max-time 30 "$href" -o "$cached"; then
+      rm -f "$cached"
+      return 1
+    fi
+    sleep 0.15  # 230 marks in one run; don't hammer the CDN
+  fi
+  printf '%s' "$cached"
+}
+
+# The share of a mark's own (opaque) pixels that clear 3:1 against the paper.
+# Alpha-masked on purpose: the transparent field around a mark is the board's
+# ground, not the mark, and counting it would score every logo by how much
+# padding ESPN shipped.
+readable_share() {
+  local png="$1" both alpha
+  magick "$png" -alpha extract -threshold 50% "$tmp/mask.png"
+  magick "$png" -background "$PAPER" -alpha remove -alpha off \
+    -evaluate Pow 2.2 -colorspace gray -threshold "$READABLE_LUMA" -negate "$tmp/legible.png"
+  both=$(magick "$tmp/mask.png" "$tmp/legible.png" -compose multiply -composite \
+    -format "%[fx:mean]" info:)
+  alpha=$(magick "$tmp/mask.png" -format "%[fx:mean]" info:)
+  awk -v b="$both" -v a="$alpha" 'BEGIN { if (a <= 0) print "0.000"; else printf "%.3f", b / a }'
+}
+
+# The same mark, composited for daygame's paper instead of the dark themes'
+# black: ESPN's on-white variant where the standard one is contrast-hostile,
+# then the v3.3 brightness lift run in reverse.
+render_light() {
+  local key="$1" cached="$2" white="$3" png share share_white white_png
+  png="$tmp/light-${key//\//-}.png"
+  cp "$cached" "$png"
+  if command -v magick >/dev/null; then
+    magick "$png" -trim +repage "$png" 2>/dev/null || {
+      skipped+=("$key light (not a usable image)")
+      return 0
+    }
+    share=$(readable_share "$png")
+    if awk "BEGIN{exit !($share < $READABLE_SHARE)}"; then
+      # Contrast-hostile on paper. ESPN publishes a mark drawn for white
+      # grounds; take it when it measures better, never on faith — for most
+      # teams the two files are the same art and swapping buys nothing.
+      if [ -n "$white" ] && white_png=$(fetch "$key" "$white" -onwhite) \
+        && magick "$white_png" -trim +repage "$tmp/onwhite.png" 2>/dev/null; then
+        share_white=$(readable_share "$tmp/onwhite.png")
+        if awk "BEGIN{exit !($share_white > $share)}"; then
+          cp "$tmp/onwhite.png" "$png"
+          subs+=("$key  on-white variant  readable share $share -> $share_white")
+          share=$share_white
+        else
+          subs+=("$key  kept standard, on-white no better ($share vs $share_white)")
+        fi
+      else
+        subs+=("$key  kept standard, no primary_logo_on_white_color published (share $share)")
+      fi
+      # The v3.3 lift, mirrored. Dark marks over black got `-modulate 145,115`
+      # because black's failing tail is the dark one; paper's failing tail is
+      # the bright one, so the mirror divides where the original multiplied:
+      # 100 * 100 / 145 = 69, with the same +15% saturation so the hue
+      # survives the move (a gold Pirates P goes to a dark gold, not to gray).
+      if awk "BEGIN{exit !($share < $LIFT_SHARE)}"; then
+        magick "$png" -modulate 69,115 "$png"
+        local after
+        after=$(readable_share "$png")
+        subs+=("$key  darkened 69,115  readable share $share -> $after")
+        # One pass, like the dark path's one lift. What is still short of the
+        # floor here is short by a hair (mlb/pit's gold lands at 0.280 linear
+        # luminance against the 0.263 the floor wants — 2.85:1, not 3:1) or is
+        # a mark with no dark tone to find; darkening it further would buy the
+        # ratio by turning a brand color to mud.
+        if awk "BEGIN{exit !($after < $LIFT_SHARE)}"; then
+          stubborn+=("$key ($after)")
+        fi
+      fi
+    fi
+  fi
+  mkdir -p "assets/logos-light/${key%/*}"
+  if ! chafa --size="$SIZE" --symbols="$SYMBOLS" -c full -w 9 -f symbols --bg "$PAPER" "$png" \
+    > "assets/logos-light/$key.ans"; then
+    rm -f "assets/logos-light/$key.ans"
+    skipped+=("$key light (chafa failed)")
+    return 0
+  fi
+  written_light=$((written_light + 1))
+}
+
 render() {
-  local key="$1" href="$2" png cached lum
+  local key="$1" href="$2" white="$3" png cached lum
   if [ -z "$href" ]; then
     skipped+=("$key (no full/default logo in the payload)")
     return 0
   fi
-  cached="$CACHE/${key//\//-}.png"
-  if [ ! -s "$cached" ]; then
-    if ! curl -fsSL --max-time 30 "$href" -o "$cached"; then
-      rm -f "$cached"
-      skipped+=("$key (fetch failed: $href)")
-      return 0
-    fi
-    sleep 0.15  # ~190 marks in one run; don't hammer the CDN
+  if ! cached=$(fetch "$key" "$href"); then
+    skipped+=("$key (fetch failed: $href)")
+    return 0
   fi
   png="$tmp/${key//\//-}.png"
   cp "$cached" "$png"
@@ -138,6 +271,7 @@ render() {
   fi
   written=$((written + 1))
   echo "wrote assets/logos/$key.ans ($(wc -l < "assets/logos/$key.ans" | tr -d ' ') rows)"
+  render_light "$key" "$cached" "$white"
 }
 
 tmp=$(mktemp -d)
@@ -150,13 +284,13 @@ for l in $LEAGUES; do
   # shellcheck disable=SC2086
   set -- $spec
   echo "== $l ($1/$2 -> $3, by $4)"
-  while IFS=$'\t' read -r key href; do
+  while IFS=$'\t' read -r key href white; do
     [ -n "$key" ] || continue
     # ncaa is one bucket for CFB and CBB: a school ranked in both polls
     # carries one id and one mark. Render it once.
     grep -qxF "$key" "$seen" && continue
     echo "$key" >> "$seen"
-    render "$key" "$href"
+    render "$key" "$href" "${white:-}"
   done < <(resolve_league "$1" "$2" "$3" "$4")
 done
 
@@ -177,9 +311,25 @@ out=src/board/logo_sources.rs
     echo "    (\"$key\", include_str!(\"../../$f\")),"
   done
   echo "];"
+  echo
+  echo "/// The same marks composited for a light ground (v3.4 §7): keyed"
+  echo "/// identically, selected by [\`super::hero_mark\`] when the active"
+  echo "/// theme's ground is a light one."
+  echo "pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &["
+  find assets/logos-light -name '*.ans' | sort | while read -r f; do
+    key=${f#assets/logos-light/}
+    key=${key%.ans}
+    echo "    (\"$key\", include_str!(\"../../$f\")),"
+  done
+  echo "];"
 } > "$out"
-echo "wrote $out ($(grep -c include_str "$out") marks)"
+echo "wrote $out ($(grep -c include_str "$out") marks over both sets)"
 
 echo
-echo "rendered $written mark(s); ${#skipped[@]} skipped"
+echo "rendered $written dark mark(s), $written_light light; ${#skipped[@]} skipped"
 for s in ${skipped+"${skipped[@]}"}; do echo "  SKIP $s"; done
+echo
+echo "light set: ${#subs[@]} contrast note(s) (< $READABLE_SHARE of the mark clears 3:1 on $PAPER)"
+for s in ${subs+"${subs[@]}"}; do echo "  $s"; done
+echo "still short of the floor after the lift: ${#stubborn[@]}"
+for s in ${stubborn+"${stubborn[@]}"}; do echo "  $s"; done

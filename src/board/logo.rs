@@ -27,6 +27,14 @@ pub struct HeroMark {
     pub height: u16,
 }
 
+impl HeroMark {
+    /// The mark's cells, top row first. Tests read this to tell the two art
+    /// sets apart; the blit walks it directly.
+    pub fn rows(&self) -> &[Vec<ArtCell>] {
+        &self.rows
+    }
+}
+
 /// Parse chafa `-f symbols` output: truecolor SGR (38;2 / 48;2), reset (0),
 /// default-color resets (39/49), reverse video (7/27), cursor hide/show noise.
 fn parse_hero_mark(raw: &str) -> Option<HeroMark> {
@@ -127,27 +135,54 @@ fn cell_visible(c: &ArtCell) -> bool {
 /// hand.
 #[path = "logo_sources.rs"]
 mod sources;
-use sources::LOGO_SOURCES;
+use sources::{LIGHT_LOGO_SOURCES, LOGO_SOURCES};
 
 /// The logo keys the binary ships art for, in embed order.
 pub fn committed_keys() -> impl Iterator<Item = &'static str> {
     LOGO_SOURCES.iter().map(|(key, _)| *key)
 }
 
+/// The same keys, in the light set (v3.4 §7). The two sets carry the same
+/// teams — `tools/gen-logos.sh` writes both from one pass.
+pub fn light_keys() -> impl Iterator<Item = &'static str> {
+    LIGHT_LOGO_SOURCES.iter().map(|(key, _)| *key)
+}
+
 /// The parsed marks, built on first use. Marks are blitted several times per
 /// frame at up to 10 frames a second, and re-running the SGR parser over each
 /// one every time was the mosaic's largest per-frame cost.
 static ART: OnceLock<HashMap<&'static str, HeroMark>> = OnceLock::new();
+static ART_LIGHT: OnceLock<HashMap<&'static str, HeroMark>> = OnceLock::new();
 
-/// The committed art for `logo_key` ("nfl/kc"), parsed once.
-pub fn hero_mark(logo_key: &str) -> Option<&'static HeroMark> {
-    ART.get_or_init(|| {
-        LOGO_SOURCES
+fn parsed(
+    cell: &'static OnceLock<HashMap<&'static str, HeroMark>>,
+    table: &'static [(&'static str, &'static str)],
+) -> &'static HashMap<&'static str, HeroMark> {
+    cell.get_or_init(|| {
+        table
             .iter()
             .filter_map(|(key, raw)| Some((*key, parse_hero_mark(raw)?)))
             .collect()
     })
-    .get(logo_key)
+}
+
+/// A ground this luminous is paper, and takes the light art. The threshold is
+/// the midpoint of the WCAG relative-luminance range and nothing lives near
+/// it: every dark ground gameday ships sits at or under gruvbox's `#282828`
+/// (0.0185) and broadcast's black (0.0), while daygame's paper is 0.889.
+const LIGHT_GROUND: f64 = 0.5;
+
+/// The committed art for `logo_key` ("nfl/kc"), parsed once, from the set the
+/// active theme's ground calls for. A light theme falls back to the standard
+/// set for a key the light set somehow lacks — a mark drawn for the wrong
+/// ground still beats a hole.
+pub fn hero_mark(logo_key: &str) -> Option<&'static HeroMark> {
+    if theme::rel_luma(theme::current().roles().ground) > LIGHT_GROUND {
+        if let Some(mark) = parsed(&ART_LIGHT, LIGHT_LOGO_SOURCES).get(logo_key) {
+            return Some(mark);
+        }
+    }
+    parsed(&ART, LOGO_SOURCES).get(logo_key)
 }
 
 /// Blit `mark` centered into `area`, clipped to it, colors routed through
@@ -228,7 +263,7 @@ mod tests {
     /// quietly putting the sextants back.
     #[test]
     fn no_bundled_mark_uses_a_symbol_outside_the_quadrant_blocks() {
-        for (key, raw) in LOGO_SOURCES {
+        for (key, raw) in LOGO_SOURCES.iter().chain(LIGHT_LOGO_SOURCES) {
             let art = parse_hero_mark(raw).unwrap_or_else(|| panic!("{key} failed to parse"));
             for (y, row) in art.rows.iter().enumerate() {
                 for (x, cell) in row.iter().enumerate() {

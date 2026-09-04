@@ -361,6 +361,23 @@ fn parse_hex(key: &str, value: &str) -> Result<Color, String> {
     }
 }
 
+/// WCAG 2 relative luminance of a truecolor (non-truecolor reads as black —
+/// palettes are truecolor by construction). The board asks this exactly once,
+/// in [`crate::board::logo::hero_mark`], to tell a light ground from a dark
+/// one.
+pub fn rel_luma(c: Color) -> f64 {
+    let Color::Rgb(r, g, b) = c else { return 0.0 };
+    let lin = |v: u8| {
+        let s = v as f64 / 255.0;
+        if s <= 0.03928 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
 fn hex_of(c: Color) -> String {
     match c {
         Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
@@ -1238,16 +1255,6 @@ mod tests {
         assert_ne!(both, rgb([0, 43, 109]));
         assert_ne!(both, rgb([10, 50, 100]));
         set_current("broadcast").unwrap();
-    }
-
-    /// WCAG 2 relative luminance of a truecolor.
-    fn rel_luma(c: Color) -> f64 {
-        let Color::Rgb(r, g, b) = c else { panic!("not truecolor") };
-        let lin = |v: u8| {
-            let s = v as f64 / 255.0;
-            if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
-        };
-        0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
     }
 
     fn contrast(a: Color, b: Color) -> f64 {

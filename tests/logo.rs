@@ -134,3 +134,113 @@ fn every_pro_league_is_complete() {
     let ncaa = per_ns.get("ncaa").copied().unwrap_or(0);
     assert!((25..=50).contains(&ncaa), "college marks: {ncaa} outside 25..=50");
 }
+
+/// v3.4 §7: the light set. Not a filter over the dark art — a second render,
+/// composited on daygame's paper, with ESPN's on-white variant where the
+/// standard mark is contrast-hostile there. `hero_mark` picks the set by the
+/// active theme's ground, so a light theme never gets the black-boxed art
+/// that parked daygame in v3.3.
+#[test]
+fn light_ground_selects_the_light_set() {
+    // Default theme is broadcast — black ground, the standard set.
+    let dark: Vec<Vec<gameday::board::logo::ArtCell>> =
+        hero_mark("mlb/pit").unwrap().rows().to_vec();
+
+    let cand = gameday::theme::candidate("daygame");
+    gameday::theme::install(cand);
+    gameday::theme::set_current("daygame").unwrap();
+    let light = hero_mark("mlb/pit").unwrap().rows().to_vec();
+    assert_ne!(dark, light, "a light ground must resolve different art than a dark one");
+
+    // And back: dark themes see byte-identical behaviour.
+    gameday::theme::set_current("broadcast").unwrap();
+    assert_eq!(hero_mark("mlb/pit").unwrap().rows(), dark.as_slice());
+}
+
+/// The light set is not allowed to be thinner than the dark one: a theme
+/// switch must never cost a team its mark.
+#[test]
+fn the_light_set_covers_every_committed_key() {
+    let dark: Vec<&str> = gameday::board::logo::committed_keys().collect();
+    let light: Vec<&str> = gameday::board::logo::light_keys().collect();
+    assert_eq!(dark, light, "the two sets must carry the same keys in the same order");
+}
+
+/// Ruling R41 again, on the new set: a light mark that draws tofu on
+/// Terminal.app is no better than the black boxes it replaced.
+#[test]
+fn light_marks_are_quadrant_only_too() {
+    let cand = gameday::theme::candidate("daygame");
+    gameday::theme::install(cand);
+    gameday::theme::set_current("daygame").unwrap();
+    for key in gameday::board::logo::light_keys() {
+        let mark = hero_mark(key).unwrap_or_else(|| panic!("{key} missing from the light set"));
+        for (y, row) in mark.rows().iter().enumerate() {
+            for (x, cell) in row.iter().enumerate() {
+                let o = cell.ch as u32;
+                assert!(
+                    cell.ch == ' ' || (0x2580..=0x259F).contains(&o),
+                    "light {key} cell ({x},{y}) is U+{o:04X} — outside the quadrant range \
+                     U+2580..=U+259F that every terminal draws"
+                );
+            }
+        }
+    }
+}
+
+/// WCAG contrast, against daygame's paper, of the colour a mark is mostly
+/// made of — its most-repeated cell colour.
+///
+/// The dominant tone and not an average: art composited over black carries a
+/// few very dark anti-aliasing cells that score 18:1 against paper, and an
+/// average would let a mark's black halo vouch for the mark it surrounds. The
+/// gold a Pirates P is drawn in is the thing that has to read.
+fn dominant_contrast_on_paper(mark: &HeroMark) -> f64 {
+    let lg = gameday::theme::rel_luma(gameday::theme::candidate("daygame").theme.roles().ground);
+    let mut counts = std::collections::HashMap::<(u8, u8, u8), usize>::new();
+    for cell in mark.rows().iter().flatten() {
+        for c in [cell.fg, cell.bg].into_iter().flatten() {
+            *counts.entry(c).or_default() += 1;
+        }
+    }
+    let Some((&(r, g, b), _)) = counts.iter().max_by_key(|(c, n)| (**n, **c)) else {
+        return 0.0;
+    };
+    let l = gameday::theme::rel_luma(ratatui::style::Color::Rgb(r, g, b));
+    (lg.max(l) + 0.05) / (lg.min(l) + 0.05)
+}
+
+/// The v3.3 parking reason, measured on the committed art. `mlb/pit` is a
+/// gold P: over black it is a perfect mark, and on daygame's paper the
+/// dark-set art is a pale smudge — that gold reads 1.56:1 there, half the
+/// WCAG graphics floor, where the light set's darkened gold reads 2.89:1.
+/// These six are the marks the generator's lift had to rescue outright: each
+/// one's dominant tone misses 3:1 on paper in the dark set, and each has to
+/// come out of the light set visibly better, not marginally.
+#[test]
+fn light_art_reads_on_paper_where_the_dark_art_does_not() {
+    let cases = ["mlb/pit", "mlb/sf", "ncaa/2633", "nfl/pit", "nfl/ten", "soccer/362"];
+    let mut dark = std::collections::HashMap::new();
+    for key in cases {
+        dark.insert(key, dominant_contrast_on_paper(hero_mark(key).unwrap()));
+    }
+
+    let cand = gameday::theme::candidate("daygame");
+    gameday::theme::install(cand);
+    gameday::theme::set_current("daygame").unwrap();
+    for key in cases {
+        let light = dominant_contrast_on_paper(hero_mark(key).unwrap());
+        assert!(
+            dark[key] < 3.0,
+            "{key}'s dominant tone already clears the 3:1 graphics floor on paper in the dark \
+             set ({:.2}:1) — it is not a rescue case any more",
+            dark[key]
+        );
+        assert!(
+            light >= 1.4 * dark[key],
+            "{key}'s dominant tone reads at {light:.2}:1 on daygame's paper against the dark \
+             art's {:.2}:1 — the light set has to be visibly better, not marginally",
+            dark[key]
+        );
+    }
+}
