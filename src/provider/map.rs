@@ -397,6 +397,8 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
             team,
             text,
             scoring: false,
+            kind: PlayKind::Other,
+            score_value: None,
         });
     }
     let extras = match league {
@@ -546,6 +548,8 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                 team: team_of(p),
                 text: p["text"].as_str()?.to_string(),
                 scoring: true,
+                kind: PlayKind::Other,
+                score_value: None,
             })
         })
         .collect();
@@ -563,6 +567,8 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                             team: drive_team.to_string(),
                             text: text.to_string(),
                             scoring: p["scoringPlay"].as_bool().unwrap_or(false),
+                            kind: PlayKind::Other,
+                            score_value: None,
                         });
                     }
                 }
@@ -602,6 +608,8 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                     team: team_of(p),
                     text,
                     scoring,
+                    kind: PlayKind::Other,
+                    score_value: None,
                 });
             }
             if !plays.is_empty() {

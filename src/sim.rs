@@ -117,6 +117,8 @@ fn push_play(g: &mut Game, team: &str, text: &str, scoring: bool) {
             team: team.into(),
             text: text.into(),
             scoring,
+            kind: PlayKind::Other,
+            score_value: None,
         },
     );
     g.last_plays.truncate(6);

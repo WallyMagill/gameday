@@ -35,6 +35,8 @@ fn play(clock: &str, team: &str, text: &str, scoring: bool) -> Play {
         team: team.into(),
         text: text.into(),
         scoring,
+        kind: PlayKind::Other,
+        score_value: None,
     }
 }
 
@@ -49,6 +51,8 @@ fn inning_play(period: &str, team: &str, text: &str, scoring: bool) -> Play {
         team: team.into(),
         text: text.into(),
         scoring,
+        kind: PlayKind::Other,
+        score_value: None,
     }
 }
 

@@ -72,6 +72,43 @@ pub struct Play {
     pub team: String,
     pub text: String,
     pub scoring: bool,
+    /// Structural play kind from the ESPN id tables (`provider::kinds`).
+    /// Defaults to `Other` for every legacy/demo/sim constructor — Task 3
+    /// wires the mapper to populate this from real feed ids.
+    pub kind: PlayKind,
+    /// Runs/points this play was worth, where the feed says so (MLB pitch
+    /// outcomes, NBA/WNBA/CBB shots, NHL goals). None everywhere else.
+    pub score_value: Option<u8>,
+}
+
+/// Structural classification of a play, derived from ESPN's per-league type
+/// ids (see `provider::kinds`). Map-time only: an id that doesn't land in a
+/// named variant becomes `Other` and carries no payload — no consumer reads
+/// raw ids, so there is nothing to retain (YAGNI).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PlayKind {
+    // Football (scoringType.name wins for scoring plays).
+    Touchdown,
+    FieldGoal,
+    Safety,
+    // MLB (pitch-type id 28 == HomeRun; any other pitch-kind with
+    // score_value > 0 == RunScoringPlay).
+    HomeRun,
+    RunScoringPlay,
+    // Soccer + NHL goal all collapse to Goal.
+    Goal,
+    OwnGoal,
+    PenaltyGoal,
+    // Soccer cards.
+    YellowCard,
+    RedCard,
+    // NHL penalty plays (meta lives in Extras::Hockey, Task 7).
+    HockeyPenalty,
+    // Hoops, DERIVED: shootingPlay && score_value == Some(3).
+    ThreePointer,
+    /// Everything unmapped.
+    #[default]
+    Other,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]

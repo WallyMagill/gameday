@@ -2891,6 +2891,7 @@ fn scoring_play() -> Play {
         team: "KC".into(),
         text: "Mahomes 12 Yd pass to Kelce".into(),
         scoring: true,
+        ..Default::default()
     }
 }
 

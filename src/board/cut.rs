@@ -547,6 +547,8 @@ mod tests {
             team: "KC".into(),
             text: text.into(),
             scoring: true,
+            kind: crate::domain::PlayKind::Other,
+            score_value: None,
         }
     }
 
