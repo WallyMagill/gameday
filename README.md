@@ -60,6 +60,21 @@ Favorites and pins live beside that file (`pins.json`), along with `gameday.log`
 Older installs on macOS: the app reads `~/Library/Application Support/gameday` until you move it.
 A config.toml that doesn't parse is reported with its line and left alone — the board runs on defaults and saves nothing until you fix it.
 
+## Logos
+
+Team marks are committed ANSI art, drawn from quadrant blocks like the scores;
+the app never fetches art. Every pro league is complete — NFL 32, NHL 32,
+NBA 30, MLB 30, MLS + EPL 50, WNBA 15 — and college ships the ranked teams
+only (the AP/coaches top 25 the scoreboard itself marks). A team without a
+mark falls back to its abbreviation painted in team colors, which is the
+designed look, not a gap. Each mark ships twice, dark-ground and light-ground,
+and the theme's ground picks the set.
+
+Two things go stale, and both are one command (`tools/gen-logos.sh`, dev-time
+only, needs `chafa` + `jq`): the EPL turns over three clubs every summer
+(`LEAGUES="epl" tools/gen-logos.sh` once promotion is settled), and the
+college polls move weekly in season (`LEAGUES="cfb cbb" tools/gen-logos.sh`).
+
 ## Keys
 
 space pin/unpin · enter/z zoom · esc back · j/k move · [ ] date · / filter · : command · ? keys · t fav home team · s sort · v tv · c theme · tab/h/l tabs · r refresh · q quit

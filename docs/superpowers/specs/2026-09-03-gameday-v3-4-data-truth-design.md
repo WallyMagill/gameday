@@ -101,3 +101,211 @@ New signals enter watchability only where this spec names them: the soccer red c
 - NHL board-wide PP chip (October follow-up), NHL shots-on-goal (summary boxscore untested — same follow-up).
 - No logo redesign or size change; no full-college art (Direction A's cut).
 - No provider abstraction work beyond what the above needs — ESPN remains the single provider.
+
+## Verification (2026-09-04)
+
+Task 13, the DoD sweep. Every number below was produced on this branch at
+`3d0b296`; nothing here changed product code. Captures live in
+`.superpowers/sdd/2026-09-03-gameday-v3-4-data-truth/live-captures/`.
+
+### Suite + clippy
+
+`cargo test`, default parallelism, verbatim result lines (518 tests, 0 failed):
+
+```
+     Running unittests src/lib.rs (target/debug/deps/gameday-c7deaff0697c3ea1)
+test result: ok. 286 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+     Running unittests src/main.rs (target/debug/deps/gameday-28c727f55daba84a)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/config.rs (target/debug/deps/config-783b9ad214a9d1af)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/draw.rs (target/debug/deps/draw-c32e740536845090)
+test result: ok. 117 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+     Running tests/home.rs (target/debug/deps/home-e05b2f2c53aa586c)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/logo.rs (target/debug/deps/logo-9e8e07a33dc23a89)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/map_espn.rs (target/debug/deps/map_espn-157154d31e986f1a)
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+     Running tests/poll.rs (target/debug/deps/poll-ecc62764cf24cade)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/theme.rs (target/debug/deps/theme-3cf9f445b37bd0a4)
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+   Doc-tests gameday
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+`cargo clippy --all-targets` after `cargo clean -p gameday` (so the whole crate
+is actually re-linted, not replayed from cache) — zero warnings, zero notes:
+
+```
+    Checking gameday v0.1.0 (/Users/.../.worktrees/v3-4-data-truth)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.60s
+```
+
+### Named receipts (spot-run)
+
+| What | Test | Result |
+| --- | --- | --- |
+| R24 wiring: one red card, one reorder, frozen after | `app::tests::a_red_card_reorders_once_and_freezes` | ok |
+| Red card from the scoreboard alone | `map_espn::a_red_card_yields_ten_men_from_the_scoreboard_alone` | ok |
+| Two yellows on one athlete count as a red | `map_espn::two_yellows_on_one_athlete_count_as_a_red` | ok |
+| Cut/hero identity — every digit cell agrees | `draw::the_takeover_and_the_hero_agree_on_every_digit_cell` | ok |
+| Cut variants are a takeover and a two-row band | `dump::tests::cut_variants_are_a_takeover_and_a_two_row_band` | ok |
+| Size sweep, 7 widths x 6 heights = 42 combos | `draw::the_board_survives_every_size_the_app_will_draw_at` | ok |
+| Codepoint guard, dark set (230 marks) | `board::logo::tests::no_bundled_mark_uses_a_symbol_outside_the_quadrant_blocks` | ok |
+| Codepoint guard, light set (230 marks) | `logo::light_marks_are_quadrant_only_too` | ok |
+| Stem contract, 23 fixed names | `dump::tests::gallery_stems_are_the_promised_fixed_names` | ok |
+
+Both codepoint guards are count-agnostic — they scan the bundle, so the 230
+committed marks per ground are covered without a hardcoded number.
+
+### Fixture teeth — the mutation receipt (§9)
+
+Inverted the live-state mapping in `src/provider/map.rs`:
+
+```rust
+-            is_red_zone: sit_v["isRedZone"].as_bool(),
++            is_red_zone: sit_v["isRedZone"].as_bool().map(|b| !b),
+```
+
+Two tests went red on the real captured payload, not a hand-built struct:
+
+```
+test the_red_zone_meter_reads_the_flag_and_the_yard_line ... FAILED
+test live_situation_maps_integers_not_strings ... FAILED
+test result: FAILED. 50 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+```
+
+```
+thread 'live_situation_maps_integers_not_strings' panicked at tests/map_espn.rs:1049:5:
+assertion `left == right` failed
+  left: Some(true)
+ right: Some(false)
+```
+
+Reverted; the file is byte-identical to `3d0b296` in the receipts commit.
+
+### Live window — 2026-09-04 05:02Z-05:14Z
+
+Slate at 05:02:35Z, checked per league before the app was launched:
+
+```
+baseball/mlb                live=2 total=9
+football/nfl                live=0 total=16   (week 1 opens Wed Sep 9)
+football/college-football   live=0 total=25
+hockey/nhl                  live=0 total=7    (preseason, not started)
+soccer/eng.1                live=0 total=1
+soccer/usa.1                live=0 total=1
+```
+
+Two live MLB games, both in the 9th: ATH @ SEA and STL @ LAD. The real binary
+ran in a detached 120x40 tmux session against a scratch `--config-dir`.
+Session killed at 05:14Z; nothing left running.
+
+- **Finals headline on the board — CONFIRMED.** Seven of the night's finals
+  carried the scoreboard's own story text on the board row, e.g. "Pirates use
+  six relievers to two-hit the Giants in a 5-2 victory", "Crow-Armstrong hits
+  39th homer to back Gausman in the Cubs' 2-1 win over the Brewers".
+  (`live-captures/01-board-live-finals-headlines.txt`)
+- **`10 MEN` chip — NOT FIRED, recorded honestly.** No soccer match was live
+  anywhere in the window (EPL and MLS each had one fixture, both scheduled).
+  The chip's receipt stays the fixture tests above.
+- **Kind-driven scoring word on a real play — PARTIAL.** A run-scoring play did
+  fire at 05:10:38Z (LAD walk-off, `type.id=57`, `scoreValue=2`,
+  "T. Hernández doubled to center, Betts scored and Edman scored") and the
+  payload is exactly the shape §2's MLB rule reads — a non-28 pitch kind with
+  `score_value > 0` = `RunScoringPlay`. But the poller was watching
+  `situation.lastPlay.scoringPlay`, which ESPN never set on this play, so the
+  frame carrying the word was not captured before both games went final. The
+  payload is recorded (`live-captures/03-espn-lastplay-poll.log`,
+  `04-espn-alternativetext-quirk.txt`); the on-screen word is not. Honest
+  status: the kind's *input* is confirmed live, the rendered word is not.
+  Next live window (NFL week 1, Wed Sep 9) closes it.
+
+#### OPEN — live-window finding, MLB last-play label (not fixed here)
+
+The live window caught a real data-truth bug that the fixtures did not.
+`map::mlb_last_play_text` prefers `lastPlay.type.alternativeText`, but on MLB
+that field is a *pitch-type* label, not the play outcome: pitch type id 5
+("Ball") carries `alternativeText: "Walk"`, and id 36 ("Strike Looking")
+carries "Strikeout". So every ball in the count renders as `Walk — <batter>`
+and every called strike as `Strikeout — <batter>`. Observed on the board at
+05:04:46Z (`Walk — M. Betts` on a 2-0 count) and at 05:13Z (`Walk —
+T. Hernandez` on the final row of a game he ended with a double). ESPN's own
+summary shows the shape:
+
+```
+id=5  alt=Walk   text=Ball        | Pitch 6 : Ball 3
+id=3  alt=Double text=Double      | Pitch 7 : Ball In Play
+id=57 alt=-      text=Play Result | T. Hernández doubled to center, Betts scored and Edman scored.
+```
+
+Left OPEN deliberately: this is a DoD sweep, and the fix is a behavior change
+to the T4/T5 surface with fixture updates attached (the committed expectations
+encode the same misreading — `"Walk — J. Sanoja"` appears as an expected value
+in `board::cut` and `theme`). Sized as its own task.
+
+### CPU — `--demo`, 30 s idle
+
+Method as in the v3.3 receipt: `./target/release/gameday --demo` in a detached
+120x40 tmux session, 30 s idle, then `ps -o %cpu` three times 3 s apart
+(a lifetime average, so it is the comparable number).
+
+```
+v3.4 (3d0b296)     pid=9851    0.8  0.6  0.9   etime 00:39  %cpu 0.7
+v3.4, second run   pid=11150   0.8  0.7  0.8   etime 00:39  %cpu 1.2
+```
+
+v3.3's receipt says 0.0 / 0.0 / 0.0, so this needed an honest check rather than
+a jitter claim. Two things were measured:
+
+1. **Is it startup cost?** No. Sampling cumulative CPU time on one v3.4
+   process: `0:00.31` at 30 s, `0:00.82` at 90 s, `0:01.55` at 180 s — steady
+   state ~0.8 %, not a decaying startup average.
+2. **Is the machine the difference?** Partly. The pre-branch baseline
+   (`c12235d`, v3.3 tip) was exported to a scratch tree, built `--release`, and
+   measured the same way *on this machine tonight*: `0.3 0.4 0.4`, `0:00.13` at
+   30 s → `0:00.34` at 91 s, steady state ~0.34 %. So v3.3's own code does not
+   reproduce 0.0 % here either — that sitting's machine was quieter than this
+   one.
+
+Comparing like with like, same machine, same night: **baseline ~0.34 % vs v3.4
+~0.8 %.** Roughly half a percentage point of a single core, both far under 1 %,
+on a laptop also running parallel agent threads. Not a gate, and not claimed as
+"no change" — v3.4 costs a little more per frame than v3.3 did, which is about
+what the larger mark bundle and the new structural mapping would be expected to
+cost.
+
+### OPEN — the NHL October probe (follow-up, not DoD)
+
+Per §4, whether NHL *scoreboards* carry power-play state is unverifiable until
+the season starts. When NHL goes live in October, run:
+
+```bash
+curl 'https://site.web.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard' | jq '[.events[]|select(.status.type.state=="in")][0].competitions[0].situation'
+```
+
+A non-null `situation` carrying strength / power-play fields promotes the
+board-wide PP chip additively: one mapping in `map.rs` plus one fingerprint
+entry. A null `situation` closes the question the other way and the zoom-only
+chip stands. Confirmed still open on 2026-09-04: NHL had 7 scheduled events,
+none live.
+
+### README pass
+
+- **Themes** paragraph already named four built-ins (broadcast / studio /
+  gruvbox / daygame) with daygame described as the one light theme, and kept
+  the note that the eight retired palettes still load as user files — landed in
+  T11/T12, verified, unchanged.
+- **Logo coverage** was the gap: nothing in the README described mark coverage
+  after T10 replaced the pipeline. Added a `## Logos` section — pro leagues
+  complete with counts, college ranked-only with the abbreviation fallback
+  named as designed behavior, both grounds, and the two refresh one-liners
+  (`LEAGUES="epl" tools/gen-logos.sh` for summer promotion/relegation,
+  `LEAGUES="cfb cbb" tools/gen-logos.sh` for the weekly polls). Counts verified
+  on disk: nfl 32, nhl 32, nba 30, mlb 30, soccer 50, wnba 15, ncaa 41 = 230
+  marks per ground, 992K + 996K.
+- **Keys** section spell-checked against `src/keymap.rs`: every key the README
+  lists still binds to the action it claims. The line is a summary — `n`
+  (TV NEXT) and `space` (TV LOCK) are TV-mode keys it omits, as before.
