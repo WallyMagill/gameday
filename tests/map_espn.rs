@@ -526,6 +526,46 @@ fn mlb_summary_keeps_only_at_bat_results_and_scoring_and_tags_the_inning() {
 }
 
 #[test]
+fn the_home_run_kind_rides_the_narrative_play() {
+    // fixtures/live/mlb_summary_live_full.json: the type 28 (Home Run) pitch
+    // row for atBatId 4018167930503 carries the kind, but sits on its own row
+    // — the batter's outcome text lives on a separate narrative row (type 57
+    // Play Result), joined only by atBatId (verified: `jq '.plays[] |
+    // select(.type.id=="28")'` and `select(.atBatId=="4018167930503")`).
+    let json = include_str!("../fixtures/live/mlb_summary_live_full.json");
+    let s = map_summary(League::Mlb, json).unwrap();
+    let homer = s
+        .last_plays
+        .iter()
+        .find(|p| p.text == "Crow-Armstrong homered to center (413 feet), Kelly scored.")
+        .expect("the narrative row for the home-run at-bat is still mapped");
+    assert_eq!(homer.kind, PlayKind::HomeRun, "the pitch row's kind (28) rides the narrative row");
+    // P rows (227 of them) stay filtered out; the mapped play count is
+    // unchanged from today's mapping — pinned via jq over the fixture: rows
+    // with non-empty text whose summaryType isn't P/I/A/C.
+    assert_eq!(s.last_plays.len(), 79);
+}
+
+#[test]
+fn a_scoring_non_homer_is_run_scoring_play() {
+    // The live fixture's only two scoring at-bats are both home runs
+    // (verified: `jq '[.plays[] | select(.scoringPlay==true)]'` → 2 rows,
+    // both Home Run) — no sac-fly/RBI-single at-bat exists there to pin, so
+    // this exercises the join mechanism itself on a minimal synthetic
+    // at-bat: a sacrifice-fly pitch row (type 35, ESPN's real id — see
+    // kinds.rs) joined by atBatId to its scoring narrative sibling.
+    let json = r#"{"header":{"competitions":[{"competitors":[{"team":{"id":"1","abbreviation":"BOS"}}]}]},
+      "plays":[
+        {"summaryType":"P","atBatId":"1","type":{"id":"35"},"scoreValue":0,"text":"Pitch 1 : Ball In Play","team":{"id":"1"},"period":{"type":"Bottom","number":3}},
+        {"summaryType":"S","atBatId":"1","type":{"id":"57"},"scoreValue":1,"scoringPlay":true,"text":"Devers sacrifice fly to center, Duran scores.","team":{"id":"1"},"period":{"type":"Bottom","number":3}}
+      ]}"#;
+    let s = map_summary(League::Mlb, json).unwrap();
+    assert_eq!(s.last_plays.len(), 1, "the sac-fly pitch row is filtered, the narrative row stays");
+    assert_eq!(s.last_plays[0].text, "Devers sacrifice fly to center, Duran scores.");
+    assert_eq!(s.last_plays[0].kind, PlayKind::RunScoringPlay, "score_value > 0, joined pitch id isn't 28");
+}
+
+#[test]
 fn summary_is_not_truncated_to_eight() {
     // 20 flat plays with the scoring play at index 3 — the old split_off(len-8)
     // dropped it and every scoring surface went blank (review finding #2).

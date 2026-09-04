@@ -585,6 +585,32 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
     if plays.is_empty() {
         for source in [&v["keyEvents"], &v["plays"]] {
             let Some(events) = source.as_array() else { continue };
+            // MLB only: pass 1 over the raw P rows builds atBatId -> pitch
+            // type id — a flat pitch carries no batted-ball outcome, so the
+            // kind lives on this pass and rides the narrative row (type 57
+            // Play Result) in pass 2 below, joined by atBatId. Home Run (28)
+            // wins over any other pitch type id seen in the same at-bat (a P
+            // row's own scoreValue is always 0 on the live feed — the run
+            // count lives on the narrative row, read in pass 2 as today).
+            let mlb_pitch_type_by_at_bat: std::collections::HashMap<&str, &str> = if league
+                == League::Mlb
+            {
+                let mut m = std::collections::HashMap::new();
+                for p in events {
+                    if p["summaryType"].as_str() != Some("P") {
+                        continue;
+                    }
+                    let Some(at_bat_id) = p["atBatId"].as_str() else { continue };
+                    let type_id = p["type"]["id"].as_str().unwrap_or("");
+                    let entry = m.entry(at_bat_id).or_insert(type_id);
+                    if type_id == "28" {
+                        *entry = "28";
+                    }
+                }
+                m
+            } else {
+                std::collections::HashMap::new()
+            };
             for p in events {
                 let Some(text) = p["text"].as_str().filter(|t| !t.is_empty()) else {
                     continue; // delay/period markers carry no text
@@ -631,9 +657,16 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                         kinds::nhl_kind(type_id, has_penalty_minutes)
                     }
                     League::Epl | League::Mls => kinds::soccer_kind(type_id),
-                    // The at-bat join (Task 4) owns MLB's kind — a flat pitch
-                    // row carries no batted-ball outcome worth mapping yet.
-                    League::Mlb => PlayKind::Other, // Task 4
+                    // The at-bat join: the pitch type id comes from pass 1
+                    // above (joined by atBatId), score_value from this row —
+                    // the narrative row is the only one that carries the RBI
+                    // count.
+                    League::Mlb => {
+                        let at_bat_id = p["atBatId"].as_str().unwrap_or("");
+                        let pitch_type_id =
+                            mlb_pitch_type_by_at_bat.get(at_bat_id).copied().unwrap_or("");
+                        kinds::mlb_kind(pitch_type_id, score_value)
+                    }
                     // Unreachable: football fills `plays` from drives above,
                     // so this branch never runs for NFL/CFB.
                     League::Nfl | League::Cfb => PlayKind::Other,
