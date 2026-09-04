@@ -422,9 +422,10 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
             let men = men_from_events(&events, &away.abbr, &home.abbr);
             Extras::Soccer { events, men }
         }
-        // Football drive text lives on the summary, not the scoreboard, and
-        // shots on goal weren't confirmable without a live NHL feed — neither
-        // has a source here, so neither gets a variant until one does.
+        // Football needs no Extras variant: drive text lives on
+        // `Situation::drive_desc`, mapped from the scoreboard above. Shots on
+        // goal weren't confirmable without a live NHL feed, so that's the
+        // only thing still waiting on a source here.
         _ => Extras::None,
     };
     let odds = odds_from(&comp["odds"]);
@@ -509,10 +510,15 @@ fn inning_tag(period: &Value) -> String {
     }
 }
 
-/// `lastPlay.type.alternativeText` ("Walk", "Strikeout") + the batter — the
-/// `text` field is the pitch ("Pitch 6 : Ball 3"), which nobody wants.
+/// `lastPlay.type.text` ("Ball", "Strike Looking", "Home Run") + the batter.
+/// NOT `type.alternativeText`: on MLB that field is the pitch type's
+/// *projected* at-bat outcome ("Walk" on a mere ball, "Strikeout" on a called
+/// strike) — a live-observed lie, not what happened. `type.text` is the
+/// honest pitch/outcome label and agrees with `alternativeText` on terminal
+/// plays anyway. The play-level `lp["text"]` field is the pitch-count chatter
+/// ("Pitch 6 : Ball 3"), which nobody wants either.
 fn mlb_last_play_text(lp: &Value) -> Option<String> {
-    let label = lp["type"]["alternativeText"].as_str().or(lp["type"]["text"].as_str())?;
+    let label = lp["type"]["text"].as_str()?;
     let batter = lp["athletesInvolved"]
         .as_array()
         .and_then(|a| a.first())
@@ -660,8 +666,11 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                 team: team_of(p),
                 text: p["text"].as_str()?.to_string(),
                 scoring: true,
-                kind: PlayKind::Other,
-                score_value: None,
+                kind: kinds::football_kind(
+                    p["type"]["id"].as_str().unwrap_or(""),
+                    p["scoringType"]["name"].as_str(),
+                ),
+                score_value: p["scoreValue"].as_u64().map(|v| v.min(u8::MAX as u64) as u8),
             })
         })
         .collect();

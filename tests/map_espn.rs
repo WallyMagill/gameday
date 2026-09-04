@@ -246,6 +246,29 @@ fn nfl_summary_plays_carry_kinds() {
 }
 
 #[test]
+fn nfl_summary_scoring_plays_array_carries_kinds() {
+    // I1 fix: the summary's own `scoringPlays[]` array (distinct from
+    // drives.previous, which nfl_summary_plays_carry_kinds already covers)
+    // used to stamp every row `PlayKind::Other`, so a zoomed field goal that
+    // arrived via this path cut as TOUCHDOWN (Other's NFL word). Route
+    // through football_kind so a summary-sourced FG stays a FieldGoal, and
+    // therefore says the right word.
+    let json = include_str!("../fixtures/nfl_summary_full.json");
+    let s = map_summary(League::Nfl, json).unwrap();
+    assert!(!s.scoring_plays.is_empty());
+    let fg = s
+        .scoring_plays
+        .iter()
+        .find(|p| p.kind == PlayKind::FieldGoal)
+        .expect("expected a FieldGoal among summary scoringPlays");
+    assert_eq!(
+        gameday::theme::scoring_word_for_play(League::Nfl, fg),
+        "FIELD GOAL",
+        "a summary-sourced FG must not fall back to Other's TOUCHDOWN word"
+    );
+}
+
+#[test]
 fn nhl_goals_and_penalties_are_kinds() {
     // Untruncated live capture: the committed nhl_summary_full.json fixture
     // has no 505 Goal row in its trimmed plays, so this reaches into the
@@ -471,7 +494,7 @@ fn mlb_maps_linescore_hits_errors_matchup_and_play_period() {
     // The scoreboard lastPlay is a pitch ("Pitch 6 : Ball 3"); the tile wants
     // the human label plus the batter, and the inning where the clock would be.
     let p = &g.last_plays[0];
-    assert_eq!(p.text, "Walk — A. Riley");
+    assert_eq!(p.text, "Ball — A. Riley");
     assert_eq!(p.period, "B7");
     assert_eq!(p.clock, "");
 }
