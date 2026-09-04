@@ -208,6 +208,14 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                     down_distance: "1st & Goal".into(),
                     possession: Some("KC".into()),
                     ball_on: Some("TB 3".into()),
+                    // Spec v3.4 §3: the demo speaks the same structure the
+                    // live feed does — KC (away) attacks the home goal at 0,
+                    // so the ball on TB's 3 is yardLine 3.
+                    down: Some(1),
+                    distance: Some(3),
+                    yard_line: Some(3),
+                    is_red_zone: Some(true),
+                    drive_desc: Some("8 plays, 71 yards, 3:42".into()),
                     ..Default::default()
                 }),
                 last_plays: vec![
@@ -259,6 +267,12 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                     down_distance: "3rd & 2".into(),
                     possession: Some("GB".into()),
                     ball_on: Some("CHI 41".into()),
+                    // GB (away) attacks the home goal at 0: CHI's 41 is
+                    // yardLine 41, and 41 yards out is not the red zone.
+                    down: Some(3),
+                    distance: Some(2),
+                    yard_line: Some(41),
+                    is_red_zone: Some(false),
                     ..Default::default()
                 }),
                 last_plays: vec![

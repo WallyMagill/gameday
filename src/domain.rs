@@ -120,6 +120,24 @@ pub struct Situation {
     pub down_distance: String,
     pub possession: Option<String>,
     pub ball_on: Option<String>,
+    // Football-only structure, straight off `competition.situation` (spec
+    // v3.4 §3): the numbers ESPN already computed, never re-derived from
+    // `downDistanceText`/`possessionText`. None for every other sport, and
+    // for a football feed that doesn't send them (pre/final games).
+    pub down: Option<u8>,
+    pub distance: Option<u8>,
+    /// Absolute field coordinate, 0..=100, measured from the HOME team's own
+    /// goal line — 0 is the home goal, 100 the away goal (verified against
+    /// `fixtures/live/cfb_scoreboard_live.json`: UAPB on its own 25 with
+    /// MIZ at home maps to `yardLine: 75`). Yards-to-goal for the possessing
+    /// team is therefore `100 - yard_line` when home has the ball and
+    /// `yard_line` when away does.
+    pub yard_line: Option<u8>,
+    /// ESPN's own `isRedZone` — the single source for the RED ZONE chip and
+    /// meter. `None` means the feed didn't say, which is not "no".
+    pub is_red_zone: Option<bool>,
+    /// `situation.lastPlay.drive.description` — "1 play, 3 yards, 0:08".
+    pub drive_desc: Option<String>,
     // Baseball-only fields (None for every other sport).
     pub balls: Option<u8>,
     pub strikes: Option<u8>,

@@ -4287,3 +4287,32 @@ fn no_screen_floats_a_dead_column() {
         assert!(l.abs_diff(r) <= 2, "{name}: panel off center: left {l}, right {r}\n{s}");
     }
 }
+
+/// Spec v3.4 §3: `Situation::drive_desc` is mapped and reaches the render
+/// path — it is *available* to a fragment line, and deliberately does not
+/// change one yet. Two boards that differ only in that field must draw the
+/// same buffer: a field arriving in the model is not a layout change, and
+/// this test is the guard that says so out loud (if a later polish pass
+/// spends a row on the drive line, this is the test that fails first, and
+/// updating it is the decision to spend that row).
+#[test]
+fn the_drive_description_is_available_without_moving_the_board() {
+    let text_at = |drive: Option<&str>| -> String {
+        let mut app = mk();
+        let mut game = g("1", "KC", "TB", true);
+        if let Some(sit) = game.situation.as_mut() {
+            sit.drive_desc = drive.map(str::to_string);
+        }
+        app.apply_boards(League::Nfl, vec![game], false);
+        let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        t.draw(|f| app.draw(f)).unwrap();
+        buf_text(&t)
+    };
+    let without = text_at(None);
+    let with = text_at(Some("1 play, 3 yards, 0:08"));
+    assert_eq!(with, without, "drive_desc must not redesign the fragment yet");
+    assert!(
+        !with.contains("1 play, 3 yards"),
+        "the drive line is data, not a rendered row yet:\n{with}"
+    );
+}

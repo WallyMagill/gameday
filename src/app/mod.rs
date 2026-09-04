@@ -2533,6 +2533,12 @@ mod tests {
         // hot now, and that is news the order has to answer to.
         let mut app = ordering_app();
         let mut a = ranked("a", "Q1", "15:00", 14, 10);
+        // spec v3.4 §3: the hot flag reads `situation.isRedZone`, not the
+        // meter the gauge draws from it.
+        a.situation = Some(crate::domain::Situation {
+            is_red_zone: Some(true),
+            ..Default::default()
+        });
         a.meter = Some(crate::domain::Meter::RedZone { yards_to_goal: 6 });
         app.apply_boards(
             League::Nfl,

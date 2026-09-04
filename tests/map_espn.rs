@@ -30,8 +30,16 @@ fn maps_live_nfl_scoreboard() {
     assert_eq!(g.away.color, [0xe3, 0x18, 0x37]);
     assert_eq!(g.broadcast.as_deref(), Some("CBS"));
     assert_eq!(g.last_plays[0].text, "Mahomes pass to Kelce for 3 yards");
-    // Possessing team KC on the opponent's 3 => red zone.
-    assert_eq!(g.meter, Some(Meter::RedZone { yards_to_goal: 3 }));
+    // spec v3.4 §3: this hand-built v3.0-era fixture predates the structured
+    // situation — it carries `possessionText: "TB 3"` and neither `isRedZone`
+    // nor `yardLine`. The red zone used to be re-derived by splitting that
+    // string; it isn't any more, so a payload that never says "red zone"
+    // gets no meter. The real thing does say it — see
+    // `the_red_zone_meter_reads_the_flag_and_the_yard_line` and
+    // `live_situation_maps_integers_not_strings`.
+    assert_eq!(g.meter, None);
+    assert_eq!(sit.is_red_zone, None);
+    assert_eq!(sit.yard_line, None);
 }
 
 #[test]
@@ -867,6 +875,11 @@ fn live_fixtures_carry_live_state() {
             League::Cfb | League::Nfl => {
                 assert!(!sit.down_distance.is_empty(), "{name}: {live_id} down/distance empty");
                 assert!(sit.possession.is_some(), "{name}: {live_id} possession missing");
+                // spec v3.4 §3: the structured fields, not the strings.
+                assert!(sit.down.is_some(), "{name}: {live_id} down missing");
+                assert!(sit.distance.is_some(), "{name}: {live_id} distance missing");
+                assert!(sit.yard_line.is_some(), "{name}: {live_id} yardLine missing");
+                assert!(sit.is_red_zone.is_some(), "{name}: {live_id} isRedZone missing");
             }
             League::Mlb => {
                 assert!(
@@ -904,4 +917,117 @@ fn the_mlb_live_summary_is_untruncated() {
         plays.iter().any(|p| p["summaryType"].as_str() == Some("P")),
         "expected at least one pitch (summaryType == \"P\") row"
     );
+}
+
+/// Spec v3.4 §3: the live scoreboard carries `situation.down`, `.distance`,
+/// `.yardLine` and `.isRedZone` as real JSON numbers and booleans — the
+/// mapper reads those, not `downDistanceText`/`possessionText`. Values
+/// pinned from the real capture (`fixtures/live/cfb_scoreboard_live.json`,
+/// event 401856663: `"down":3,"distance":10,"yardLine":75,"isRedZone":false`).
+#[test]
+fn live_situation_maps_integers_not_strings() {
+    let json = include_str!("../fixtures/live/cfb_scoreboard_live.json");
+    let games = map_scoreboard(League::Cfb, json, et()).unwrap();
+    let g = games.iter().find(|g| g.id == "401856663").unwrap();
+    let sit = g.situation.as_ref().unwrap();
+    assert_eq!(sit.down, Some(3));
+    assert_eq!(sit.distance, Some(10));
+    // Absolute field coordinate from the HOME goal line: UAPB (away) has the
+    // ball on its own 25, which is 75 yards from MIZ's goal.
+    assert_eq!(sit.yard_line, Some(75));
+    assert_eq!(sit.is_red_zone, Some(false));
+    // The drive line rides on `situation.lastPlay.drive.description`.
+    assert_eq!(sit.drive_desc.as_deref(), Some("1 play, 0 yards, 0:06"));
+    // ESPN says this is not the red zone, so there is no red-zone meter — no
+    // text parse gets a second opinion.
+    assert_eq!(g.meter, None);
+
+    // The other live CFB event pins the coordinate again: IDHO (away) on its
+    // own 41 => yardLine 59.
+    let g2 = games.iter().find(|g| g.id == "401856768").unwrap();
+    let sit2 = g2.situation.as_ref().unwrap();
+    assert_eq!(
+        (sit2.down, sit2.distance, sit2.yard_line),
+        (Some(2), Some(5), Some(59))
+    );
+    assert_eq!(sit2.is_red_zone, Some(false));
+
+    // A non-football live event: the football fields stay None rather than
+    // being invented from the count.
+    let mlb = include_str!("../fixtures/live/mlb_scoreboard_live.json");
+    let games = map_scoreboard(League::Mlb, mlb, et()).unwrap();
+    let g = games.iter().find(|g| g.id == "401816788").unwrap();
+    let sit = g.situation.as_ref().unwrap();
+    assert_eq!(
+        (
+            sit.down,
+            sit.distance,
+            sit.yard_line,
+            sit.is_red_zone,
+            sit.drive_desc.as_deref()
+        ),
+        (None, None, None, None, None)
+    );
+    assert!(sit.outs.is_some(), "the baseball fields still map");
+}
+
+/// Spec v3.4 §3: the red-zone meter is ESPN's `isRedZone` plus the absolute
+/// `yardLine`, not `possessionText.rsplit_once(' ')`. Yards-to-goal is the
+/// distance to the goal the possessing team is attacking.
+#[test]
+fn the_red_zone_meter_reads_the_flag_and_the_yard_line() {
+    // Away team (id 1) possesses at yardLine 6 => 6 yards from the HOME goal
+    // line, which is the goal the away team attacks. `possessionText` here is
+    // a shape the old rsplit parse would have choked on.
+    let away = r#"{"events":[{"id":"1","competitions":[{"status":{"type":{"state":"in"},"period":4,"displayClock":"1:27"},
+      "situation":{"down":1,"distance":6,"yardLine":6,"isRedZone":true,"downDistanceText":"1st & Goal","possessionText":"weird &format 3","possession":"1"},
+      "competitors":[{"homeAway":"away","score":"27","team":{"id":"1","abbreviation":"KC"}},{"homeAway":"home","score":"24","team":{"id":"2","abbreviation":"TB"}}]}]}]}"#;
+    let g = &map_scoreboard(League::Nfl, away, et()).unwrap()[0];
+    assert_eq!(g.meter, Some(Meter::RedZone { yards_to_goal: 6 }));
+
+    // Home team (id 2) at the same coordinate attacks the far goal, so it is
+    // 94 yards out — and ESPN says so with isRedZone false.
+    let home = away
+        .replace(r#""isRedZone":true"#, r#""isRedZone":false"#)
+        .replace(r#""possession":"1""#, r#""possession":"2""#);
+    let g = &map_scoreboard(League::Nfl, &home, et()).unwrap()[0];
+    assert_eq!(g.meter, None);
+
+    // Home team inside its opponent's 20: yardLine 88 => 12 to goal.
+    let home_rz = away
+        .replace(r#""yardLine":6"#, r#""yardLine":88"#)
+        .replace(r#""possession":"1""#, r#""possession":"2""#);
+    let g = &map_scoreboard(League::Nfl, &home_rz, et()).unwrap()[0];
+    assert_eq!(g.meter, Some(Meter::RedZone { yards_to_goal: 12 }));
+}
+
+/// Spec v3.4 §3: the scoreboard's `situation.lastPlay` is a real `Play` with
+/// a `kind` and a `score_value`, mapped through the same per-league tables
+/// the summary uses.
+#[test]
+fn last_play_carries_its_kind_at_scoreboard_cadence() {
+    // The live CFB capture's last plays are both type 5 (Rush), scoreValue 0
+    // — honestly `Other`, with the score value carried rather than dropped.
+    let json = include_str!("../fixtures/live/cfb_scoreboard_live.json");
+    let games = map_scoreboard(League::Cfb, json, et()).unwrap();
+    let g = games.iter().find(|g| g.id == "401856663").unwrap();
+    let lp = &g.last_plays[0];
+    assert_eq!(lp.kind, PlayKind::Other, "type 5 Rush is not in the table");
+    assert_eq!(lp.score_value, Some(0));
+
+    // A scoring last play goes through `kinds::football_kind`.
+    let td = r#"{"events":[{"id":"1","competitions":[{"status":{"type":{"state":"in"},"period":4,"displayClock":"1:27"},
+      "situation":{"down":1,"distance":10,"yardLine":94,"isRedZone":true,"downDistanceText":"1st & Goal","possession":"2",
+        "lastPlay":{"type":{"id":"67"},"scoringType":{"name":"touchdown"},"scoreValue":6,"text":"Mahomes pass to Kelce for 6 yards","team":{"id":"2"}}},
+      "competitors":[{"homeAway":"away","score":"27","team":{"id":"1","abbreviation":"KC"}},{"homeAway":"home","score":"24","team":{"id":"2","abbreviation":"TB"}}]}]}]}"#;
+    let g = &map_scoreboard(League::Nfl, td, et()).unwrap()[0];
+    assert_eq!(g.last_plays[0].kind, PlayKind::Touchdown);
+    assert_eq!(g.last_plays[0].score_value, Some(6));
+
+    // MLB's last play is a pitch row; its id runs through the MLB table.
+    let mlb = include_str!("../fixtures/live/mlb_scoreboard_live.json");
+    let games = map_scoreboard(League::Mlb, mlb, et()).unwrap();
+    let g = games.iter().find(|g| g.id == "401816792").unwrap();
+    assert_eq!(g.last_plays[0].kind, PlayKind::Other, "type 5 Ball");
+    assert_eq!(g.last_plays[0].score_value, Some(0));
 }

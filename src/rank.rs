@@ -177,8 +177,12 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
 
     match g.league {
         League::Nfl | League::Cfb => {
-            // Red zone bonus: spec §2 table.
-            if matches!(g.meter, Some(Meter::RedZone { .. })) {
+            // Red zone bonus: spec §2 table. The source is ESPN's own
+            // `situation.isRedZone` (spec v3.4 §3), not a yard number
+            // re-derived from `possessionText`. An absent flag is not a
+            // "no" but it is not a chip either — the board stays quiet
+            // rather than guessing.
+            if g.situation.as_ref().and_then(|s| s.is_red_zone) == Some(true) {
                 bonus!(40, Some("RED ZONE"));
             }
             // 120s = the two-minute warning window, Q2/Q4 only. An
@@ -497,8 +501,13 @@ mod tests {
         let close_late = g(League::Nfl, "Q4", "1:52", 24, 21);
         let blowout_early = g(League::Nfl, "Q1", "12:00", 28, 0);
         assert!(watchability(&close_late, now()).score > watchability(&blowout_early, now()).score);
-        // Red zone: hot + chip regardless of margin.
+        // Red zone: hot + chip regardless of margin. Source is ESPN's own
+        // `isRedZone` (spec v3.4 §3), not the meter the gauge draws.
         let mut rz = g(League::Nfl, "Q3", "9:05", 31, 3);
+        rz.situation = Some(Situation {
+            is_red_zone: Some(true),
+            ..Default::default()
+        });
         rz.meter = Some(Meter::RedZone { yards_to_goal: 4 });
         let w = watchability(&rz, now());
         assert!(w.hot);
@@ -507,6 +516,49 @@ mod tests {
         let w2 = watchability(&g(League::Nfl, "Q4", "0:48", 17, 17), now());
         assert!(w2.hot);
         assert_eq!(w2.chip, Some("2-MIN"));
+    }
+
+    /// Spec v3.4 §3: the RED ZONE chip is ESPN's `situation.isRedZone`, not a
+    /// re-derivation from `possessionText`. The old parse split the text on
+    /// its last space and read the tail as a yard number, so a text it
+    /// couldn't split lost the chip and a text ending in a small number won
+    /// one — both are now impossible, because the text is never consulted.
+    #[test]
+    fn the_red_zone_chip_reads_the_payload_not_the_text() {
+        // Text the old rsplit parse would have failed on ("3" is there, but
+        // "weird &format" was never a team abbreviation) — the flag decides.
+        let mut fires = g(League::Nfl, "Q3", "9:05", 31, 3);
+        fires.situation = Some(Situation {
+            ball_on: Some("weird &format 3".into()),
+            is_red_zone: Some(true),
+            ..Default::default()
+        });
+        let w = watchability(&fires, now());
+        assert!(w.hot);
+        assert_eq!(w.chip, Some("RED ZONE"));
+
+        // Text the old parse would have been TRICKED by ("TB 3" reads as the
+        // opponent's 3-yard line) while ESPN says the ball is not in the red
+        // zone. No chip.
+        let mut quiet = g(League::Nfl, "Q3", "9:05", 31, 3);
+        quiet.situation = Some(Situation {
+            possession: Some("KC".into()),
+            ball_on: Some("TB 3".into()),
+            is_red_zone: Some(false),
+            ..Default::default()
+        });
+        assert_eq!(watchability(&quiet, now()).chip, None);
+
+        // Absent flag (non-live, non-football, or a feed that just doesn't
+        // send it): the chip does not fire from the situation at all.
+        let mut silent = g(League::Nfl, "Q3", "9:05", 31, 3);
+        silent.situation = Some(Situation {
+            ball_on: Some("TB 3".into()),
+            ..Default::default()
+        });
+        let w = watchability(&silent, now());
+        assert_eq!(w.chip, None);
+        assert!(!w.hot, "no flag, no red-zone heat");
     }
 
     #[test]

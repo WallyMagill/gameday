@@ -137,32 +137,25 @@ fn record_from(competitor: &Value) -> String {
         .to_string()
 }
 
-/// Football red-zone meter from `competition.situation`. ESPN sends an
-/// `isRedZone` bool on live feeds; older/synthetic payloads may lack it, so
-/// fall back to parsing `possessionText` ("TB 3" = ball on TB's 3-yard line):
-/// red zone when the possessing team is inside the OPPONENT'S 20.
-fn redzone_from(sit: &Value, possession_abbr: Option<&str>) -> Option<Meter> {
-    let text = sit["possessionText"].as_str()?;
-    let (territory, yards) = text.rsplit_once(' ')?;
-    let yards: u8 = yards.parse().ok()?;
-    let in_opponent_territory = possession_abbr.is_some_and(|p| !territory.eq_ignore_ascii_case(p));
-    let in_red_zone = sit["isRedZone"]
-        .as_bool()
-        .unwrap_or(in_opponent_territory && yards <= 20);
-    if in_red_zone && yards <= 20 {
-        Some(Meter::RedZone { yards_to_goal: yards })
-    } else {
-        None
-    }
+/// Yards the possessing team has left to the goal it's attacking, from
+/// ESPN's absolute `situation.yardLine` (0 = home goal line, 100 = away
+/// goal line — see [`Situation::yard_line`]). The home team attacks 100, the
+/// away team attacks 0.
+fn yards_to_goal(yard_line: u8, possession_is_home: bool) -> u8 {
+    let yl = yard_line.min(100);
+    if possession_is_home { 100 - yl } else { yl }
 }
 
 /// Live-game meter per league. `None` when the sport has no meter (soccer),
 /// when the game isn't live, or when the data to build one isn't in the feed.
+/// `red_zone_yards` is football's, precomputed by the caller from
+/// `situation.isRedZone` + `situation.yardLine` (spec v3.4 §3) — there is no
+/// text fallback: a feed that doesn't say "red zone" doesn't get one.
 fn meter_from(
     league: League,
     status: Status,
     sit: &Value,
-    possession_abbr: Option<&str>,
+    red_zone_yards: Option<u8>,
     home_score: u16,
     away_score: u16,
 ) -> Option<Meter> {
@@ -170,7 +163,9 @@ fn meter_from(
         return None;
     }
     match league {
-        League::Nfl | League::Cfb => redzone_from(sit, possession_abbr),
+        League::Nfl | League::Cfb => {
+            red_zone_yards.map(|yards_to_goal| Meter::RedZone { yards_to_goal })
+        }
         League::Nba | League::Wnba | League::Cbb => Some(Meter::Lead {
             plus_minus: home_score as i16 - away_score as i16,
         }),
@@ -334,10 +329,22 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
     };
     let situation = if sit_v.is_object() {
         let possession = abbr_for_id(sit_v["possession"].as_str());
+        let u8_at = |key: &str| sit_v[key].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
         let mut sit = Situation {
             down_distance: sit_v["downDistanceText"].as_str().unwrap_or("").to_string(),
             possession,
             ball_on: sit_v["possessionText"].as_str().map(|s| s.to_string()),
+            // Spec v3.4 §3: the numbers as ESPN sends them. A league that
+            // doesn't send them leaves them None — nothing here is derived
+            // from a string.
+            down: u8_at("down"),
+            distance: u8_at("distance"),
+            yard_line: u8_at("yardLine"),
+            is_red_zone: sit_v["isRedZone"].as_bool(),
+            drive_desc: sit_v["lastPlay"]["drive"]["description"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
             ..Default::default()
         };
         if league == League::Mlb {
@@ -388,6 +395,8 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         } else {
             text.to_string()
         };
+        let score_value =
+            sit_v["lastPlay"]["scoreValue"].as_u64().map(|v| v.min(u8::MAX as u64) as u8);
         last_plays.push(Play {
             clock: if league == League::Mlb {
                 String::new()
@@ -398,8 +407,8 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
             team,
             text,
             scoring: false,
-            kind: PlayKind::Other,
-            score_value: None,
+            kind: last_play_kind(league, &sit_v["lastPlay"], score_value),
+            score_value,
         });
     }
     let extras = match league {
@@ -422,19 +431,49 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         .and_then(|n| n.first())
         .and_then(|n| n.as_str())
         .map(|s| s.to_string());
-    let meter = meter_from(
-        league,
-        status,
-        sit_v,
-        situation.as_ref().and_then(|s| s.possession.as_deref()),
-        home_score,
-        away_score,
-    );
+    // Red zone, structurally: ESPN's flag says whether, its absolute
+    // yardLine says how far, and which goal is being attacked comes from the
+    // possessing team's side. Any of the three missing => no meter.
+    let red_zone_yards = situation.as_ref().and_then(|s| {
+        if s.is_red_zone != Some(true) {
+            return None;
+        }
+        let possession_is_home = sit_v["possession"].as_str() == Some(home.id.as_str());
+        s.yard_line.map(|yl| yards_to_goal(yl, possession_is_home))
+    });
+    let meter = meter_from(league, status, sit_v, red_zone_yards, home_score, away_score);
     Ok(Game {
         id, league, home, away, home_score, away_score, status, period, clock,
         situation, last_plays, meter, start, broadcast, odds,
         scoring_plays: vec![], linescore, timeouts, extras,
     })
+}
+
+/// The scoreboard's `situation.lastPlay` through the same per-league kind
+/// tables the summary uses (spec v3.4 §3) — the board's last-play line is
+/// the same structure at a different cadence, so it gets the same treatment
+/// rather than a hardcoded `Other`. An id the table doesn't know stays
+/// `Other`; nothing here guesses from text.
+fn last_play_kind(league: League, lp: &Value, score_value: Option<u8>) -> PlayKind {
+    let type_id = lp["type"]["id"].as_str().unwrap_or("");
+    match league {
+        League::Nfl | League::Cfb => {
+            kinds::football_kind(type_id, lp["scoringType"]["name"].as_str())
+        }
+        League::Nba | League::Wnba | League::Cbb => kinds::hoops_kind(
+            type_id,
+            lp["scoringPlay"].as_bool().unwrap_or(false),
+            score_value,
+            league == League::Cbb,
+        ),
+        League::Nhl => kinds::nhl_kind(type_id, lp["type"].get("penaltyMinutes").is_some()),
+        // MLB's lastPlay IS the pitch row, so its own type id is the pitch
+        // outcome id `mlb_kind` wants — no atBatId join needed at this
+        // cadence (the summary's join exists because the pitch and the
+        // narrative are separate rows there).
+        League::Mlb => kinds::mlb_kind(type_id, score_value),
+        League::Epl | League::Mls => kinds::soccer_kind(type_id),
+    }
 }
 
 /// "BOT 7TH" -> "B7", "TOP 9TH" -> "T9", "MID 5TH"/"END 8TH" -> "M5"/"E8".

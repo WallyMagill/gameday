@@ -168,6 +168,12 @@ fn step_nfl(g: &mut Game, t: u64) {
                 down_distance: "1st & 10".into(),
                 possession: Some("TB".into()),
                 ball_on: Some("TB 30".into()),
+                // TB is home and attacks yardLine 100, so its own 30 is
+                // yardLine 30 — 70 yards out, nowhere near the red zone.
+                down: Some(1),
+                distance: Some(10),
+                yard_line: Some(30),
+                is_red_zone: Some(false),
                 ..Default::default()
             });
         }
@@ -175,6 +181,7 @@ fn step_nfl(g: &mut Game, t: u64) {
             push_play(g, "TB", "Mayfield pass to Evans for 18 yards", false);
             if let Some(sit) = &mut g.situation {
                 sit.ball_on = Some("TB 48".into());
+                sit.yard_line = Some(48);
             }
         }
         _ => {}
