@@ -1310,6 +1310,17 @@ impl App {
                     }
                     game.scoring_plays = sp;
                 }
+                // Per-sport facts only the summary carries (spec v3.4 §4:
+                // NHL strength + penalties, and the penalty meter derived
+                // from them). `Extras::None` is "this summary had nothing to
+                // say", never an instruction to erase what the scoreboard
+                // mapped — same for a `None` meter.
+                if summary.extras != crate::domain::Extras::None {
+                    game.extras = summary.extras.clone();
+                }
+                if summary.meter.is_some() {
+                    game.meter = summary.meter.clone();
+                }
                 if !summary.last_plays.is_empty() {
                     let mut last_plays = summary.last_plays;
                     for play in &mut last_plays {
@@ -1345,9 +1356,13 @@ impl App {
                 }
             }
         }
-        // No reorder here: a Summary carries nothing the rank fingerprint reads
-        // (scores/status/meters all arrive via the scoreboard). Re-add when
-        // sub-project 3 maps NHL power plays from the summary.
+        // No reorder here. Scores and status still arrive only via the
+        // scoreboard, so the ordering they drive is never stale. Since v3.4
+        // §4 an NHL summary can also land a penalty meter, which the rank
+        // bonus reads — the zoomed game's board position then updates on the
+        // next scoreboard poll rather than the instant the summary lands.
+        // That is deliberate: a board that re-sorts under a zoom is the
+        // reorder-while-you-look bug v3.2 fixed.
     }
 
     /// The zoomed game's (league, id) — the stats poll's only target. None
@@ -2602,6 +2617,7 @@ mod tests {
                 ..Default::default()
             }],
             meter: None,
+            extras: crate::domain::Extras::None,
         };
         app.merge_summary("a", score("Mahomes 20 yd TD pass"));
         assert_eq!(ord(&app), before, "a summary is not a reorder event");
@@ -2730,6 +2746,7 @@ mod tests {
             last_plays: plays.clone(),
             scoring_plays: vec![plays[3].clone()],
             meter: None,
+            extras: crate::domain::Extras::None,
         };
         app.merge_summary("1", summary);
         let ev = app.scoring_events();

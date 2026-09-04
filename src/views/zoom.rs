@@ -7,7 +7,7 @@
 
 use crate::app::App;
 use crate::board::{hero, linescore};
-use crate::domain::{EventKind, Extras, Game, League, Status};
+use crate::domain::{EventKind, Extras, Game, HockeyStrength, League, Status};
 use crate::text::truncate;
 use crate::theme;
 use crate::tiles;
@@ -124,7 +124,7 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
             // row tiers as the logo-free surfaces; the zoom IS the hero
             // block, at the width the marks were measured for.
             digits_full: area.width >= 100,
-            chip: crate::rank::watchability(game, now).chip,
+            chip: strength_chip(game).or_else(|| crate::rank::watchability(game, now).chip),
             now,
             pinned: app.pins.iter().any(|p| p.game_id == game.id),
             favorite: app.is_my_game(game),
@@ -151,6 +151,29 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     }
     if rest > 0 {
         draw_feed(frame, Rect { y, height: rest, ..area }, game);
+    }
+}
+
+/// The NHL special-teams chip (spec v3.4 §4), from `Extras::Hockey` —
+/// which only a summary fills, so only the zoomed game can wear it. The
+/// board's own chip stays `rank::watchability`'s until the October
+/// scoreboard probe says whether the scoreboard carries strength at all;
+/// promotion is additive, this reads no scoreboard field.
+///
+/// It says POWER PLAY for both 702 and 703, and that is the honest reading
+/// rather than a shortcut: ESPN's strength is relative to the acting play's
+/// own team (the fixture stamps 702 on the advantaged side's plays and 703
+/// on the penalized side's, inside the same two minutes), so the enum names
+/// no side by itself. The zoom shows both teams at once and has no "shown
+/// team" for SHORTHANDED to be relative to — the side serving it is named
+/// by the penalty meter directly underneath, which carries the abbreviation.
+fn strength_chip(game: &Game) -> Option<&'static str> {
+    match &game.extras {
+        Extras::Hockey {
+            strength: HockeyStrength::PowerPlay | HockeyStrength::Shorthanded,
+            ..
+        } => Some("POWER PLAY"),
+        _ => None,
     }
 }
 

@@ -5,7 +5,7 @@
 //! (`.superpowers/sdd/2026-09-03-gameday-v3-4-data-truth/`); an id not in a
 //! table maps to `Other` rather than guessing.
 
-use crate::domain::PlayKind;
+use crate::domain::{HockeyStrength, PlayKind};
 
 /// NFL + CFB share a play-type id space. `scoring_type` is
 /// `scoringType.name` off the play object; when present it wins outright,
@@ -71,6 +71,21 @@ pub fn nhl_kind(type_id: &str, has_penalty_minutes: bool) -> PlayKind {
     match type_id {
         "505" => PlayKind::Goal, // 505 Goal (research §4)
         _ => PlayKind::Other,
+    }
+}
+
+/// NHL `plays[].strength.id` → [`HockeyStrength`] (research §2): 701 Even,
+/// 702 Power Play, 703 Shorthanded, 903 Empty Net. Every play of a live NHL
+/// summary carries one of the four (verified across all 306 plays of
+/// `fixtures/live/nhl_summary_final_full.json`: 277×701, 19×702, 9×703,
+/// 1×903), so an id outside the table is a shape we have never seen —
+/// it reads as Even rather than inventing a fifth state.
+pub fn hockey_strength(id: &str) -> HockeyStrength {
+    match id {
+        "702" => HockeyStrength::PowerPlay,
+        "703" => HockeyStrength::Shorthanded,
+        "903" => HockeyStrength::EmptyNet,
+        _ => HockeyStrength::Even, // 701 Even Strength, and anything unmapped
     }
 }
 

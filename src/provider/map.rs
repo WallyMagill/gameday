@@ -668,13 +668,10 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                     continue;
                 }
                 let scoring = p["scoringPlay"].as_bool().unwrap_or(false);
-                // NHL power-play goal: strength id "702" (verified on live NHL
-                // goals 2026-08-31). No other NHL strength field is trusted.
-                let text = if scoring && p["strength"]["id"].as_str() == Some("702") {
-                    format!("PP · {text}")
-                } else {
-                    text.to_string()
-                };
+                // spec v3.4 §4: play text is the feed's own words. NHL
+                // strength used to be collapsed into a "PP · " prefix here;
+                // it is structural now and rides `Extras::Hockey`.
+                let text = text.to_string();
                 let type_id = p["type"]["id"].as_str().unwrap_or("");
                 let score_value = p["scoreValue"].as_u64().map(|v| v.min(u8::MAX as u64) as u8);
                 let kind = match league {
@@ -733,10 +730,79 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
     // No truncation here: the full list is newest-first and the display cap
     // belongs to the tile that renders it.
     plays.reverse();
-    // Meter stays None here on purpose: the scoreboard mapping owns meters and
-    // App::merge_summary never reads a summary meter, so mapping one would be
-    // dead data pretending to be live.
-    Ok(Summary { last_plays: plays, scoring_plays, meter: None })
+    // NHL, spec v3.4 §4. Strength and penalties are read off the raw play
+    // rows, not the mapped ones: `Play` carries neither, and the raw rows are
+    // in feed order (oldest first), which is what "the most recent play's
+    // strength" and "penalties oldest first" both need.
+    let extras = match league {
+        League::Nhl => hockey_extras(&v, &team_of),
+        _ => Extras::None,
+    };
+    // The one meter the summary owns. The scoreboard mapping owns every
+    // other meter, but no NHL scoreboard field carries penalty state
+    // (map.rs `meter_from` NHL arm: left unmapped rather than guessed), so
+    // the summary is the only place this can come from — which also means it
+    // only ever lands on the zoomed game. Promoting it to the board is
+    // additive once the October scoreboard probe says which field to read.
+    let meter = penalty_meter(&extras);
+    Ok(Summary { last_plays: plays, scoring_plays, meter, extras })
+}
+
+/// `Extras::Hockey` from a summary payload: the strength of the most recent
+/// play (every play carries `strength.id`) and every penalty called so far.
+/// `Extras::None` when the payload has no plays at all — an empty list is
+/// not evidence of even strength.
+fn hockey_extras(v: &Value, team_of: &dyn Fn(&Value) -> String) -> Extras {
+    let Some(raw) = v["plays"].as_array().filter(|a| !a.is_empty()) else {
+        return Extras::None;
+    };
+    let strength = kinds::hockey_strength(
+        raw[raw.len() - 1]["strength"]["id"].as_str().unwrap_or(""),
+    );
+    let penalties = raw
+        .iter()
+        .filter_map(|p| {
+            // Same signal `nhl_kind` uses for PlayKind::HockeyPenalty: the
+            // penalty id space is unenumerable, `type.penaltyMinutes` is the
+            // fact. ESPN sends it as a string ("2").
+            let minutes: u8 = p["type"]["penaltyMinutes"].as_str()?.parse().ok()?;
+            Some(PenaltyEvent {
+                team: team_of(p),
+                minutes,
+                kind: p["type"]["penaltyType"].as_str().unwrap_or("").to_string(),
+                period: p["period"]["number"].as_u64().unwrap_or(0).min(u8::MAX as u64) as u8,
+                clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
+            })
+        })
+        .collect();
+    Extras::Hockey { strength, penalties }
+}
+
+/// `Meter::Penalty` for a special-teams situation the feed itself declares.
+///
+/// Gate: the current strength is PowerPlay or Shorthanded — ESPN stamping
+/// either on the newest play IS the statement that a penalty is being served
+/// right now, and it is the only expiry signal the payload has. (Receipt:
+/// the fixture's game-ending play is 701, so a finished game yields no
+/// meter.) The team named is the penalized one — the side serving it, which
+/// is what the meter's label reads as.
+///
+/// `seconds` is the penalty's nominal length, `minutes × 60`, NOT time
+/// remaining. Elapsed math would need the live game clock minus the
+/// penalty's clock, and the only NHL fixture we have is a final (no live
+/// clock) whose per-period clock counts *up* — a direction no live NHL
+/// capture exists to confirm. A static, honest 2:00 beats arithmetic we
+/// cannot check; the countdown becomes real when a live NHL fixture lands.
+fn penalty_meter(extras: &Extras) -> Option<Meter> {
+    let Extras::Hockey { strength, penalties } = extras else { return None };
+    if !matches!(strength, HockeyStrength::PowerPlay | HockeyStrength::Shorthanded) {
+        return None;
+    }
+    let newest = penalties.last()?;
+    Some(Meter::Penalty {
+        team_abbr: newest.team.clone(),
+        seconds: u16::from(newest.minutes) * 60,
+    })
 }
 
 /// One box-score side's stats, flat (`[{name, displayValue}]`) or grouped

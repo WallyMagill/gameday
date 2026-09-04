@@ -1031,3 +1031,112 @@ fn last_play_carries_its_kind_at_scoreboard_cadence() {
     assert_eq!(g.last_plays[0].kind, PlayKind::Other, "type 5 Ball");
     assert_eq!(g.last_plays[0].score_value, Some(0));
 }
+
+// ---------------------------------------------------------------- NHL strength (spec v3.4 §4)
+
+#[test]
+fn nhl_strength_is_structural_and_current() {
+    use gameday::domain::{Extras, HockeyStrength};
+    let json = include_str!("../fixtures/live/nhl_summary_final_full.json");
+    let s = map_summary(League::Nhl, json).unwrap();
+    // The fixture's last play is 522 End of Game at even strength (701), so
+    // the game-level strength is Even — the most recent play's, not a
+    // scan-for-the-interesting-one.
+    assert!(
+        matches!(s.extras, Extras::Hockey { strength: HockeyStrength::Even, .. }),
+        "expected an even-strength Extras::Hockey, got {:?}",
+        s.extras
+    );
+    // Truncate the same real payload at its last power-play play (a 702 tail)
+    // and the strength follows: PIT's 12:36 first-period shot.
+    let mut v: serde_json::Value = serde_json::from_str(json).unwrap();
+    let plays = v["plays"].as_array().unwrap().clone();
+    let last_pp = plays
+        .iter()
+        .rposition(|p| p["strength"]["id"].as_str() == Some("702"))
+        .expect("fixture has 702 plays");
+    v["plays"] = serde_json::Value::Array(plays[..=last_pp].to_vec());
+    let s = map_summary(League::Nhl, &v.to_string()).unwrap();
+    assert!(
+        matches!(s.extras, Extras::Hockey { strength: HockeyStrength::PowerPlay, .. }),
+        "a 702 tail is a power play: {:?}",
+        s.extras
+    );
+    // …and that tail is what puts Meter::Penalty on the board for the first
+    // time since v1. The newest penalty at that point is WSH's 2nd-period
+    // minor at 15:37 (the 702 tail is PIT's play at 16:56, inside the two
+    // minutes), and `seconds` is the nominal length, not time remaining.
+    assert_eq!(
+        s.meter,
+        Some(Meter::Penalty { team_abbr: "WSH".into(), seconds: 120 }),
+        "the special-teams tail builds the penalty meter"
+    );
+}
+
+#[test]
+fn a_finished_game_has_no_penalty_meter() {
+    // The strength of the newest play is the only expiry signal the payload
+    // carries: the fixture's game-ending play is 701, so nothing is being
+    // served and no meter is built.
+    let json = include_str!("../fixtures/live/nhl_summary_final_full.json");
+    assert_eq!(map_summary(League::Nhl, json).unwrap().meter, None);
+}
+
+#[test]
+fn penalties_carry_their_metadata() {
+    use gameday::domain::{Extras, PenaltyEvent};
+    let json = include_str!("../fixtures/live/nhl_summary_final_full.json");
+    let s = map_summary(League::Nhl, json).unwrap();
+    let Extras::Hockey { penalties, .. } = &s.extras else {
+        panic!("expected Extras::Hockey, got {:?}", s.extras);
+    };
+    // Three penalty plays in the fixture, oldest first. The first is
+    // Fehervary (team id 23 = WSH), High-sticking, 1st period at 10:48.
+    assert_eq!(penalties.len(), 3, "{penalties:?}");
+    assert_eq!(
+        penalties[0],
+        PenaltyEvent {
+            team: "WSH".into(),
+            minutes: 2,
+            kind: "Minor".into(),
+            period: 1,
+            clock: "10:48".into(),
+        }
+    );
+    assert_eq!(penalties[2].period, 2, "the newest penalty is the 2nd-period one");
+    assert_eq!(penalties[2].clock, "15:37");
+}
+
+#[test]
+fn the_pp_string_prefix_is_gone() {
+    // spec v3.4 §4: strength used to be collapsed into a "PP · " text prefix
+    // on power-play goals. No NHL fixture carries a 702 goal, so this flips
+    // the real 903 (empty net) goal to 702 — under the old mapper that row's
+    // text came back prefixed; strength is structural now, so the text is
+    // the feed's own and the strength rides Extras::Hockey.
+    use gameday::domain::{Extras, HockeyStrength};
+    let json = include_str!("../fixtures/live/nhl_summary_final_full.json");
+    let mut v: serde_json::Value = serde_json::from_str(json).unwrap();
+    let plays = v["plays"].as_array_mut().unwrap();
+    let goal = plays
+        .iter_mut()
+        .find(|p| p["scoringPlay"].as_bool() == Some(true))
+        .expect("fixture has a goal");
+    goal["strength"]["id"] = serde_json::Value::String("702".into());
+    let text = goal["text"].as_str().unwrap().to_string();
+    let s = map_summary(League::Nhl, &v.to_string()).unwrap();
+    assert!(
+        s.last_plays.iter().all(|p| !p.text.starts_with("PP · ")),
+        "no mapped play text wears a strength prefix"
+    );
+    assert!(
+        s.last_plays.iter().any(|p| p.text == text),
+        "the power-play goal keeps the feed's own words: {text}"
+    );
+    assert!(
+        matches!(s.extras, Extras::Hockey { .. }),
+        "strength lives in Extras::Hockey instead"
+    );
+    // And the strength enum covers the ids the research pinned.
+    assert_ne!(HockeyStrength::PowerPlay, HockeyStrength::Shorthanded);
+}

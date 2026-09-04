@@ -163,6 +163,7 @@ mod tests {
                 }],
                 scoring_plays: vec![],
                 meter: None,
+                extras: Extras::None,
             },
         );
         let (s, stale) = m.summary(League::Nfl, "1").unwrap();

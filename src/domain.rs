@@ -188,6 +188,36 @@ pub struct MatchEvent {
     pub player: String,
 }
 
+/// NHL `plays[].strength.id`, the ids the v3.4 research probe pinned: 701
+/// Even Strength, 702 Power Play, 703 Shorthanded, 903 Empty Net. Every play
+/// of a live summary carries one, so the game's current strength is simply
+/// the most recent play's.
+///
+/// Read it as relative to the play's own team, not to the home side: in
+/// `fixtures/live/nhl_summary_final_full.json` WSH takes a minor at 10:48
+/// and the next four plays are PIT's, stamped 702 — while WSH's own plays in
+/// the same window are stamped 703. One situation, two spellings, depending
+/// on who acted. Nothing here names an advantaged team on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HockeyStrength {
+    Even,
+    PowerPlay,
+    Shorthanded,
+    EmptyNet,
+}
+
+/// One NHL penalty, off a play whose `type` carries `penaltyMinutes`.
+/// `team` is the penalized side's abbreviation (the side that will serve it),
+/// `kind` ESPN's own `penaltyType` word — "Minor", "Major".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PenaltyEvent {
+    pub team: String,
+    pub minutes: u8,
+    pub kind: String,
+    pub period: u8,
+    pub clock: String,
+}
+
 /// Per-sport facts that don't fit the shared fields. One variant per sport
 /// family; `None` for sports with nothing extra yet.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -196,6 +226,9 @@ pub enum Extras {
     None,
     Baseball { hits: Option<(u16, u16)>, errors: Option<(u16, u16)> },
     Soccer { events: Vec<MatchEvent> },
+    /// NHL, from the summary's play list (spec v3.4 §4): the current
+    /// strength and every penalty called so far, oldest first.
+    Hockey { strength: HockeyStrength, penalties: Vec<PenaltyEvent> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -262,6 +295,10 @@ pub struct Summary {
     pub last_plays: Vec<Play>,
     pub scoring_plays: Vec<Play>,
     pub meter: Option<Meter>,
+    /// Per-sport facts only the summary carries. NHL fills it (spec v3.4 §4:
+    /// strength + penalties); every other league leaves it `None` and the
+    /// merge keeps whatever the scoreboard already put on the game.
+    pub extras: Extras,
 }
 
 /// One box-score comparison row: "Total Yards  251  277".
