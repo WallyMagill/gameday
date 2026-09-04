@@ -335,6 +335,8 @@ fn draw_strip(
                 pinned: app.pins.iter().any(|p| p.game_id == game.id),
                 league_tag: d.mixed,
                 now,
+                // The strip is tier-2, which never reads the ladder.
+                leaders_line: None,
             },
         );
     }

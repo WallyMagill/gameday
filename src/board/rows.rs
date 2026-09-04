@@ -24,7 +24,7 @@
 //! Nothing here reads `App`, a clock, or a tick: hotness, the nudge, pin
 //! state and `now` all arrive in [`RowCtx`].
 
-use crate::domain::{Game, League, Status};
+use crate::domain::{Game, GameStats, League, Status};
 use crate::text::{fmt_start, truncate};
 use crate::theme::{self, Roles, TeamColorScope};
 use ratatui::layout::{Alignment, Rect};
@@ -55,6 +55,12 @@ pub struct RowCtx {
     pub league_tag: bool,
     /// The frame's clock, for pre-game start times.
     pub now: OffsetDateTime,
+    /// The tier-3 FINAL ladder's middle rung (spec v3.4 §6 / R47), already
+    /// formatted by [`leaders_line`] from whatever `App::stats` holds for
+    /// this game. The board only ever fetches stats for the zoomed game, so
+    /// this is `Some` for at most one row at a time — every other final
+    /// falls through it to the newest scoring play, honestly.
+    pub leaders_line: Option<String>,
 }
 
 /// The two fixed gutters every tier-1/2 row reserves: 2-cell hot mark,
@@ -204,6 +210,32 @@ fn situation_summary(game: &Game) -> Option<String> {
         parts.push(format!("AT {}", on.to_uppercase()));
     }
     (!parts.is_empty()).then(|| parts.join(" "))
+}
+
+/// A final's story, spec v3.4 §6 / ruling R47's verbatim ladder: the
+/// scoreboard's own headline, else the leaders line (already formatted by
+/// [`leaders_line`]), else the newest scoring play. Shared by the board's
+/// tier-3 row and the zoomed final's header (`views/zoom.rs`) so the two
+/// surfaces never disagree about which rung a game landed on.
+pub fn final_story(game: &Game, leaders_line: Option<&str>) -> Option<String> {
+    game.headline
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| leaders_line.map(str::to_string))
+        .or_else(|| game.scoring_plays.last().map(|p| p.text.clone()))
+}
+
+/// The ladder's middle rung, compacted to one line: the box score's first
+/// statistical leader, "TEAM LABEL: text" — the same three fields
+/// `views/zoom.rs`'s STATS tab prints per row, linearized rather than given
+/// a new format. `None` when the game carries no stats (every final except
+/// whichever one is currently zoomed — the board fetches stats for that game
+/// alone) or the stats fetched have no leaders (5/9 leagues carry them).
+pub fn leaders_line(stats: &GameStats) -> Option<String> {
+    let l = stats.leaders.first()?;
+    Some(format!("{} {}: {}", l.team, l.label, l.text))
 }
 
 /// The hot mark, column 0 — the one cell every tier draws identically (spec
@@ -361,12 +393,10 @@ pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
         }
         return;
     }
-    // A final's headline: the newest scoring play (the list is oldest first),
-    // else whatever the situation still says, else nothing.
-    let headline = game
-        .scoring_plays
-        .last()
-        .map(|p| p.text.clone())
+    // A final's story (spec v3.4 §6, R47's verbatim ladder): its own
+    // headline, else the leaders line, else the newest scoring play (the
+    // list is oldest first), else whatever the situation still says.
+    let headline = final_story(game, ctx.leaders_line.as_deref())
         .or_else(|| situation_summary(game))
         .unwrap_or_default();
     if !headline.is_empty() {
@@ -464,6 +494,7 @@ mod tests {
             pinned: false,
             league_tag: true,
             now: datetime!(2026-09-13 14:47 -4),
+            leaders_line: None,
         }
     }
 
@@ -719,6 +750,42 @@ mod tests {
         assert_eq!(col_of(buf, 0, "Ødegaard 2 assists"), Some(TEXT_X), "newest scoring play\n{text}");
         assert!(!text.contains("Saka"), "only the newest\n{text}");
         assert_eq!(buf[(AWAY_SCORE_X + 2, 0)].fg, theme::current().roles().digits, "scores stay amber\n{text}");
+    }
+
+    /// Spec v3.4 §6 / ruling R47: the tier-3 FINAL ladder in the spec's
+    /// verbatim order — `headline` → leaders line → newest scoring play.
+    /// (MLS carries no `headlines` at all on any committed fixture final —
+    /// 0/9 coverage — so its finals exercise the lower two rungs honestly;
+    /// this test stands in for that with a synthetic game instead of
+    /// depending on the MLS fixture directly.)
+    #[test]
+    fn the_final_row_prefers_the_headline() {
+        let mut fin = live_game("ARS", "BHA");
+        fin.league = League::Epl;
+        fin.status = Status::Final;
+        fin.scoring_plays = vec![Play { text: "Saka opens the scoring".into(), scoring: true, ..Default::default() }];
+
+        // Headline present: it wins over both lower rungs.
+        fin.headline = Some("Arsenal beat Brighton to go top of the table".into());
+        let with_headline = RowCtx { leaders_line: Some("ARS Saka: 2 G, 1 A".into()), ..ctx() };
+        let term = render(120, 1, &fin, &with_headline, draw_tier3);
+        let text = text_of(term.backend().buffer());
+        assert!(text.contains("Arsenal beat Brighton to go top of the table"), "{text}");
+        assert!(!text.contains("Saka opens"), "the headline wins over the scoring play\n{text}");
+
+        // No headline: falls to the leaders line.
+        fin.headline = None;
+        let leaders_only = RowCtx { leaders_line: Some("ARS Saka: 2 G, 1 A".into()), ..ctx() };
+        let term = render(120, 1, &fin, &leaders_only, draw_tier3);
+        let text = text_of(term.backend().buffer());
+        assert!(text.contains("ARS Saka: 2 G, 1 A"), "{text}");
+        assert!(!text.contains("Saka opens"), "leaders wins over the scoring play\n{text}");
+
+        // Neither headline nor leaders: existing behavior — newest scoring
+        // play — is pinned.
+        let term = render(120, 1, &fin, &ctx(), draw_tier3);
+        let text = text_of(term.backend().buffer());
+        assert!(text.contains("Saka opens the scoring"), "{text}");
     }
 
     #[test]

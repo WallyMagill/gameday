@@ -6,7 +6,7 @@
 //! Plays is the game's full feed with a j/k highlight; Stats is the box score.
 
 use crate::app::App;
-use crate::board::{hero, linescore};
+use crate::board::{hero, linescore, rows};
 use crate::domain::{EventKind, Extras, Game, HockeyStrength, League, Status};
 use crate::text::truncate;
 use crate::theme;
@@ -122,7 +122,7 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     let linescore = linescore::linescore_lines(game, &th).filter(|_| rest >= linescore::ROWS + FEED_MIN);
     let ls_rows = if linescore.is_some() { linescore::ROWS } else { 0 };
     rest -= ls_rows;
-    let matchup = matchup_line(game, area.width as usize).filter(|_| rest > FEED_MIN);
+    let matchup = matchup_line(app, game, area.width as usize).filter(|_| rest > FEED_MIN);
     let matchup_rows = u16::from(matchup.is_some());
     rest -= matchup_rows;
 
@@ -205,9 +205,23 @@ const TIMEOUTS_PER_HALF: u8 = 3;
 /// `Situation::{pitcher,batter,due_up}`, `Game::timeouts`, and
 /// `Extras::Soccer::events`. `None` when the sport has no such line, or when
 /// the feed has not filled the fields it would be made of.
-fn matchup_line(game: &Game, width: usize) -> Option<Line<'static>> {
+///
+/// A final gets no situation, no timeouts and no soccer events (ESPN clears
+/// them once the game ends) — the per-league match below would always read
+/// `None` for one, and a startup final (loaded already-final, no delta ever
+/// captured) never printed a story anywhere in the zoom. So a final takes
+/// this line over for its own header: the spec v3.4 §6 / R47 ladder,
+/// `rows::final_story` shared with the board's tier-3 row so the two never
+/// disagree.
+fn matchup_line(app: &App, game: &Game, width: usize) -> Option<Line<'static>> {
     let th = theme::current();
     let r = th.roles();
+    if game.status == Status::Final {
+        let leaders = app.stats.get(&game.id).and_then(rows::leaders_line);
+        let text = rows::final_story(game, leaders.as_deref())?;
+        let span = Span::styled(truncate(&text, width), Style::default().fg(r.ink));
+        return Some(Line::from(span));
+    }
     let label = Style::default().fg(r.dim);
     let ink = Style::default().fg(r.ink).add_modifier(Modifier::BOLD);
     let sep = || Span::styled("  ·  ", Style::default().fg(r.dim));

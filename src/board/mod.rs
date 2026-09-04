@@ -317,6 +317,14 @@ fn board_walk<'a>(
             }
             Block::Tier1(game, i) | Block::Tier2(game, i) | Block::Tier3(game, i) => {
                 let watch = rank::watchability(game, now);
+                // Only ever populated for the currently-zoomed game — the
+                // board never fetches stats for a row it isn't showing — so
+                // every other final's tier-3 ladder falls through this rung
+                // honestly (spec v3.4 §6 / R47).
+                let leaders_line = (game.status == Status::Final)
+                    .then(|| app.stats.get(&game.id))
+                    .flatten()
+                    .and_then(rows::leaders_line);
                 let ctx = rows::RowCtx {
                     hot: watch.hot,
                     chip: watch.chip,
@@ -325,6 +333,7 @@ fn board_walk<'a>(
                     pinned: app_pins_hold(app, game),
                     league_tag: d.mixed,
                     now,
+                    leaders_line,
                 };
                 match block {
                     Block::Tier1(..) => rows::draw_tier1(frame, rect, game, &ctx),

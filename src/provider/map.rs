@@ -444,9 +444,18 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         s.yard_line.map(|yl| yards_to_goal(yl, possession_is_home))
     });
     let meter = meter_from(league, status, sit_v, red_zone_yards, home_score, away_score);
+    // A final's own story (spec v3.4 §6): `shortLinkText`, never
+    // `description` — the latter is em-dash wire copy ("— Myles Garrett
+    // wanted..."), not display prose. Empty/whitespace-only reads as no
+    // headline at all.
+    let headline = comp["headlines"][0]["shortLinkText"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     Ok(Game {
         id, league, home, away, home_score, away_score, status, period, clock,
-        situation, last_plays, meter, start, broadcast, odds,
+        situation, last_plays, meter, start, broadcast, odds, headline,
         scoring_plays: vec![], linescore, timeouts, extras,
     })
 }

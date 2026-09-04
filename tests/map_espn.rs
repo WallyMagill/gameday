@@ -525,6 +525,24 @@ fn a_red_card_yields_ten_men_from_the_scoreboard_alone() {
     }
 }
 
+/// Spec v3.4 §6: a startup final (loaded already-final, no delta ever
+/// captured) tells its own story from the scoreboard's own
+/// `headlines[0].shortLinkText` — never `description` (em-dash wire copy;
+/// event 401772964's description opens "— Myles Garrett wanted..."; the
+/// mapper must never carry that). An event with no headlines object maps to
+/// `None`, not a panic or an empty string.
+#[test]
+fn finals_headline_from_short_link_text() {
+    let games = map_scoreboard(League::Nfl, include_str!("../fixtures/nfl_scoreboard_full.json"), et()).unwrap();
+    let carroll = games.iter().find(|g| g.id == "401772964").unwrap();
+    assert_eq!(
+        carroll.headline.as_deref(),
+        Some("Garrett sets sacks record and Szmyt's field goal on last play gives Browns 20-18 win over Bengals")
+    );
+    let headless = games.iter().find(|g| g.id == "401772966").unwrap();
+    assert_eq!(headless.headline, None, "no headlines object on this event, not an empty string");
+}
+
 /// The defensive half of the rule (spec v3.4 §5): ESPN's second-yellow
 /// encoding is UNOBSERVED, so two yellows on one athlete count as a red
 /// whether or not a 93 ever arrives — and when both arrive, the athlete is

@@ -316,6 +316,11 @@ pub struct Game {
     /// ("KC -3.5  O/U 47.5"). None when the feed carries no odds — ESPN
     /// strips them once a game goes final.
     pub odds: Option<String>,
+    /// A final's own one-line story, from the scoreboard's
+    /// `competitions[0].headlines[0].shortLinkText` — never `description`,
+    /// which is em-dash wire copy, not display prose (spec v3.4 §6). `None`
+    /// when the event carries no headlines object, or the field is empty.
+    pub headline: Option<String>,
 }
 
 impl Default for Game {
@@ -336,6 +341,7 @@ impl Default for Game {
             start: None,
             broadcast: None,
             odds: None,
+            headline: None,
             scoring_plays: vec![],
             linescore: vec![],
             timeouts: None,
