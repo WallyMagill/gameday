@@ -714,3 +714,78 @@ fn every_league_maps_its_full_scoreboard_and_summary_with_no_skips() {
         );
     }
 }
+
+/// Spec §1: no committed fixture carried live game state, so no test could
+/// catch a live-situation regression. This is that regression net — for
+/// every `fixtures/live/*_scoreboard_live.json`, find the event ESPN itself
+/// marked live (`status.type.state == "in"`) with a `situation` object, map
+/// it, and assert the mapped `Game` actually carries a non-empty situation
+/// in the shape that league's mapper is supposed to fill in.
+#[test]
+fn live_fixtures_carry_live_state() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/live");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        let Some(slug) = name.strip_suffix("_scoreboard_live.json") else { continue };
+        let league = League::from_slug(slug).unwrap_or_else(|| panic!("unknown league slug in fixture name: {slug}"));
+        let json = std::fs::read_to_string(&path).unwrap();
+        let raw: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let events = raw["events"].as_array().unwrap();
+        let live_id = events
+            .iter()
+            .find(|ev| {
+                ev["status"]["type"]["state"].as_str() == Some("in")
+                    && ev["competitions"][0]["situation"].is_object()
+            })
+            .and_then(|ev| ev["id"].as_str())
+            .unwrap_or_else(|| panic!("{name}: no live event with a situation object"));
+
+        let games = map_scoreboard(league, &json, et()).unwrap();
+        let g = games.iter().find(|g| g.id == live_id).unwrap_or_else(|| panic!("{name}: live event {live_id} did not map"));
+        assert_eq!(g.status, Status::Live, "{name}: {live_id} should map to Status::Live");
+        let sit = g.situation.as_ref().unwrap_or_else(|| panic!("{name}: {live_id} mapped with no situation at all"));
+
+        match league {
+            League::Cfb | League::Nfl => {
+                assert!(!sit.down_distance.is_empty(), "{name}: {live_id} down/distance empty");
+                assert!(sit.possession.is_some(), "{name}: {live_id} possession missing");
+            }
+            League::Mlb => {
+                assert!(
+                    sit.balls.is_some() || sit.strikes.is_some() || sit.outs.is_some(),
+                    "{name}: {live_id} carries no count fields"
+                );
+                assert!(sit.on_base.is_some(), "{name}: {live_id} carries no base state");
+            }
+            League::Epl | League::Mls => {
+                let gameday::domain::Extras::Soccer { events } = &g.extras else {
+                    panic!("{name}: {live_id} soccer game without Soccer extras");
+                };
+                assert!(!events.is_empty(), "{name}: {live_id} carries no match events");
+            }
+            _ => {
+                assert!(!sit.down_distance.is_empty(), "{name}: {live_id} situation summary empty");
+            }
+        }
+        checked += 1;
+    }
+    assert!(checked > 0, "no fixtures/live/*_scoreboard_live.json found");
+}
+
+/// v3.1-era capture bug (fixed in `scripts/capture-fixtures.sh`, spec §1):
+/// summaries were piped through a filter that capped `plays[]` at exactly
+/// 80, silently truncating live games that carry 300-540. This fixture is a
+/// real live-game capture and must stay untruncated.
+#[test]
+fn the_mlb_live_summary_is_untruncated() {
+    let json = include_str!("../fixtures/live/mlb_summary_live_full.json");
+    let raw: serde_json::Value = serde_json::from_str(json).unwrap();
+    let plays = raw["plays"].as_array().unwrap();
+    assert!(plays.len() > 100, "expected > 100 plays, fixture has {}", plays.len());
+    assert!(
+        plays.iter().any(|p| p["summaryType"].as_str() == Some("P")),
+        "expected at least one pitch (summaryType == \"P\") row"
+    );
+}
