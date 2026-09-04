@@ -812,19 +812,35 @@ mod tests {
     /// must still show the headline, not fall to the newly-appended play.
     #[test]
     fn a_headline_survives_a_later_scoring_play_refresh() {
+        // Two directions on the same game so the test can actually fail:
+        // with a headline present, it wins even over a scoring play that
+        // arrived after it (the refresh case); with the headline absent,
+        // the same scoring play is what surfaces. If `final_story` ever
+        // stopped checking the headline first, direction one would show it
+        // — direction two proves the scoring-play rung still works at all.
         let mut fin = live_game("ARS", "BHA");
         fin.league = League::Epl;
         fin.status = Status::Final;
         fin.headline = Some("Arsenal beat Brighton to go top of the table".into());
-        fin.scoring_plays = vec![Play { text: "Saka opens the scoring".into(), scoring: true, ..Default::default() }];
-        assert_eq!(final_story(&fin, None).as_deref(), Some("Arsenal beat Brighton to go top of the table"));
-
-        // A refresh lands a newer scoring play on top of the existing one.
-        fin.scoring_plays.push(Play { text: "Ødegaard doubles the lead".into(), scoring: true, ..Default::default() });
+        fin.scoring_plays = vec![
+            Play { text: "Saka opens the scoring".into(), scoring: true, ..Default::default() },
+            // A refresh lands a newer scoring play after the headline was
+            // already set.
+            Play { text: "Ødegaard doubles the lead".into(), scoring: true, ..Default::default() },
+        ];
         assert_eq!(
             final_story(&fin, None).as_deref(),
             Some("Arsenal beat Brighton to go top of the table"),
             "the headline must survive a later scoring-play refresh"
+        );
+
+        // Same game, headline cleared: the newest scoring play must now
+        // surface — proving the fallback rung isn't dead code.
+        fin.headline = None;
+        assert_eq!(
+            final_story(&fin, None).as_deref(),
+            Some("Ødegaard doubles the lead"),
+            "without a headline, the newest scoring play from the refresh must surface"
         );
     }
 
