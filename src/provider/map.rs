@@ -1,4 +1,5 @@
 use crate::domain::*;
+use crate::provider::kinds;
 use serde_json::Value;
 use time::UtcOffset;
 
@@ -518,7 +519,7 @@ fn details_from(details: &Value, abbr_for_id: &dyn Fn(Option<&str>) -> Option<St
         .collect()
 }
 
-pub fn map_summary(json: &str) -> Result<Summary, MapError> {
+pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
     let v: Value = serde_json::from_str(json)?;
     // Soccer keyEvents and the flat plays arrays credit teams by id only;
     // the summary header carries the id -> abbreviation map.
@@ -561,14 +562,16 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
             if let Some(ps) = d["plays"].as_array() {
                 for p in ps {
                     if let Some(text) = p["text"].as_str() {
+                        let type_id = p["type"]["id"].as_str().unwrap_or("");
+                        let scoring_type = p["scoringType"]["name"].as_str();
                         plays.push(Play {
                             clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
                             period: String::new(),
                             team: drive_team.to_string(),
                             text: text.to_string(),
                             scoring: p["scoringPlay"].as_bool().unwrap_or(false),
-                            kind: PlayKind::Other,
-                            score_value: None,
+                            kind: kinds::football_kind(type_id, scoring_type),
+                            score_value: p["scoreValue"].as_u64().map(|v| v.min(u8::MAX as u64) as u8),
                         });
                     }
                 }
@@ -590,6 +593,11 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                 // inning marker, A batter/pitcher start, C substitution. Only
                 // N and S are the feed a fan reads (verified 2026-08-31 on a
                 // live MLB summary: 285 P vs 74 N + 11 S).
+                // Allow-by-default: only MLB rows carry a `summaryType` at
+                // all, so this filter's `None` arm (id absent, or a
+                // `summaryType: null` row on non-MLB feeds) intentionally
+                // falls through unfiltered — NBA/WNBA/CBB/NHL flat plays and
+                // soccer keyEvents never set this field.
                 if matches!(p["summaryType"].as_str(), Some("P") | Some("I") | Some("A") | Some("C"))
                 {
                     continue;
@@ -602,14 +610,33 @@ pub fn map_summary(json: &str) -> Result<Summary, MapError> {
                 } else {
                     text.to_string()
                 };
+                let type_id = p["type"]["id"].as_str().unwrap_or("");
+                let score_value = p["scoreValue"].as_u64().map(|v| v.min(u8::MAX as u64) as u8);
+                let kind = match league {
+                    League::Nba | League::Wnba | League::Cbb => {
+                        let shooting = p["shootingPlay"].as_bool().unwrap_or(false);
+                        kinds::hoops_kind(type_id, shooting, score_value, league == League::Cbb)
+                    }
+                    League::Nhl => {
+                        let has_penalty_minutes = p["type"].get("penaltyMinutes").is_some();
+                        kinds::nhl_kind(type_id, has_penalty_minutes)
+                    }
+                    League::Epl | League::Mls => kinds::soccer_kind(type_id),
+                    // The at-bat join (Task 4) owns MLB's kind — a flat pitch
+                    // row carries no batted-ball outcome worth mapping yet.
+                    League::Mlb => PlayKind::Other, // Task 4
+                    // Unreachable: football fills `plays` from drives above,
+                    // so this branch never runs for NFL/CFB.
+                    League::Nfl | League::Cfb => PlayKind::Other,
+                };
                 plays.push(Play {
                     clock: p["clock"]["displayValue"].as_str().unwrap_or("").to_string(),
                     period: inning_tag(&p["period"]),
                     team: team_of(p),
                     text,
                     scoring,
-                    kind: PlayKind::Other,
-                    score_value: None,
+                    kind,
+                    score_value,
                 });
             }
             if !plays.is_empty() {

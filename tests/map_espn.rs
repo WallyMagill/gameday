@@ -1,4 +1,4 @@
-use gameday::domain::{League, Meter, Status};
+use gameday::domain::{League, Meter, PlayKind, Status};
 use gameday::provider::map::{map_scoreboard, map_standings, map_summary};
 use time::UtcOffset;
 
@@ -56,7 +56,7 @@ fn maps_pre_and_final_states() {
 #[test]
 fn maps_summary_scoring_plays_newest_first() {
     let json = include_str!("../fixtures/nfl_summary.json");
-    let s = map_summary(json).unwrap();
+    let s = map_summary(League::Nfl, json).unwrap();
     assert!(s.scoring_plays.iter().all(|p| p.scoring));
     assert_eq!(s.scoring_plays[0].text, "Tyler Bass 33 Yd Field Goal");
     assert_eq!(s.last_plays[0].text, "Kelce left for 2 yards");
@@ -194,7 +194,7 @@ fn maps_soccer_summary_key_events_with_header_team_abbrs() {
     // subs live under keyEvents, credited by team id (fixture trimmed from
     // the real 2026-08-29 NFO@LIV payload).
     let json = include_str!("../fixtures/epl_summary.json");
-    let s = map_summary(json).unwrap();
+    let s = map_summary(League::Epl, json).unwrap();
     assert!(!s.last_plays.is_empty(), "keyEvents must map to plays");
     // Newest first: the last keyEvent (End Regular Time) leads.
     assert!(s.last_plays[0].text.starts_with("Second Half ends"), "{:?}", s.last_plays[0]);
@@ -217,11 +217,77 @@ fn maps_soccer_summary_key_events_with_header_team_abbrs() {
 }
 
 #[test]
+fn nfl_summary_plays_carry_kinds() {
+    // Real NFL summary (drives.previous path): scoring plays resolve through
+    // football_kind via scoringType.name; a non-scoring play stays Other.
+    let json = include_str!("../fixtures/nfl_summary_full.json");
+    let s = map_summary(League::Nfl, json).unwrap();
+    let scoring: Vec<_> = s.last_plays.iter().filter(|p| p.scoring).collect();
+    assert!(
+        scoring.iter().any(|p| p.kind == PlayKind::Touchdown),
+        "expected a Touchdown among scoring plays"
+    );
+    assert!(
+        scoring.iter().any(|p| p.kind == PlayKind::FieldGoal),
+        "expected a FieldGoal among scoring plays"
+    );
+    assert!(
+        s.last_plays.iter().any(|p| !p.scoring && p.kind == PlayKind::Other),
+        "a non-scoring play stays Other"
+    );
+}
+
+#[test]
+fn nhl_goals_and_penalties_are_kinds() {
+    // Untruncated live capture: the committed nhl_summary_full.json fixture
+    // has no 505 Goal row in its trimmed plays, so this reaches into the
+    // full live capture (has both a goal and a penalty).
+    let json = include_str!("../fixtures/live/nhl_summary_final_full.json");
+    let s = map_summary(League::Nhl, json).unwrap();
+    assert!(
+        s.last_plays.iter().any(|p| p.kind == PlayKind::Goal),
+        "expected a 505 Goal play"
+    );
+    assert!(
+        s.last_plays.iter().any(|p| p.kind == PlayKind::HockeyPenalty),
+        "expected a play carrying type.penaltyMinutes"
+    );
+}
+
+#[test]
+fn cbb_uses_its_own_table() {
+    // CBB's three-pointer id (558 JumpShot) is not the NBA id (92) — the
+    // mapper must pass cbb: true so the play routes through the CBB table.
+    let json = include_str!("../fixtures/cbb_summary_full.json");
+    let s = map_summary(League::Cbb, json).unwrap();
+    assert!(
+        s.last_plays.iter().any(|p| p.kind == PlayKind::ThreePointer),
+        "expected a made three (558/shooting/scoreValue 3) to map ThreePointer"
+    );
+}
+
+#[test]
+fn soccer_summary_events_come_from_type_ids() {
+    // epl_summary_full's keyEvents carry null scoringPlay/ownGoal/yellowCard
+    // booleans (verified via probe) — only type.id is a trustworthy signal.
+    let json = include_str!("../fixtures/epl_summary_full.json");
+    let s = map_summary(League::Epl, json).unwrap();
+    assert!(
+        s.last_plays.iter().any(|p| p.kind == PlayKind::Goal),
+        "expected a type.id 70 Goal event"
+    );
+    assert!(
+        s.last_plays.iter().any(|p| p.kind == PlayKind::YellowCard),
+        "expected a type.id 94 Yellow Card event"
+    );
+}
+
+#[test]
 fn maps_basketball_summary_flat_plays_array() {
     // Non-football, non-soccer summaries carry a flat `plays` array
     // (fixture: tail of the real 2026-08-29 CHI@NY WNBA payload).
     let json = include_str!("../fixtures/wnba_summary.json");
-    let s = map_summary(json).unwrap();
+    let s = map_summary(League::Wnba, json).unwrap();
     // Every play in the fixture, uncapped — the display cap is the tile's job.
     assert_eq!(s.last_plays.len(), 10, "the whole fixture list, not a cap");
     // Newest first.
@@ -432,7 +498,7 @@ use gameday::provider::map::map_stats;
 
 #[test]
 fn mlb_summary_keeps_only_at_bat_results_and_scoring_and_tags_the_inning() {
-    let s = map_summary(include_str!("../fixtures/mlb_summary_min.json")).unwrap();
+    let s = map_summary(League::Mlb, include_str!("../fixtures/mlb_summary_min.json")).unwrap();
     let texts: Vec<&str> = s.last_plays.iter().map(|p| p.text.as_str()).collect();
     assert_eq!(
         texts,
@@ -467,7 +533,7 @@ fn summary_is_not_truncated_to_eight() {
     let json = format!(
         r#"{{"header":{{"competitions":[{{"competitors":[{{"team":{{"id":"1","abbreviation":"DEN"}}}}]}}]}},"plays":[{plays}]}}"#
     );
-    let s = map_summary(&json).unwrap();
+    let s = map_summary(League::Nfl, &json).unwrap();
     assert_eq!(s.last_plays.len(), 20);
     assert_eq!(s.scoring_plays.len(), 1);
     assert_eq!(s.scoring_plays[0].text, "play 3");
@@ -691,7 +757,7 @@ fn every_league_maps_its_full_scoreboard_and_summary_with_no_skips() {
                 );
             }
         }
-        let s = map_summary(sm).unwrap();
+        let s = map_summary(league, sm).unwrap();
         assert!(!s.last_plays.is_empty(), "{}: summary plays", league.slug());
         if league == League::Mlb {
             assert!(

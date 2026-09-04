@@ -303,7 +303,7 @@ impl SportsProvider for EspnProvider {
         let url = summary_url(league, game_id);
         let key = format!("{}-{game_id}-summary", league.slug());
         self.fetch(&url, &key, |body| {
-            map_summary(body).map_err(|source| ProviderError::Map {
+            map_summary(league, body).map_err(|source| ProviderError::Map {
                 key: key.clone(),
                 source,
             })
