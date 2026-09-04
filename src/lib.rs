@@ -6,6 +6,7 @@ pub mod config;
 pub mod demo;
 pub mod domain;
 pub mod dump;
+pub mod frame;
 pub mod home;
 pub mod input;
 pub mod keymap;

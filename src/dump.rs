@@ -64,8 +64,14 @@ pub struct Variant {
     /// `nudge-seq` frames use it: they are a sequence, and a sequence whose
     /// frames all moved with a flag would stop being one.
     pub tick: Option<u64>,
-    setup: fn(&mut App),
+    setup: Setup,
 }
+
+/// What a capture does to the demo app before it is drawn. Fallible because
+/// [`frame`](crate::frame) runs these same functions against scenarios that
+/// may have removed the game a view is about — in the gallery, where the
+/// slate is always the full demo slate, none of them ever fails.
+pub type Setup = fn(&mut App) -> Result<(), String>;
 
 /// `board-<theme>` stems, one per built-in, in `BUILTIN_NAMES` order. Static
 /// strings because stems are the fixed-name contract other tasks read; a test
@@ -76,19 +82,26 @@ pub const BOARD_STEMS: [(&str, &str); 3] = [
     ("gruvbox", "board-gruvbox"),
 ];
 
-/// The fixed gallery, in write order. Stems are stable file names — other
-/// tasks (themes, animation frames, tile polish, keyboard) verify against
-/// these exact paths, so renames here are breaking.
-pub fn gallery() -> Vec<Variant> {
-    fn home(_: &mut App) {}
-    fn tv(app: &mut App) {
+/// Every capture's "put the app in this state" step, one function per
+/// surface. Module-level and public because `gameday frame` renders the same
+/// surfaces on demand: the gallery and a one-off design frame run the SAME
+/// setup, so a `frame --view tv` and the `tv` stem can never drift apart.
+pub mod setup {
+    use super::{demo, map, App, League, MemoryProvider, SportsProvider, Tab, View, ZoomTab};
+    use std::time::{Duration, Instant};
+
+    pub fn home(_: &mut App) -> Result<(), String> {
+        Ok(())
+    }
+    pub fn tv(app: &mut App) -> Result<(), String> {
         app.open_tv();
+        Ok(())
     }
     // The zoomed game is the baseball one on purpose: MLB is the only demo
     // sport whose zoom exercises all three rows under the hero at once — the
     // linescore with H/E, the `P: … AB: … DUE UP` matchup line (spec §5), and
     // an inning-stamped feed (`[B7]`).
-    fn zoom(app: &mut App) {
+    pub fn zoom(app: &mut App) -> Result<(), String> {
         let mut p = MemoryProvider::new();
         p.stats.insert("nfl-live".into(), demo::demo_stats());
         let _ = p.stats(League::Nfl, "nfl-live");
@@ -96,36 +109,43 @@ pub fn gallery() -> Vec<Variant> {
             game_id: "mlb-live".into(),
             tab: ZoomTab::Overview,
         };
+        Ok(())
     }
-    /// The newest scoring play of a demo game, for the cut captures.
-    fn scoring_play(app: &App, id: &str) -> crate::domain::Play {
+    /// The newest scoring play of a demo game, for the cut captures. Missing
+    /// is only possible under a `frame` scenario that filtered the game away,
+    /// and the error names the game so the caller knows which one to keep.
+    fn scoring_play(app: &App, id: &str) -> Result<crate::domain::Play, String> {
         app.boards
             .values()
             .flatten()
             .find(|g| g.id == id)
             .and_then(|g| g.scoring_plays.last().or_else(|| g.last_plays.first()))
             .cloned()
-            .unwrap_or_else(|| panic!("demo game {id} must carry a scoring play"))
+            .ok_or_else(|| format!("no game {id} with a scoring play is on this board"))
     }
     // The takeover: a game you follow scored. `full = true` is the caller's
     // judgment in the live app (pinned/favorited/TV) — here it is stated
     // outright, because the capture's subject IS the full size.
-    fn cut_full(app: &mut App) {
-        let play = scoring_play(app, "nfl-live");
+    pub fn cut_full(app: &mut App) -> Result<(), String> {
+        let play = scoring_play(app, "nfl-live")?;
         app.cuts.fire("nfl-live", &play, true, app.tick);
+        Ok(())
     }
     // The band: someone else scored. Same formatter, two rows, board intact.
-    fn cut_band(app: &mut App) {
-        let play = scoring_play(app, "nhl-live");
+    pub fn cut_band(app: &mut App) -> Result<(), String> {
+        let play = scoring_play(app, "nhl-live")?;
         app.cuts.fire("nhl-live", &play, false, app.tick);
+        Ok(())
     }
-    fn help(app: &mut App) {
+    pub fn help(app: &mut App) -> Result<(), String> {
         app.help_open = true;
+        Ok(())
     }
-    fn plays_feed(app: &mut App) {
+    pub fn plays_feed(app: &mut App) -> Result<(), String> {
         app.view = View::PlaysFeed;
+        Ok(())
     }
-    fn standings(app: &mut App) {
+    pub fn standings(app: &mut App) -> Result<(), String> {
         let mut p = MemoryProvider::new();
         p.standings.insert(
             League::Nfl,
@@ -135,30 +155,35 @@ pub fn gallery() -> Vec<Variant> {
         let (table, _) = p.standings(League::Nfl).expect("seeded standings");
         app.merge_standings(table);
         app.view = View::Standings(League::Nfl);
+        Ok(())
     }
-    fn config(app: &mut App) {
+    pub fn config(app: &mut App) -> Result<(), String> {
         // A seeded favorite so the FAVORITES section shows a real row.
         app.config.favorites.push(crate::config::Favorite {
             league: League::Nfl,
             team_abbr: "KC".into(),
         });
         app.view = View::ConfigView;
+        Ok(())
     }
-    fn filter(app: &mut App) {
+    pub fn filter(app: &mut App) -> Result<(), String> {
         app.tab = Tab::League(League::Nfl);
         app.filter = Some("kc".into());
+        Ok(())
     }
-    fn theme_picker(app: &mut App) {
+    pub fn theme_picker(app: &mut App) -> Result<(), String> {
         app.open_theme_picker();
+        Ok(())
     }
     // Home now shows every live demo game, so the plain Home tab IS the
     // first-boot frame — the capture other tasks compare the board against.
-    fn home_live(app: &mut App) {
+    pub fn home_live(app: &mut App) -> Result<(), String> {
         app.tab = Tab::Home;
+        Ok(())
     }
     // Nothing on the board and a named failure: the empty-state message, the
     // OFFLINE chip with its retry, and the footer line all at once.
-    fn offline(app: &mut App) {
+    pub fn offline(app: &mut App) -> Result<(), String> {
         app.boards.clear();
         // The demo seeds its boards through `apply_boards`, which records a
         // fresh OK — and a fresh OK outranks the failure behind it, so the
@@ -170,19 +195,29 @@ pub fn gallery() -> Vec<Variant> {
             "ESPN unreachable nfl scoreboard".into(),
             Some(Duration::from_secs(40)),
         );
+        Ok(())
     }
     // `NetStatus` measures age against `Instant`, so staleness is seeded by
     // backdating the last OK apply four minutes — the chip reads "STALE 4m".
-    fn stale(app: &mut App) {
+    pub fn stale(app: &mut App) -> Result<(), String> {
         app.net.ok(Instant::now() - Duration::from_secs(4 * 60), true);
+        Ok(())
     }
     // A config.toml that doesn't parse: the banner names the line and the
     // valid values, and `set_config_error` writes the footer itself.
-    fn config_error(app: &mut App) {
+    pub fn config_error(app: &mut App) -> Result<(), String> {
         app.set_config_error(Some(
             "config.toml:7: unknown variant `NFLL` — valid leagues: nfl|cfb|cbb|nba|wnba|nhl|mlb|epl|mls".into(),
         ));
+        Ok(())
     }
+}
+
+/// The fixed gallery, in write order. Stems are stable file names — other
+/// tasks (themes, animation frames, tile polish, keyboard) verify against
+/// these exact paths, so renames here are breaking.
+pub fn gallery() -> Vec<Variant> {
+    use setup::*;
     let full = |stem, theme, setup| Variant {
         stem,
         cols: DUMP_COLS,
@@ -205,14 +240,14 @@ pub fn gallery() -> Vec<Variant> {
         rows: DUMP_ROWS,
         theme: "broadcast",
         tick: Some(tick),
-        setup: home as fn(&mut App),
+        setup: home as Setup,
     };
     let mut out: Vec<Variant> = BOARD_STEMS
         .iter()
-        .map(|(name, stem)| full(*stem, *name, home as fn(&mut App)))
+        .map(|(name, stem)| full(*stem, *name, home as Setup))
         .collect();
     out.extend([
-        sized("board-narrow", 80, 24, home as fn(&mut App)),
+        sized("board-narrow", 80, 24, home as Setup),
         sized("board-sixty", 60, 40, home),
         full("tv", "broadcast", tv),
         full("cut-full", "broadcast", cut_full),
@@ -241,7 +276,7 @@ pub fn gallery() -> Vec<Variant> {
 /// bug. (v3.3's sitting gates also rendered `theme::CANDIDATE_NAMES` entries
 /// here, installed for one capture and uninstalled after; ruling R38 retired
 /// the gate stems with the sittings, so this only sets a loaded theme now.)
-fn with_theme<T>(name: &str, f: impl FnOnce() -> T) -> T {
+pub fn with_theme<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let prev = theme::current_name();
     theme::set_current(name).unwrap_or_else(|e| panic!("dump theme: {e}"));
     let out = f();
@@ -305,7 +340,7 @@ pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
         let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         let mut app = demo_app(dir, tick);
-        (v.setup)(&mut app);
+        (v.setup)(&mut app).unwrap_or_else(|e| panic!("dump variant {}: {e}", v.stem));
         let mut term = Terminal::new(TestBackend::new(v.cols, v.rows))?;
         term.draw(|f| app.draw(f))?;
         Ok(term.backend().buffer().clone())
@@ -313,12 +348,14 @@ pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
 }
 
 /// One rendered page ready for the shared write/screenshot/verify pipeline.
+/// Owned strings, not `&'static str`: the gallery's stems and themes are
+/// compile-time constants, but `gameday frame` names both at the command line.
 pub struct Page {
-    pub stem: &'static str,
+    pub stem: String,
     pub cols: u16,
     pub rows: u16,
-    /// Built-in theme name the page was rendered under (page bg/fg).
-    pub theme: &'static str,
+    /// The theme name the page was rendered under (page bg/fg).
+    pub theme: String,
     pub buf: Buffer,
 }
 
@@ -330,10 +367,10 @@ pub fn run(out_dir: &Path, tick: u64) -> std::io::Result<()> {
         .iter()
         .map(|v| {
             Ok(Page {
-                stem: v.stem,
+                stem: v.stem.to_string(),
                 cols: v.cols,
                 rows: v.rows,
-                theme: v.theme,
+                theme: v.theme.to_string(),
                 buf: render_variant(v, tick)?,
             })
         })
@@ -365,7 +402,7 @@ pub fn write_pages(out_dir: &Path, pages: &[Page]) -> std::io::Result<()> {
         // buffer_to_html reads theme::current() for the page bg/fg, so the
         // serialization happens under the page's theme.
         let html_path = out_dir.join(format!("{}.html", p.stem));
-        with_theme(p.theme, || {
+        with_theme(&p.theme, || {
             std::fs::write(&html_path, buffer_to_html(&p.buf)).and_then(|()| {
                 std::fs::write(out_dir.join(format!("{}.ansi", p.stem)), buffer_to_ansi(&p.buf))
             })
@@ -445,7 +482,7 @@ const SHOT_DEADLINE: Duration = Duration::from_secs(45);
 /// `--user-data-dir` profiles), so completion is judged by the PNG appearing
 /// with a stable size — never by process exit — and stragglers are killed.
 struct Shot {
-    stem: &'static str,
+    stem: String,
     png: PathBuf,
     profile: PathBuf,
     child: Option<std::process::Child>,
@@ -485,7 +522,7 @@ impl Shot {
             })
             .map_err(|e| eprintln!("png skipped for {}: chrome spawn failed: {e}", v.stem))
             .ok();
-        Shot { stem: v.stem, png, profile, child, last_size: 0, png_done: false }
+        Shot { stem: v.stem.clone(), png, profile, child, last_size: 0, png_done: false }
     }
 
     /// Done once the PNG exists with the same non-zero size on two
@@ -839,10 +876,10 @@ mod tests {
         let pages: Vec<Page> = gallery()
             .iter()
             .map(|v| Page {
-                stem: v.stem,
+                stem: v.stem.to_string(),
                 cols: v.cols,
                 rows: v.rows,
-                theme: v.theme,
+                theme: v.theme.to_string(),
                 buf: render_variant(v, 0).unwrap(),
             })
             .collect();
