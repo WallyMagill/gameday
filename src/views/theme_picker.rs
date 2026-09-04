@@ -127,14 +127,32 @@ mod tests {
         };
         let b = swatches("broadcast");
         let s = swatches("studio");
+        let d = swatches("daygame");
         assert_ne!(b, s, "broadcast and studio must not render as the same row");
+        assert_ne!(b, d, "broadcast and daygame must not render as the same row");
+        assert_ne!(s, d, "studio and daygame must not render as the same row");
         // Where they differ hardest: the digits swatch (4th) is amber vs white.
-        let (bt, st) = (theme::builtin("broadcast"), theme::builtin("studio"));
+        let (bt, st, dt) =
+            (theme::builtin("broadcast"), theme::builtin("studio"), theme::builtin("daygame"));
         assert_eq!(b[3], bt.star, "broadcast's digits swatch is amber");
         assert_eq!(s[3], st.bright, "studio's digits swatch is white");
+        assert_eq!(d[3], dt.star, "daygame's digits swatch is deep amber");
         // v3.3: even the ground swatch differs now — studio's press-box ground
         // is a near-black gray, not broadcast's true black.
         assert_ne!(b[0], s[0], "studio's ground swatch is its own");
+        // v3.4: daygame is the one theme with the ground/ink relationship
+        // reversed — its ground swatch is the lightest of the three, not the
+        // darkest.
+        assert_ne!(d[0], b[0], "daygame's ground swatch is its own");
+        assert_ne!(d[0], s[0], "daygame's ground swatch is its own");
+        let luma = |c: Color| -> i32 {
+            let Color::Rgb(r, g, bl) = c else { panic!("swatch is not truecolor") };
+            r as i32 + g as i32 + bl as i32
+        };
+        assert!(
+            luma(d[0]) > luma(b[0]) && luma(d[0]) > luma(s[0]),
+            "daygame's ground swatch is the light one"
+        );
         // Every swatch but `hot` is gray on studio; `hot` is the one chroma
         // the two themes still share.
         for (i, c) in s.iter().enumerate() {

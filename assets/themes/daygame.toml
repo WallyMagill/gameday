@@ -1,8 +1,9 @@
-# daygame — the light candidate (v3.3 §6). NOT a built-in: it is compiled in
-# as a gate candidate (`theme::CANDIDATE_NAMES`), rendered by `gameday dump`
-# as `gate-daygame`, and cannot be selected until the owner promotes it in
-# sitting 2. Every other theme gameday ships is a dark one; this is the answer
-# to "what does the board look like at a desk, in daylight, next to a browser".
+# daygame — the light theme (v3.3 §6 candidate, promoted at the v3.4 render
+# gate 2026-09-04). A fourth built-in (`theme::BUILTIN_NAMES`), selectable
+# like broadcast/studio/gruvbox and rendered by `gameday dump` as
+# `board-daygame`. Every other theme gameday ships is a dark one; this is the
+# answer to "what does the board look like at a desk, in daylight, next to a
+# browser".
 #
 # Contrast receipts, WCAG 2 relative luminance against the paper ground
 # (#f5f2ea, L = 0.889), pinned by `daygame_ink_contrast_clears_4_5_to_1`:

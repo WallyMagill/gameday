@@ -3,9 +3,9 @@
 //! when headless Chrome is available. This is the visual iteration loop:
 //! compare out/board-broadcast.png to the reference image. The gallery:
 //!
-//!   board-broadcast/-studio/-gruvbox — the ranked board, one per BUILT-IN
-//!       theme (selected programmatically, not via env). Three identities,
-//!       not eleven palettes (spec §6).
+//!   board-broadcast/-studio/-gruvbox/-daygame — the ranked board, one per
+//!       BUILT-IN theme (selected programmatically, not via env). Four
+//!       identities, not eleven palettes (spec §6).
 //!   board-narrow  — the same board at 80x24
 //!   board-sixty   — and at 60x40: the tall, narrow end of the ladder
 //!   tv            — `:tv`, the jumbotron hero and the ALSO LIVE strip
@@ -48,7 +48,7 @@ use std::time::{Duration, Instant};
 pub const DUMP_COLS: u16 = 120;
 pub const DUMP_ROWS: u16 = 36;
 /// Whole-gallery runtime budget. Rendering the buffers is milliseconds; the
-/// cost is Chrome. At [`SHOT_BATCH`] = 4 the 22-page gallery is 6 batches of
+/// cost is Chrome. At [`SHOT_BATCH`] = 4 the 23-page gallery is 6 batches of
 /// a measured ~16 s, so ~100 s is the expected run and 150 s is the line past
 /// which something is wrong. Overruns print actual vs budget naming the phase.
 const BUDGET: Duration = Duration::from_secs(150);
@@ -76,10 +76,11 @@ pub type Setup = fn(&mut App) -> Result<(), String>;
 /// `board-<theme>` stems, one per built-in, in `BUILTIN_NAMES` order. Static
 /// strings because stems are the fixed-name contract other tasks read; a test
 /// pins this list to `BUILTIN_NAMES` so a new theme can't ship without a board.
-pub const BOARD_STEMS: [(&str, &str); 3] = [
+pub const BOARD_STEMS: [(&str, &str); 4] = [
     ("broadcast", "board-broadcast"),
     ("studio", "board-studio"),
     ("gruvbox", "board-gruvbox"),
+    ("daygame", "board-daygame"),
 ];
 
 /// Every capture's "put the app in this state" step, one function per
@@ -700,6 +701,7 @@ mod tests {
                 "board-broadcast",
                 "board-studio",
                 "board-gruvbox",
+                "board-daygame",
                 "board-narrow",
                 "board-sixty",
                 "tv",

@@ -13,7 +13,7 @@ cargo run -- dump      # capture gallery into out/ (no network; --tick N picks t
 ```
 
 `dump` writes fixed names: the ranked board in each built-in theme
-(`board-broadcast`, `board-studio`, `board-gruvbox`) and at two more sizes
+(`board-broadcast`, `board-studio`, `board-gruvbox`, `board-daygame`) and at two more sizes
 (`board-narrow` 80x24, `board-sixty` 60x40); the surfaces `tv`, `cut-full`,
 `cut-band`, `zoom`, `plays-feed`, `standings`, `config`, `filter`,
 `theme-picker`, `help`; the four state captures `home-live` (first boot),
@@ -30,18 +30,19 @@ Config: `~/.config/gameday/config.toml`
 
 ```toml
 enabled_tabs = ["Nfl", "Cfb"]   # default: all nine leagues
-theme = "broadcast"             # broadcast | studio | gruvbox, or a file in themes/
+theme = "broadcast"             # broadcast | studio | gruvbox | daygame, or a file in themes/
 sort = "watch"                  # watch | time | league
 ```
 
 ## Themes
 
-Three built-ins: **broadcast** (the default — amber scores, colored chrome),
+Four built-ins: **broadcast** (the default — amber scores, colored chrome),
 **studio** (the press box: grayscale plus exactly one red, white scores),
-and **gruvbox** (the one warm-ground community palette). A theme is a palette
-read through *roles* — `ground`, `ink`, `dim`, `digits`, `hot`, `cool` and a
-`team` scope saying where team color is allowed — so two themes can share
-every hue and still be two looks.
+**gruvbox** (the one warm-ground community palette), and **daygame** (the one
+light theme — warm paper ground, dark ink, for a desk in daylight next to a
+browser). A theme is a palette read through *roles* — `ground`, `ink`, `dim`,
+`digits`, `hot`, `cool` and a `team` scope saying where team color is
+allowed — so two themes can share every hue and still be two looks.
 
 Drop a `.toml` in `<config-dir>/themes/` and it loads at startup; a file that
 names a built-in replaces it. The eight palettes that used to be built in —

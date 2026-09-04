@@ -454,11 +454,11 @@ mod tests {
         type_line(&mut app, "theme");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         handle_key(&mut app, KeyCode::Char('k'), KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), "gruvbox", "k wraps to the last theme");
+        assert_eq!(theme::current_name(), "daygame", "k wraps to the last theme");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(app.view, View::Board);
-        assert_eq!(app.config.theme, "gruvbox");
-        assert_eq!(Config::load_from(&app.config_dir).unwrap().theme, "gruvbox");
+        assert_eq!(app.config.theme, "daygame");
+        assert_eq!(Config::load_from(&app.config_dir).unwrap().theme, "daygame");
         // Reopening starts on the now-current theme, and q reverts like Esc.
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "theme");
@@ -467,7 +467,7 @@ mod tests {
         handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
         assert_eq!(theme::current_name(), "broadcast", "j wraps to the top");
         handle_key(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), "gruvbox");
+        assert_eq!(theme::current_name(), "daygame");
         assert!(!app.should_quit);
         theme::set_current("broadcast").unwrap();
     }

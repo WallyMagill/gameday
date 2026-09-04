@@ -146,8 +146,6 @@ fn light_ground_selects_the_light_set() {
     let dark: Vec<Vec<gameday::board::logo::ArtCell>> =
         hero_mark("mlb/pit").unwrap().rows().to_vec();
 
-    let cand = gameday::theme::candidate("daygame");
-    gameday::theme::install(cand);
     gameday::theme::set_current("daygame").unwrap();
     let light = hero_mark("mlb/pit").unwrap().rows().to_vec();
     assert_ne!(dark, light, "a light ground must resolve different art than a dark one");
@@ -170,8 +168,6 @@ fn the_light_set_covers_every_committed_key() {
 /// Terminal.app is no better than the black boxes it replaced.
 #[test]
 fn light_marks_are_quadrant_only_too() {
-    let cand = gameday::theme::candidate("daygame");
-    gameday::theme::install(cand);
     gameday::theme::set_current("daygame").unwrap();
     for key in gameday::board::logo::light_keys() {
         let mark = hero_mark(key).unwrap_or_else(|| panic!("{key} missing from the light set"));
@@ -196,7 +192,7 @@ fn light_marks_are_quadrant_only_too() {
 /// average would let a mark's black halo vouch for the mark it surrounds. The
 /// gold a Pirates P is drawn in is the thing that has to read.
 fn dominant_contrast_on_paper(mark: &HeroMark) -> f64 {
-    let lg = gameday::theme::rel_luma(gameday::theme::candidate("daygame").theme.roles().ground);
+    let lg = gameday::theme::rel_luma(gameday::theme::builtin("daygame").roles().ground);
     let mut counts = std::collections::HashMap::<(u8, u8, u8), usize>::new();
     for cell in mark.rows().iter().flatten() {
         for c in [cell.fg, cell.bg].into_iter().flatten() {
@@ -225,8 +221,6 @@ fn light_art_reads_on_paper_where_the_dark_art_does_not() {
         dark.insert(key, dominant_contrast_on_paper(hero_mark(key).unwrap()));
     }
 
-    let cand = gameday::theme::candidate("daygame");
-    gameday::theme::install(cand);
     gameday::theme::set_current("daygame").unwrap();
     for key in cases {
         let light = dominant_contrast_on_paper(hero_mark(key).unwrap());

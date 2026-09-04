@@ -420,13 +420,15 @@ mod tests {
     fn a_theme_file_renders_without_joining_the_builtins() {
         let dir = scratch("theme-file");
         let path = dir.join("candidate.toml");
-        let cand = theme::candidate("daygame");
+        // daygame was promoted into BUILTIN_NAMES at the v3.4 render gate;
+        // gruvbox-warm is the remaining gate candidate, still not a built-in.
+        let cand = theme::candidate("gruvbox-warm");
         std::fs::write(&path, theme::to_toml(&cand.name, &cand.theme)).unwrap();
         let mut s = spec("board", Scenario::FullSlate, dir.join("x.png"));
         s.theme = path.display().to_string();
         let name = resolve_theme(&s.theme).unwrap();
-        assert_eq!(name, "daygame");
-        assert!(!theme::BUILTIN_NAMES.contains(&"daygame"), "still not a built-in");
+        assert_eq!(name, "gruvbox-warm");
+        assert!(!theme::BUILTIN_NAMES.contains(&"gruvbox-warm"), "still not a built-in");
         let buf = dump::with_theme(&name, || {
             let d = std::env::temp_dir().join(format!("gameday-frame-c-{}", std::process::id()));
             std::fs::create_dir_all(&d).unwrap();
@@ -437,7 +439,7 @@ mod tests {
             term.backend().buffer().clone()
         });
         assert_eq!(buf[(0, 0)].bg, cand.theme.bg, "the candidate's own ground");
-        theme::uninstall("daygame");
+        theme::uninstall("gruvbox-warm");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -26,16 +26,19 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 /// Built-in theme names in picker/cycle order (v3.2 decision A: three
-/// identities, not eleven palettes). `broadcast` is the default; `studio` is
-/// its calm twin; `gruvbox` is the one warm-ground community palette. The
-/// other eight files stay in `assets/themes/` and still load as user files.
-pub const BUILTIN_NAMES: [&str; 3] = ["broadcast", "studio", "gruvbox"];
+/// identities, not eleven palettes — plus `daygame`, promoted at the v3.4
+/// render gate 2026-09-04, the fourth). `broadcast` is the default; `studio`
+/// is its calm twin; `gruvbox` is the one warm-ground community palette;
+/// `daygame` is the one light theme. The other seven files stay in
+/// `assets/themes/` and still load as user files.
+pub const BUILTIN_NAMES: [&str; 4] = ["broadcast", "studio", "gruvbox", "daygame"];
 
 /// The compiled-in theme sources, parallel to [`BUILTIN_NAMES`].
-const BUILTIN_TOML: [&str; 3] = [
+const BUILTIN_TOML: [&str; 4] = [
     include_str!("../assets/themes/broadcast.toml"),
     include_str!("../assets/themes/studio.toml"),
     include_str!("../assets/themes/gruvbox.toml"),
+    include_str!("../assets/themes/daygame.toml"),
 ];
 
 /// Themes that exist for the gate frames only (v3.3 sitting 2, ruling R38).
@@ -45,17 +48,16 @@ const BUILTIN_TOML: [&str; 3] = [
 /// capture named after it and takes it back out ([`candidate`] + [`uninstall`],
 /// spent by `dump::with_theme`).
 ///
-/// `daygame` is the light-theme candidate; `gruvbox-warm` is the shipping
-/// gruvbox with its ground on morhetz's `dark0_soft`. If the owner promotes
-/// one, it moves into [`BUILTIN_NAMES`] and out of here; if not, the file and
-/// its gate stem are deleted together.
-pub const CANDIDATE_NAMES: [&str; 2] = ["daygame", "gruvbox-warm"];
+/// `gruvbox-warm` is the shipping gruvbox with its ground on morhetz's
+/// `dark0_soft` — the owner's other sitting-2 question, still sitting.
+/// `daygame`, the light-theme candidate this list used to also carry, was
+/// promoted into [`BUILTIN_NAMES`] at the v3.4 render gate. If the owner
+/// promotes `gruvbox-warm` too, it moves into `BUILTIN_NAMES` and out of
+/// here; if not, the file and its gate stem are deleted together.
+pub const CANDIDATE_NAMES: [&str; 1] = ["gruvbox-warm"];
 
 /// The compiled-in candidate sources, parallel to [`CANDIDATE_NAMES`].
-const CANDIDATE_TOML: [&str; 2] = [
-    include_str!("../assets/candidates/daygame.toml"),
-    include_str!("../assets/candidates/gruvbox-warm.toml"),
-];
+const CANDIDATE_TOML: [&str; 1] = [include_str!("../assets/candidates/gruvbox-warm.toml")];
 
 /// v3.1's sidebar-header coloring knob. The sidebar itself is deleted (v3.2
 /// §7) and nothing reads this any more — it survives only so that a theme
@@ -909,7 +911,7 @@ mod tests {
 
     #[test]
     fn three_builtins_and_every_one_defines_every_role() {
-        assert_eq!(BUILTIN_NAMES, ["broadcast", "studio", "gruvbox"]);
+        assert_eq!(BUILTIN_NAMES, ["broadcast", "studio", "gruvbox", "daygame"]);
         for name in BUILTIN_NAMES {
             let th = builtin(name);
             let r = th.roles();
@@ -1097,12 +1099,12 @@ mod tests {
     }
 
     #[test]
-    // parked at v3.3 sitting-2 — promotion blocked on light-bg logo art (sub-project 4)
+    // promoted at v3.4 render gate 2026-09-04 — light-bg marks landed
     fn daygame_ink_contrast_clears_4_5_to_1() {
-        // The light candidate's whole risk is legibility on paper: ink on
+        // The light theme's whole risk is legibility on paper: ink on
         // ground must clear the WCAG body-text floor of 4.5:1, and `dim`
         // (which carries data, not decoration) the large-text floor of 3:1.
-        let th = candidate("daygame").theme;
+        let th = builtin("daygame");
         let r = th.roles();
         let ink = contrast(r.ink, r.ground);
         assert!(
@@ -1126,9 +1128,9 @@ mod tests {
             hex_of(r.ground),
             hex_of(r.ink)
         );
-        // And it ships behind the gate: not a built-in, not in the picker.
-        assert!(!BUILTIN_NAMES.contains(&"daygame"), "daygame is a candidate, not a built-in");
-        assert!(lookup("daygame").is_none(), "daygame must not be selectable until it is promoted");
+        // And it ships as a built-in now: in the picker, in the cycle.
+        assert!(BUILTIN_NAMES.contains(&"daygame"), "daygame is a built-in");
+        assert!(lookup("daygame").is_some(), "daygame is selectable now that it is promoted");
     }
 
     #[test]

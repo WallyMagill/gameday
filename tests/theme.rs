@@ -27,7 +27,8 @@ fn tmp(name: &str) -> std::path::PathBuf {
 
 #[test]
 fn the_three_builtins_ship_in_the_decided_order() {
-    assert_eq!(theme::BUILTIN_NAMES, ["broadcast", "studio", "gruvbox"]);
+    // daygame promoted at the v3.4 render gate 2026-09-04: four now, not three.
+    assert_eq!(theme::BUILTIN_NAMES, ["broadcast", "studio", "gruvbox", "daygame"]);
     assert_eq!(theme::names(), theme::BUILTIN_NAMES.map(String::from).to_vec());
 }
 
@@ -349,8 +350,8 @@ fn unknown_names_fall_back_to_broadcast_and_errors_name_the_valid_set() {
 #[test]
 fn next_name_cycles_the_loaded_set_both_ways() {
     assert_eq!(theme::next_name("broadcast", 1), "studio");
-    assert_eq!(theme::next_name("gruvbox", 1), "broadcast", "wraps forward");
-    assert_eq!(theme::next_name("broadcast", -1), "gruvbox", "wraps backward");
+    assert_eq!(theme::next_name("daygame", 1), "broadcast", "wraps forward");
+    assert_eq!(theme::next_name("broadcast", -1), "daygame", "wraps backward");
     assert_eq!(theme::next_name("unknown", 1), "broadcast", "unknown restarts at the top");
 }
 
