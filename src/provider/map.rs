@@ -105,9 +105,10 @@ fn period_label(
 fn team_from(league: League, v: &Value, rank: &Value) -> Option<Team> {
     let id = v.get("id")?.as_str()?.to_string();
     let abbr = v.get("abbreviation")?.as_str()?.to_string();
+    let logo_key = crate::domain::logo_key(league, &id, &abbr);
     Some(Team {
         id,
-        logo_key: format!("{}/{}", league.slug(), abbr.to_lowercase()),
+        logo_key,
         name: v.get("name")
             .or_else(|| v.get("shortDisplayName"))
             .or_else(|| v.get("displayName"))

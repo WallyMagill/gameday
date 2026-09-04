@@ -23,9 +23,19 @@ fn team(
         record: record.into(),
         color,
         alt_color: alt,
-        logo_key: format!("{}/{}", league.slug(), abbr.to_lowercase()),
+        logo_key: crate::domain::logo_key(league, abbr, abbr),
         rank: None,
     }
+}
+
+/// The demo's team ids are its own abbreviations, which is fine for the pro
+/// leagues — their bundled art is abbreviation-keyed. Soccer art is not:
+/// `logo_key` is `soccer/<ESPN id>`. Give the demo clubs their real ESPN ids
+/// so the demo board draws the same marks the live board does.
+fn with_espn_id(mut t: Team, league: League, id: &str) -> Team {
+    t.logo_key = crate::domain::logo_key(league, id, &t.abbr);
+    t.id = id.into();
+    t
 }
 
 fn play(clock: &str, team: &str, text: &str, scoring: bool) -> Play {
@@ -443,10 +453,12 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
         ],
     );
 
-    let liv = team("LIV", "Liverpool", "Liverpool", "0-2-0", [211, 19, 23], [220, 220, 220], League::Epl);
-    let ars = team("ARS", "London", "Arsenal", "1-1-0", [239, 1, 7], [220, 220, 220], League::Epl);
-    let mci = team("MCI", "Manchester", "Man City", "2-0-0", [108, 171, 221], [220, 220, 220], League::Epl);
-    let che = team("CHE", "London", "Chelsea", "1-0-1", [3, 70, 148], [220, 220, 220], League::Epl);
+    // ESPN's own club ids (`/soccer/eng.1/teams`), so the marks resolve.
+    let e = |t, id| with_espn_id(t, League::Epl, id);
+    let liv = e(team("LIV", "Liverpool", "Liverpool", "0-2-0", [211, 19, 23], [220, 220, 220], League::Epl), "364");
+    let ars = e(team("ARS", "London", "Arsenal", "1-1-0", [239, 1, 7], [220, 220, 220], League::Epl), "359");
+    let mci = e(team("MCI", "Manchester", "Man City", "2-0-0", [108, 171, 221], [220, 220, 220], League::Epl), "382");
+    let che = e(team("CHE", "London", "Chelsea", "1-0-1", [3, 70, 148], [220, 220, 220], League::Epl), "363");
     boards.insert(
         League::Epl,
         vec![Game {

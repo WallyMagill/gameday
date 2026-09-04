@@ -1255,3 +1255,45 @@ fn the_pp_string_prefix_is_gone() {
     // And the strength enum covers the ids the research pinned.
     assert_ne!(HockeyStrength::PowerPlay, HockeyStrength::Shorthanded);
 }
+
+/// spec v3.4 §7: ESPN's own art is id-keyed for college and soccer
+/// (`teamlogos/ncaa/500/2000.png`, `teamlogos/soccer/500/364.png`) and
+/// abbreviation-keyed for the US pro leagues. `logo_key` has to follow the
+/// CDN, not a house convention, or `board::logo` looks up marks nothing was
+/// ever named.
+#[test]
+fn college_and_soccer_logo_keys_are_id_keyed() {
+    let sb = |away: (&str, &str), home: (&str, &str)| {
+        format!(
+            r#"{{"events":[{{"id":"1","competitions":[{{"status":{{"displayClock":"0:00","period":0,"type":{{"state":"pre","completed":false}}}},"competitors":[
+              {{"homeAway":"away","score":"0","team":{{"id":"{}","abbreviation":"{}","displayName":"Away","color":"002244","alternateColor":"c60c30"}}}},
+              {{"homeAway":"home","score":"0","team":{{"id":"{}","abbreviation":"{}","displayName":"Home","color":"002244","alternateColor":"69be28"}}}}
+            ]}}]}}]}}"#,
+            away.0, away.1, home.0, home.1
+        )
+    };
+
+    // CFB: Air Force (2005) at Ohio State (194) — `ncaa/<id>`, one bucket
+    // shared with men's college basketball, which is how ESPN files it.
+    let g = &map_scoreboard(League::Cfb, &sb(("2005", "AFA"), ("194", "OSU")), et()).unwrap()[0];
+    assert_eq!(g.away.logo_key, "ncaa/2005");
+    assert_eq!(g.home.logo_key, "ncaa/194");
+
+    // CBB shares that bucket.
+    let g = &map_scoreboard(League::Cbb, &sb(("150", "DUKE"), ("153", "UNC")), et()).unwrap()[0];
+    assert_eq!(g.away.logo_key, "ncaa/150");
+
+    // EPL and MLS share `soccer/<id>`: Arsenal (359) at Liverpool (364).
+    let g = &map_scoreboard(League::Epl, &sb(("359", "ARS"), ("364", "LIV")), et()).unwrap()[0];
+    assert_eq!(g.away.logo_key, "soccer/359");
+    assert_eq!(g.home.logo_key, "soccer/364");
+    let g = &map_scoreboard(League::Mls, &sb(("11690", "ATL"), ("9668", "LAFC")), et()).unwrap()[0];
+    assert_eq!(g.away.logo_key, "soccer/11690");
+
+    // The pro leagues keep the abbreviation key the CDN uses for them.
+    let g = &map_scoreboard(League::Nfl, &sb(("12", "KC"), ("27", "TB")), et()).unwrap()[0];
+    assert_eq!(g.away.logo_key, "nfl/kc");
+    assert_eq!(g.home.logo_key, "nfl/tb");
+    let g = &map_scoreboard(League::Nba, &sb(("2", "BOS"), ("7", "DEN")), et()).unwrap()[0];
+    assert_eq!(g.away.logo_key, "nba/bos");
+}

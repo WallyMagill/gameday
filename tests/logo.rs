@@ -39,7 +39,9 @@ fn every_committed_mark_parses_at_hero_size() {
         assert!(m.height >= 6 && m.height <= 10, "{key}: 16x10 regeneration, got {}", m.height);
         assert!(m.width >= 10 && m.width <= 16, "{key}: width {}", m.width);
     }
-    assert!(hero_mark("mlb/sea").is_none(), "missing art is None, the caller falls back");
+    // v3.4 §7 completed the pro leagues, so "a team with no art" is no longer
+    // a pro team — it's an unranked school.
+    assert!(hero_mark("ncaa/999999").is_none(), "missing art is None, the caller falls back");
 }
 
 #[test]
@@ -97,4 +99,38 @@ fn all_thirty_two_nfl_marks_load() {
     ] {
         assert!(hero_mark(&format!("nfl/{abbr}")).is_some(), "missing nfl/{abbr}");
     }
+}
+
+#[test]
+fn a_covered_pro_team_resolves_a_mark_and_an_uncovered_college_team_falls_back() {
+    // spec v3.4 §7: the pro leagues are complete, so every one of them
+    // resolves — including the teams the v3.3 demo set never covered.
+    for key in ["nba/bos", "nba/mem", "mlb/sea", "nhl/sea", "wnba/lv", "soccer/364"] {
+        assert!(hero_mark(key).is_some(), "missing {key}");
+    }
+    // College ships the ranked top 25 only; an unranked school has no mark
+    // and takes the abbreviation fallback — honestly, not as a hole.
+    assert!(hero_mark("ncaa/999999").is_none(), "an unranked school has no mark");
+    let s = draw_to_text(&team("SIE", "ncaa/999999"), 10, 6);
+    assert!(s.contains("SIE"), "the uncovered team falls back to its abbreviation: {s}");
+}
+
+/// The pro leagues are complete as of v3.4 §7 — the counts are the research's
+/// receipts off `/teams?limit=1000` (NFL 32, NHL 32, NBA 30, MLB 30, MLS 30,
+/// EPL 20, WNBA 15).
+#[test]
+fn every_pro_league_is_complete() {
+    let mut per_ns = std::collections::HashMap::<&str, usize>::new();
+    for key in gameday::board::logo::committed_keys() {
+        *per_ns.entry(key.split('/').next().unwrap()).or_default() += 1;
+    }
+    for (ns, want) in [("nfl", 32), ("nba", 30), ("mlb", 30), ("nhl", 32), ("wnba", 15)] {
+        assert_eq!(per_ns.get(ns).copied().unwrap_or(0), want, "{ns} marks");
+    }
+    // EPL 20 + MLS 30 share the `soccer` bucket.
+    assert_eq!(per_ns.get("soccer").copied().unwrap_or(0), 50, "soccer marks");
+    // College is the ranked top 25 of each poll, deduped where a school is
+    // ranked in both — so somewhere in 25..=50.
+    let ncaa = per_ns.get("ncaa").copied().unwrap_or(0);
+    assert!((25..=50).contains(&ncaa), "college marks: {ncaa} outside 25..=50");
 }

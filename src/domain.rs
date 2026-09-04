@@ -42,6 +42,21 @@ impl League {
     }
 }
 
+/// The bundled-art key for a team, matching how ESPN's own CDN files the
+/// art `tools/gen-logos.sh` renders. The US pro leagues are keyed by
+/// abbreviation (`teamlogos/nfl/500/kc.png` → `"nfl/kc"`); college and
+/// soccer are keyed by team id (`teamlogos/ncaa/500/194.png` → `"ncaa/194"`,
+/// `teamlogos/soccer/500/364.png` → `"soccer/364"`), each in one bucket
+/// shared across its leagues — `ncaa` covers CFB and CBB (a school carries
+/// one id in both), `soccer` covers EPL and MLS.
+pub fn logo_key(league: League, id: &str, abbr: &str) -> String {
+    match league {
+        League::Cfb | League::Cbb => format!("ncaa/{id}"),
+        League::Epl | League::Mls => format!("soccer/{id}"),
+        _ => format!("{}/{}", league.slug(), abbr.to_lowercase()),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status { Pre, Live, Final }
 
