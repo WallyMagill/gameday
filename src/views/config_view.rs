@@ -123,7 +123,11 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> u16 {
         // One column: the sections stack, so the cursor's line moves down by
         // everything the TABS panel drew.
         let offset = tabs.len() + 1;
-        let line = if cursor_at.0 == 0 { cursor_at.1 } else { cursor_at.1 + offset };
+        let line = if cursor_at.0 == 0 {
+            cursor_at.1
+        } else {
+            cursor_at.1 + offset
+        };
         let mut all = tabs;
         all.push(Line::from(""));
         all.extend(side);
@@ -165,7 +169,10 @@ fn draw_header(frame: &mut Frame, area: Rect) {
         Span::raw(" "),
         Span::styled(
             "CONFIG",
-            Style::default().fg(th.bg).bg(th.star).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(th.bg)
+                .bg(th.star)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             "  changes save to config.toml immediately",
@@ -185,7 +192,10 @@ fn section(title: &'static str, hint: &'static str, panel_w: usize) -> Line<'sta
     let head = format!("{title}  · {hint} ");
     let rule = panel_w.saturating_sub(head.chars().count() + 1);
     Line::from(vec![
-        Span::styled(title, Style::default().fg(th.star).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            title,
+            Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(format!("  · {hint} "), Style::default().fg(th.dim)),
         Span::styled("─".repeat(rule), Style::default().fg(th.dim)),
     ])
@@ -225,7 +235,10 @@ fn row_line(app: &App, row: ConfigRow, selected: bool) -> Line<'static> {
             // The editor is only ever open with the cursor on this row —
             // opening it is this row's enter action and typing captures j/k.
             Some(buf) => {
-                spans.push(Span::styled("+ ADD FAVORITE: ", Style::default().fg(th.muted)));
+                spans.push(Span::styled(
+                    "+ ADD FAVORITE: ",
+                    Style::default().fg(th.muted),
+                ));
                 spans.push(Span::styled(
                     buf.clone(),
                     Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
@@ -234,12 +247,19 @@ fn row_line(app: &App, row: ConfigRow, selected: bool) -> Line<'static> {
             }
             None => spans.push(Span::styled(
                 "+ ADD FAVORITE",
-                if selected { label_style } else { Style::default().fg(th.muted) },
+                if selected {
+                    label_style
+                } else {
+                    Style::default().fg(th.muted)
+                },
             )),
         },
-        ConfigRow::Theme => {
-            push_cycler(&mut spans, "THEME", theme::current_name().as_str(), label_style)
-        }
+        ConfigRow::Theme => push_cycler(
+            &mut spans,
+            "THEME",
+            theme::current_name().as_str(),
+            label_style,
+        ),
         ConfigRow::Sort => push_cycler(
             &mut spans,
             "SORT",
@@ -255,6 +275,9 @@ fn push_cycler(spans: &mut Vec<Span<'static>>, label: &str, value: &str, style: 
     let th = theme::current();
     spans.push(Span::styled(format!("{label:<8}"), style));
     spans.push(Span::styled("◂ ", Style::default().fg(th.dim)));
-    spans.push(Span::styled(value.to_string(), Style::default().fg(th.cyan)));
+    spans.push(Span::styled(
+        value.to_string(),
+        Style::default().fg(th.cyan),
+    ));
     spans.push(Span::styled(" ▸", Style::default().fg(th.dim)));
 }

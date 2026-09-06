@@ -61,7 +61,9 @@ pub fn local_time(iso: &str, offset: UtcOffset) -> Option<OffsetDateTime> {
     } else {
         iso
     };
-    OffsetDateTime::parse(s, &Rfc3339).ok().map(|t| t.to_offset(offset))
+    OffsetDateTime::parse(s, &Rfc3339)
+        .ok()
+        .map(|t| t.to_offset(offset))
 }
 
 /// Start-time label relative to `now` (same offset as `start`):
@@ -73,7 +75,10 @@ pub fn fmt_start(start: OffsetDateTime, now: OffsetDateTime) -> String {
     if days == 0 {
         clock
     } else if (1..=6).contains(&days) {
-        format!("{} {clock}", &format!("{:?}", start.weekday()).to_uppercase()[..3])
+        format!(
+            "{} {clock}",
+            &format!("{:?}", start.weekday()).to_uppercase()[..3]
+        )
     } else {
         format!(
             "{} {} {clock}",
@@ -134,7 +139,11 @@ mod tests {
     fn overflow_gets_an_ellipsis_inside_the_width() {
         assert_eq!(truncate("TOUCHDOWN", 6), "TOUCH…");
         assert_eq!(truncate("TOUCHDOWN", 6).chars().count(), 6);
-        assert_eq!(truncate("AB", 1), "A", "width 1 keeps one char, no ellipsis");
+        assert_eq!(
+            truncate("AB", 1),
+            "A",
+            "width 1 keeps one char, no ellipsis"
+        );
         assert_eq!(truncate("AB", 0), "");
     }
 
@@ -155,16 +164,31 @@ mod surname_tests {
 
     #[test]
     fn leading_surname_takes_the_last_word_of_the_leading_name_run() {
-        assert_eq!(leading_surname("Patrick Mahomes pass to T. Kelce"), "Mahomes");
-        assert_eq!(leading_surname("Mahomes pass to Kelce for 3 yards"), "Mahomes");
-        assert_eq!(leading_surname("Nikola Jokic makes layup (28 PTS)"), "Jokic");
-        assert_eq!(leading_surname("Leon Draisaitl snap shot GOAL (32)"), "Draisaitl");
+        assert_eq!(
+            leading_surname("Patrick Mahomes pass to T. Kelce"),
+            "Mahomes"
+        );
+        assert_eq!(
+            leading_surname("Mahomes pass to Kelce for 3 yards"),
+            "Mahomes"
+        );
+        assert_eq!(
+            leading_surname("Nikola Jokic makes layup (28 PTS)"),
+            "Jokic"
+        );
+        assert_eq!(
+            leading_surname("Leon Draisaitl snap shot GOAL (32)"),
+            "Draisaitl"
+        );
     }
 
     #[test]
     fn leading_surname_keeps_generational_suffixes() {
         assert_eq!(leading_surname("Jazz Chisholm Jr. walks"), "Chisholm Jr.");
-        assert_eq!(leading_surname("Vladimir Guerrero Jr. single to right"), "Guerrero Jr.");
+        assert_eq!(
+            leading_surname("Vladimir Guerrero Jr. single to right"),
+            "Guerrero Jr."
+        );
     }
 
     #[test]
@@ -187,7 +211,10 @@ mod time_tests {
         // 01:38 UTC on Sep 1 is 6:38 PM on Aug 31 in Los Angeles.
         assert_eq!(t, datetime!(2026-08-31 18:38 -7));
         let london = UtcOffset::from_hms(1, 0, 0).unwrap();
-        assert_eq!(local_time("2026-09-01T01:38Z", london).unwrap(), datetime!(2026-09-01 02:38 +1));
+        assert_eq!(
+            local_time("2026-09-01T01:38Z", london).unwrap(),
+            datetime!(2026-09-01 02:38 +1)
+        );
         // ESPN also sends full offsets and fractional seconds on some feeds.
         assert!(local_time("2026-09-13T17:00:00Z", la).is_some());
         assert!(local_time("2026-09-13T17:00:00.000+00:00", la).is_some());
@@ -205,10 +232,19 @@ mod time_tests {
     fn fmt_start_is_clock_today_and_day_clock_within_the_week() {
         let now = datetime!(2026-08-31 21:30 -4);
         assert_eq!(fmt_start(datetime!(2026-08-31 21:38 -4), now), "9:38 PM");
-        assert_eq!(fmt_start(datetime!(2026-09-03 20:20 -4), now), "THU 8:20 PM");
-        assert_eq!(fmt_start(datetime!(2026-09-06 13:00 -4), now), "SUN 1:00 PM");
+        assert_eq!(
+            fmt_start(datetime!(2026-09-03 20:20 -4), now),
+            "THU 8:20 PM"
+        );
+        assert_eq!(
+            fmt_start(datetime!(2026-09-06 13:00 -4), now),
+            "SUN 1:00 PM"
+        );
         // A week or more out: the date, never a bare weekday that could mean two days.
-        assert_eq!(fmt_start(datetime!(2026-09-13 13:00 -4), now), "SEP 13 1:00 PM");
+        assert_eq!(
+            fmt_start(datetime!(2026-09-13 13:00 -4), now),
+            "SEP 13 1:00 PM"
+        );
         // Midnight and noon edges.
         assert_eq!(fmt_start(datetime!(2026-08-31 00:05 -4), now), "12:05 AM");
         assert_eq!(fmt_start(datetime!(2026-08-31 12:00 -4), now), "12:00 PM");
@@ -217,7 +253,10 @@ mod time_tests {
     #[test]
     fn fmt_clock12_has_seconds_and_meridiem() {
         assert_eq!(fmt_clock12(datetime!(2026-08-31 21:30:01 -4)), "9:30:01 PM");
-        assert_eq!(fmt_clock12(datetime!(2026-08-31 00:00:00 -4)), "12:00:00 AM");
+        assert_eq!(
+            fmt_clock12(datetime!(2026-08-31 00:00:00 -4)),
+            "12:00:00 AM"
+        );
     }
 
     #[test]

@@ -201,7 +201,8 @@ pub mod setup {
     // `NetStatus` measures age against `Instant`, so staleness is seeded by
     // backdating the last OK apply four minutes — the chip reads "STALE 4m".
     pub fn stale(app: &mut App) -> Result<(), String> {
-        app.net.ok(Instant::now() - Duration::from_secs(4 * 60), true);
+        app.net
+            .ok(Instant::now() - Duration::from_secs(4 * 60), true);
         Ok(())
     }
     // A config.toml that doesn't parse: the banner names the line and the
@@ -405,7 +406,10 @@ pub fn write_pages(out_dir: &Path, pages: &[Page]) -> std::io::Result<()> {
         let html_path = out_dir.join(format!("{}.html", p.stem));
         with_theme(&p.theme, || {
             std::fs::write(&html_path, buffer_to_html(&p.buf)).and_then(|()| {
-                std::fs::write(out_dir.join(format!("{}.ansi", p.stem)), buffer_to_ansi(&p.buf))
+                std::fs::write(
+                    out_dir.join(format!("{}.ansi", p.stem)),
+                    buffer_to_ansi(&p.buf),
+                )
             })
         })?;
         eprintln!("wrote {}", html_path.display());
@@ -495,8 +499,8 @@ impl Shot {
     fn spawn(out_dir: &Path, v: &Page) -> Shot {
         let png = out_dir.join(format!("{}.png", v.stem));
         let _ = std::fs::remove_file(&png); // never judge a stale PNG "done"
-        // Parallel instances need distinct profiles or Chrome serializes on
-        // the default user-data-dir lock.
+                                            // Parallel instances need distinct profiles or Chrome serializes on
+                                            // the default user-data-dir lock.
         let profile =
             std::env::temp_dir().join(format!("gameday-chrome-{}-{}", std::process::id(), v.stem));
         // ~8px/col + 60px margins, 16px/row + 84px margins (120x36 ->
@@ -523,7 +527,14 @@ impl Shot {
             })
             .map_err(|e| eprintln!("png skipped for {}: chrome spawn failed: {e}", v.stem))
             .ok();
-        Shot { stem: v.stem.clone(), png, profile, child, last_size: 0, png_done: false }
+        Shot {
+            stem: v.stem.clone(),
+            png,
+            profile,
+            child,
+            last_size: 0,
+            png_done: false,
+        }
     }
 
     /// Done once the PNG exists with the same non-zero size on two
@@ -581,11 +592,7 @@ pub fn buffer_to_html(buf: &Buffer) -> String {
     let font_face = std::env::var("GAMEDAY_DUMP_FONT")
         .ok()
         .filter(|p| Path::new(p).exists())
-        .map(|p| {
-            format!(
-                "@font-face{{font-family:'DumpMono';src:url('file://{p}');}}\n"
-            )
-        })
+        .map(|p| format!("@font-face{{font-family:'DumpMono';src:url('file://{p}');}}\n"))
         .unwrap_or_default();
     let th = theme::current();
     let (page_bg, page_fg) = (color_css(th.bg), color_css(th.fg));
@@ -639,7 +646,9 @@ pub fn buffer_to_html(buf: &Buffer) -> String {
 }
 
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 pub fn buffer_to_ansi(buf: &Buffer) -> String {
@@ -739,7 +748,10 @@ mod tests {
             assert!(text.contains(name), "picker missing {name}:\n{text}");
         }
         // v3.2 §1: the board behind the picker is the ranked list, not tiles.
-        assert!(text.contains("IN PLAY"), "board must still render behind the picker:\n{text}");
+        assert!(
+            text.contains("IN PLAY"),
+            "board must still render behind the picker:\n{text}"
+        );
     }
 
     #[test]
@@ -758,37 +770,64 @@ mod tests {
     #[test]
     fn zoom_variant_shows_the_linescore_the_matchup_line_and_an_inning_stamped_feed() {
         let text = text_of(&render_variant(&variant("zoom"), 0).unwrap());
-        assert!(text.contains("NYY") && text.contains("TOR"), "the zoomed game:\n{text}");
+        assert!(
+            text.contains("NYY") && text.contains("TOR"),
+            "the zoomed game:\n{text}"
+        );
         // The MLB linescore row carries R/H/E.
-        assert!(text.contains(" H ") || text.contains("H  E"), "linescore H/E:\n{text}");
+        assert!(
+            text.contains(" H ") || text.contains("H  E"),
+            "linescore H/E:\n{text}"
+        );
         // The matchup line: pitcher, batter, due up (spec §5).
         assert!(text.contains("C. Schmidt"), "pitcher missing:\n{text}");
         assert!(text.contains("A. Kirk"), "batter missing:\n{text}");
         assert!(text.contains("DUE UP"), "due-up block missing:\n{text}");
         // v3.1 deferred item: a baseball play stamps its half-inning, not an
         // invented game clock.
-        assert!(text.contains("[B7]"), "inning-tagged play stamp missing:\n{text}");
-        assert!(!text.contains("[0:42]"), "a baseball play has no game clock:\n{text}");
+        assert!(
+            text.contains("[B7]"),
+            "inning-tagged play stamp missing:\n{text}"
+        );
+        assert!(
+            !text.contains("[0:42]"),
+            "a baseball play has no game clock:\n{text}"
+        );
     }
 
     /// The two cut sizes, one formatter (spec §3).
     #[test]
     fn cut_variants_are_a_takeover_and_a_two_row_band() {
         let full = text_of(&render_variant(&variant("cut-full"), 0).unwrap());
-        assert!(full.contains("TOUCHDOWN"), "the takeover names the score:\n{full}");
+        assert!(
+            full.contains("TOUCHDOWN"),
+            "the takeover names the score:\n{full}"
+        );
         // A takeover owns the frame: the board's sections are not behind it.
-        assert!(!full.contains("IN PLAY"), "the takeover is a takeover:\n{full}");
+        assert!(
+            !full.contains("IN PLAY"),
+            "the takeover is a takeover:\n{full}"
+        );
 
         let band = text_of(&render_variant(&variant("cut-band"), 0).unwrap());
         assert!(band.contains("GOAL"), "the band names the score:\n{band}");
-        assert!(band.contains("IN PLAY"), "the board never moves for a band:\n{band}");
+        assert!(
+            band.contains("IN PLAY"),
+            "the board never moves for a band:\n{band}"
+        );
     }
 
     #[test]
     fn tv_variant_is_the_jumbotron_with_its_also_live_strip() {
         let text = text_of(&render_variant(&variant("tv"), 0).unwrap());
-        assert!(text.contains("ALSO LIVE"), "the ALSO LIVE strip missing:\n{text}");
-        assert!(!text.contains("IN PLAY"), ":tv is one game, not the list:\n{text}");
+        assert!(
+            text.contains("ALSO LIVE"),
+            "the ALSO LIVE strip missing:\n{text}"
+        );
+        assert!(
+            !text.contains("IN PLAY"),
+            ":tv is one game, not the list:\n{text}"
+        );
     }
 
     #[test]
@@ -796,21 +835,33 @@ mod tests {
         let text = text_of(&render_variant(&variant("plays-feed"), 0).unwrap());
         assert!(text.contains("PLAYS"), "feed header missing:\n{text}");
         // Scoring plays from more than one demo league land in the feed.
-        assert!(text.contains("TOUCHDOWN"), "NFL scoring play missing:\n{text}");
-        assert!(text.contains("GOAL"), "NHL/EPL scoring play missing:\n{text}");
+        assert!(
+            text.contains("TOUCHDOWN"),
+            "NFL scoring play missing:\n{text}"
+        );
+        assert!(
+            text.contains("GOAL"),
+            "NHL/EPL scoring play missing:\n{text}"
+        );
         // Every row is stamped, including the sports with no game clock: the
         // MLB line carries its half-inning, not an empty column.
         let mlb = text
             .lines()
             .find(|l| l.contains("[MLB]"))
             .unwrap_or_else(|| panic!("no MLB row in the feed:\n{text}"));
-        assert!(mlb.contains("T7"), "the MLB row must carry its inning stamp: {mlb:?}");
+        assert!(
+            mlb.contains("T7"),
+            "the MLB row must carry its inning stamp: {mlb:?}"
+        );
     }
 
     #[test]
     fn standings_variant_renders_the_fixture_table() {
         let text = text_of(&render_variant(&variant("standings"), 0).unwrap());
-        assert!(text.contains("STANDINGS"), "standings header missing:\n{text}");
+        assert!(
+            text.contains("STANDINGS"),
+            "standings header missing:\n{text}"
+        );
         assert!(
             text.contains("AMERICAN FOOTBALL CONFERENCE"),
             "fixture group name missing:\n{text}"
@@ -826,13 +877,19 @@ mod tests {
         let home = text_of(&render_variant(&variant("home-live"), 0).unwrap());
         // v3.2 §1: Home is the ranked board — a MY GAMES band over IN PLAY,
         // not a grid of tiles with [NFL] headers.
-        assert!(home.contains("MY GAMES") && home.contains("IN PLAY"), "the ranked board:\n{home}");
+        assert!(
+            home.contains("MY GAMES") && home.contains("IN PLAY"),
+            "the ranked board:\n{home}"
+        );
         // The demo's one pin leads the band, so the hero carries the flag.
         let flagged = home.lines().filter(|l| l.contains("⚑")).count();
         assert_eq!(flagged, 1, "the pinned hero is the only flag:\n{home}");
 
         let offline = text_of(&render_variant(&variant("offline"), 0).unwrap());
-        assert!(offline.contains("OFFLINE · retry 40s"), "offline chip:\n{offline}");
+        assert!(
+            offline.contains("OFFLINE · retry 40s"),
+            "offline chip:\n{offline}"
+        );
         assert!(
             offline.contains("last error: ESPN unreachable nfl scoreboard"),
             "the empty board must name the outage, not read as 'no games':\n{offline}"
@@ -842,25 +899,40 @@ mod tests {
         // is "STALE 4m" for the whole 4:00–4:59 band — no flaky seconds.
         let stale = text_of(&render_variant(&variant("stale"), 0).unwrap());
         assert!(stale.contains("STALE 4m"), "stale chip:\n{stale}");
-        assert!(stale.contains("IN PLAY"), "a stale board still shows its scores:\n{stale}");
+        assert!(
+            stale.contains("IN PLAY"),
+            "a stale board still shows its scores:\n{stale}"
+        );
 
         let cfg = text_of(&render_variant(&variant("config-error"), 0).unwrap());
-        assert!(cfg.contains("config error: config.toml:7"), "error line:\n{cfg}");
-        assert!(cfg.contains("unknown variant"), "the reason is named:\n{cfg}");
+        assert!(
+            cfg.contains("config error: config.toml:7"),
+            "error line:\n{cfg}"
+        );
+        assert!(
+            cfg.contains("unknown variant"),
+            "the reason is named:\n{cfg}"
+        );
     }
 
     #[test]
     fn config_variant_renders_every_section() {
         let text = text_of(&render_variant(&variant("config"), 0).unwrap());
         for needle in ["CONFIG", "TABS", "FAVORITES", "THEME", "SORT"] {
-            assert!(text.contains(needle), "missing {needle:?} in config capture:\n{text}");
+            assert!(
+                text.contains(needle),
+                "missing {needle:?} in config capture:\n{text}"
+            );
         }
     }
 
     #[test]
     fn filter_variant_narrows_the_nfl_tab_and_shows_the_pattern() {
         let text = text_of(&render_variant(&variant("filter"), 0).unwrap());
-        assert!(text.contains("/kc"), "committed filter missing from footer:\n{text}");
+        assert!(
+            text.contains("/kc"),
+            "committed filter missing from footer:\n{text}"
+        );
         // v3.2 §1: rows are abbrs, not "CHIEFS" nameplates.
         assert!(text.contains("KC"), "the matching game must stay:\n{text}");
         assert!(
@@ -890,7 +962,10 @@ mod tests {
         // The check actually bites: truncate one file and it names the path.
         std::fs::write(dir.join("help.ansi"), "").unwrap();
         let err = verify_pages(&dir, &pages, false).unwrap_err().to_string();
-        assert!(err.contains("help.ansi"), "error must name the empty file: {err}");
+        assert!(
+            err.contains("help.ansi"),
+            "error must name the empty file: {err}"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -909,7 +984,10 @@ mod tests {
     fn help_variant_renders_the_overlay() {
         // spec v3.3 §5: the overlay's own panel is lowercase now too.
         let text = text_of(&render_variant(&variant("help"), 0).unwrap());
-        assert!(text.contains(" keys "), "help overlay panel missing:\n{text}");
+        assert!(
+            text.contains(" keys "),
+            "help overlay panel missing:\n{text}"
+        );
     }
 
     /// The two size captures are the ladder's ends (spec §4): the same
@@ -923,8 +1001,14 @@ mod tests {
             assert_eq!((buf.area().width, buf.area().height), want, "{stem} buffer");
             let text = text_of(&buf);
             // v3.2 §7: there is no sidebar at any width any more.
-            assert!(!text.contains("GLOBAL ALERTS"), "{stem}: the sidebar is deleted:\n{text}");
-            assert!(text.contains("IN PLAY"), "{stem}: the ranked board:\n{text}");
+            assert!(
+                !text.contains("GLOBAL ALERTS"),
+                "{stem}: the sidebar is deleted:\n{text}"
+            );
+            assert!(
+                text.contains("IN PLAY"),
+                "{stem}: the ranked board:\n{text}"
+            );
         }
     }
 
@@ -947,7 +1031,11 @@ mod tests {
                 .map(|l| l.chars().take(4).collect::<String>().trim().to_string())
                 .collect()
         };
-        assert!(gutter_nudges(&frames[0]).is_empty(), "frame 1 is the quiet board:\n{}", frames[0]);
+        assert!(
+            gutter_nudges(&frames[0]).is_empty(),
+            "frame 1 is the quiet board:\n{}",
+            frames[0]
+        );
         for (i, f) in frames.iter().enumerate().skip(1) {
             assert_eq!(
                 gutter_nudges(f),
@@ -957,7 +1045,11 @@ mod tests {
             );
         }
         // The bases loading is what re-sorted it, and the chip says so.
-        assert!(frames[1].contains("BASES LOADED"), "the cause is on screen:\n{}", frames[1]);
+        assert!(
+            frames[1].contains("BASES LOADED"),
+            "the cause is on screen:\n{}",
+            frames[1]
+        );
         // The risen row keeps its columns: the NYY/TOR pair sits at the same
         // offset within its line in every frame.
         // Character columns, not byte offsets: `↑` is three bytes, so a byte
@@ -967,8 +1059,16 @@ mod tests {
                 .find(|l| l.contains("NYY"))
                 .map(|l| l[..l.find("NYY").unwrap()].chars().count())
         };
-        assert_eq!(col_of(&frames[0]), col_of(&frames[1]), "the row must not shift for a nudge");
-        assert_eq!(col_of(&frames[1]), col_of(&frames[2]), "nor for the arrow persisting");
+        assert_eq!(
+            col_of(&frames[0]),
+            col_of(&frames[1]),
+            "the row must not shift for a nudge"
+        );
+        assert_eq!(
+            col_of(&frames[1]),
+            col_of(&frames[2]),
+            "nor for the arrow persisting"
+        );
     }
 
     #[test]
@@ -989,10 +1089,19 @@ mod tests {
         for needle in [
             "GAMEDAY", "MY GAMES", "IN PLAY", "FINAL", "RED ZONE", "s sort", "q quit",
         ] {
-            assert!(text.contains(needle), "missing {needle:?} in board:\n{text}");
+            assert!(
+                text.contains(needle),
+                "missing {needle:?} in board:\n{text}"
+            );
         }
-        assert!(!text.contains("FILTER:"), "the FILTER: label is gone:\n{text}");
-        assert!(!text.contains("NAV:"), "the Board footer drops NAV\\::\n{text}");
+        assert!(
+            !text.contains("FILTER:"),
+            "the FILTER: label is gone:\n{text}"
+        );
+        assert!(
+            !text.contains("NAV:"),
+            "the Board footer drops NAV\\::\n{text}"
+        );
     }
 
     /// v3.2 §1: the four inline meters were a tile feature. Only the hero
@@ -1049,12 +1158,21 @@ mod tests {
         // score text is gone but the identity rows appear under them. The 4-up NFL tile can't fit
         // "BUCCANEERS 11-6", so both sides fall back to the abbr form rather
         // than losing the records.
-        assert!(!text.contains("27 - 24"), "the board never prints a text score row:\n{text}");
+        assert!(
+            !text.contains("27 - 24"),
+            "the board never prints a text score row:\n{text}"
+        );
         // v3.2 §1: the hero's nameplates carry the identity the tile header
         // used to; the shot-clock chip was a tile chip and is gone with it.
         // The nameplates are mirrored: `KC 11-6` left, `11-6  TB` right.
-        assert!(text.contains("KC 11-6"), "hero away nameplate missing:\n{text}");
-        assert!(text.contains("11-6"), "hero home nameplate missing:\n{text}");
+        assert!(
+            text.contains("KC 11-6"),
+            "hero away nameplate missing:\n{text}"
+        );
+        assert!(
+            text.contains("11-6"),
+            "hero home nameplate missing:\n{text}"
+        );
         let _ = star_bg;
     }
 

@@ -1,10 +1,27 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum League { Nfl, Cfb, Cbb, Nba, Wnba, Nhl, Mlb, Epl, Mls }
+pub enum League {
+    Nfl,
+    Cfb,
+    Cbb,
+    Nba,
+    Wnba,
+    Nhl,
+    Mlb,
+    Epl,
+    Mls,
+}
 
 impl League {
     pub const ALL: [League; 9] = [
-        League::Nfl, League::Cfb, League::Cbb, League::Nba, League::Wnba,
-        League::Nhl, League::Mlb, League::Epl, League::Mls,
+        League::Nfl,
+        League::Cfb,
+        League::Cbb,
+        League::Nba,
+        League::Wnba,
+        League::Nhl,
+        League::Mlb,
+        League::Epl,
+        League::Mls,
     ];
 
     /// ESPN URL parts: (sport, competition slug). Soccer competitions use
@@ -58,7 +75,11 @@ pub fn logo_key(league: League, id: &str, abbr: &str) -> String {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Status { Pre, Live, Final }
+pub enum Status {
+    Pre,
+    Live,
+    Final,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Team {
@@ -191,7 +212,14 @@ pub enum Meter {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EventKind { Goal, OwnGoal, Penalty, Yellow, Red, Sub }
+pub enum EventKind {
+    Goal,
+    OwnGoal,
+    Penalty,
+    Yellow,
+    Red,
+    Sub,
+}
 
 /// One soccer match event from the scoreboard's `competition.details[]`
 /// (goals, cards, substitutions), verified in fixtures/epl_scoreboard.json.
@@ -245,15 +273,24 @@ pub struct PenaltyEvent {
 pub enum Extras {
     #[default]
     None,
-    Baseball { hits: Option<(u16, u16)>, errors: Option<(u16, u16)> },
+    Baseball {
+        hits: Option<(u16, u16)>,
+        errors: Option<(u16, u16)>,
+    },
     /// Soccer, from `competition.details[]` on the SCOREBOARD — the one
     /// live-state win in v3.4 that costs no extra request, so it is
     /// board-wide by construction (spec §5). `men` is the derived
     /// (away, home) on-field count, `None` at eleven a side.
-    Soccer { events: Vec<MatchEvent>, men: Option<(u8, u8)> },
+    Soccer {
+        events: Vec<MatchEvent>,
+        men: Option<(u8, u8)>,
+    },
     /// NHL, from the summary's play list (spec v3.4 §4): the current
     /// strength and every penalty called so far, oldest first.
-    Hockey { strength: HockeyStrength, penalties: Vec<PenaltyEvent> },
+    Hockey {
+        strength: HockeyStrength,
+        penalties: Vec<PenaltyEvent>,
+    },
 }
 
 impl Extras {
@@ -288,8 +325,17 @@ impl Extras {
     /// empty net, since the penalty list is the whole game's. Rare,
     /// self-correcting on the next play, and a blank beats a wrong clock.
     pub fn penalty_meter(&self) -> Option<Meter> {
-        let Extras::Hockey { strength, penalties } = self else { return None };
-        if !matches!(strength, HockeyStrength::PowerPlay | HockeyStrength::Shorthanded) {
+        let Extras::Hockey {
+            strength,
+            penalties,
+        } = self
+        else {
+            return None;
+        };
+        if !matches!(
+            strength,
+            HockeyStrength::PowerPlay | HockeyStrength::Shorthanded
+        ) {
             return None;
         }
         let newest = penalties.last()?;
@@ -465,7 +511,10 @@ mod tests {
         assert_eq!(League::Nba.espn_path(), ("basketball", "nba"));
         assert_eq!(League::Wnba.espn_path(), ("basketball", "wnba"));
         assert_eq!(League::Nhl.espn_path(), ("hockey", "nhl"));
-        assert_eq!(League::Cbb.espn_path(), ("basketball", "mens-college-basketball"));
+        assert_eq!(
+            League::Cbb.espn_path(),
+            ("basketball", "mens-college-basketball")
+        );
         assert_eq!(League::Mlb.espn_path(), ("baseball", "mlb"));
         assert_eq!(League::Epl.espn_path(), ("soccer", "eng.1"));
         assert_eq!(League::Mls.espn_path(), ("soccer", "usa.1"));
@@ -496,11 +545,24 @@ mod tests {
             outs: Some(o),
             ..Default::default()
         };
-        assert_eq!(sit(1, 2, 2).mlb_count_headline().as_deref(), Some("2 OUT · 1-2"));
-        assert_eq!(sit(3, 2, 1).mlb_count_headline().as_deref(), Some("1 OUT · 3-2"));
-        assert_eq!(sit(0, 0, 0).mlb_count_headline().as_deref(), Some("0 OUT · 0-0"));
+        assert_eq!(
+            sit(1, 2, 2).mlb_count_headline().as_deref(),
+            Some("2 OUT · 1-2")
+        );
+        assert_eq!(
+            sit(3, 2, 1).mlb_count_headline().as_deref(),
+            Some("1 OUT · 3-2")
+        );
+        assert_eq!(
+            sit(0, 0, 0).mlb_count_headline().as_deref(),
+            Some("0 OUT · 0-0")
+        );
         // Any missing component: no headline rather than a half-made one.
-        let partial = Situation { balls: Some(1), strikes: Some(2), ..Default::default() };
+        let partial = Situation {
+            balls: Some(1),
+            strikes: Some(2),
+            ..Default::default()
+        };
         assert_eq!(partial.mlb_count_headline(), None);
         assert_eq!(Situation::default().mlb_count_headline(), None);
     }
@@ -516,7 +578,10 @@ mod tests {
         assert_eq!(g.extras, Extras::None);
         assert_eq!(g.away.rank, None);
         // Literal sites use `..Game::default()`; a play carries its period.
-        let p = Play { period: "B9".into(), ..Default::default() };
+        let p = Play {
+            period: "B9".into(),
+            ..Default::default()
+        };
         assert_eq!(p.period, "B9");
     }
 

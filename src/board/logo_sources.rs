@@ -75,24 +75,54 @@ pub(super) const LOGO_SOURCES: &[(&str, &str)] = &[
     ("ncaa/194", include_str!("../../assets/logos/ncaa/194.ans")),
     ("ncaa/201", include_str!("../../assets/logos/ncaa/201.ans")),
     ("ncaa/213", include_str!("../../assets/logos/ncaa/213.ans")),
-    ("ncaa/2250", include_str!("../../assets/logos/ncaa/2250.ans")),
-    ("ncaa/2294", include_str!("../../assets/logos/ncaa/2294.ans")),
-    ("ncaa/2305", include_str!("../../assets/logos/ncaa/2305.ans")),
+    (
+        "ncaa/2250",
+        include_str!("../../assets/logos/ncaa/2250.ans"),
+    ),
+    (
+        "ncaa/2294",
+        include_str!("../../assets/logos/ncaa/2294.ans"),
+    ),
+    (
+        "ncaa/2305",
+        include_str!("../../assets/logos/ncaa/2305.ans"),
+    ),
     ("ncaa/238", include_str!("../../assets/logos/ncaa/238.ans")),
-    ("ncaa/2390", include_str!("../../assets/logos/ncaa/2390.ans")),
+    (
+        "ncaa/2390",
+        include_str!("../../assets/logos/ncaa/2390.ans"),
+    ),
     ("ncaa/245", include_str!("../../assets/logos/ncaa/245.ans")),
     ("ncaa/248", include_str!("../../assets/logos/ncaa/248.ans")),
-    ("ncaa/2483", include_str!("../../assets/logos/ncaa/2483.ans")),
-    ("ncaa/2509", include_str!("../../assets/logos/ncaa/2509.ans")),
+    (
+        "ncaa/2483",
+        include_str!("../../assets/logos/ncaa/2483.ans"),
+    ),
+    (
+        "ncaa/2509",
+        include_str!("../../assets/logos/ncaa/2509.ans"),
+    ),
     ("ncaa/251", include_str!("../../assets/logos/ncaa/251.ans")),
     ("ncaa/252", include_str!("../../assets/logos/ncaa/252.ans")),
     ("ncaa/254", include_str!("../../assets/logos/ncaa/254.ans")),
-    ("ncaa/2567", include_str!("../../assets/logos/ncaa/2567.ans")),
+    (
+        "ncaa/2567",
+        include_str!("../../assets/logos/ncaa/2567.ans"),
+    ),
     ("ncaa/258", include_str!("../../assets/logos/ncaa/258.ans")),
-    ("ncaa/2599", include_str!("../../assets/logos/ncaa/2599.ans")),
-    ("ncaa/2633", include_str!("../../assets/logos/ncaa/2633.ans")),
+    (
+        "ncaa/2599",
+        include_str!("../../assets/logos/ncaa/2599.ans"),
+    ),
+    (
+        "ncaa/2633",
+        include_str!("../../assets/logos/ncaa/2633.ans"),
+    ),
     ("ncaa/264", include_str!("../../assets/logos/ncaa/264.ans")),
-    ("ncaa/2641", include_str!("../../assets/logos/ncaa/2641.ans")),
+    (
+        "ncaa/2641",
+        include_str!("../../assets/logos/ncaa/2641.ans"),
+    ),
     ("ncaa/275", include_str!("../../assets/logos/ncaa/275.ans")),
     ("ncaa/30", include_str!("../../assets/logos/ncaa/30.ans")),
     ("ncaa/333", include_str!("../../assets/logos/ncaa/333.ans")),
@@ -170,56 +200,206 @@ pub(super) const LOGO_SOURCES: &[(&str, &str)] = &[
     ("nhl/vgk", include_str!("../../assets/logos/nhl/vgk.ans")),
     ("nhl/wpg", include_str!("../../assets/logos/nhl/wpg.ans")),
     ("nhl/wsh", include_str!("../../assets/logos/nhl/wsh.ans")),
-    ("soccer/10739", include_str!("../../assets/logos/soccer/10739.ans")),
-    ("soccer/12011", include_str!("../../assets/logos/soccer/12011.ans")),
-    ("soccer/17362", include_str!("../../assets/logos/soccer/17362.ans")),
-    ("soccer/17606", include_str!("../../assets/logos/soccer/17606.ans")),
-    ("soccer/182", include_str!("../../assets/logos/soccer/182.ans")),
-    ("soccer/18267", include_str!("../../assets/logos/soccer/18267.ans")),
-    ("soccer/183", include_str!("../../assets/logos/soccer/183.ans")),
-    ("soccer/184", include_str!("../../assets/logos/soccer/184.ans")),
-    ("soccer/18418", include_str!("../../assets/logos/soccer/18418.ans")),
-    ("soccer/185", include_str!("../../assets/logos/soccer/185.ans")),
-    ("soccer/186", include_str!("../../assets/logos/soccer/186.ans")),
-    ("soccer/187", include_str!("../../assets/logos/soccer/187.ans")),
-    ("soccer/189", include_str!("../../assets/logos/soccer/189.ans")),
-    ("soccer/18966", include_str!("../../assets/logos/soccer/18966.ans")),
-    ("soccer/18986", include_str!("../../assets/logos/soccer/18986.ans")),
-    ("soccer/190", include_str!("../../assets/logos/soccer/190.ans")),
-    ("soccer/191", include_str!("../../assets/logos/soccer/191.ans")),
-    ("soccer/193", include_str!("../../assets/logos/soccer/193.ans")),
-    ("soccer/20232", include_str!("../../assets/logos/soccer/20232.ans")),
-    ("soccer/20906", include_str!("../../assets/logos/soccer/20906.ans")),
-    ("soccer/21300", include_str!("../../assets/logos/soccer/21300.ans")),
-    ("soccer/21812", include_str!("../../assets/logos/soccer/21812.ans")),
-    ("soccer/22529", include_str!("../../assets/logos/soccer/22529.ans")),
-    ("soccer/306", include_str!("../../assets/logos/soccer/306.ans")),
-    ("soccer/331", include_str!("../../assets/logos/soccer/331.ans")),
-    ("soccer/337", include_str!("../../assets/logos/soccer/337.ans")),
-    ("soccer/349", include_str!("../../assets/logos/soccer/349.ans")),
-    ("soccer/357", include_str!("../../assets/logos/soccer/357.ans")),
-    ("soccer/359", include_str!("../../assets/logos/soccer/359.ans")),
-    ("soccer/360", include_str!("../../assets/logos/soccer/360.ans")),
-    ("soccer/361", include_str!("../../assets/logos/soccer/361.ans")),
-    ("soccer/362", include_str!("../../assets/logos/soccer/362.ans")),
-    ("soccer/363", include_str!("../../assets/logos/soccer/363.ans")),
-    ("soccer/364", include_str!("../../assets/logos/soccer/364.ans")),
-    ("soccer/366", include_str!("../../assets/logos/soccer/366.ans")),
-    ("soccer/367", include_str!("../../assets/logos/soccer/367.ans")),
-    ("soccer/368", include_str!("../../assets/logos/soccer/368.ans")),
-    ("soccer/370", include_str!("../../assets/logos/soccer/370.ans")),
-    ("soccer/373", include_str!("../../assets/logos/soccer/373.ans")),
-    ("soccer/382", include_str!("../../assets/logos/soccer/382.ans")),
-    ("soccer/384", include_str!("../../assets/logos/soccer/384.ans")),
-    ("soccer/388", include_str!("../../assets/logos/soccer/388.ans")),
-    ("soccer/393", include_str!("../../assets/logos/soccer/393.ans")),
-    ("soccer/4771", include_str!("../../assets/logos/soccer/4771.ans")),
-    ("soccer/6077", include_str!("../../assets/logos/soccer/6077.ans")),
-    ("soccer/7318", include_str!("../../assets/logos/soccer/7318.ans")),
-    ("soccer/9720", include_str!("../../assets/logos/soccer/9720.ans")),
-    ("soccer/9723", include_str!("../../assets/logos/soccer/9723.ans")),
-    ("soccer/9726", include_str!("../../assets/logos/soccer/9726.ans")),
-    ("soccer/9727", include_str!("../../assets/logos/soccer/9727.ans")),
+    (
+        "soccer/10739",
+        include_str!("../../assets/logos/soccer/10739.ans"),
+    ),
+    (
+        "soccer/12011",
+        include_str!("../../assets/logos/soccer/12011.ans"),
+    ),
+    (
+        "soccer/17362",
+        include_str!("../../assets/logos/soccer/17362.ans"),
+    ),
+    (
+        "soccer/17606",
+        include_str!("../../assets/logos/soccer/17606.ans"),
+    ),
+    (
+        "soccer/182",
+        include_str!("../../assets/logos/soccer/182.ans"),
+    ),
+    (
+        "soccer/18267",
+        include_str!("../../assets/logos/soccer/18267.ans"),
+    ),
+    (
+        "soccer/183",
+        include_str!("../../assets/logos/soccer/183.ans"),
+    ),
+    (
+        "soccer/184",
+        include_str!("../../assets/logos/soccer/184.ans"),
+    ),
+    (
+        "soccer/18418",
+        include_str!("../../assets/logos/soccer/18418.ans"),
+    ),
+    (
+        "soccer/185",
+        include_str!("../../assets/logos/soccer/185.ans"),
+    ),
+    (
+        "soccer/186",
+        include_str!("../../assets/logos/soccer/186.ans"),
+    ),
+    (
+        "soccer/187",
+        include_str!("../../assets/logos/soccer/187.ans"),
+    ),
+    (
+        "soccer/189",
+        include_str!("../../assets/logos/soccer/189.ans"),
+    ),
+    (
+        "soccer/18966",
+        include_str!("../../assets/logos/soccer/18966.ans"),
+    ),
+    (
+        "soccer/18986",
+        include_str!("../../assets/logos/soccer/18986.ans"),
+    ),
+    (
+        "soccer/190",
+        include_str!("../../assets/logos/soccer/190.ans"),
+    ),
+    (
+        "soccer/191",
+        include_str!("../../assets/logos/soccer/191.ans"),
+    ),
+    (
+        "soccer/193",
+        include_str!("../../assets/logos/soccer/193.ans"),
+    ),
+    (
+        "soccer/20232",
+        include_str!("../../assets/logos/soccer/20232.ans"),
+    ),
+    (
+        "soccer/20906",
+        include_str!("../../assets/logos/soccer/20906.ans"),
+    ),
+    (
+        "soccer/21300",
+        include_str!("../../assets/logos/soccer/21300.ans"),
+    ),
+    (
+        "soccer/21812",
+        include_str!("../../assets/logos/soccer/21812.ans"),
+    ),
+    (
+        "soccer/22529",
+        include_str!("../../assets/logos/soccer/22529.ans"),
+    ),
+    (
+        "soccer/306",
+        include_str!("../../assets/logos/soccer/306.ans"),
+    ),
+    (
+        "soccer/331",
+        include_str!("../../assets/logos/soccer/331.ans"),
+    ),
+    (
+        "soccer/337",
+        include_str!("../../assets/logos/soccer/337.ans"),
+    ),
+    (
+        "soccer/349",
+        include_str!("../../assets/logos/soccer/349.ans"),
+    ),
+    (
+        "soccer/357",
+        include_str!("../../assets/logos/soccer/357.ans"),
+    ),
+    (
+        "soccer/359",
+        include_str!("../../assets/logos/soccer/359.ans"),
+    ),
+    (
+        "soccer/360",
+        include_str!("../../assets/logos/soccer/360.ans"),
+    ),
+    (
+        "soccer/361",
+        include_str!("../../assets/logos/soccer/361.ans"),
+    ),
+    (
+        "soccer/362",
+        include_str!("../../assets/logos/soccer/362.ans"),
+    ),
+    (
+        "soccer/363",
+        include_str!("../../assets/logos/soccer/363.ans"),
+    ),
+    (
+        "soccer/364",
+        include_str!("../../assets/logos/soccer/364.ans"),
+    ),
+    (
+        "soccer/366",
+        include_str!("../../assets/logos/soccer/366.ans"),
+    ),
+    (
+        "soccer/367",
+        include_str!("../../assets/logos/soccer/367.ans"),
+    ),
+    (
+        "soccer/368",
+        include_str!("../../assets/logos/soccer/368.ans"),
+    ),
+    (
+        "soccer/370",
+        include_str!("../../assets/logos/soccer/370.ans"),
+    ),
+    (
+        "soccer/373",
+        include_str!("../../assets/logos/soccer/373.ans"),
+    ),
+    (
+        "soccer/382",
+        include_str!("../../assets/logos/soccer/382.ans"),
+    ),
+    (
+        "soccer/384",
+        include_str!("../../assets/logos/soccer/384.ans"),
+    ),
+    (
+        "soccer/388",
+        include_str!("../../assets/logos/soccer/388.ans"),
+    ),
+    (
+        "soccer/393",
+        include_str!("../../assets/logos/soccer/393.ans"),
+    ),
+    (
+        "soccer/4771",
+        include_str!("../../assets/logos/soccer/4771.ans"),
+    ),
+    (
+        "soccer/6077",
+        include_str!("../../assets/logos/soccer/6077.ans"),
+    ),
+    (
+        "soccer/7318",
+        include_str!("../../assets/logos/soccer/7318.ans"),
+    ),
+    (
+        "soccer/9720",
+        include_str!("../../assets/logos/soccer/9720.ans"),
+    ),
+    (
+        "soccer/9723",
+        include_str!("../../assets/logos/soccer/9723.ans"),
+    ),
+    (
+        "soccer/9726",
+        include_str!("../../assets/logos/soccer/9726.ans"),
+    ),
+    (
+        "soccer/9727",
+        include_str!("../../assets/logos/soccer/9727.ans"),
+    ),
     ("wnba/atl", include_str!("../../assets/logos/wnba/atl.ans")),
     ("wnba/chi", include_str!("../../assets/logos/wnba/chi.ans")),
     ("wnba/con", include_str!("../../assets/logos/wnba/con.ans")),
@@ -241,234 +421,924 @@ pub(super) const LOGO_SOURCES: &[(&str, &str)] = &[
 /// identically, selected by [`super::hero_mark`] when the active
 /// theme's ground is a light one.
 pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[
-    ("mlb/ari", include_str!("../../assets/logos-light/mlb/ari.ans")),
-    ("mlb/ath", include_str!("../../assets/logos-light/mlb/ath.ans")),
-    ("mlb/atl", include_str!("../../assets/logos-light/mlb/atl.ans")),
-    ("mlb/bal", include_str!("../../assets/logos-light/mlb/bal.ans")),
-    ("mlb/bos", include_str!("../../assets/logos-light/mlb/bos.ans")),
-    ("mlb/chc", include_str!("../../assets/logos-light/mlb/chc.ans")),
-    ("mlb/chw", include_str!("../../assets/logos-light/mlb/chw.ans")),
-    ("mlb/cin", include_str!("../../assets/logos-light/mlb/cin.ans")),
-    ("mlb/cle", include_str!("../../assets/logos-light/mlb/cle.ans")),
-    ("mlb/col", include_str!("../../assets/logos-light/mlb/col.ans")),
-    ("mlb/det", include_str!("../../assets/logos-light/mlb/det.ans")),
-    ("mlb/hou", include_str!("../../assets/logos-light/mlb/hou.ans")),
-    ("mlb/kc", include_str!("../../assets/logos-light/mlb/kc.ans")),
-    ("mlb/laa", include_str!("../../assets/logos-light/mlb/laa.ans")),
-    ("mlb/lad", include_str!("../../assets/logos-light/mlb/lad.ans")),
-    ("mlb/mia", include_str!("../../assets/logos-light/mlb/mia.ans")),
-    ("mlb/mil", include_str!("../../assets/logos-light/mlb/mil.ans")),
-    ("mlb/min", include_str!("../../assets/logos-light/mlb/min.ans")),
-    ("mlb/nym", include_str!("../../assets/logos-light/mlb/nym.ans")),
-    ("mlb/nyy", include_str!("../../assets/logos-light/mlb/nyy.ans")),
-    ("mlb/phi", include_str!("../../assets/logos-light/mlb/phi.ans")),
-    ("mlb/pit", include_str!("../../assets/logos-light/mlb/pit.ans")),
-    ("mlb/sd", include_str!("../../assets/logos-light/mlb/sd.ans")),
-    ("mlb/sea", include_str!("../../assets/logos-light/mlb/sea.ans")),
-    ("mlb/sf", include_str!("../../assets/logos-light/mlb/sf.ans")),
-    ("mlb/stl", include_str!("../../assets/logos-light/mlb/stl.ans")),
-    ("mlb/tb", include_str!("../../assets/logos-light/mlb/tb.ans")),
-    ("mlb/tex", include_str!("../../assets/logos-light/mlb/tex.ans")),
-    ("mlb/tor", include_str!("../../assets/logos-light/mlb/tor.ans")),
-    ("mlb/wsh", include_str!("../../assets/logos-light/mlb/wsh.ans")),
-    ("nba/atl", include_str!("../../assets/logos-light/nba/atl.ans")),
-    ("nba/bkn", include_str!("../../assets/logos-light/nba/bkn.ans")),
-    ("nba/bos", include_str!("../../assets/logos-light/nba/bos.ans")),
-    ("nba/cha", include_str!("../../assets/logos-light/nba/cha.ans")),
-    ("nba/chi", include_str!("../../assets/logos-light/nba/chi.ans")),
-    ("nba/cle", include_str!("../../assets/logos-light/nba/cle.ans")),
-    ("nba/dal", include_str!("../../assets/logos-light/nba/dal.ans")),
-    ("nba/den", include_str!("../../assets/logos-light/nba/den.ans")),
-    ("nba/det", include_str!("../../assets/logos-light/nba/det.ans")),
-    ("nba/gs", include_str!("../../assets/logos-light/nba/gs.ans")),
-    ("nba/hou", include_str!("../../assets/logos-light/nba/hou.ans")),
-    ("nba/ind", include_str!("../../assets/logos-light/nba/ind.ans")),
-    ("nba/lac", include_str!("../../assets/logos-light/nba/lac.ans")),
-    ("nba/lal", include_str!("../../assets/logos-light/nba/lal.ans")),
-    ("nba/mem", include_str!("../../assets/logos-light/nba/mem.ans")),
-    ("nba/mia", include_str!("../../assets/logos-light/nba/mia.ans")),
-    ("nba/mil", include_str!("../../assets/logos-light/nba/mil.ans")),
-    ("nba/min", include_str!("../../assets/logos-light/nba/min.ans")),
-    ("nba/no", include_str!("../../assets/logos-light/nba/no.ans")),
-    ("nba/ny", include_str!("../../assets/logos-light/nba/ny.ans")),
-    ("nba/okc", include_str!("../../assets/logos-light/nba/okc.ans")),
-    ("nba/orl", include_str!("../../assets/logos-light/nba/orl.ans")),
-    ("nba/phi", include_str!("../../assets/logos-light/nba/phi.ans")),
-    ("nba/phx", include_str!("../../assets/logos-light/nba/phx.ans")),
-    ("nba/por", include_str!("../../assets/logos-light/nba/por.ans")),
-    ("nba/sa", include_str!("../../assets/logos-light/nba/sa.ans")),
-    ("nba/sac", include_str!("../../assets/logos-light/nba/sac.ans")),
-    ("nba/tor", include_str!("../../assets/logos-light/nba/tor.ans")),
-    ("nba/utah", include_str!("../../assets/logos-light/nba/utah.ans")),
-    ("nba/wsh", include_str!("../../assets/logos-light/nba/wsh.ans")),
-    ("ncaa/12", include_str!("../../assets/logos-light/ncaa/12.ans")),
-    ("ncaa/127", include_str!("../../assets/logos-light/ncaa/127.ans")),
-    ("ncaa/130", include_str!("../../assets/logos-light/ncaa/130.ans")),
-    ("ncaa/142", include_str!("../../assets/logos-light/ncaa/142.ans")),
-    ("ncaa/145", include_str!("../../assets/logos-light/ncaa/145.ans")),
-    ("ncaa/150", include_str!("../../assets/logos-light/ncaa/150.ans")),
-    ("ncaa/158", include_str!("../../assets/logos-light/ncaa/158.ans")),
-    ("ncaa/194", include_str!("../../assets/logos-light/ncaa/194.ans")),
-    ("ncaa/201", include_str!("../../assets/logos-light/ncaa/201.ans")),
-    ("ncaa/213", include_str!("../../assets/logos-light/ncaa/213.ans")),
-    ("ncaa/2250", include_str!("../../assets/logos-light/ncaa/2250.ans")),
-    ("ncaa/2294", include_str!("../../assets/logos-light/ncaa/2294.ans")),
-    ("ncaa/2305", include_str!("../../assets/logos-light/ncaa/2305.ans")),
-    ("ncaa/238", include_str!("../../assets/logos-light/ncaa/238.ans")),
-    ("ncaa/2390", include_str!("../../assets/logos-light/ncaa/2390.ans")),
-    ("ncaa/245", include_str!("../../assets/logos-light/ncaa/245.ans")),
-    ("ncaa/248", include_str!("../../assets/logos-light/ncaa/248.ans")),
-    ("ncaa/2483", include_str!("../../assets/logos-light/ncaa/2483.ans")),
-    ("ncaa/2509", include_str!("../../assets/logos-light/ncaa/2509.ans")),
-    ("ncaa/251", include_str!("../../assets/logos-light/ncaa/251.ans")),
-    ("ncaa/252", include_str!("../../assets/logos-light/ncaa/252.ans")),
-    ("ncaa/254", include_str!("../../assets/logos-light/ncaa/254.ans")),
-    ("ncaa/2567", include_str!("../../assets/logos-light/ncaa/2567.ans")),
-    ("ncaa/258", include_str!("../../assets/logos-light/ncaa/258.ans")),
-    ("ncaa/2599", include_str!("../../assets/logos-light/ncaa/2599.ans")),
-    ("ncaa/2633", include_str!("../../assets/logos-light/ncaa/2633.ans")),
-    ("ncaa/264", include_str!("../../assets/logos-light/ncaa/264.ans")),
-    ("ncaa/2641", include_str!("../../assets/logos-light/ncaa/2641.ans")),
-    ("ncaa/275", include_str!("../../assets/logos-light/ncaa/275.ans")),
-    ("ncaa/30", include_str!("../../assets/logos-light/ncaa/30.ans")),
-    ("ncaa/333", include_str!("../../assets/logos-light/ncaa/333.ans")),
-    ("ncaa/356", include_str!("../../assets/logos-light/ncaa/356.ans")),
-    ("ncaa/41", include_str!("../../assets/logos-light/ncaa/41.ans")),
-    ("ncaa/57", include_str!("../../assets/logos-light/ncaa/57.ans")),
-    ("ncaa/61", include_str!("../../assets/logos-light/ncaa/61.ans")),
-    ("ncaa/66", include_str!("../../assets/logos-light/ncaa/66.ans")),
-    ("ncaa/8", include_str!("../../assets/logos-light/ncaa/8.ans")),
-    ("ncaa/84", include_str!("../../assets/logos-light/ncaa/84.ans")),
-    ("ncaa/87", include_str!("../../assets/logos-light/ncaa/87.ans")),
-    ("ncaa/97", include_str!("../../assets/logos-light/ncaa/97.ans")),
-    ("ncaa/99", include_str!("../../assets/logos-light/ncaa/99.ans")),
-    ("nfl/ari", include_str!("../../assets/logos-light/nfl/ari.ans")),
-    ("nfl/atl", include_str!("../../assets/logos-light/nfl/atl.ans")),
-    ("nfl/bal", include_str!("../../assets/logos-light/nfl/bal.ans")),
-    ("nfl/buf", include_str!("../../assets/logos-light/nfl/buf.ans")),
-    ("nfl/car", include_str!("../../assets/logos-light/nfl/car.ans")),
-    ("nfl/chi", include_str!("../../assets/logos-light/nfl/chi.ans")),
-    ("nfl/cin", include_str!("../../assets/logos-light/nfl/cin.ans")),
-    ("nfl/cle", include_str!("../../assets/logos-light/nfl/cle.ans")),
-    ("nfl/dal", include_str!("../../assets/logos-light/nfl/dal.ans")),
-    ("nfl/den", include_str!("../../assets/logos-light/nfl/den.ans")),
-    ("nfl/det", include_str!("../../assets/logos-light/nfl/det.ans")),
-    ("nfl/gb", include_str!("../../assets/logos-light/nfl/gb.ans")),
-    ("nfl/hou", include_str!("../../assets/logos-light/nfl/hou.ans")),
-    ("nfl/ind", include_str!("../../assets/logos-light/nfl/ind.ans")),
-    ("nfl/jax", include_str!("../../assets/logos-light/nfl/jax.ans")),
-    ("nfl/kc", include_str!("../../assets/logos-light/nfl/kc.ans")),
-    ("nfl/lac", include_str!("../../assets/logos-light/nfl/lac.ans")),
-    ("nfl/lar", include_str!("../../assets/logos-light/nfl/lar.ans")),
-    ("nfl/lv", include_str!("../../assets/logos-light/nfl/lv.ans")),
-    ("nfl/mia", include_str!("../../assets/logos-light/nfl/mia.ans")),
-    ("nfl/min", include_str!("../../assets/logos-light/nfl/min.ans")),
-    ("nfl/ne", include_str!("../../assets/logos-light/nfl/ne.ans")),
-    ("nfl/no", include_str!("../../assets/logos-light/nfl/no.ans")),
-    ("nfl/nyg", include_str!("../../assets/logos-light/nfl/nyg.ans")),
-    ("nfl/nyj", include_str!("../../assets/logos-light/nfl/nyj.ans")),
-    ("nfl/phi", include_str!("../../assets/logos-light/nfl/phi.ans")),
-    ("nfl/pit", include_str!("../../assets/logos-light/nfl/pit.ans")),
-    ("nfl/sea", include_str!("../../assets/logos-light/nfl/sea.ans")),
-    ("nfl/sf", include_str!("../../assets/logos-light/nfl/sf.ans")),
-    ("nfl/tb", include_str!("../../assets/logos-light/nfl/tb.ans")),
-    ("nfl/ten", include_str!("../../assets/logos-light/nfl/ten.ans")),
-    ("nfl/wsh", include_str!("../../assets/logos-light/nfl/wsh.ans")),
-    ("nhl/ana", include_str!("../../assets/logos-light/nhl/ana.ans")),
-    ("nhl/bos", include_str!("../../assets/logos-light/nhl/bos.ans")),
-    ("nhl/buf", include_str!("../../assets/logos-light/nhl/buf.ans")),
-    ("nhl/car", include_str!("../../assets/logos-light/nhl/car.ans")),
-    ("nhl/cbj", include_str!("../../assets/logos-light/nhl/cbj.ans")),
-    ("nhl/cgy", include_str!("../../assets/logos-light/nhl/cgy.ans")),
-    ("nhl/chi", include_str!("../../assets/logos-light/nhl/chi.ans")),
-    ("nhl/col", include_str!("../../assets/logos-light/nhl/col.ans")),
-    ("nhl/dal", include_str!("../../assets/logos-light/nhl/dal.ans")),
-    ("nhl/det", include_str!("../../assets/logos-light/nhl/det.ans")),
-    ("nhl/edm", include_str!("../../assets/logos-light/nhl/edm.ans")),
-    ("nhl/fla", include_str!("../../assets/logos-light/nhl/fla.ans")),
-    ("nhl/la", include_str!("../../assets/logos-light/nhl/la.ans")),
-    ("nhl/min", include_str!("../../assets/logos-light/nhl/min.ans")),
-    ("nhl/mtl", include_str!("../../assets/logos-light/nhl/mtl.ans")),
-    ("nhl/nj", include_str!("../../assets/logos-light/nhl/nj.ans")),
-    ("nhl/nsh", include_str!("../../assets/logos-light/nhl/nsh.ans")),
-    ("nhl/nyi", include_str!("../../assets/logos-light/nhl/nyi.ans")),
-    ("nhl/nyr", include_str!("../../assets/logos-light/nhl/nyr.ans")),
-    ("nhl/ott", include_str!("../../assets/logos-light/nhl/ott.ans")),
-    ("nhl/phi", include_str!("../../assets/logos-light/nhl/phi.ans")),
-    ("nhl/pit", include_str!("../../assets/logos-light/nhl/pit.ans")),
-    ("nhl/sea", include_str!("../../assets/logos-light/nhl/sea.ans")),
-    ("nhl/sj", include_str!("../../assets/logos-light/nhl/sj.ans")),
-    ("nhl/stl", include_str!("../../assets/logos-light/nhl/stl.ans")),
-    ("nhl/tb", include_str!("../../assets/logos-light/nhl/tb.ans")),
-    ("nhl/tor", include_str!("../../assets/logos-light/nhl/tor.ans")),
-    ("nhl/utah", include_str!("../../assets/logos-light/nhl/utah.ans")),
-    ("nhl/van", include_str!("../../assets/logos-light/nhl/van.ans")),
-    ("nhl/vgk", include_str!("../../assets/logos-light/nhl/vgk.ans")),
-    ("nhl/wpg", include_str!("../../assets/logos-light/nhl/wpg.ans")),
-    ("nhl/wsh", include_str!("../../assets/logos-light/nhl/wsh.ans")),
-    ("soccer/10739", include_str!("../../assets/logos-light/soccer/10739.ans")),
-    ("soccer/12011", include_str!("../../assets/logos-light/soccer/12011.ans")),
-    ("soccer/17362", include_str!("../../assets/logos-light/soccer/17362.ans")),
-    ("soccer/17606", include_str!("../../assets/logos-light/soccer/17606.ans")),
-    ("soccer/182", include_str!("../../assets/logos-light/soccer/182.ans")),
-    ("soccer/18267", include_str!("../../assets/logos-light/soccer/18267.ans")),
-    ("soccer/183", include_str!("../../assets/logos-light/soccer/183.ans")),
-    ("soccer/184", include_str!("../../assets/logos-light/soccer/184.ans")),
-    ("soccer/18418", include_str!("../../assets/logos-light/soccer/18418.ans")),
-    ("soccer/185", include_str!("../../assets/logos-light/soccer/185.ans")),
-    ("soccer/186", include_str!("../../assets/logos-light/soccer/186.ans")),
-    ("soccer/187", include_str!("../../assets/logos-light/soccer/187.ans")),
-    ("soccer/189", include_str!("../../assets/logos-light/soccer/189.ans")),
-    ("soccer/18966", include_str!("../../assets/logos-light/soccer/18966.ans")),
-    ("soccer/18986", include_str!("../../assets/logos-light/soccer/18986.ans")),
-    ("soccer/190", include_str!("../../assets/logos-light/soccer/190.ans")),
-    ("soccer/191", include_str!("../../assets/logos-light/soccer/191.ans")),
-    ("soccer/193", include_str!("../../assets/logos-light/soccer/193.ans")),
-    ("soccer/20232", include_str!("../../assets/logos-light/soccer/20232.ans")),
-    ("soccer/20906", include_str!("../../assets/logos-light/soccer/20906.ans")),
-    ("soccer/21300", include_str!("../../assets/logos-light/soccer/21300.ans")),
-    ("soccer/21812", include_str!("../../assets/logos-light/soccer/21812.ans")),
-    ("soccer/22529", include_str!("../../assets/logos-light/soccer/22529.ans")),
-    ("soccer/306", include_str!("../../assets/logos-light/soccer/306.ans")),
-    ("soccer/331", include_str!("../../assets/logos-light/soccer/331.ans")),
-    ("soccer/337", include_str!("../../assets/logos-light/soccer/337.ans")),
-    ("soccer/349", include_str!("../../assets/logos-light/soccer/349.ans")),
-    ("soccer/357", include_str!("../../assets/logos-light/soccer/357.ans")),
-    ("soccer/359", include_str!("../../assets/logos-light/soccer/359.ans")),
-    ("soccer/360", include_str!("../../assets/logos-light/soccer/360.ans")),
-    ("soccer/361", include_str!("../../assets/logos-light/soccer/361.ans")),
-    ("soccer/362", include_str!("../../assets/logos-light/soccer/362.ans")),
-    ("soccer/363", include_str!("../../assets/logos-light/soccer/363.ans")),
-    ("soccer/364", include_str!("../../assets/logos-light/soccer/364.ans")),
-    ("soccer/366", include_str!("../../assets/logos-light/soccer/366.ans")),
-    ("soccer/367", include_str!("../../assets/logos-light/soccer/367.ans")),
-    ("soccer/368", include_str!("../../assets/logos-light/soccer/368.ans")),
-    ("soccer/370", include_str!("../../assets/logos-light/soccer/370.ans")),
-    ("soccer/373", include_str!("../../assets/logos-light/soccer/373.ans")),
-    ("soccer/382", include_str!("../../assets/logos-light/soccer/382.ans")),
-    ("soccer/384", include_str!("../../assets/logos-light/soccer/384.ans")),
-    ("soccer/388", include_str!("../../assets/logos-light/soccer/388.ans")),
-    ("soccer/393", include_str!("../../assets/logos-light/soccer/393.ans")),
-    ("soccer/4771", include_str!("../../assets/logos-light/soccer/4771.ans")),
-    ("soccer/6077", include_str!("../../assets/logos-light/soccer/6077.ans")),
-    ("soccer/7318", include_str!("../../assets/logos-light/soccer/7318.ans")),
-    ("soccer/9720", include_str!("../../assets/logos-light/soccer/9720.ans")),
-    ("soccer/9723", include_str!("../../assets/logos-light/soccer/9723.ans")),
-    ("soccer/9726", include_str!("../../assets/logos-light/soccer/9726.ans")),
-    ("soccer/9727", include_str!("../../assets/logos-light/soccer/9727.ans")),
-    ("wnba/atl", include_str!("../../assets/logos-light/wnba/atl.ans")),
-    ("wnba/chi", include_str!("../../assets/logos-light/wnba/chi.ans")),
-    ("wnba/con", include_str!("../../assets/logos-light/wnba/con.ans")),
-    ("wnba/dal", include_str!("../../assets/logos-light/wnba/dal.ans")),
-    ("wnba/gs", include_str!("../../assets/logos-light/wnba/gs.ans")),
-    ("wnba/ind", include_str!("../../assets/logos-light/wnba/ind.ans")),
-    ("wnba/la", include_str!("../../assets/logos-light/wnba/la.ans")),
-    ("wnba/lv", include_str!("../../assets/logos-light/wnba/lv.ans")),
-    ("wnba/min", include_str!("../../assets/logos-light/wnba/min.ans")),
-    ("wnba/ny", include_str!("../../assets/logos-light/wnba/ny.ans")),
-    ("wnba/phx", include_str!("../../assets/logos-light/wnba/phx.ans")),
-    ("wnba/por", include_str!("../../assets/logos-light/wnba/por.ans")),
-    ("wnba/sea", include_str!("../../assets/logos-light/wnba/sea.ans")),
-    ("wnba/tor", include_str!("../../assets/logos-light/wnba/tor.ans")),
-    ("wnba/wsh", include_str!("../../assets/logos-light/wnba/wsh.ans")),
+    (
+        "mlb/ari",
+        include_str!("../../assets/logos-light/mlb/ari.ans"),
+    ),
+    (
+        "mlb/ath",
+        include_str!("../../assets/logos-light/mlb/ath.ans"),
+    ),
+    (
+        "mlb/atl",
+        include_str!("../../assets/logos-light/mlb/atl.ans"),
+    ),
+    (
+        "mlb/bal",
+        include_str!("../../assets/logos-light/mlb/bal.ans"),
+    ),
+    (
+        "mlb/bos",
+        include_str!("../../assets/logos-light/mlb/bos.ans"),
+    ),
+    (
+        "mlb/chc",
+        include_str!("../../assets/logos-light/mlb/chc.ans"),
+    ),
+    (
+        "mlb/chw",
+        include_str!("../../assets/logos-light/mlb/chw.ans"),
+    ),
+    (
+        "mlb/cin",
+        include_str!("../../assets/logos-light/mlb/cin.ans"),
+    ),
+    (
+        "mlb/cle",
+        include_str!("../../assets/logos-light/mlb/cle.ans"),
+    ),
+    (
+        "mlb/col",
+        include_str!("../../assets/logos-light/mlb/col.ans"),
+    ),
+    (
+        "mlb/det",
+        include_str!("../../assets/logos-light/mlb/det.ans"),
+    ),
+    (
+        "mlb/hou",
+        include_str!("../../assets/logos-light/mlb/hou.ans"),
+    ),
+    (
+        "mlb/kc",
+        include_str!("../../assets/logos-light/mlb/kc.ans"),
+    ),
+    (
+        "mlb/laa",
+        include_str!("../../assets/logos-light/mlb/laa.ans"),
+    ),
+    (
+        "mlb/lad",
+        include_str!("../../assets/logos-light/mlb/lad.ans"),
+    ),
+    (
+        "mlb/mia",
+        include_str!("../../assets/logos-light/mlb/mia.ans"),
+    ),
+    (
+        "mlb/mil",
+        include_str!("../../assets/logos-light/mlb/mil.ans"),
+    ),
+    (
+        "mlb/min",
+        include_str!("../../assets/logos-light/mlb/min.ans"),
+    ),
+    (
+        "mlb/nym",
+        include_str!("../../assets/logos-light/mlb/nym.ans"),
+    ),
+    (
+        "mlb/nyy",
+        include_str!("../../assets/logos-light/mlb/nyy.ans"),
+    ),
+    (
+        "mlb/phi",
+        include_str!("../../assets/logos-light/mlb/phi.ans"),
+    ),
+    (
+        "mlb/pit",
+        include_str!("../../assets/logos-light/mlb/pit.ans"),
+    ),
+    (
+        "mlb/sd",
+        include_str!("../../assets/logos-light/mlb/sd.ans"),
+    ),
+    (
+        "mlb/sea",
+        include_str!("../../assets/logos-light/mlb/sea.ans"),
+    ),
+    (
+        "mlb/sf",
+        include_str!("../../assets/logos-light/mlb/sf.ans"),
+    ),
+    (
+        "mlb/stl",
+        include_str!("../../assets/logos-light/mlb/stl.ans"),
+    ),
+    (
+        "mlb/tb",
+        include_str!("../../assets/logos-light/mlb/tb.ans"),
+    ),
+    (
+        "mlb/tex",
+        include_str!("../../assets/logos-light/mlb/tex.ans"),
+    ),
+    (
+        "mlb/tor",
+        include_str!("../../assets/logos-light/mlb/tor.ans"),
+    ),
+    (
+        "mlb/wsh",
+        include_str!("../../assets/logos-light/mlb/wsh.ans"),
+    ),
+    (
+        "nba/atl",
+        include_str!("../../assets/logos-light/nba/atl.ans"),
+    ),
+    (
+        "nba/bkn",
+        include_str!("../../assets/logos-light/nba/bkn.ans"),
+    ),
+    (
+        "nba/bos",
+        include_str!("../../assets/logos-light/nba/bos.ans"),
+    ),
+    (
+        "nba/cha",
+        include_str!("../../assets/logos-light/nba/cha.ans"),
+    ),
+    (
+        "nba/chi",
+        include_str!("../../assets/logos-light/nba/chi.ans"),
+    ),
+    (
+        "nba/cle",
+        include_str!("../../assets/logos-light/nba/cle.ans"),
+    ),
+    (
+        "nba/dal",
+        include_str!("../../assets/logos-light/nba/dal.ans"),
+    ),
+    (
+        "nba/den",
+        include_str!("../../assets/logos-light/nba/den.ans"),
+    ),
+    (
+        "nba/det",
+        include_str!("../../assets/logos-light/nba/det.ans"),
+    ),
+    (
+        "nba/gs",
+        include_str!("../../assets/logos-light/nba/gs.ans"),
+    ),
+    (
+        "nba/hou",
+        include_str!("../../assets/logos-light/nba/hou.ans"),
+    ),
+    (
+        "nba/ind",
+        include_str!("../../assets/logos-light/nba/ind.ans"),
+    ),
+    (
+        "nba/lac",
+        include_str!("../../assets/logos-light/nba/lac.ans"),
+    ),
+    (
+        "nba/lal",
+        include_str!("../../assets/logos-light/nba/lal.ans"),
+    ),
+    (
+        "nba/mem",
+        include_str!("../../assets/logos-light/nba/mem.ans"),
+    ),
+    (
+        "nba/mia",
+        include_str!("../../assets/logos-light/nba/mia.ans"),
+    ),
+    (
+        "nba/mil",
+        include_str!("../../assets/logos-light/nba/mil.ans"),
+    ),
+    (
+        "nba/min",
+        include_str!("../../assets/logos-light/nba/min.ans"),
+    ),
+    (
+        "nba/no",
+        include_str!("../../assets/logos-light/nba/no.ans"),
+    ),
+    (
+        "nba/ny",
+        include_str!("../../assets/logos-light/nba/ny.ans"),
+    ),
+    (
+        "nba/okc",
+        include_str!("../../assets/logos-light/nba/okc.ans"),
+    ),
+    (
+        "nba/orl",
+        include_str!("../../assets/logos-light/nba/orl.ans"),
+    ),
+    (
+        "nba/phi",
+        include_str!("../../assets/logos-light/nba/phi.ans"),
+    ),
+    (
+        "nba/phx",
+        include_str!("../../assets/logos-light/nba/phx.ans"),
+    ),
+    (
+        "nba/por",
+        include_str!("../../assets/logos-light/nba/por.ans"),
+    ),
+    (
+        "nba/sa",
+        include_str!("../../assets/logos-light/nba/sa.ans"),
+    ),
+    (
+        "nba/sac",
+        include_str!("../../assets/logos-light/nba/sac.ans"),
+    ),
+    (
+        "nba/tor",
+        include_str!("../../assets/logos-light/nba/tor.ans"),
+    ),
+    (
+        "nba/utah",
+        include_str!("../../assets/logos-light/nba/utah.ans"),
+    ),
+    (
+        "nba/wsh",
+        include_str!("../../assets/logos-light/nba/wsh.ans"),
+    ),
+    (
+        "ncaa/12",
+        include_str!("../../assets/logos-light/ncaa/12.ans"),
+    ),
+    (
+        "ncaa/127",
+        include_str!("../../assets/logos-light/ncaa/127.ans"),
+    ),
+    (
+        "ncaa/130",
+        include_str!("../../assets/logos-light/ncaa/130.ans"),
+    ),
+    (
+        "ncaa/142",
+        include_str!("../../assets/logos-light/ncaa/142.ans"),
+    ),
+    (
+        "ncaa/145",
+        include_str!("../../assets/logos-light/ncaa/145.ans"),
+    ),
+    (
+        "ncaa/150",
+        include_str!("../../assets/logos-light/ncaa/150.ans"),
+    ),
+    (
+        "ncaa/158",
+        include_str!("../../assets/logos-light/ncaa/158.ans"),
+    ),
+    (
+        "ncaa/194",
+        include_str!("../../assets/logos-light/ncaa/194.ans"),
+    ),
+    (
+        "ncaa/201",
+        include_str!("../../assets/logos-light/ncaa/201.ans"),
+    ),
+    (
+        "ncaa/213",
+        include_str!("../../assets/logos-light/ncaa/213.ans"),
+    ),
+    (
+        "ncaa/2250",
+        include_str!("../../assets/logos-light/ncaa/2250.ans"),
+    ),
+    (
+        "ncaa/2294",
+        include_str!("../../assets/logos-light/ncaa/2294.ans"),
+    ),
+    (
+        "ncaa/2305",
+        include_str!("../../assets/logos-light/ncaa/2305.ans"),
+    ),
+    (
+        "ncaa/238",
+        include_str!("../../assets/logos-light/ncaa/238.ans"),
+    ),
+    (
+        "ncaa/2390",
+        include_str!("../../assets/logos-light/ncaa/2390.ans"),
+    ),
+    (
+        "ncaa/245",
+        include_str!("../../assets/logos-light/ncaa/245.ans"),
+    ),
+    (
+        "ncaa/248",
+        include_str!("../../assets/logos-light/ncaa/248.ans"),
+    ),
+    (
+        "ncaa/2483",
+        include_str!("../../assets/logos-light/ncaa/2483.ans"),
+    ),
+    (
+        "ncaa/2509",
+        include_str!("../../assets/logos-light/ncaa/2509.ans"),
+    ),
+    (
+        "ncaa/251",
+        include_str!("../../assets/logos-light/ncaa/251.ans"),
+    ),
+    (
+        "ncaa/252",
+        include_str!("../../assets/logos-light/ncaa/252.ans"),
+    ),
+    (
+        "ncaa/254",
+        include_str!("../../assets/logos-light/ncaa/254.ans"),
+    ),
+    (
+        "ncaa/2567",
+        include_str!("../../assets/logos-light/ncaa/2567.ans"),
+    ),
+    (
+        "ncaa/258",
+        include_str!("../../assets/logos-light/ncaa/258.ans"),
+    ),
+    (
+        "ncaa/2599",
+        include_str!("../../assets/logos-light/ncaa/2599.ans"),
+    ),
+    (
+        "ncaa/2633",
+        include_str!("../../assets/logos-light/ncaa/2633.ans"),
+    ),
+    (
+        "ncaa/264",
+        include_str!("../../assets/logos-light/ncaa/264.ans"),
+    ),
+    (
+        "ncaa/2641",
+        include_str!("../../assets/logos-light/ncaa/2641.ans"),
+    ),
+    (
+        "ncaa/275",
+        include_str!("../../assets/logos-light/ncaa/275.ans"),
+    ),
+    (
+        "ncaa/30",
+        include_str!("../../assets/logos-light/ncaa/30.ans"),
+    ),
+    (
+        "ncaa/333",
+        include_str!("../../assets/logos-light/ncaa/333.ans"),
+    ),
+    (
+        "ncaa/356",
+        include_str!("../../assets/logos-light/ncaa/356.ans"),
+    ),
+    (
+        "ncaa/41",
+        include_str!("../../assets/logos-light/ncaa/41.ans"),
+    ),
+    (
+        "ncaa/57",
+        include_str!("../../assets/logos-light/ncaa/57.ans"),
+    ),
+    (
+        "ncaa/61",
+        include_str!("../../assets/logos-light/ncaa/61.ans"),
+    ),
+    (
+        "ncaa/66",
+        include_str!("../../assets/logos-light/ncaa/66.ans"),
+    ),
+    (
+        "ncaa/8",
+        include_str!("../../assets/logos-light/ncaa/8.ans"),
+    ),
+    (
+        "ncaa/84",
+        include_str!("../../assets/logos-light/ncaa/84.ans"),
+    ),
+    (
+        "ncaa/87",
+        include_str!("../../assets/logos-light/ncaa/87.ans"),
+    ),
+    (
+        "ncaa/97",
+        include_str!("../../assets/logos-light/ncaa/97.ans"),
+    ),
+    (
+        "ncaa/99",
+        include_str!("../../assets/logos-light/ncaa/99.ans"),
+    ),
+    (
+        "nfl/ari",
+        include_str!("../../assets/logos-light/nfl/ari.ans"),
+    ),
+    (
+        "nfl/atl",
+        include_str!("../../assets/logos-light/nfl/atl.ans"),
+    ),
+    (
+        "nfl/bal",
+        include_str!("../../assets/logos-light/nfl/bal.ans"),
+    ),
+    (
+        "nfl/buf",
+        include_str!("../../assets/logos-light/nfl/buf.ans"),
+    ),
+    (
+        "nfl/car",
+        include_str!("../../assets/logos-light/nfl/car.ans"),
+    ),
+    (
+        "nfl/chi",
+        include_str!("../../assets/logos-light/nfl/chi.ans"),
+    ),
+    (
+        "nfl/cin",
+        include_str!("../../assets/logos-light/nfl/cin.ans"),
+    ),
+    (
+        "nfl/cle",
+        include_str!("../../assets/logos-light/nfl/cle.ans"),
+    ),
+    (
+        "nfl/dal",
+        include_str!("../../assets/logos-light/nfl/dal.ans"),
+    ),
+    (
+        "nfl/den",
+        include_str!("../../assets/logos-light/nfl/den.ans"),
+    ),
+    (
+        "nfl/det",
+        include_str!("../../assets/logos-light/nfl/det.ans"),
+    ),
+    (
+        "nfl/gb",
+        include_str!("../../assets/logos-light/nfl/gb.ans"),
+    ),
+    (
+        "nfl/hou",
+        include_str!("../../assets/logos-light/nfl/hou.ans"),
+    ),
+    (
+        "nfl/ind",
+        include_str!("../../assets/logos-light/nfl/ind.ans"),
+    ),
+    (
+        "nfl/jax",
+        include_str!("../../assets/logos-light/nfl/jax.ans"),
+    ),
+    (
+        "nfl/kc",
+        include_str!("../../assets/logos-light/nfl/kc.ans"),
+    ),
+    (
+        "nfl/lac",
+        include_str!("../../assets/logos-light/nfl/lac.ans"),
+    ),
+    (
+        "nfl/lar",
+        include_str!("../../assets/logos-light/nfl/lar.ans"),
+    ),
+    (
+        "nfl/lv",
+        include_str!("../../assets/logos-light/nfl/lv.ans"),
+    ),
+    (
+        "nfl/mia",
+        include_str!("../../assets/logos-light/nfl/mia.ans"),
+    ),
+    (
+        "nfl/min",
+        include_str!("../../assets/logos-light/nfl/min.ans"),
+    ),
+    (
+        "nfl/ne",
+        include_str!("../../assets/logos-light/nfl/ne.ans"),
+    ),
+    (
+        "nfl/no",
+        include_str!("../../assets/logos-light/nfl/no.ans"),
+    ),
+    (
+        "nfl/nyg",
+        include_str!("../../assets/logos-light/nfl/nyg.ans"),
+    ),
+    (
+        "nfl/nyj",
+        include_str!("../../assets/logos-light/nfl/nyj.ans"),
+    ),
+    (
+        "nfl/phi",
+        include_str!("../../assets/logos-light/nfl/phi.ans"),
+    ),
+    (
+        "nfl/pit",
+        include_str!("../../assets/logos-light/nfl/pit.ans"),
+    ),
+    (
+        "nfl/sea",
+        include_str!("../../assets/logos-light/nfl/sea.ans"),
+    ),
+    (
+        "nfl/sf",
+        include_str!("../../assets/logos-light/nfl/sf.ans"),
+    ),
+    (
+        "nfl/tb",
+        include_str!("../../assets/logos-light/nfl/tb.ans"),
+    ),
+    (
+        "nfl/ten",
+        include_str!("../../assets/logos-light/nfl/ten.ans"),
+    ),
+    (
+        "nfl/wsh",
+        include_str!("../../assets/logos-light/nfl/wsh.ans"),
+    ),
+    (
+        "nhl/ana",
+        include_str!("../../assets/logos-light/nhl/ana.ans"),
+    ),
+    (
+        "nhl/bos",
+        include_str!("../../assets/logos-light/nhl/bos.ans"),
+    ),
+    (
+        "nhl/buf",
+        include_str!("../../assets/logos-light/nhl/buf.ans"),
+    ),
+    (
+        "nhl/car",
+        include_str!("../../assets/logos-light/nhl/car.ans"),
+    ),
+    (
+        "nhl/cbj",
+        include_str!("../../assets/logos-light/nhl/cbj.ans"),
+    ),
+    (
+        "nhl/cgy",
+        include_str!("../../assets/logos-light/nhl/cgy.ans"),
+    ),
+    (
+        "nhl/chi",
+        include_str!("../../assets/logos-light/nhl/chi.ans"),
+    ),
+    (
+        "nhl/col",
+        include_str!("../../assets/logos-light/nhl/col.ans"),
+    ),
+    (
+        "nhl/dal",
+        include_str!("../../assets/logos-light/nhl/dal.ans"),
+    ),
+    (
+        "nhl/det",
+        include_str!("../../assets/logos-light/nhl/det.ans"),
+    ),
+    (
+        "nhl/edm",
+        include_str!("../../assets/logos-light/nhl/edm.ans"),
+    ),
+    (
+        "nhl/fla",
+        include_str!("../../assets/logos-light/nhl/fla.ans"),
+    ),
+    (
+        "nhl/la",
+        include_str!("../../assets/logos-light/nhl/la.ans"),
+    ),
+    (
+        "nhl/min",
+        include_str!("../../assets/logos-light/nhl/min.ans"),
+    ),
+    (
+        "nhl/mtl",
+        include_str!("../../assets/logos-light/nhl/mtl.ans"),
+    ),
+    (
+        "nhl/nj",
+        include_str!("../../assets/logos-light/nhl/nj.ans"),
+    ),
+    (
+        "nhl/nsh",
+        include_str!("../../assets/logos-light/nhl/nsh.ans"),
+    ),
+    (
+        "nhl/nyi",
+        include_str!("../../assets/logos-light/nhl/nyi.ans"),
+    ),
+    (
+        "nhl/nyr",
+        include_str!("../../assets/logos-light/nhl/nyr.ans"),
+    ),
+    (
+        "nhl/ott",
+        include_str!("../../assets/logos-light/nhl/ott.ans"),
+    ),
+    (
+        "nhl/phi",
+        include_str!("../../assets/logos-light/nhl/phi.ans"),
+    ),
+    (
+        "nhl/pit",
+        include_str!("../../assets/logos-light/nhl/pit.ans"),
+    ),
+    (
+        "nhl/sea",
+        include_str!("../../assets/logos-light/nhl/sea.ans"),
+    ),
+    (
+        "nhl/sj",
+        include_str!("../../assets/logos-light/nhl/sj.ans"),
+    ),
+    (
+        "nhl/stl",
+        include_str!("../../assets/logos-light/nhl/stl.ans"),
+    ),
+    (
+        "nhl/tb",
+        include_str!("../../assets/logos-light/nhl/tb.ans"),
+    ),
+    (
+        "nhl/tor",
+        include_str!("../../assets/logos-light/nhl/tor.ans"),
+    ),
+    (
+        "nhl/utah",
+        include_str!("../../assets/logos-light/nhl/utah.ans"),
+    ),
+    (
+        "nhl/van",
+        include_str!("../../assets/logos-light/nhl/van.ans"),
+    ),
+    (
+        "nhl/vgk",
+        include_str!("../../assets/logos-light/nhl/vgk.ans"),
+    ),
+    (
+        "nhl/wpg",
+        include_str!("../../assets/logos-light/nhl/wpg.ans"),
+    ),
+    (
+        "nhl/wsh",
+        include_str!("../../assets/logos-light/nhl/wsh.ans"),
+    ),
+    (
+        "soccer/10739",
+        include_str!("../../assets/logos-light/soccer/10739.ans"),
+    ),
+    (
+        "soccer/12011",
+        include_str!("../../assets/logos-light/soccer/12011.ans"),
+    ),
+    (
+        "soccer/17362",
+        include_str!("../../assets/logos-light/soccer/17362.ans"),
+    ),
+    (
+        "soccer/17606",
+        include_str!("../../assets/logos-light/soccer/17606.ans"),
+    ),
+    (
+        "soccer/182",
+        include_str!("../../assets/logos-light/soccer/182.ans"),
+    ),
+    (
+        "soccer/18267",
+        include_str!("../../assets/logos-light/soccer/18267.ans"),
+    ),
+    (
+        "soccer/183",
+        include_str!("../../assets/logos-light/soccer/183.ans"),
+    ),
+    (
+        "soccer/184",
+        include_str!("../../assets/logos-light/soccer/184.ans"),
+    ),
+    (
+        "soccer/18418",
+        include_str!("../../assets/logos-light/soccer/18418.ans"),
+    ),
+    (
+        "soccer/185",
+        include_str!("../../assets/logos-light/soccer/185.ans"),
+    ),
+    (
+        "soccer/186",
+        include_str!("../../assets/logos-light/soccer/186.ans"),
+    ),
+    (
+        "soccer/187",
+        include_str!("../../assets/logos-light/soccer/187.ans"),
+    ),
+    (
+        "soccer/189",
+        include_str!("../../assets/logos-light/soccer/189.ans"),
+    ),
+    (
+        "soccer/18966",
+        include_str!("../../assets/logos-light/soccer/18966.ans"),
+    ),
+    (
+        "soccer/18986",
+        include_str!("../../assets/logos-light/soccer/18986.ans"),
+    ),
+    (
+        "soccer/190",
+        include_str!("../../assets/logos-light/soccer/190.ans"),
+    ),
+    (
+        "soccer/191",
+        include_str!("../../assets/logos-light/soccer/191.ans"),
+    ),
+    (
+        "soccer/193",
+        include_str!("../../assets/logos-light/soccer/193.ans"),
+    ),
+    (
+        "soccer/20232",
+        include_str!("../../assets/logos-light/soccer/20232.ans"),
+    ),
+    (
+        "soccer/20906",
+        include_str!("../../assets/logos-light/soccer/20906.ans"),
+    ),
+    (
+        "soccer/21300",
+        include_str!("../../assets/logos-light/soccer/21300.ans"),
+    ),
+    (
+        "soccer/21812",
+        include_str!("../../assets/logos-light/soccer/21812.ans"),
+    ),
+    (
+        "soccer/22529",
+        include_str!("../../assets/logos-light/soccer/22529.ans"),
+    ),
+    (
+        "soccer/306",
+        include_str!("../../assets/logos-light/soccer/306.ans"),
+    ),
+    (
+        "soccer/331",
+        include_str!("../../assets/logos-light/soccer/331.ans"),
+    ),
+    (
+        "soccer/337",
+        include_str!("../../assets/logos-light/soccer/337.ans"),
+    ),
+    (
+        "soccer/349",
+        include_str!("../../assets/logos-light/soccer/349.ans"),
+    ),
+    (
+        "soccer/357",
+        include_str!("../../assets/logos-light/soccer/357.ans"),
+    ),
+    (
+        "soccer/359",
+        include_str!("../../assets/logos-light/soccer/359.ans"),
+    ),
+    (
+        "soccer/360",
+        include_str!("../../assets/logos-light/soccer/360.ans"),
+    ),
+    (
+        "soccer/361",
+        include_str!("../../assets/logos-light/soccer/361.ans"),
+    ),
+    (
+        "soccer/362",
+        include_str!("../../assets/logos-light/soccer/362.ans"),
+    ),
+    (
+        "soccer/363",
+        include_str!("../../assets/logos-light/soccer/363.ans"),
+    ),
+    (
+        "soccer/364",
+        include_str!("../../assets/logos-light/soccer/364.ans"),
+    ),
+    (
+        "soccer/366",
+        include_str!("../../assets/logos-light/soccer/366.ans"),
+    ),
+    (
+        "soccer/367",
+        include_str!("../../assets/logos-light/soccer/367.ans"),
+    ),
+    (
+        "soccer/368",
+        include_str!("../../assets/logos-light/soccer/368.ans"),
+    ),
+    (
+        "soccer/370",
+        include_str!("../../assets/logos-light/soccer/370.ans"),
+    ),
+    (
+        "soccer/373",
+        include_str!("../../assets/logos-light/soccer/373.ans"),
+    ),
+    (
+        "soccer/382",
+        include_str!("../../assets/logos-light/soccer/382.ans"),
+    ),
+    (
+        "soccer/384",
+        include_str!("../../assets/logos-light/soccer/384.ans"),
+    ),
+    (
+        "soccer/388",
+        include_str!("../../assets/logos-light/soccer/388.ans"),
+    ),
+    (
+        "soccer/393",
+        include_str!("../../assets/logos-light/soccer/393.ans"),
+    ),
+    (
+        "soccer/4771",
+        include_str!("../../assets/logos-light/soccer/4771.ans"),
+    ),
+    (
+        "soccer/6077",
+        include_str!("../../assets/logos-light/soccer/6077.ans"),
+    ),
+    (
+        "soccer/7318",
+        include_str!("../../assets/logos-light/soccer/7318.ans"),
+    ),
+    (
+        "soccer/9720",
+        include_str!("../../assets/logos-light/soccer/9720.ans"),
+    ),
+    (
+        "soccer/9723",
+        include_str!("../../assets/logos-light/soccer/9723.ans"),
+    ),
+    (
+        "soccer/9726",
+        include_str!("../../assets/logos-light/soccer/9726.ans"),
+    ),
+    (
+        "soccer/9727",
+        include_str!("../../assets/logos-light/soccer/9727.ans"),
+    ),
+    (
+        "wnba/atl",
+        include_str!("../../assets/logos-light/wnba/atl.ans"),
+    ),
+    (
+        "wnba/chi",
+        include_str!("../../assets/logos-light/wnba/chi.ans"),
+    ),
+    (
+        "wnba/con",
+        include_str!("../../assets/logos-light/wnba/con.ans"),
+    ),
+    (
+        "wnba/dal",
+        include_str!("../../assets/logos-light/wnba/dal.ans"),
+    ),
+    (
+        "wnba/gs",
+        include_str!("../../assets/logos-light/wnba/gs.ans"),
+    ),
+    (
+        "wnba/ind",
+        include_str!("../../assets/logos-light/wnba/ind.ans"),
+    ),
+    (
+        "wnba/la",
+        include_str!("../../assets/logos-light/wnba/la.ans"),
+    ),
+    (
+        "wnba/lv",
+        include_str!("../../assets/logos-light/wnba/lv.ans"),
+    ),
+    (
+        "wnba/min",
+        include_str!("../../assets/logos-light/wnba/min.ans"),
+    ),
+    (
+        "wnba/ny",
+        include_str!("../../assets/logos-light/wnba/ny.ans"),
+    ),
+    (
+        "wnba/phx",
+        include_str!("../../assets/logos-light/wnba/phx.ans"),
+    ),
+    (
+        "wnba/por",
+        include_str!("../../assets/logos-light/wnba/por.ans"),
+    ),
+    (
+        "wnba/sea",
+        include_str!("../../assets/logos-light/wnba/sea.ans"),
+    ),
+    (
+        "wnba/tor",
+        include_str!("../../assets/logos-light/wnba/tor.ans"),
+    ),
+    (
+        "wnba/wsh",
+        include_str!("../../assets/logos-light/wnba/wsh.ans"),
+    ),
 ];

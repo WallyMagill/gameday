@@ -34,22 +34,39 @@ fn draw_to_text(team: &Team, w: u16, h: u16) -> String {
 #[test]
 fn every_committed_mark_parses_at_hero_size() {
     // The build embeds the same set logo.rs lists; spot-check the demo set.
-    for key in ["nfl/kc", "nfl/buf", "nfl/dal", "mlb/nyy", "nba/bos", "nhl/edm"] {
+    for key in [
+        "nfl/kc", "nfl/buf", "nfl/dal", "mlb/nyy", "nba/bos", "nhl/edm",
+    ] {
         let m: &HeroMark = hero_mark(key).unwrap_or_else(|| panic!("{key} missing"));
-        assert!(m.height >= 6 && m.height <= 10, "{key}: 16x10 regeneration, got {}", m.height);
+        assert!(
+            m.height >= 6 && m.height <= 10,
+            "{key}: 16x10 regeneration, got {}",
+            m.height
+        );
         assert!(m.width >= 10 && m.width <= 16, "{key}: width {}", m.width);
     }
     // v3.4 §7 completed the pro leagues, so "a team with no art" is no longer
     // a pro team — it's an unranked school.
-    assert!(hero_mark("ncaa/999999").is_none(), "missing art is None, the caller falls back");
+    assert!(
+        hero_mark("ncaa/999999").is_none(),
+        "missing art is None, the caller falls back"
+    );
 }
 
 #[test]
 fn no_mark_exceeds_the_hero_slot() {
     for key in gameday::board::logo::committed_keys() {
         let m = hero_mark(key).unwrap_or_else(|| panic!("{key} missing"));
-        assert!(m.width <= 16, "{key} wider than the 16x10 hero slot: {}", m.width);
-        assert!(m.height <= 10, "{key} taller than the 16x10 hero slot: {}", m.height);
+        assert!(
+            m.width <= 16,
+            "{key} wider than the 16x10 hero slot: {}",
+            m.width
+        );
+        assert!(
+            m.height <= 10,
+            "{key} taller than the 16x10 hero slot: {}",
+            m.height
+        );
     }
 }
 
@@ -78,7 +95,10 @@ fn missing_logo_draws_abbr() {
 fn bundled_mark_paints_cells() {
     let s = draw_to_text(&team("KC", "nfl/kc"), 16, 10);
     let non_blank = s.chars().filter(|c| *c != ' ').count();
-    assert!(non_blank >= 20, "mark painted only {non_blank} cells: {s:?}");
+    assert!(
+        non_blank >= 20,
+        "mark painted only {non_blank} cells: {s:?}"
+    );
 }
 
 #[test]
@@ -97,7 +117,10 @@ fn all_thirty_two_nfl_marks_load() {
         "ind", "jax", "kc", "lv", "lac", "lar", "mia", "min", "ne", "no", "nyg", "nyj", "phi",
         "pit", "sea", "sf", "tb", "ten", "wsh",
     ] {
-        assert!(hero_mark(&format!("nfl/{abbr}")).is_some(), "missing nfl/{abbr}");
+        assert!(
+            hero_mark(&format!("nfl/{abbr}")).is_some(),
+            "missing nfl/{abbr}"
+        );
     }
 }
 
@@ -105,14 +128,27 @@ fn all_thirty_two_nfl_marks_load() {
 fn a_covered_pro_team_resolves_a_mark_and_an_uncovered_college_team_falls_back() {
     // spec v3.4 §7: the pro leagues are complete, so every one of them
     // resolves — including the teams the v3.3 demo set never covered.
-    for key in ["nba/bos", "nba/mem", "mlb/sea", "nhl/sea", "wnba/lv", "soccer/364"] {
+    for key in [
+        "nba/bos",
+        "nba/mem",
+        "mlb/sea",
+        "nhl/sea",
+        "wnba/lv",
+        "soccer/364",
+    ] {
         assert!(hero_mark(key).is_some(), "missing {key}");
     }
     // College ships the ranked top 25 only; an unranked school has no mark
     // and takes the abbreviation fallback — honestly, not as a hole.
-    assert!(hero_mark("ncaa/999999").is_none(), "an unranked school has no mark");
+    assert!(
+        hero_mark("ncaa/999999").is_none(),
+        "an unranked school has no mark"
+    );
     let s = draw_to_text(&team("SIE", "ncaa/999999"), 10, 6);
-    assert!(s.contains("SIE"), "the uncovered team falls back to its abbreviation: {s}");
+    assert!(
+        s.contains("SIE"),
+        "the uncovered team falls back to its abbreviation: {s}"
+    );
 }
 
 /// The pro leagues are complete as of v3.4 §7 — the counts are the research's
@@ -124,15 +160,28 @@ fn every_pro_league_is_complete() {
     for key in gameday::board::logo::committed_keys() {
         *per_ns.entry(key.split('/').next().unwrap()).or_default() += 1;
     }
-    for (ns, want) in [("nfl", 32), ("nba", 30), ("mlb", 30), ("nhl", 32), ("wnba", 15)] {
+    for (ns, want) in [
+        ("nfl", 32),
+        ("nba", 30),
+        ("mlb", 30),
+        ("nhl", 32),
+        ("wnba", 15),
+    ] {
         assert_eq!(per_ns.get(ns).copied().unwrap_or(0), want, "{ns} marks");
     }
     // EPL 20 + MLS 30 share the `soccer` bucket.
-    assert_eq!(per_ns.get("soccer").copied().unwrap_or(0), 50, "soccer marks");
+    assert_eq!(
+        per_ns.get("soccer").copied().unwrap_or(0),
+        50,
+        "soccer marks"
+    );
     // College is the ranked top 25 of each poll, deduped where a school is
     // ranked in both — so somewhere in 25..=50.
     let ncaa = per_ns.get("ncaa").copied().unwrap_or(0);
-    assert!((25..=50).contains(&ncaa), "college marks: {ncaa} outside 25..=50");
+    assert!(
+        (25..=50).contains(&ncaa),
+        "college marks: {ncaa} outside 25..=50"
+    );
 }
 
 /// v3.4 §7: the light set. Not a filter over the dark art — a second render,
@@ -148,7 +197,10 @@ fn light_ground_selects_the_light_set() {
 
     gameday::theme::set_current("daygame").unwrap();
     let light = hero_mark("mlb/pit").unwrap().rows().to_vec();
-    assert_ne!(dark, light, "a light ground must resolve different art than a dark one");
+    assert_ne!(
+        dark, light,
+        "a light ground must resolve different art than a dark one"
+    );
 
     // And back: dark themes see byte-identical behaviour.
     gameday::theme::set_current("broadcast").unwrap();
@@ -161,7 +213,10 @@ fn light_ground_selects_the_light_set() {
 fn the_light_set_covers_every_committed_key() {
     let dark: Vec<&str> = gameday::board::logo::committed_keys().collect();
     let light: Vec<&str> = gameday::board::logo::light_keys().collect();
-    assert_eq!(dark, light, "the two sets must carry the same keys in the same order");
+    assert_eq!(
+        dark, light,
+        "the two sets must carry the same keys in the same order"
+    );
 }
 
 /// Ruling R41 again, on the new set: a light mark that draws tofu on
@@ -215,7 +270,14 @@ fn dominant_contrast_on_paper(mark: &HeroMark) -> f64 {
 /// come out of the light set visibly better, not marginally.
 #[test]
 fn light_art_reads_on_paper_where_the_dark_art_does_not() {
-    let cases = ["mlb/pit", "mlb/sf", "ncaa/2633", "nfl/pit", "nfl/ten", "soccer/362"];
+    let cases = [
+        "mlb/pit",
+        "mlb/sf",
+        "ncaa/2633",
+        "nfl/pit",
+        "nfl/ten",
+        "soccer/362",
+    ];
     let mut dark = std::collections::HashMap::new();
     for key in cases {
         dark.insert(key, dominant_contrast_on_paper(hero_mark(key).unwrap()));

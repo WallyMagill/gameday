@@ -119,7 +119,10 @@ pub(crate) fn play_line(game: &Game, p: &crate::domain::Play, width: usize) -> L
     let text = truncate(&p.text, width.saturating_sub(used + 1));
     Line::from(vec![
         Span::styled(clock, Style::default().fg(th.muted)),
-        Span::styled(abbr, Style::default().fg(team_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            abbr,
+            Style::default().fg(team_color).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(text, Style::default().fg(th.fg)),
     ])
 }
@@ -152,8 +155,14 @@ pub(crate) fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
             let long = format!("   {ytg} TO GOAL");
             let short = format!("  {ytg} YD");
             let fixed = label.len() + goal.len();
-            let value = if width >= fixed + long.len() + METER_MIN_BAR { long } else { short };
-            let bar_w = width.saturating_sub(fixed + value.len()).clamp(2, METER_MAX_BAR);
+            let value = if width >= fixed + long.len() + METER_MIN_BAR {
+                long
+            } else {
+                short
+            };
+            let bar_w = width
+                .saturating_sub(fixed + value.len())
+                .clamp(2, METER_MAX_BAR);
             let filled = (bar_w - 1) * (20 - ytg) / 20;
             vec![
                 Span::styled(label, live_bold),
@@ -178,27 +187,42 @@ pub(crate) fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
                     let team = if s < 0 { &game.away } else { &game.home };
                     (
                         format!("{} {:+}", team.abbr, pm.abs()),
-                        Style::default().fg(theme::rgb(team.color)).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(theme::rgb(team.color))
+                            .add_modifier(Modifier::BOLD),
                     )
                 }
             };
             let marker_style = if pm == 0 { muted } else { tag_style };
-            let (end_lo, end_hi) = (format!("{} ", game.away.abbr), format!(" {}", game.home.abbr));
+            let (end_lo, end_hi) = (
+                format!("{} ", game.away.abbr),
+                format!(" {}", game.home.abbr),
+            );
             let full = width
-                >= " LEAD  ".len() + end_lo.len() + end_hi.len() + "   ".len() + tag.len() + METER_MIN_BAR;
+                >= " LEAD  ".len()
+                    + end_lo.len()
+                    + end_hi.len()
+                    + "   ".len()
+                    + tag.len()
+                    + METER_MIN_BAR;
             let (head, scale_lo, scale_hi, gap) = if full {
                 (" LEAD  ", end_lo, end_hi, "   ")
             } else {
                 (" LEAD ", String::new(), String::new(), "  ")
             };
             let bar_w = width
-                .saturating_sub(head.len() + scale_lo.len() + scale_hi.len() + gap.len() + tag.len())
+                .saturating_sub(
+                    head.len() + scale_lo.len() + scale_hi.len() + gap.len() + tag.len(),
+                )
                 .clamp(3, METER_MAX_BAR);
             // Rounded so a ±1 lead already steps off the center tick.
             let cell = |v: i32| ((v + 15) as usize * (bar_w - 1) * 2 + 30) / 60;
             let center = cell(0);
             let pos = cell(pm.clamp(-15, 15));
-            let mut spans = vec![Span::styled(head, label_style), Span::styled(scale_lo, muted)];
+            let mut spans = vec![
+                Span::styled(head, label_style),
+                Span::styled(scale_lo, muted),
+            ];
             for i in 0..bar_w {
                 spans.push(if i == pos {
                     Span::styled("▮", marker_style)
@@ -219,13 +243,19 @@ pub(crate) fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
             let count = sit.and_then(|s| Some((s.balls?, s.strikes?)));
             let build = |full: bool| -> Vec<Span<'static>> {
                 let gap = if full { "   " } else { "  " };
-                let mut spans = vec![Span::styled(if full { " BASES  " } else { " BASES " }, label_style)];
+                let mut spans = vec![Span::styled(
+                    if full { " BASES  " } else { " BASES " },
+                    label_style,
+                )];
                 // First, second, third — left to right. Empty bases and
                 // outs are information, so they sit at `muted`, not `dim`
                 // (dim vanished on the tinted community palettes).
                 for on in occupied {
                     spans.push(if *on {
-                        Span::styled("◆", Style::default().fg(th.star).add_modifier(Modifier::BOLD))
+                        Span::styled(
+                            "◆",
+                            Style::default().fg(th.star).add_modifier(Modifier::BOLD),
+                        )
                     } else {
                         Span::styled("◇", muted)
                     });
@@ -233,7 +263,11 @@ pub(crate) fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
                 if let Some(o) = outs {
                     spans.push(Span::styled(format!("{gap}OUTS "), label_style));
                     for i in 0..3u8 {
-                        spans.push(if i < o { Span::styled("●", bright) } else { Span::styled("○", muted) });
+                        spans.push(if i < o {
+                            Span::styled("●", bright)
+                        } else {
+                            Span::styled("○", muted)
+                        });
                     }
                 }
                 if let Some((b, s)) = count {
@@ -247,7 +281,11 @@ pub(crate) fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
                 spans
             };
             let full = build(true);
-            if width_of(&full) <= width { full } else { build(false) }
+            if width_of(&full) <= width {
+                full
+            } else {
+                build(false)
+            }
         }
         Meter::Penalty { team_abbr, seconds } => {
             // Countdown bar of a 2:00 minor: filled cells are the time left.

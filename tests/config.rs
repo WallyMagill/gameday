@@ -18,7 +18,10 @@ fn roundtrip_config() {
     let dir = tmp("cfg");
     let c = Config {
         enabled_tabs: vec![League::Nfl, League::Cfb],
-        favorites: vec![Favorite { league: League::Nfl, team_abbr: "KC".into() }],
+        favorites: vec![Favorite {
+            league: League::Nfl,
+            team_abbr: "KC".into(),
+        }],
         theme: "ceefax".into(),
         sort: Default::default(),
     };
@@ -63,16 +66,31 @@ fn new_league_variants_roundtrip_in_toml() {
     };
     c.save_to(&dir).unwrap();
     let loaded = Config::load_from(&dir).unwrap();
-    assert_eq!(loaded.enabled_tabs, vec![League::Wnba, League::Epl, League::Mls]);
+    assert_eq!(
+        loaded.enabled_tabs,
+        vec![League::Wnba, League::Epl, League::Mls]
+    );
     fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
 fn prune_drops_final_after_six_hours() {
     let now = OffsetDateTime::now_utc();
-    let old = Pin { game_id: "1".into(), league: League::Nfl, final_at: Some(now - Duration::hours(7)) };
-    let keep = Pin { game_id: "2".into(), league: League::Nfl, final_at: Some(now - Duration::hours(1)) };
-    let live = Pin { game_id: "3".into(), league: League::Nfl, final_at: None };
+    let old = Pin {
+        game_id: "1".into(),
+        league: League::Nfl,
+        final_at: Some(now - Duration::hours(7)),
+    };
+    let keep = Pin {
+        game_id: "2".into(),
+        league: League::Nfl,
+        final_at: Some(now - Duration::hours(1)),
+    };
+    let live = Pin {
+        game_id: "3".into(),
+        league: League::Nfl,
+        final_at: None,
+    };
     let out = prune_pins(vec![old, keep, live], now);
     let ids: Vec<_> = out.iter().map(|p| p.game_id.as_str()).collect();
     assert_eq!(ids, vec!["2", "3"]);
@@ -210,7 +228,11 @@ fn a_broken_config_loads_defaults_reports_the_line_and_is_never_overwritten() {
 #[test]
 fn pins_roundtrip() {
     let dir = tmp("pins");
-    let pins = vec![Pin { game_id: "9".into(), league: League::Nfl, final_at: None }];
+    let pins = vec![Pin {
+        game_id: "9".into(),
+        league: League::Nfl,
+        final_at: None,
+    }];
     save_pins(&dir, &pins).unwrap();
     let loaded = load_pins(&dir).unwrap();
     assert_eq!(loaded[0].game_id, "9");

@@ -105,7 +105,10 @@ fn header_and_tabs_render() {
     assert!(row.contains("GAMEDAY"), "{row}");
     assert!(row.contains("ALL"), "{row}");
     assert!(row.contains("NFL") && row.contains("MLS"), "{row}");
-    assert!(!row.contains("FILTER:"), "label sheds before the clock: {row}");
+    assert!(
+        !row.contains("FILTER:"),
+        "label sheds before the clock: {row}"
+    );
 }
 
 #[test]
@@ -172,9 +175,18 @@ fn help_overlay_lists_every_group_and_the_hidden_chords() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     for needle in [
-        "keys", "navigation", "selection", "view", "app",
+        "keys",
+        "navigation",
+        "selection",
+        "view",
+        "app",
         // Chords the footer omits must still be discoverable here.
-        "theme", "sort", "tv", "favorite", "ctrl-c", "s-tab",
+        "theme",
+        "sort",
+        "tv",
+        "favorite",
+        "ctrl-c",
+        "s-tab",
     ] {
         assert!(s.contains(needle), "help overlay missing {needle:?}:\n{s}");
     }
@@ -193,7 +205,13 @@ fn help_panel_speaks_the_lowercase_grammar_not_just_the_footer() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     // The panel's own new rows, lowercase.
-    for needle in ["navigation", "space pin", "esc  q", "esc/?/q closes", " keys "] {
+    for needle in [
+        "navigation",
+        "space pin",
+        "esc  q",
+        "esc/?/q closes",
+        " keys ",
+    ] {
         assert!(s.contains(needle), "panel missing {needle:?}:\n{s}");
     }
     // No leftover v3.1 caps-token grammar (the old NAVIGATION/SPC/ESC-CLOSES
@@ -209,7 +227,10 @@ fn zoomed_footer_shows_back_and_the_zoomed_game() {
     let mut app = mk();
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.tab = Tab::League(League::Nfl);
-    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
@@ -284,8 +305,12 @@ fn footer_status_takes_the_clocks_discipline() {
         t.draw(|f| app.draw(f)).unwrap();
         let b = t.backend().buffer();
         let y = b.area().height - 1;
-        let row: String = (0..b.area().width).map(|x| b[(x, y)].symbol().to_string()).collect();
-        let x = row.find("UPD").unwrap_or_else(|| panic!("no UPD in footer: {row:?}")) as u16;
+        let row: String = (0..b.area().width)
+            .map(|x| b[(x, y)].symbol().to_string())
+            .collect();
+        let x = row
+            .find("UPD")
+            .unwrap_or_else(|| panic!("no UPD in footer: {row:?}")) as u16;
         b[(x, y)].fg
     };
     assert_eq!(fg_of_upd("broadcast"), theme::builtin("broadcast").cyan);
@@ -312,8 +337,14 @@ fn theme_picker_renders_every_loaded_name_over_the_board() {
     }
     assert!(s.contains("ESC REVERT"), "picker hint missing:\n{s}");
     // The board is still drawn underneath — the panel is the preview's frame.
-    assert!(s.contains("[NFL]"), "board must render behind the picker:\n{s}");
-    let marked = s.lines().find(|l| l.contains("▸ broadcast")).unwrap_or_else(|| panic!("{s}"));
+    assert!(
+        s.contains("[NFL]"),
+        "board must render behind the picker:\n{s}"
+    );
+    let marked = s
+        .lines()
+        .find(|l| l.contains("▸ broadcast"))
+        .unwrap_or_else(|| panic!("{s}"));
     assert!(marked.contains("default"), "{marked}");
 }
 
@@ -339,7 +370,10 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
     let area = *b.area();
     let fg_at = |needle: &str| -> ratatui::style::Color {
         for y in 0..area.height {
-            let row: String = (0..area.width).map(|x| b[(x, y)].symbol()).collect::<Vec<_>>().join("");
+            let row: String = (0..area.width)
+                .map(|x| b[(x, y)].symbol())
+                .collect::<Vec<_>>()
+                .join("");
             if let Some(pos) = row.find(needle) {
                 return b[(row[..pos].chars().count() as u16, y)].fg;
             }
@@ -355,7 +389,11 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
         .flat_map(|y| (0..area.width).map(move |x| (x, y)))
         .filter(|&(x, y)| b[(x, y)].fg == team)
         .count();
-    assert!(colored > 0, "the hero's digits keep team color:\n{}", buf_text(&t));
+    assert!(
+        colored > 0,
+        "the hero's digits keep team color:\n{}",
+        buf_text(&t)
+    );
     theme::set_current("broadcast").unwrap();
 }
 
@@ -415,7 +453,11 @@ fn studio_spends_no_chroma_but_the_red_and_the_team_identity() {
             }
         }
     }
-    assert!(navy > 0, "the hero must still wear the home team's navy:\n{}", buf_text(&t));
+    assert!(
+        navy > 0,
+        "the hero must still wear the home team's navy:\n{}",
+        buf_text(&t)
+    );
     theme::set_current("broadcast").unwrap();
 }
 
@@ -450,7 +492,10 @@ fn home_with_nothing_live_still_lists_the_day() {
     let s = buf_text(&t);
     assert!(s.contains("LATER"), "{s}");
     assert!(s.contains("KC") && s.contains("TB"), "{s}");
-    assert!(!s.contains("nothing live"), "a scheduled game is not an empty board:\n{s}");
+    assert!(
+        !s.contains("nothing live"),
+        "a scheduled game is not an empty board:\n{s}"
+    );
 }
 
 #[test]
@@ -485,7 +530,10 @@ fn nfl_tab_draws_live_score() {
     // v3.2 §1: the only live game is the hero — its score is digit glyphs and
     // the tile's "[NFL] LIVE" chip is gone with the tile.
     assert!(s.contains("KC") && s.contains("TB"), "{s}");
-    assert!(s.contains('█') || s.contains("27"), "the score renders in some form:\n{s}");
+    assert!(
+        s.contains('█') || s.contains("27"),
+        "the score renders in some form:\n{s}"
+    );
     assert!(s.contains("IN PLAY"), "{s}");
 }
 
@@ -505,7 +553,10 @@ fn zoomed_pre_game_on_nfl_tab_fills_the_body() {
     let mut app = mk();
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", false)], false);
     app.tab = Tab::League(League::Nfl);
-    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
@@ -523,7 +574,10 @@ fn command_prompt_renders_in_the_footer_row() {
     let s = buf_text(&t);
     let footer = s.lines().nth(23).expect("footer row");
     assert!(footer.contains(":nf"), "prompt missing: {footer:?}");
-    assert!(!footer.contains("NAV:"), "chords must yield to the prompt: {footer:?}");
+    assert!(
+        !footer.contains("NAV:"),
+        "chords must yield to the prompt: {footer:?}"
+    );
 }
 
 #[test]
@@ -616,18 +670,27 @@ fn z_zooms_the_selected_game_and_shows_the_tab_bar() {
     );
     assert_eq!(
         app.view,
-        View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview }
+        View::Zoom {
+            game_id: "1".into(),
+            tab: ZoomTab::Overview
+        }
     );
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.contains("OVERVIEW │ PLAYS │ STATS"), "tab bar missing:\n{s}");
+    assert!(
+        s.contains("OVERVIEW │ PLAYS │ STATS"),
+        "tab bar missing:\n{s}"
+    );
     // OVERVIEW is highlighted: its cells are styled unlike the idle PLAYS tab.
     let b = t.backend().buffer();
     let (mut over_style, mut plays_style) = (None::<Style>, None::<Style>);
     let area = b.area();
     for y in 0..area.height {
-        let row: String = (0..area.width).map(|x| b[(x, y)].symbol()).collect::<Vec<_>>().join("");
+        let row: String = (0..area.width)
+            .map(|x| b[(x, y)].symbol())
+            .collect::<Vec<_>>()
+            .join("");
         if let Some(ox) = row.find("OVERVIEW") {
             let px = row.find("PLAYS").expect("PLAYS on the same row");
             over_style = Some(b[(ox as u16, y)].style());
@@ -670,7 +733,10 @@ fn l_cycles_to_the_plays_tab_and_jk_move_the_highlight() {
     gameday::input::handle_key(&mut app, KeyCode::Char('l'), KeyModifiers::NONE);
     assert_eq!(
         app.view,
-        View::Zoom { game_id: "1".into(), tab: ZoomTab::Plays }
+        View::Zoom {
+            game_id: "1".into(),
+            tab: ZoomTab::Plays
+        }
     );
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -688,7 +754,10 @@ fn l_cycles_to_the_plays_tab_and_jk_move_the_highlight() {
     gameday::input::handle_key(&mut app, KeyCode::Char(']'), KeyModifiers::NONE);
     assert_eq!(
         app.view,
-        View::Zoom { game_id: "1".into(), tab: ZoomTab::Stats }
+        View::Zoom {
+            game_id: "1".into(),
+            tab: ZoomTab::Stats
+        }
     );
 }
 
@@ -736,7 +805,10 @@ fn footer_advertises_filter_chord_but_not_cmd_on_the_board() {
     use gameday::views::{View, ZoomTab};
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.tab = Tab::League(League::Nfl);
-    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
     let mut tz = Terminal::new(TestBackend::new(120, 24)).unwrap();
     tz.draw(|f| app.draw(f)).unwrap();
     let sz = buf_text(&tz);
@@ -755,7 +827,10 @@ fn narrow_footer_sheds_low_value_chords_but_keeps_help_and_quit() {
     let footer = buf_text(&t).lines().last().unwrap().to_string();
     assert!(footer.contains("? help"), "help clipped: {footer:?}");
     assert!(footer.contains("q quit"), "quit clipped: {footer:?}");
-    assert!(!footer.contains("move"), "move should be shed first: {footer:?}");
+    assert!(
+        !footer.contains("move"),
+        "move should be shed first: {footer:?}"
+    );
 }
 
 #[test]
@@ -783,7 +858,10 @@ fn config_footer_at_40_cols_keeps_help() {
 /// deletes. Team abbreviations (`KC`, `TB`) are 2-3 letters and never trip
 /// the ≤3 budget on their own.
 fn max_caps_run_excluding_status(s: &str) -> usize {
-    let stripped = s.replace("FOCUS", "").replace("UPD", "").replace("GAME", "");
+    let stripped = s
+        .replace("FOCUS", "")
+        .replace("UPD", "")
+        .replace("GAME", "");
     let mut max = 0;
     let mut run = 0;
     for c in stripped.chars() {
@@ -833,7 +911,10 @@ fn every_view_speaks_the_lowercase_footer() {
             Box::new(|app: &mut App| {
                 app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
                 app.tab = Tab::League(League::Nfl);
-                app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
+                app.view = View::Zoom {
+                    game_id: "1".into(),
+                    tab: ZoomTab::Overview,
+                };
             }),
         ),
         (
@@ -893,8 +974,14 @@ fn footers_shed_in_order_and_help_quit_survive_at_40_cols() {
             .find(|l| l.contains("? help"))
             .unwrap_or_else(|| panic!("{view:?}: no key bar:\n{s}"))
             .to_string();
-        assert!(footer.contains("? help"), "{view:?}: help clipped: {footer:?}");
-        assert!(footer.contains("esc back"), "{view:?}: back clipped: {footer:?}");
+        assert!(
+            footer.contains("? help"),
+            "{view:?}: help clipped: {footer:?}"
+        );
+        assert!(
+            footer.contains("esc back"),
+            "{view:?}: back clipped: {footer:?}"
+        );
         assert!(!footer.contains("NAV:"), "{view:?}: {footer:?}");
     }
 }
@@ -906,13 +993,24 @@ fn stats_tab_renders_rows_and_leaders() {
     let mut app = mk();
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.tab = Tab::League(League::Nfl);
-    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Stats };
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Stats,
+    };
     app.merge_stats(
         "1",
         GameStats {
             rows: vec![
-                StatRow { label: "Total Yards".into(), away: "251".into(), home: "277".into() },
-                StatRow { label: "Turnovers".into(), away: "1".into(), home: "0".into() },
+                StatRow {
+                    label: "Total Yards".into(),
+                    away: "251".into(),
+                    home: "277".into(),
+                },
+                StatRow {
+                    label: "Turnovers".into(),
+                    away: "1".into(),
+                    home: "0".into(),
+                },
             ],
             leaders: vec![Leader {
                 team: "KC".into(),
@@ -936,7 +1034,10 @@ fn stats_tab_without_data_says_no_stats_yet() {
     let mut app = mk();
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.tab = Tab::League(League::Nfl);
-    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Stats };
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Stats,
+    };
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
@@ -1002,15 +1103,27 @@ fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
         .iter()
         .find(|l| l.contains("Mahomes to Kelce"))
         .unwrap_or_else(|| panic!("NFL scoring play missing from feed:\n{s}"));
-    assert!(nfl_row.contains("NFL") && nfl_row.contains("TOUCHDOWN"), "{nfl_row}"); // spec v3.3 §7
-    assert!(nfl_row.contains("KC@TB") && nfl_row.contains("27-24"), "{nfl_row}");
+    assert!(
+        nfl_row.contains("NFL") && nfl_row.contains("TOUCHDOWN"),
+        "{nfl_row}"
+    ); // spec v3.3 §7
+    assert!(
+        nfl_row.contains("KC@TB") && nfl_row.contains("27-24"),
+        "{nfl_row}"
+    );
     let nba_row = lines
         .iter()
         .find(|l| l.contains("Tatum pull-up three"))
         .unwrap_or_else(|| panic!("NBA scoring play missing from feed:\n{s}"));
-    assert!(nba_row.contains("NBA") && nba_row.contains("BUCKET"), "{nba_row}"); // spec v3.3 §7
-    // Row 0 (the NFL play — enabled-tab order) carries the ▸ marker.
-    assert!(nfl_row.contains("▸"), "marker must start on row 0: {nfl_row}");
+    assert!(
+        nba_row.contains("NBA") && nba_row.contains("BUCKET"),
+        "{nba_row}"
+    ); // spec v3.3 §7
+       // Row 0 (the NFL play — enabled-tab order) carries the ▸ marker.
+    assert!(
+        nfl_row.contains("▸"),
+        "marker must start on row 0: {nfl_row}"
+    );
     assert!(!nba_row.contains("▸"), "only one row is marked: {nba_row}");
 }
 
@@ -1040,8 +1153,14 @@ fn plays_feed_truncates_long_play_text_and_keeps_the_score() {
         .lines()
         .find(|l| l.contains("Mahomes scrambles"))
         .unwrap_or_else(|| panic!("play row missing:\n{s}"));
-    assert!(row.contains('…'), "long play text should be truncated with an ellipsis: {row:?}");
-    assert!(row.contains("KC@TB") && row.contains("27-24"), "score must survive: {row:?}");
+    assert!(
+        row.contains('…'),
+        "long play text should be truncated with an ellipsis: {row:?}"
+    );
+    assert!(
+        row.contains("KC@TB") && row.contains("27-24"),
+        "score must survive: {row:?}"
+    );
 }
 
 #[test]
@@ -1070,7 +1189,10 @@ fn plays_feed_j_and_k_move_the_marker_and_clamp() {
         .lines()
         .find(|l| l.contains("▸"))
         .unwrap_or_else(|| panic!("no marked row:\n{s}"));
-    assert!(marked.contains("Tatum pull-up three"), "marker follows j: {marked}");
+    assert!(
+        marked.contains("Tatum pull-up three"),
+        "marker follows j: {marked}"
+    );
     // Clamped at the last row; k walks back; PgUp clamps at the top.
     gameday::input::handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.feed_scroll, 1, "clamped at the bottom (2 rows)");
@@ -1105,7 +1227,10 @@ fn standings_table() -> gameday::domain::StandingsTable {
             },
             StandingsGroup {
                 name: "National Football Conference".into(),
-                rows: vec![row("PHI", "Eagles", 12, 5, 0), row("DAL", "Cowboys", 9, 8, 0)],
+                rows: vec![
+                    row("PHI", "Eagles", 12, 5, 0),
+                    row("DAL", "Cowboys", 9, 8, 0),
+                ],
             },
         ],
         fetched_at: None,
@@ -1138,7 +1263,10 @@ fn standings_view_renders_groups_and_columns() {
     // "11" (wins) ends in the same column the header's "W" occupies.
     let w_col = header.find(" W").expect("W header") + 1;
     let wins_end = kc_row.find("11").expect("KC wins") + 1;
-    assert_eq!(wins_end, w_col, "wins not aligned under W:\nheader: {header:?}\nrow:    {kc_row:?}");
+    assert_eq!(
+        wins_end, w_col,
+        "wins not aligned under W:\nheader: {header:?}\nrow:    {kc_row:?}"
+    );
 }
 
 #[test]
@@ -1168,7 +1296,10 @@ fn standings_view_for_cfb_names_the_per_conference_workaround() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("no FBS standings right now"), "{s}");
-    assert!(s.contains(":standings <conf>"), "the workaround must be named:\n{s}");
+    assert!(
+        s.contains(":standings <conf>"),
+        "the workaround must be named:\n{s}"
+    );
     assert!(!s.contains("no standings yet"), "{s}");
 }
 
@@ -1184,7 +1315,10 @@ fn standings_header_carries_the_season_else_when_it_was_fetched() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     let header = s.lines().find(|l| l.contains("STANDINGS")).unwrap();
-    assert!(header.contains("·  updated "), "no updated label:\n{header:?}");
+    assert!(
+        header.contains("·  updated "),
+        "no updated label:\n{header:?}"
+    );
     assert!(!header.contains("2025-26"), "{header:?}");
 
     let mut table = standings_table();
@@ -1193,8 +1327,14 @@ fn standings_header_carries_the_season_else_when_it_was_fetched() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     let header = s.lines().find(|l| l.contains("STANDINGS")).unwrap();
-    assert!(header.contains("·  2025-26"), "no season label:\n{header:?}");
-    assert!(!header.contains("updated"), "season wins over the age:\n{header:?}");
+    assert!(
+        header.contains("·  2025-26"),
+        "no season label:\n{header:?}"
+    );
+    assert!(
+        !header.contains("updated"),
+        "season wins over the age:\n{header:?}"
+    );
 }
 
 #[test]
@@ -1247,7 +1387,10 @@ fn tall_standings_table() -> gameday::domain::StandingsTable {
     StandingsTable {
         league: League::Nfl,
         season: None,
-        groups: vec![group("American Football Conference", "A"), group("National Football Conference", "N")],
+        groups: vec![
+            group("American Football Conference", "A"),
+            group("National Football Conference", "N"),
+        ],
         fetched_at: None,
     }
 }
@@ -1273,9 +1416,15 @@ fn standings_scroll_clamps_to_the_pane_so_k_moves_back_at_once() {
     let bottom = app.standings_scroll;
     // The stored offset stops where the renderer stops (last line on the
     // last pane row) instead of running on to line_count - 1.
-    assert!(bottom < lines - 1, "offset must clamp against the pane: {bottom} of {lines}");
+    assert!(
+        bottom < lines - 1,
+        "offset must clamp against the pane: {bottom} of {lines}"
+    );
     let s = buf_text(&t);
-    assert!(s.contains("NTEAM17"), "bottom of the table is on screen:\n{s}");
+    assert!(
+        s.contains("NTEAM17"),
+        "bottom of the table is on screen:\n{s}"
+    );
     // One k visibly scrolls back up — no dead presses.
     gameday::input::handle_key(&mut app, KeyCode::Char('k'), KeyModifiers::NONE);
     assert_eq!(app.standings_scroll, bottom - 1);
@@ -1300,7 +1449,10 @@ fn standings_shows_a_more_marker_when_the_table_is_clipped() {
         .lines()
         .find(|l| l.contains('▼'))
         .unwrap_or_else(|| panic!("clipped table needs a ▼ more marker:\n{s}"));
-    assert!(marker.contains("BELOW"), "marker counts what's hidden: {marker}");
+    assert!(
+        marker.contains("BELOW"),
+        "marker counts what's hidden: {marker}"
+    );
     assert!(!marker.contains('▲'), "nothing above at the top: {marker}");
     for _ in 0..60 {
         gameday::input::handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
@@ -1311,7 +1463,10 @@ fn standings_shows_a_more_marker_when_the_table_is_clipped() {
         .lines()
         .find(|l| l.contains('▲'))
         .unwrap_or_else(|| panic!("scrolled table needs a ▲ marker:\n{s}"));
-    assert!(marker.contains("ABOVE") && !marker.contains('▼'), "{marker}");
+    assert!(
+        marker.contains("ABOVE") && !marker.contains('▼'),
+        "{marker}"
+    );
     // A table that fits shows no marker at all.
     let mut small = mk();
     small.view = View::Standings(League::Nfl);
@@ -1319,7 +1474,10 @@ fn standings_shows_a_more_marker_when_the_table_is_clipped() {
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| small.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(!s.contains('▼') && !s.contains('▲'), "no marker when it fits:\n{s}");
+    assert!(
+        !s.contains('▼') && !s.contains('▲'),
+        "no marker when it fits:\n{s}"
+    );
 }
 
 #[test]
@@ -1342,14 +1500,25 @@ fn feed_and_standings_footers_advertise_only_keys_that_work_there() {
             .unwrap_or_else(|| panic!("{view:?}: no key bar:\n{s}"));
         // spec v3.3 §5: lowercase, no "NAV:", no bracket-caps.
         assert!(!footer.contains("NAV:"), "{view:?}: {footer}");
-        assert!(!footer.contains("tabs"), "{view:?}: zoom's tab cycle is a no-op here: {footer}");
+        assert!(
+            !footer.contains("tabs"),
+            "{view:?}: zoom's tab cycle is a no-op here: {footer}"
+        );
         assert!(footer.contains("back"), "{view:?}: {footer}");
         // "tab league" is advertised, so Tab must actually switch tabs.
         assert!(footer.contains("league"), "{view:?}: {footer}");
         assert_eq!(app.tab, Tab::Home);
         gameday::input::handle_key(&mut app, KeyCode::Tab, KeyModifiers::NONE);
-        assert_eq!(app.tab, Tab::League(League::Nfl), "{view:?}: Tab switches league");
-        assert_eq!(app.view, View::Board, "{view:?}: a tab switch lands on the board");
+        assert_eq!(
+            app.tab,
+            Tab::League(League::Nfl),
+            "{view:?}: Tab switches league"
+        );
+        assert_eq!(
+            app.view,
+            View::Board,
+            "{view:?}: a tab switch lands on the board"
+        );
     }
 }
 
@@ -1371,7 +1540,10 @@ fn plays_feed_marks_its_end_when_the_pane_has_room() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     let lines: Vec<&str> = s.lines().collect();
-    let row = lines.iter().position(|l| l.contains("Mahomes to Kelce")).unwrap();
+    let row = lines
+        .iter()
+        .position(|l| l.contains("Mahomes to Kelce"))
+        .unwrap();
     assert!(
         lines[row + 1].contains("END OF FEED"),
         "the row after the last play closes the feed:\n{s}"
@@ -1422,7 +1594,10 @@ fn brackets_step_the_viewed_date_and_header_marks_it() {
     assert_eq!(app.viewed_date_offset.get(&League::Nfl), Some(&-1));
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.contains('‹') && s.contains('›'), "header shows the viewed date:\n{s}");
+    assert!(
+        s.contains('‹') && s.contains('›'),
+        "header shows the viewed date:\n{s}"
+    );
 
     // A merged dated board replaces the league's visible games. The date has
     // to be the one the APP is viewing: `mk()` builds it at `UtcOffset::UTC`,
@@ -1440,7 +1615,10 @@ fn brackets_step_the_viewed_date_and_header_marks_it() {
     assert!(s.contains("DAL") && s.contains("PHI"), "{s}");
     // v3.2 §1: no ticker under the board, so a traveled board shows the
     // traveled slate and nothing of today.
-    assert!(!s.contains("KC"), "today's board is hidden while traveling:\n{s}");
+    assert!(
+        !s.contains("KC"),
+        "today's board is hidden while traveling:\n{s}"
+    );
 
     // Clamped at ±7.
     for _ in 0..20 {
@@ -1451,7 +1629,13 @@ fn brackets_step_the_viewed_date_and_header_marks_it() {
     for _ in 0..7 {
         app.on_key(KeyCode::Char(']'), KeyModifiers::NONE);
     }
-    assert_eq!(app.viewed_date_offset.get(&League::Nfl).copied().unwrap_or(0), 0);
+    assert_eq!(
+        app.viewed_date_offset
+            .get(&League::Nfl)
+            .copied()
+            .unwrap_or(0),
+        0
+    );
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     assert!(!s.contains('‹'), "{s}");
@@ -1553,7 +1737,11 @@ fn clicking_a_header_tab_chip_switches_tabs() {
     // While help is open the board is modal: clicks are inert.
     app.help_open = true;
     click(&mut app, zone.x, zone.y);
-    assert_eq!(app.tab, Tab::Home, "clicks are inert under the help overlay");
+    assert_eq!(
+        app.tab,
+        Tab::Home,
+        "clicks are inert under the help overlay"
+    );
     app.help_open = false;
     click(&mut app, zone.x, zone.y);
     assert_eq!(app.tab, Tab::League(League::Nfl));
@@ -1668,7 +1856,12 @@ fn type_text(app: &mut App, text: &str) {
 #[test]
 fn config_view_renders_every_section() {
     use gameday::views::View;
-    let mut app = App::new(Config::default_all(), vec![], config_dir("sections"), time::UtcOffset::UTC);
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        config_dir("sections"),
+        time::UtcOffset::UTC,
+    );
     app.config.favorites.push(gameday::config::Favorite {
         league: League::Nfl,
         team_abbr: "KC".into(),
@@ -1678,9 +1871,19 @@ fn config_view_renders_every_section() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     for needle in [
-        "CONFIG", "TABS", "[x] NFL", "FAVORITES", "★ NFL KC", "ADD FAVORITE", "THEME", "SORT",
+        "CONFIG",
+        "TABS",
+        "[x] NFL",
+        "FAVORITES",
+        "★ NFL KC",
+        "ADD FAVORITE",
+        "THEME",
+        "SORT",
     ] {
-        assert!(s.contains(needle), "missing {needle:?} in config view:\n{s}");
+        assert!(
+            s.contains(needle),
+            "missing {needle:?} in config view:\n{s}"
+        );
     }
 }
 
@@ -1693,7 +1896,12 @@ fn config_scroll_is_per_panel_not_shared() {
     // top row (NFL) off-screen too, even though TABS never needed to
     // scroll on its own. Each panel must scroll independently.
     use gameday::views::{config_view, View};
-    let mut app = App::new(Config::default_all(), vec![], config_dir("panelscroll"), time::UtcOffset::UTC);
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        config_dir("panelscroll"),
+        time::UtcOffset::UTC,
+    );
     app.view = View::ConfigView;
     // Move the cursor to the last row: 9 tabs, ADD FAVORITE, THEME, SORT.
     for _ in 0..League::ALL.len() + 3 {
@@ -1701,7 +1909,12 @@ fn config_scroll_is_per_panel_not_shared() {
     }
     // Wide enough for two panels (>= 100), short enough that the block
     // (9 tab rows) doesn't fit in the pane.
-    let area = ratatui::layout::Rect { x: 0, y: 0, width: 120, height: 5 };
+    let area = ratatui::layout::Rect {
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 5,
+    };
     let mut t = Terminal::new(TestBackend::new(120, 5)).unwrap();
     t.draw(|f| {
         config_view::draw(&app, f, area);
@@ -1719,15 +1932,29 @@ fn config_space_toggles_a_tab_and_round_trips_config_toml() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
     let dir = config_dir("toggle");
-    let mut app = App::new(Config::default_all(), vec![], dir.clone(), time::UtcOffset::UTC);
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        dir.clone(),
+        time::UtcOffset::UTC,
+    );
     app.view = View::ConfigView;
     // Cursor starts on the first row: the NFL tab toggle.
     key(&mut app, KeyCode::Char(' '));
-    assert!(!app.config.enabled_tabs.contains(&League::Nfl), "space disables NFL");
+    assert!(
+        !app.config.enabled_tabs.contains(&League::Nfl),
+        "space disables NFL"
+    );
     let saved = Config::load_from(&dir).unwrap();
-    assert!(!saved.enabled_tabs.contains(&League::Nfl), "written through immediately");
+    assert!(
+        !saved.enabled_tabs.contains(&League::Nfl),
+        "written through immediately"
+    );
     key(&mut app, KeyCode::Char(' '));
-    assert!(app.config.enabled_tabs.contains(&League::Nfl), "space re-enables");
+    assert!(
+        app.config.enabled_tabs.contains(&League::Nfl),
+        "space re-enables"
+    );
     let saved = Config::load_from(&dir).unwrap();
     assert!(saved.enabled_tabs.contains(&League::Nfl));
 }
@@ -1737,7 +1964,12 @@ fn config_enter_adds_a_typed_favorite_and_enter_removes_it() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
     let dir = config_dir("fav");
-    let mut app = App::new(Config::default_all(), vec![], dir.clone(), time::UtcOffset::UTC);
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        dir.clone(),
+        time::UtcOffset::UTC,
+    );
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.view = View::ConfigView;
     // 9 league rows (League::ALL), then the ADD FAVORITE row.
@@ -1749,14 +1981,23 @@ fn config_enter_adds_a_typed_favorite_and_enter_removes_it() {
     key(&mut app, KeyCode::Enter);
     assert_eq!(
         app.config.favorites,
-        vec![gameday::config::Favorite { league: League::Nfl, team_abbr: "KC".into() }],
+        vec![gameday::config::Favorite {
+            league: League::Nfl,
+            team_abbr: "KC".into()
+        }],
         "abbr resolves its league from the boards"
     );
     let saved = Config::load_from(&dir).unwrap();
-    assert_eq!(saved.favorites, app.config.favorites, "written through immediately");
+    assert_eq!(
+        saved.favorites, app.config.favorites,
+        "written through immediately"
+    );
     // The new favorite row took this index; Enter on it removes the favorite.
     key(&mut app, KeyCode::Enter);
-    assert!(app.config.favorites.is_empty(), "enter on a favorite row removes it");
+    assert!(
+        app.config.favorites.is_empty(),
+        "enter on a favorite row removes it"
+    );
     let saved = Config::load_from(&dir).unwrap();
     assert!(saved.favorites.is_empty());
 }
@@ -1765,7 +2006,12 @@ fn config_enter_adds_a_typed_favorite_and_enter_removes_it() {
 fn config_favorite_miss_names_the_abbr_and_the_league_form() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
-    let mut app = App::new(Config::default_all(), vec![], config_dir("favmiss"), time::UtcOffset::UTC);
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        config_dir("favmiss"),
+        time::UtcOffset::UTC,
+    );
     app.view = View::ConfigView;
     for _ in 0..League::ALL.len() {
         key(&mut app, KeyCode::Char('j'));
@@ -1782,7 +2028,10 @@ fn config_favorite_miss_names_the_abbr_and_the_league_form() {
     key(&mut app, KeyCode::Enter);
     assert_eq!(
         app.config.favorites,
-        vec![gameday::config::Favorite { league: League::Nhl, team_abbr: "EDM".into() }]
+        vec![gameday::config::Favorite {
+            league: League::Nhl,
+            team_abbr: "EDM".into()
+        }]
     );
 }
 
@@ -1794,7 +2043,12 @@ fn config_h_l_cycle_sort_and_persist() {
     use gameday::rank::SortKey;
     use gameday::views::View;
     let dir = config_dir("cycle");
-    let mut app = App::new(Config::default_all(), vec![], dir.clone(), time::UtcOffset::UTC);
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        dir.clone(),
+        time::UtcOffset::UTC,
+    );
     app.view = View::ConfigView;
     // Rows: 9 tabs, ADD FAVORITE, THEME, SORT.
     for _ in 0..League::ALL.len() + 2 {
@@ -1813,7 +2067,12 @@ fn config_h_l_cycle_sort_and_persist() {
 fn config_esc_pops_but_cancels_an_open_edit_first() {
     use crossterm::event::KeyCode;
     use gameday::views::View;
-    let mut app = App::new(Config::default_all(), vec![], config_dir("escpop"), time::UtcOffset::UTC);
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        config_dir("escpop"),
+        time::UtcOffset::UTC,
+    );
     app.view = View::ConfigView;
     for _ in 0..League::ALL.len() {
         key(&mut app, KeyCode::Char('j'));
@@ -1821,8 +2080,15 @@ fn config_esc_pops_but_cancels_an_open_edit_first() {
     key(&mut app, KeyCode::Enter);
     type_text(&mut app, "kc");
     key(&mut app, KeyCode::Esc);
-    assert_eq!(app.view, View::ConfigView, "esc cancels the edit, not the view");
-    assert!(app.config.favorites.is_empty(), "cancelled edit commits nothing");
+    assert_eq!(
+        app.view,
+        View::ConfigView,
+        "esc cancels the edit, not the view"
+    );
+    assert!(
+        app.config.favorites.is_empty(),
+        "cancelled edit commits nothing"
+    );
     key(&mut app, KeyCode::Esc);
     assert_eq!(app.view, View::Board, "second esc pops to the board");
     // q pops too (it quits only from the Board).
@@ -1972,12 +2238,19 @@ fn zoom_overview_carries_the_linescore_with_hits_and_errors() {
         .position(|l| l.contains("  1  2  3"))
         .unwrap_or_else(|| panic!("period header missing:\n{text}"));
     let head = lines[i];
-    assert!(head.contains('R') && head.contains('H') && head.contains('E'), "{head:?}");
+    assert!(
+        head.contains('R') && head.contains('H') && head.contains('E'),
+        "{head:?}"
+    );
     // Away row: per-inning runs, then R H E — R is the game score, not a sum.
     let away = lines[i + 1];
     assert!(away.trim_start().starts_with("SEA"), "away row: {away:?}");
     assert!(away.contains("  1  0  2   3  8  0"), "away R H E: {away:?}");
-    assert!(lines[i + 2].contains("  0  2  0   2  5  1"), "home R H E: {:?}", lines[i + 2]);
+    assert!(
+        lines[i + 2].contains("  0  2  0   2  5  1"),
+        "home R H E: {:?}",
+        lines[i + 2]
+    );
     // A short pane keeps the tile whole instead of a headless strip.
     let mut short = Terminal::new(TestBackend::new(120, 19)).unwrap();
     short.draw(|f| app.draw(f)).unwrap();
@@ -1998,8 +2271,12 @@ fn the_linescore_wears_team_colors() {
     let mut game = g("1", "KC", "TB", true);
     game.linescore = vec![(1, 0), (0, 2), (2, 0)];
     let periods = game.linescore.len();
-    let (away_color, home_color, _) = gameday::theme::hero_pair(&th, game.away.color, game.home.color);
-    assert_ne!(away_color, home_color, "the two rows must not collapse to one color");
+    let (away_color, home_color, _) =
+        gameday::theme::hero_pair(&th, game.away.color, game.home.color);
+    assert_ne!(
+        away_color, home_color,
+        "the two rows must not collapse to one color"
+    );
 
     let mut app = mk();
     app.apply_boards(League::Nfl, vec![game], false);
@@ -2019,17 +2296,29 @@ fn the_linescore_wears_team_colors() {
         .unwrap_or_else(|| panic!("period header missing:\n{text}"));
     let away_y = (head_i + 1) as u16;
     let home_y = (head_i + 2) as u16;
-    assert_eq!(b[(0, away_y)].fg, away_color, "KC linescore row wears the away hero color:\n{text}");
-    assert_eq!(b[(0, home_y)].fg, home_color, "TB linescore row wears the home hero color:\n{text}");
+    assert_eq!(
+        b[(0, away_y)].fg,
+        away_color,
+        "KC linescore row wears the away hero color:\n{text}"
+    );
+    assert_eq!(
+        b[(0, home_y)].fg,
+        home_color,
+        "TB linescore row wears the home hero color:\n{text}"
+    );
     // Totals column ("R"): the last cell of the right-aligned 4-wide `R`
     // field, same absolute column on both rows regardless of digit count.
     let totals_x = (5 + 3 * periods + 3) as u16;
     assert!(
-        b[(totals_x, away_y)].modifier.contains(ratatui::style::Modifier::BOLD),
+        b[(totals_x, away_y)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD),
         "away totals column stays bold:\n{text}"
     );
     assert!(
-        b[(totals_x, home_y)].modifier.contains(ratatui::style::Modifier::BOLD),
+        b[(totals_x, home_y)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD),
         "home totals column stays bold:\n{text}"
     );
 }
@@ -2108,14 +2397,28 @@ fn zoom_logo_flanks_are_symmetric_or_absent() {
     // Only KC (away) has committed art; BUF's key is unknown.
     let one_sided = game("nfl/kc", "nfl/zzz");
     let term = render(&one_sided);
-    assert_eq!(painted(&term, 0..20), 0, "one committed mark must not draw its own flank");
-    assert_eq!(painted(&term, 100..120), 0, "…and the other side must stay empty too");
+    assert_eq!(
+        painted(&term, 0..20),
+        0,
+        "one committed mark must not draw its own flank"
+    );
+    assert_eq!(
+        painted(&term, 100..120),
+        0,
+        "…and the other side must stay empty too"
+    );
 
     // Both KC and BUF have committed art: both flanks draw.
     let both = game("nfl/kc", "nfl/buf");
     let term = render(&both);
-    assert!(painted(&term, 0..20) > 0, "both marks committed: away flank must draw");
-    assert!(painted(&term, 100..120) > 0, "both marks committed: home flank must draw");
+    assert!(
+        painted(&term, 0..20) > 0,
+        "both marks committed: away flank must draw"
+    );
+    assert!(
+        painted(&term, 100..120) > 0,
+        "both marks committed: home flank must draw"
+    );
 
     // The height axis: nfl/kc is 6 rows tall, nfl/tb is 8. At a band height
     // of 7 (h=8, one row under the nameplate less than the reference 12),
@@ -2128,12 +2431,22 @@ fn zoom_logo_flanks_are_symmetric_or_absent() {
     };
     let mismatched = game("nfl/kc", "nfl/tb");
     let term = render_at(&mismatched, 8); // band.height = 7: KC (6) fits, TB (8) doesn't
-    assert_eq!(painted(&term, 0..20), 0, "a short mark must not draw when the tall one doesn't fit");
+    assert_eq!(
+        painted(&term, 0..20),
+        0,
+        "a short mark must not draw when the tall one doesn't fit"
+    );
     assert_eq!(painted(&term, 100..120), 0, "…on either side");
 
     let term = render_at(&mismatched, 9); // band.height = 8: both KC and TB fit
-    assert!(painted(&term, 0..20) > 0, "both marks fit the taller band: away flank must draw");
-    assert!(painted(&term, 100..120) > 0, "both marks fit the taller band: home flank must draw");
+    assert!(
+        painted(&term, 0..20) > 0,
+        "both marks fit the taller band: away flank must draw"
+    );
+    assert!(
+        painted(&term, 100..120) > 0,
+        "both marks fit the taller band: home flank must draw"
+    );
 }
 
 #[test]
@@ -2166,9 +2479,14 @@ fn header_chip_is_its_own_cell_and_offline_names_the_error() {
     wide.draw(|f| app.draw(f)).unwrap();
     let row: String = {
         let b = wide.backend().buffer();
-        (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect()
+        (0..b.area().width)
+            .map(|x| b[(x, 0)].symbol().to_string())
+            .collect()
     };
-    assert!(row.contains("OFFLINE · retry 40s  "), "chip padded: {row:?}");
+    assert!(
+        row.contains("OFFLINE · retry 40s  "),
+        "chip padded: {row:?}"
+    );
     let chip_end = row.find("retry 40s").unwrap() + "retry 40s".len();
     assert!(
         row[chip_end..].trim_start().len() > 8,
@@ -2192,8 +2510,13 @@ fn a_narrow_header_shortens_the_chip_instead_of_chopping_it() {
     let mut t = Terminal::new(TestBackend::new(50, 40)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let b = t.backend().buffer();
-    let row: String = (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect();
-    assert!(row.contains("OFFLINE"), "chip survives a narrow header: {row:?}");
+    let row: String = (0..b.area().width)
+        .map(|x| b[(x, 0)].symbol().to_string())
+        .collect();
+    assert!(
+        row.contains("OFFLINE"),
+        "chip survives a narrow header: {row:?}"
+    );
     assert!(!row.contains("retry 4"), "chopped retry tail: {row:?}");
 }
 
@@ -2207,11 +2530,17 @@ fn header_shows_sort_key_and_only_leagues_with_games() {
     let first = buf_text(&t).lines().next().unwrap().to_string();
     assert!(first.contains("s SORT: WATCH"), "{first}");
     assert!(first.contains("NFL"), "{first}");
-    assert!(!first.contains("NBA"), "a league with no games gets no chip: {first}");
+    assert!(
+        !first.contains("NBA"),
+        "a league with no games gets no chip: {first}"
+    );
 
     // The sort chip is Board-only — it disappears in Zoom.
     use gameday::views::{View, ZoomTab};
-    app.view = View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview };
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
     let mut tz = Terminal::new(TestBackend::new(180, 40)).unwrap();
     tz.draw(|f| app.draw(f)).unwrap();
     let zoomed_first = buf_text(&tz).lines().next().unwrap().to_string();
@@ -2226,7 +2555,10 @@ fn header_shows_sort_key_and_only_leagues_with_games() {
         let mut t = Terminal::new(TestBackend::new(width, 40)).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
         let row = buf_text(&t).lines().next().unwrap().to_string();
-        assert!(row.contains("9:37:05 PM"), "clock clipped at {width} with the sort chip: {row:?}");
+        assert!(
+            row.contains("9:37:05 PM"),
+            "clock clipped at {width} with the sort chip: {row:?}"
+        );
     }
 }
 
@@ -2238,7 +2570,12 @@ fn header_shows_sort_key_and_only_leagues_with_games() {
 /// boardless fixture render 0-1 chips regardless of the name (task-9 review
 /// carry-forward #1).
 fn app_with_every_league_live() -> App {
-    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::UTC,
+    );
     for league in League::ALL {
         let mut game = g("1", "AAA", "BBB", true);
         game.league = league;
@@ -2324,22 +2661,48 @@ fn the_clock_survives_every_width_the_board_will_draw_at() {
             let mut t = Terminal::new(TestBackend::new(width, 40)).unwrap();
             t.draw(|f| app.draw(f)).unwrap();
             let b = t.backend().buffer();
-            let row: String = (0..b.area().width).map(|x| b[(x, 0)].symbol().to_string()).collect();
-            assert!(row.contains("9:37:05 PM"), "clock clipped at {width} tab={tab:?}: {row:?}");
-            assert!(!row.contains("YET9") && !row.contains("YETMON"), "chip glued at {width} tab={tab:?}: {row:?}");
+            let row: String = (0..b.area().width)
+                .map(|x| b[(x, 0)].symbol().to_string())
+                .collect();
+            assert!(
+                row.contains("9:37:05 PM"),
+                "clock clipped at {width} tab={tab:?}: {row:?}"
+            );
+            assert!(
+                !row.contains("YET9") && !row.contains("YETMON"),
+                "chip glued at {width} tab={tab:?}: {row:?}"
+            );
         }
     }
 }
 
 #[test]
 fn command_completion_shows_the_candidates_in_the_footer() {
-    let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir(), time::UtcOffset::UTC);
-    for c in [':', 'n'] { gameday::input::handle_key(&mut app, crossterm::event::KeyCode::Char(c), crossterm::event::KeyModifiers::NONE); }
-    gameday::input::handle_key(&mut app, crossterm::event::KeyCode::Tab, crossterm::event::KeyModifiers::NONE);
+    let mut app = App::new(
+        Config::default_all(),
+        vec![],
+        std::env::temp_dir(),
+        time::UtcOffset::UTC,
+    );
+    for c in [':', 'n'] {
+        gameday::input::handle_key(
+            &mut app,
+            crossterm::event::KeyCode::Char(c),
+            crossterm::event::KeyModifiers::NONE,
+        );
+    }
+    gameday::input::handle_key(
+        &mut app,
+        crossterm::event::KeyCode::Tab,
+        crossterm::event::KeyModifiers::NONE,
+    );
     let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
     term.draw(|f| app.draw(f)).unwrap();
     let last = buf_text(&term).lines().last().unwrap().to_string();
-    assert!(last.contains(":nfl") && last.contains("nba") && last.contains("nhl"), "{last}");
+    assert!(
+        last.contains(":nfl") && last.contains("nba") && last.contains("nhl"),
+        "{last}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2350,9 +2713,18 @@ fn command_completion_shows_the_candidates_in_the_footer() {
 /// observable.
 fn board_games(live: usize, finals: usize, later: usize) -> Vec<Game> {
     const PAIRS: [(&str, &str); 12] = [
-        ("KC", "TB"), ("DAL", "PHI"), ("GB", "CHI"), ("SF", "SEA"),
-        ("BUF", "MIA"), ("NYJ", "NE"), ("DEN", "LV"), ("ATL", "NO"),
-        ("CIN", "BAL"), ("PIT", "CLE"), ("HOU", "IND"), ("MIN", "DET"),
+        ("KC", "TB"),
+        ("DAL", "PHI"),
+        ("GB", "CHI"),
+        ("SF", "SEA"),
+        ("BUF", "MIA"),
+        ("NYJ", "NE"),
+        ("DEN", "LV"),
+        ("ATL", "NO"),
+        ("CIN", "BAL"),
+        ("PIT", "CLE"),
+        ("HOU", "IND"),
+        ("MIN", "DET"),
     ];
     let mut out = Vec::new();
     let mut next = 0usize;
@@ -2393,7 +2765,10 @@ fn the_board_is_one_ranked_list_with_sections() {
     let s = buf_text(&term);
     assert!(!s.contains("MY GAMES"), "no pins, no band:\n{s}");
     assert!(s.contains("IN PLAY"), "the live section names itself:\n{s}");
-    assert!(s.contains("SORTED BY WATCHABILITY"), "the rule names the sort:\n{s}");
+    assert!(
+        s.contains("SORTED BY WATCHABILITY"),
+        "the rule names the sort:\n{s}"
+    );
     assert!(s.contains("FINAL"), "FINAL section:\n{s}");
     assert!(s.contains("LATER"), "LATER section:\n{s}");
     // The hero's digits are drawn as glyph cells, not as "27 - 24" text — and
@@ -2417,7 +2792,10 @@ fn the_board_is_one_ranked_list_with_sections() {
     // Spec §7: the tile grammar is gone — no borders, no MOMENTUM rail, no
     // SLATE strip, no GLOBAL ALERTS sidebar.
     for dead in ['┌', '┐', '└', '┘'] {
-        assert!(!s.contains(dead), "no box-drawing on the board ({dead}):\n{s}");
+        assert!(
+            !s.contains(dead),
+            "no box-drawing on the board ({dead}):\n{s}"
+        );
     }
     for dead in ["MOMENTUM", "SLATE", "GLOBAL ALERTS", "TOP PLAYS", "RECORDS"] {
         assert!(!s.contains(dead), "{dead} is deleted:\n{s}");
@@ -2434,14 +2812,26 @@ fn a_section_with_no_rows_renders_no_header() {
     // Live games, zero later: no LATER header anywhere in the buffer.
     let mut app = board_app(6, 2, 0);
     let term = render(&mut app, 120, 40);
-    assert!(!row_contains(&term, "LATER ─"), "no later games, no LATER header");
-    assert!(row_contains(&term, "FINAL ─"), "the FINAL section still renders");
+    assert!(
+        !row_contains(&term, "LATER ─"),
+        "no later games, no LATER header"
+    );
+    assert!(
+        row_contains(&term, "FINAL ─"),
+        "the FINAL section still renders"
+    );
 
     // Live games, zero finals: no FINAL header anywhere in the buffer.
     let mut app = board_app(6, 0, 2);
     let term = render(&mut app, 120, 40);
-    assert!(!row_contains(&term, "FINAL ─"), "no final games, no FINAL header");
-    assert!(row_contains(&term, "LATER ─"), "the LATER section still renders");
+    assert!(
+        !row_contains(&term, "FINAL ─"),
+        "no final games, no FINAL header"
+    );
+    assert!(
+        row_contains(&term, "LATER ─"),
+        "the LATER section still renders"
+    );
 }
 
 /// True when `needle` appears whole inside some row of the buffer — a
@@ -2469,9 +2859,18 @@ fn a_truncated_section_renders_no_orphan_rule() {
     let mut app = board_app(0, 8, 8);
     let term = render(&mut app, 60, 13);
     let s = buf_text(&term);
-    assert!(!row_contains(&term, "LATER ─"), "no orphan LATER rule at 60x13:\n{s}");
-    assert!(s.contains("SCORES"), "the lane still fires for the truncated games:\n{s}");
-    assert!(s.contains("8 LATER"), "the lane still counts every later game:\n{s}");
+    assert!(
+        !row_contains(&term, "LATER ─"),
+        "no orphan LATER rule at 60x13:\n{s}"
+    );
+    assert!(
+        s.contains("SCORES"),
+        "the lane still fires for the truncated games:\n{s}"
+    );
+    assert!(
+        s.contains("8 LATER"),
+        "the lane still counts every later game:\n{s}"
+    );
 
     // FINAL orphan: 6 live + 6 final + 6 later at 60x16, selection at the
     // top — IN PLAY's rows eat the window, FINAL's rule used to draw bare
@@ -2480,9 +2879,18 @@ fn a_truncated_section_renders_no_orphan_rule() {
     app.selected = 0;
     let term = render(&mut app, 60, 16);
     let s = buf_text(&term);
-    assert!(!row_contains(&term, "FINAL ─"), "no orphan FINAL rule at 60x16:\n{s}");
-    assert!(!row_contains(&term, "LATER ─"), "no orphan LATER rule either at 60x16:\n{s}");
-    assert!(s.contains("SCORES"), "the lane still fires for the truncated games:\n{s}");
+    assert!(
+        !row_contains(&term, "FINAL ─"),
+        "no orphan FINAL rule at 60x16:\n{s}"
+    );
+    assert!(
+        !row_contains(&term, "LATER ─"),
+        "no orphan LATER rule either at 60x16:\n{s}"
+    );
+    assert!(
+        s.contains("SCORES"),
+        "the lane still fires for the truncated games:\n{s}"
+    );
     // v3.3 §3: two of this window's 16 rows are the band's reservation, so a
     // LIVE game is off-screen here too — and the lane names live games before
     // it counts anything (spec §1), which is the whole point of the lane.
@@ -2500,9 +2908,18 @@ fn a_section_granted_rows_still_shows_its_rule() {
     let mut app = board_app(2, 2, 2);
     let term = render(&mut app, 120, 40);
     let s = buf_text(&term);
-    assert!(row_contains(&term, "FINAL ─"), "FINAL still renders when it has room:\n{s}");
-    assert!(row_contains(&term, "LATER ─"), "LATER still renders when it has room:\n{s}");
-    assert!(!s.contains("SCORES"), "everything fits, no lane needed:\n{s}");
+    assert!(
+        row_contains(&term, "FINAL ─"),
+        "FINAL still renders when it has room:\n{s}"
+    );
+    assert!(
+        row_contains(&term, "LATER ─"),
+        "LATER still renders when it has room:\n{s}"
+    );
+    assert!(
+        !s.contains("SCORES"),
+        "everything fits, no lane needed:\n{s}"
+    );
 }
 
 #[test]
@@ -2533,8 +2950,14 @@ fn pinned_games_sit_in_a_band_that_never_resorts() {
         // v3.3 §3: the MY GAMES rule is hoisted into the band's reserved two
         // rows, so the row directly under it is the reservation's air and the
         // band's own rows start one lower.
-        assert!(lines[at + 1].trim().is_empty(), "the reserved air row:\n{s}");
-        lines[at + 2..at + 4].iter().map(|l| l.trim().to_string()).collect()
+        assert!(
+            lines[at + 1].trim().is_empty(),
+            "the reserved air row:\n{s}"
+        );
+        lines[at + 2..at + 4]
+            .iter()
+            .map(|l| l.trim().to_string())
+            .collect()
     };
     let forward = band_rows(vec![pin("p0"), pin("p1")]);
     let backward = band_rows(vec![pin("p1"), pin("p0")]);
@@ -2552,21 +2975,36 @@ fn selection_walks_the_whole_list_and_scrolls() {
     // the window has to MOVE, not just highlight.
     let mut app = board_app(12, 6, 6);
     let opening = buf_text(&render(&mut app, 120, 24));
-    assert!(opening.contains("IN PLAY"), "the board opens at the top:\n{opening}");
-    assert!(!opening.contains("LATER"), "LATER starts off-screen:\n{opening}");
+    assert!(
+        opening.contains("IN PLAY"),
+        "the board opens at the top:\n{opening}"
+    );
+    assert!(
+        !opening.contains("LATER"),
+        "LATER starts off-screen:\n{opening}"
+    );
 
     for _ in 0..20 {
         key(&mut app, crossterm::event::KeyCode::Char('j'));
     }
-    assert_eq!(app.selected, 20, "j walks the whole list — 24 games, no wrap");
+    assert_eq!(
+        app.selected, 20,
+        "j walks the whole list — 24 games, no wrap"
+    );
 
     let term = render(&mut app, 120, 24);
     let buf = term.backend().buffer();
     let s = buf_text(&term);
     // The window moved: what was at the top is gone, what was off the bottom
     // is here.
-    assert!(!s.contains("IN PLAY"), "the top of the list scrolled away:\n{s}");
-    assert!(s.contains("LATER"), "the window followed the selection:\n{s}");
+    assert!(
+        !s.contains("IN PLAY"),
+        "the top of the list scrolled away:\n{s}"
+    );
+    assert!(
+        s.contains("LATER"),
+        "the window followed the selection:\n{s}"
+    );
 
     // The selected row is on screen, cell-level: a `bright` caret in the
     // nudge gutter, on the row that carries the selected game.
@@ -2608,15 +3046,19 @@ fn the_window_math_holds_at_odd_heights() {
         let buf = term.backend().buffer();
         let s = buf_text(&term);
         let lines: Vec<&str> = s.lines().collect();
-        assert_eq!(lines.len(), h as usize, "the frame is exactly h={h} rows:\n{s}");
+        assert_eq!(
+            lines.len(),
+            h as usize,
+            "the frame is exactly h={h} rows:\n{s}"
+        );
 
         // The selected row is visible: the bright caret in the nudge gutter.
         let bright = gameday::theme::current().bright;
         let caret_y = (0..buf.area().height).find(|&y| {
             (0..buf.area().width).any(|x| buf[(x, y)].symbol() == "▸" && buf[(x, y)].fg == bright)
         });
-        let caret_y = caret_y
-            .unwrap_or_else(|| panic!("selected row must be on screen at h={h}:\n{s}"));
+        let caret_y =
+            caret_y.unwrap_or_else(|| panic!("selected row must be on screen at h={h}:\n{s}"));
 
         // The footer is the last row and the lane, when it exists, is the row
         // above it. Neither may be overwritten by a board row, and the caret
@@ -2656,7 +3098,10 @@ fn the_ticker_is_gone_at_40_rows_and_the_lane_appears_when_truncated() {
     let mut app = board_app(4, 0, 0);
     let s = buf_text(&render(&mut app, 120, 40));
     assert!(!s.contains("SCORES"), "everything fits — no lane:\n{s}");
-    assert!(!s.contains("ALERTS"), "the v3.1 ticker is gone from the board:\n{s}");
+    assert!(
+        !s.contains("ALERTS"),
+        "the v3.1 ticker is gone from the board:\n{s}"
+    );
 
     let mut app = board_app(10, 2, 4);
     let term = render(&mut app, 80, 24);
@@ -2670,9 +3115,15 @@ fn the_ticker_is_gone_at_40_rows_and_the_lane_appears_when_truncated() {
     // happens to say SCORES somewhere on the board.
     let buf = term.backend().buffer();
     let r = gameday::theme::current().roles();
-    assert_eq!(buf[(0, lane_y)].fg, r.cool, "SCORES label wears the rule color:\n{s}");
+    assert_eq!(
+        buf[(0, lane_y)].fg,
+        r.cool,
+        "SCORES label wears the rule color:\n{s}"
+    );
     assert!(
-        buf[(0, lane_y)].modifier.contains(ratatui::style::Modifier::BOLD),
+        buf[(0, lane_y)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD),
         "SCORES label is bold:\n{s}"
     );
     // The lane accounts for exactly what didn't fit. Here every live game is
@@ -2687,7 +3138,11 @@ fn the_ticker_is_gone_at_40_rows_and_the_lane_appears_when_truncated() {
         lane.contains("4 OFF-SCREEN") && lane.contains("4 LATER"),
         "the lane counts exactly what is not drawn:\n{s}"
     );
-    assert_eq!(drawn.matches("LATER").count(), 0, "no orphan LATER rule:\n{s}");
+    assert_eq!(
+        drawn.matches("LATER").count(),
+        0,
+        "no orphan LATER rule:\n{s}"
+    );
 }
 
 #[test]
@@ -2700,7 +3155,10 @@ fn scores_lane_lists_off_screen_games_only() {
     use gameday::views::{View, ZoomTab};
     let mut app = board_app(10, 2, 4);
     app.tab = Tab::League(League::Nfl);
-    app.view = View::Zoom { game_id: "l0".into(), tab: ZoomTab::Overview };
+    app.view = View::Zoom {
+        game_id: "l0".into(),
+        tab: ZoomTab::Overview,
+    };
     let small_term = render(&mut app, 80, 24);
     let small = buf_text(&small_term);
     assert!(
@@ -2715,18 +3173,33 @@ fn scores_lane_lists_off_screen_games_only() {
         .position(|l| l.contains("SCORES"))
         .expect("SCORES line") as u16;
     let footer_y = small.lines().count() as u16 - 1;
-    assert!(lane_y < footer_y, "the lane is above the footer, not on it:\n{small}");
+    assert!(
+        lane_y < footer_y,
+        "the lane is above the footer, not on it:\n{small}"
+    );
     let buf = small_term.backend().buffer();
-    let x = small.lines().nth(lane_y as usize).unwrap().find("SCORES").unwrap() as u16;
+    let x = small
+        .lines()
+        .nth(lane_y as usize)
+        .unwrap()
+        .find("SCORES")
+        .unwrap() as u16;
     // This is `ticker::draw_lane` (every other view's lane), not
     // `board::mod::draw_lane` — its own grammar, `th.muted` gutter, not the
     // Board's section-rule `cool`.
     let th = gameday::theme::current();
-    assert_eq!(buf[(x, lane_y)].fg, th.muted, "the lane label wears the ticker's gutter color:\n{small}");
+    assert_eq!(
+        buf[(x, lane_y)].fg,
+        th.muted,
+        "the lane label wears the ticker's gutter color:\n{small}"
+    );
 
     let mut wide_app = board_app(4, 0, 0);
     wide_app.tab = Tab::League(League::Nfl);
-    wide_app.view = View::Zoom { game_id: "l0".into(), tab: ZoomTab::Overview };
+    wide_app.view = View::Zoom {
+        game_id: "l0".into(),
+        tab: ZoomTab::Overview,
+    };
     let wide = buf_text(&render(&mut wide_app, 120, 40));
     assert!(
         !wide.contains("SCORES"),
@@ -2737,7 +3210,11 @@ fn scores_lane_lists_off_screen_games_only() {
     // SCORES lane, its own inline one.
     let mut board_view = board_app(10, 2, 4);
     let board_s = buf_text(&render(&mut board_view, 80, 24));
-    assert_eq!(board_s.matches("SCORES").count(), 1, "one lane, one owner:\n{board_s}");
+    assert_eq!(
+        board_s.matches("SCORES").count(),
+        1,
+        "one lane, one owner:\n{board_s}"
+    );
 }
 
 // ---- Task 14: the size sweep -----------------------------------------------
@@ -2746,14 +3223,28 @@ fn scores_lane_lists_off_screen_games_only() {
 /// later, 2 pinned. All NFL, distinct abbrs so a row is identifiable.
 fn sweep_games() -> Vec<Game> {
     const PAIRS: [(&str, &str); 14] = [
-        ("KC", "TB"), ("DAL", "PHI"), ("GB", "CHI"), ("SF", "SEA"),
-        ("BUF", "MIA"), ("NYJ", "NE"), ("DEN", "LV"), ("ATL", "NO"),
-        ("CIN", "BAL"), ("PIT", "CLE"), ("HOU", "IND"), ("MIN", "DET"),
-        ("LAR", "ARI"), ("NYG", "WSH"),
+        ("KC", "TB"),
+        ("DAL", "PHI"),
+        ("GB", "CHI"),
+        ("SF", "SEA"),
+        ("BUF", "MIA"),
+        ("NYJ", "NE"),
+        ("DEN", "LV"),
+        ("ATL", "NO"),
+        ("CIN", "BAL"),
+        ("PIT", "CLE"),
+        ("HOU", "IND"),
+        ("MIN", "DET"),
+        ("LAR", "ARI"),
+        ("NYG", "WSH"),
     ];
     let mut out = Vec::new();
     let mut next = 0usize;
-    for (tag, n, status) in [("l", 8, Status::Live), ("f", 3, Status::Final), ("p", 3, Status::Pre)] {
+    for (tag, n, status) in [
+        ("l", 8, Status::Live),
+        ("f", 3, Status::Final),
+        ("p", 3, Status::Pre),
+    ] {
         for i in 0..n {
             let (away, home) = PAIRS[next % PAIRS.len()];
             next += 1;
@@ -2775,8 +3266,16 @@ fn sweep_app() -> App {
     // Two pins, per the brief — the last two later games (never the hero,
     // which only ever comes from a live game — R26).
     app.pins = vec![
-        gameday::config::Pin { game_id: "p1".into(), league: League::Nfl, final_at: None },
-        gameday::config::Pin { game_id: "p2".into(), league: League::Nfl, final_at: None },
+        gameday::config::Pin {
+            game_id: "p1".into(),
+            league: League::Nfl,
+            final_at: None,
+        },
+        gameday::config::Pin {
+            game_id: "p2".into(),
+            league: League::Nfl,
+            final_at: None,
+        },
     ];
     app.apply_boards(League::Nfl, games, false);
     app.tab = Tab::League(League::Nfl);
@@ -2819,7 +3318,11 @@ fn the_board_survives_every_size_the_app_will_draw_at() {
                     c.symbol() == "▸" && c.fg == gameday::theme::current().bright
                 })
             });
-            assert!(has_caret, "{w}x{h}: selected row must be visible after 10 j presses:\n{}", buf_text(&t2));
+            assert!(
+                has_caret,
+                "{w}x{h}: selected row must be visible after 10 j presses:\n{}",
+                buf_text(&t2)
+            );
 
             // If h>=12 the hero (or compact hero) exists: its game's away
             // abbr appears above the IN PLAY rule (or above MY GAMES, when
@@ -2852,7 +3355,8 @@ fn the_board_survives_every_size_the_app_will_draw_at() {
             // trailing air.
             if let Some(line) = lines.iter().find(|l| l.contains("SCORES")) {
                 if let Some(cut) = line.find('…') {
-                    let after: String = line.chars().skip(line[..cut].chars().count() + 1).collect();
+                    let after: String =
+                        line.chars().skip(line[..cut].chars().count() + 1).collect();
                     assert!(
                         after.trim().is_empty(),
                         "{w}x{h}: SCORES lane has content glued after its ellipsis: {line:?}"
@@ -2872,9 +3376,12 @@ fn caret_pair(term: &Terminal<TestBackend>) -> Option<(String, String)> {
     let buf = term.backend().buffer();
     let area = *buf.area();
     let bright = gameday::theme::current().bright;
-    let y = (0..area.height)
-        .find(|&y| (0..area.width).any(|x| buf[(x, y)].symbol() == "▸" && buf[(x, y)].fg == bright))?;
-    let row: String = (0..area.width).map(|x| buf[(x, y)].symbol().to_string()).collect();
+    let y = (0..area.height).find(|&y| {
+        (0..area.width).any(|x| buf[(x, y)].symbol() == "▸" && buf[(x, y)].fg == bright)
+    })?;
+    let row: String = (0..area.width)
+        .map(|x| buf[(x, y)].symbol().to_string())
+        .collect();
     for (away, home) in SWEEP_PAIRS {
         if row.contains(away) && row.contains(home) {
             return Some((away.to_string(), home.to_string()));
@@ -2884,10 +3391,20 @@ fn caret_pair(term: &Terminal<TestBackend>) -> Option<(String, String)> {
 }
 
 const SWEEP_PAIRS: [(&str, &str); 14] = [
-    ("KC", "TB"), ("DAL", "PHI"), ("GB", "CHI"), ("SF", "SEA"),
-    ("BUF", "MIA"), ("NYJ", "NE"), ("DEN", "LV"), ("ATL", "NO"),
-    ("CIN", "BAL"), ("PIT", "CLE"), ("HOU", "IND"), ("MIN", "DET"),
-    ("LAR", "ARI"), ("NYG", "WSH"),
+    ("KC", "TB"),
+    ("DAL", "PHI"),
+    ("GB", "CHI"),
+    ("SF", "SEA"),
+    ("BUF", "MIA"),
+    ("NYJ", "NE"),
+    ("DEN", "LV"),
+    ("ATL", "NO"),
+    ("CIN", "BAL"),
+    ("PIT", "CLE"),
+    ("HOU", "IND"),
+    ("MIN", "DET"),
+    ("LAR", "ARI"),
+    ("NYG", "WSH"),
 ];
 
 #[test]
@@ -2907,7 +3424,10 @@ fn resize_relayouts_from_the_same_list() {
     let mut narrow = Terminal::new(TestBackend::new(80, 24)).unwrap();
     narrow.draw(|f| app.draw(f)).unwrap();
     let narrow_pair = caret_pair(&narrow).expect("a selected row is on screen at 80x24");
-    assert_eq!(wide_pair, narrow_pair, "selection survives a resize, by identity");
+    assert_eq!(
+        wide_pair, narrow_pair,
+        "selection survives a resize, by identity"
+    );
 
     // The hero may demote (drop its digit form, or lose the flanks) but the
     // same game keeps being the hero: its abbr pair still appears above the
@@ -3017,8 +3537,14 @@ fn the_takeover_and_the_hero_agree_on_every_digit_cell() {
     for (w, h, want_full, floor) in [(120u16, 40u16, true, 32usize), (80, 19, false, 30)] {
         let area = Rect::new(0, 1, w, h - 1); // everything under the header row
         let (slot, full) = gameday::board::cut::score_slot(area, &game, &play);
-        assert!(slot.width > 0 && slot.height > 0, "{w}x{h}: the takeover must reserve a score band");
-        assert_eq!(full, want_full, "{w}x{h}: this size is here to exercise the other rung");
+        assert!(
+            slot.width > 0 && slot.height > 0,
+            "{w}x{h}: the takeover must reserve a score band"
+        );
+        assert_eq!(
+            full, want_full,
+            "{w}x{h}: this size is here to exercise the other rung"
+        );
 
         let mut cut = Terminal::new(TestBackend::new(w, h)).unwrap();
         let fired = gameday::board::cut::Cut {
@@ -3055,7 +3581,10 @@ fn the_takeover_and_the_hero_agree_on_every_digit_cell() {
                 }
             }
         }
-        assert!(painted >= floor, "{w}x{h}: the score has to actually be drawn: {painted} cells");
+        assert!(
+            painted >= floor,
+            "{w}x{h}: the score has to actually be drawn: {painted} cells"
+        );
     }
 }
 
@@ -3072,18 +3601,40 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     let rows: Vec<&str> = s.lines().collect();
-    assert!(rows[0].contains("GAMEDAY"), "the header row survives the cut:\n{s}");
-    assert!(!s.contains("IN PLAY"), "the board is not drawn behind the takeover:\n{s}");
+    assert!(
+        rows[0].contains("GAMEDAY"),
+        "the header row survives the cut:\n{s}"
+    );
+    assert!(
+        !s.contains("IN PLAY"),
+        "the board is not drawn behind the takeover:\n{s}"
+    );
     // The word is block letters, so it is cells in the hot role, not text.
     let b = t.backend().buffer();
     let hot = (1..40u16)
-        .map(|y| (0..120u16).filter(|&x| b[(x, y)].fg == r.hot && b[(x, y)].symbol() != " ").count())
+        .map(|y| {
+            (0..120u16)
+                .filter(|&x| b[(x, y)].fg == r.hot && b[(x, y)].symbol() != " ")
+                .count()
+        })
         .sum::<usize>();
-    assert!(hot >= 40, "TOUCHDOWN must be painted in block letters: {hot} hot cells\n{s}"); // spec v3.3 §7
-    assert!(s.contains("CHIEFS AT BILLS"), "the dim strip names the game:\n{s}");
-    assert!(s.contains("MAHOMES"), "the detail line comes from the play:\n{s}");
+    assert!(
+        hot >= 40,
+        "TOUCHDOWN must be painted in block letters: {hot} hot cells\n{s}"
+    ); // spec v3.3 §7
+    assert!(
+        s.contains("CHIEFS AT BILLS"),
+        "the dim strip names the game:\n{s}"
+    );
+    assert!(
+        s.contains("MAHOMES"),
+        "the detail line comes from the play:\n{s}"
+    );
     // Spec §3's chip, verbatim, on the takeover's one filled element.
-    assert!(rows[1].contains("▲ SCORING PLAY · KC"), "the takeover chip is the spec's:\n{s}");
+    assert!(
+        rows[1].contains("▲ SCORING PLAY · KC"),
+        "the takeover chip is the spec's:\n{s}"
+    );
     let chip_x = rows[1].chars().position(|c| c == '▲').unwrap() as u16;
     assert_eq!(
         t.backend().buffer()[(chip_x, 1)].bg,
@@ -3101,15 +3652,24 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     let rows: Vec<&str> = s.lines().collect();
     // Spec §3 / ruling R33: `▲ HOME RUN · TEX Seager (32) · ATH 0 TEX 5` on a
     // hot ground, two rows, above an intact list.
-    assert!(rows[1].starts_with("▲ TOUCHDOWN · KC MAHOMES · KC 24 BUF 21"), "band headline:\n{s}"); // spec v3.3 §7
-    // spec v3.3 §3: row two stopped repeating the play and became the
-    // affordance — what enter does, and how long the band has left.
+    assert!(
+        rows[1].starts_with("▲ TOUCHDOWN · KC MAHOMES · KC 24 BUF 21"),
+        "band headline:\n{s}"
+    ); // spec v3.3 §7
+       // spec v3.3 §3: row two stopped repeating the play and became the
+       // affordance — what enter does, and how long the band has left.
     assert!(
         rows[2].starts_with("enter jump · clears in"),
         "the band's second row is the jump affordance:\n{s}"
     );
-    assert!(!rows[2].contains("KELCE"), "the play is not said twice:\n{s}");
-    assert!(s.contains("IN PLAY"), "the board is still there under the band:\n{s}");
+    assert!(
+        !rows[2].contains("KELCE"),
+        "the play is not said twice:\n{s}"
+    );
+    assert!(
+        s.contains("IN PLAY"),
+        "the board is still there under the band:\n{s}"
+    );
     // Cell level: the mark, and the hot fill across both rows including the
     // empty tail — the band is a bar of alert color, not a bare line.
     let b = t.backend().buffer();
@@ -3118,10 +3678,18 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     assert_eq!(b[(0, 1)].fg, r.ground, "band ink is the ground role on hot");
     for y in 1..=2u16 {
         for x in 0..120u16 {
-            assert_eq!(b[(x, y)].bg, r.hot, "the whole band row {y} is hot at ({x},{y})");
+            assert_eq!(
+                b[(x, y)].bg,
+                r.hot,
+                "the whole band row {y} is hot at ({x},{y})"
+            );
         }
     }
-    assert_ne!(b[(0, 3)].bg, r.hot, "the fill stops at the band: row 3 is the board");
+    assert_ne!(
+        b[(0, 3)].bg,
+        r.hot,
+        "the fill stops at the band: row 3 is the board"
+    );
 }
 
 /// A live board with one pinned game (so MY GAMES is the board's top rule)
@@ -3148,7 +3716,10 @@ fn band_frames(fired: bool) -> Terminal<TestBackend> {
     after.last_plays = vec![scoring_play()];
     app.apply_boards(League::Nfl, vec![after, other], false);
     assert!(
-        !app.cuts.active(app.tick).expect("the unpinned score fires a band").full,
+        !app.cuts
+            .active(app.tick)
+            .expect("the unpinned score fires a band")
+            .full,
         "the fixture's cut must be the quiet band, not a takeover"
     );
     if !fired {
@@ -3168,7 +3739,9 @@ fn the_board_never_jumps_when_a_band_fires() {
     let qs = buf_text(&quiet);
     let fs = buf_text(&fired);
     assert!(
-        fs.lines().nth(1).is_some_and(|l| l.starts_with("▲ TOUCHDOWN")),
+        fs.lines()
+            .nth(1)
+            .is_some_and(|l| l.starts_with("▲ TOUCHDOWN")),
         "the fired frame must have the band up:\n{fs}"
     );
     assert!(
@@ -3191,7 +3764,10 @@ fn the_board_never_jumps_when_a_band_fires() {
             .unwrap_or_else(|| panic!("IN PLAY rule:\n{s}")) as u16
     };
     let (qy, fy) = (rule_y(&qs), rule_y(&fs));
-    assert_eq!(qy, fy, "the IN PLAY rule moved when the band fired\nquiet:\n{qs}\nfired:\n{fs}");
+    assert_eq!(
+        qy, fy,
+        "the IN PLAY rule moved when the band fired\nquiet:\n{qs}\nfired:\n{fs}"
+    );
     // Cell level: not just the row index — the whole rule row is identical.
     let (qb, fb) = (quiet.backend().buffer(), fired.backend().buffer());
     for x in 0..120u16 {
@@ -3241,10 +3817,18 @@ fn enter_during_a_band_zooms_the_bands_game_not_the_selection() {
     // No band: enter zooms the selection, exactly as before.
     let mut app = mk();
     app.tick = 400;
-    app.apply_boards(League::Nfl, vec![cut_game("1"), g("2", "DAL", "PHI", true)], false);
+    app.apply_boards(
+        League::Nfl,
+        vec![cut_game("1"), g("2", "DAL", "PHI", true)],
+        false,
+    );
     app.selected = 0;
     handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-    assert_eq!(zoomed(&app), Some("1".into()), "with no band, enter still zooms the selection");
+    assert_eq!(
+        zoomed(&app),
+        Some("1".into()),
+        "with no band, enter still zooms the selection"
+    );
 
     // A band for game 2 while game 1 is selected: enter follows the band.
     let mut app = mk();
@@ -3257,10 +3841,17 @@ fn enter_during_a_band_zooms_the_bands_game_not_the_selection() {
     after.away_score = 10;
     after.last_plays = vec![scoring_play()];
     app.apply_boards(League::Nfl, vec![cut_game("1"), after], false);
-    let cut = app.cuts.active(app.tick).expect("the unpinned score fires a band");
+    let cut = app
+        .cuts
+        .active(app.tick)
+        .expect("the unpinned score fires a band");
     assert!(!cut.full && cut.game_id == "2");
     handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-    assert_eq!(zoomed(&app), Some("2".into()), "enter jumped to the band's game, not the selection");
+    assert_eq!(
+        zoomed(&app),
+        Some("2".into()),
+        "enter jumped to the band's game, not the selection"
+    );
 
     // A prompt is open: enter belongs to the prompt, and nothing jumps.
     let mut app = mk();
@@ -3279,7 +3870,10 @@ fn cuts_are_suppressed_during_prompts_and_startup() {
     app.tick = 400;
     app.mode = gameday::input::InputMode::Filter { buf: "kc".into() };
     land_a_score(&mut app, true);
-    assert!(app.cuts.active(app.tick).is_none(), "no cut while a prompt is open");
+    assert!(
+        app.cuts.active(app.tick).is_none(),
+        "no cut while a prompt is open"
+    );
 
     // The config view's favorite-abbr editor: a text prompt in everything but
     // the enum. A takeover here blanks the editor while keystrokes keep
@@ -3288,26 +3882,38 @@ fn cuts_are_suppressed_during_prompts_and_startup() {
     app.tick = 400;
     app.config_edit = Some("K".into());
     land_a_score(&mut app, true);
-    assert!(app.cuts.active(app.tick).is_none(), "no cut while the abbr editor is open");
+    assert!(
+        app.cuts.active(app.tick).is_none(),
+        "no cut while the abbr editor is open"
+    );
 
     // The theme picker is modal and IS a live preview.
     let mut app = mk();
     app.tick = 400;
     app.view = gameday::views::View::ThemePicker;
     land_a_score(&mut app, true);
-    assert!(app.cuts.active(app.tick).is_none(), "no cut over the theme picker");
+    assert!(
+        app.cuts.active(app.tick).is_none(),
+        "no cut over the theme picker"
+    );
 
     // Startup: the first boards arrive carrying a whole day of scores.
     let mut app = mk();
     app.tick = 12;
     land_a_score(&mut app, true);
-    assert!(app.cuts.active(app.tick).is_none(), "no cut in the first 30 s");
+    assert!(
+        app.cuts.active(app.tick).is_none(),
+        "no cut in the first 30 s"
+    );
 
     // Same delta once the session is warm and no prompt is open: it fires.
     let mut app = mk();
     app.tick = 400;
     land_a_score(&mut app, true);
-    let cut = app.cuts.active(app.tick).expect("a warm, unblocked delta fires");
+    let cut = app
+        .cuts
+        .active(app.tick)
+        .expect("a warm, unblocked delta fires");
     assert!(cut.full, "a pinned game takes the screen");
     assert!(app.bell_pending, "a takeover rings the bell");
 }
@@ -3357,9 +3963,18 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     let (away_color, ..) = gameday::theme::hero_pair(&th, team("KC").color, team("TB").color);
     let buf = term.backend().buffer();
     let digit_rows: Vec<u16> = (0..40u16)
-        .filter(|y| (0..40u16).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 8)
+        .filter(|y| {
+            (0..40u16)
+                .filter(|x| buf[(*x, *y)].fg == away_color)
+                .count()
+                >= 8
+        })
         .collect();
-    assert_eq!(digit_rows.len(), 16, "TV draws the doubled Full form:\n{text}");
+    assert_eq!(
+        digit_rows.len(),
+        16,
+        "TV draws the doubled Full form:\n{text}"
+    );
     assert_eq!(
         digit_rows[15] - digit_rows[0],
         15,
@@ -3378,7 +3993,10 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     let digits_x = (0..120u16)
         .find(|x| digit_rows.iter().any(|y| buf[(*x, *y)].fg == away_color))
         .expect("the away digits are somewhere");
-    assert!(digits_x > 0, "the away digits must leave a margin at all:\n{text}");
+    assert!(
+        digits_x > 0,
+        "the away digits must leave a margin at all:\n{text}"
+    );
     for y in digit_rows[0]..=digit_rows[15] {
         for x in 0..digits_x {
             assert_eq!(
@@ -3390,9 +4008,17 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     }
 
     // Everything else rides the strip, one row each.
-    assert!(text.contains("ALSO LIVE"), "the strip names itself:\n{text}");
-    assert!(text.contains("5 GAMES"), "the strip counts the rest:\n{text}");
-    for abbr in ["DAL", "PHI", "GB", "CHI", "SF", "LAR", "NYJ", "MIA", "CIN", "BAL"] {
+    assert!(
+        text.contains("ALSO LIVE"),
+        "the strip names itself:\n{text}"
+    );
+    assert!(
+        text.contains("5 GAMES"),
+        "the strip counts the rest:\n{text}"
+    );
+    for abbr in [
+        "DAL", "PHI", "GB", "CHI", "SF", "LAR", "NYJ", "MIA", "CIN", "BAL",
+    ] {
         assert!(text.contains(abbr), "strip is missing {abbr}:\n{text}");
     }
     // TV is not the board: no section rules, no off-screen lane.
@@ -3437,8 +4063,14 @@ fn tv_fills_its_frame() {
 
     // The body is everything TV draws: the hero's nameplate row down to the
     // last strip row, header/reserved-band/footer excluded.
-    let top = lines.iter().position(|l| l.contains("KC")).expect("hero nameplate") as u16;
-    let footer = lines.iter().rposition(|l| l.contains("esc board")).expect("footer") as u16;
+    let top = lines
+        .iter()
+        .position(|l| l.contains("KC"))
+        .expect("hero nameplate") as u16;
+    let footer = lines
+        .iter()
+        .rposition(|l| l.contains("esc board"))
+        .expect("footer") as u16;
     let ground = gameday::theme::current().roles().ground;
     let empty: Vec<u16> = (top..footer)
         .filter(|y| {
@@ -3475,32 +4107,62 @@ fn tv_fills_its_frame() {
     let th = gameday::theme::current();
     let (away_color, ..) = gameday::theme::hero_pair(&th, team("KC").color, team("TB").color);
     let digit_rows: Vec<u16> = (0..40u16)
-        .filter(|y| (0..40u16).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 8)
+        .filter(|y| {
+            (0..40u16)
+                .filter(|x| buf[(*x, *y)].fg == away_color)
+                .count()
+                >= 8
+        })
         .collect();
-    assert_eq!(digit_rows.len(), 16, "the jumbotron doubles the Full form:\n{text}");
-    assert_eq!(digit_rows[15] - digit_rows[0], 15, "contiguous: {digit_rows:?}\n{text}");
+    assert_eq!(
+        digit_rows.len(),
+        16,
+        "the jumbotron doubles the Full form:\n{text}"
+    );
+    assert_eq!(
+        digit_rows[15] - digit_rows[0],
+        15,
+        "contiguous: {digit_rows:?}\n{text}"
+    );
 
     // Hero nameplates: the abbrs sit above the digits, in team color.
-    assert!(top < digit_rows[0], "the nameplate row is above the digits:\n{text}");
+    assert!(
+        top < digit_rows[0],
+        "the nameplate row is above the digits:\n{text}"
+    );
     // Columns, not byte offsets: the home nameplate's lookalike block is
     // multi-byte, so `find` would walk off the buffer.
     let plate = lines[top as usize];
     let col = |byte: usize| plate[..byte].chars().count() as u16;
     let kc_x = col(plate.find("KC").expect("KC nameplate"));
-    assert_eq!(buf[(kc_x, top)].fg, away_color, "the away nameplate wears the away color:\n{text}");
+    assert_eq!(
+        buf[(kc_x, top)].fg,
+        away_color,
+        "the away nameplate wears the away color:\n{text}"
+    );
     let tb_x = col(plate.rfind("TB").expect("TB nameplate"));
     let (_, home_color, _) = gameday::theme::hero_pair(&th, team("KC").color, team("TB").color);
-    assert_eq!(buf[(tb_x, top)].fg, home_color, "the home nameplate wears the home color:\n{text}");
+    assert_eq!(
+        buf[(tb_x, top)].fg,
+        home_color,
+        "the home nameplate wears the home color:\n{text}"
+    );
 
     // Two columns on the strip at 120 cols: some row carries two games,
     // half a screen apart.
-    let strip_top = lines.iter().position(|l| l.contains("ALSO LIVE")).expect("strip rule");
+    let strip_top = lines
+        .iter()
+        .position(|l| l.contains("ALSO LIVE"))
+        .expect("strip rule");
     let paired = lines[strip_top + 1..footer as usize].iter().find_map(|l| {
         let (a, b) = (l.find("DAL")?, l.rfind("NYJ")?);
         Some((a, b))
     });
     let (a, b) = paired.unwrap_or_else(|| panic!("no two-column strip row:\n{text}"));
-    assert!(b - a >= 50, "the strip's second column starts at x={b}, first at x={a}:\n{text}");
+    assert!(
+        b - a >= 50,
+        "the strip's second column starts at x={b}, first at x={a}:\n{text}"
+    );
 }
 
 /// The doubled rung is still the ONE formatter (spec §1's hard rule): what
@@ -3540,7 +4202,11 @@ fn the_jumbotron_digits_are_the_one_formatters_doubled_rung() {
             })
             .collect::<Vec<_>>()
     };
-    assert_eq!(glyphs(&direct).len(), 14, "the direct render is the doubled rung (7 inked glyph rows × 2)");
+    assert_eq!(
+        glyphs(&direct).len(),
+        14,
+        "the direct render is the doubled rung (7 inked glyph rows × 2)"
+    );
     assert_eq!(
         glyphs(&tv),
         glyphs(&direct),
@@ -3576,22 +4242,41 @@ fn tv_keeps_a_three_digit_score_on_the_full_rung() {
     let th = gameday::theme::current();
     let (away_color, ..) = gameday::theme::hero_pair(&th, team("KC").color, team("TB").color);
     let digit_rows: Vec<u16> = (0..40u16)
-        .filter(|y| (0..40u16).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 8)
+        .filter(|y| {
+            (0..40u16)
+                .filter(|x| buf[(*x, *y)].fg == away_color)
+                .count()
+                >= 8
+        })
         .collect();
-    assert_eq!(digit_rows.len(), 16, "the rows still double for a 3-digit score:\n{text}");
+    assert_eq!(
+        digit_rows.len(),
+        16,
+        "the rows still double for a 3-digit score:\n{text}"
+    );
 
     // 24 columns wide, right-aligned against the 40-col third: x 16..40.
     let inked: Vec<u16> = (0..40u16)
         .filter(|x| digit_rows.iter().any(|y| buf[(*x, *y)].fg == away_color))
         .collect();
     let (first, last) = (inked[0], inked[inked.len() - 1]);
-    assert!(first >= 16, "3 × 8 = 24 columns of digits start at x=16, not {first}:\n{text}");
-    assert!(last < 40, "the away score stays inside its third, ended at {last}:\n{text}");
+    assert!(
+        first >= 16,
+        "3 × 8 = 24 columns of digits start at x=16, not {first}:\n{text}"
+    );
+    assert!(
+        last < 40,
+        "the away score stays inside its third, ended at {last}:\n{text}"
+    );
 
     // Spec §0 again: whatever the digits did not take is untouched ground.
     for y in digit_rows[0]..=digit_rows[15] {
         for x in 0..first {
-            assert_eq!(buf[(x, y)].symbol(), " ", "no hero mark at ({x},{y}):\n{text}");
+            assert_eq!(
+                buf[(x, y)].symbol(),
+                " ",
+                "no hero mark at ({x},{y}):\n{text}"
+            );
         }
     }
 }
@@ -3607,7 +4292,11 @@ fn a_locked_game_going_final_never_leaves_tv_saying_nothing_is_live() {
     app.tab = Tab::League(League::Nfl);
     app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
     app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
-    assert_eq!(app.tv_lock.as_deref(), Some("1"), "space locks the shown game");
+    assert_eq!(
+        app.tv_lock.as_deref(),
+        Some("1"),
+        "space locks the shown game"
+    );
 
     let mut games = tv_slate();
     games[0].status = Status::Final;
@@ -3617,9 +4306,18 @@ fn a_locked_game_going_final_never_leaves_tv_saying_nothing_is_live() {
     let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
     term.draw(|f| app.draw(f)).unwrap();
     let text = buf_text(&term);
-    assert!(!text.contains("nothing is live"), "five games are live:\n{text}");
-    assert!(text.contains("DAL") && text.contains("PHI"), "the next live game leads:\n{text}");
-    assert!(text.contains("4 GAMES"), "the strip counts the remaining live games:\n{text}");
+    assert!(
+        !text.contains("nothing is live"),
+        "five games are live:\n{text}"
+    );
+    assert!(
+        text.contains("DAL") && text.contains("PHI"),
+        "the next live game leads:\n{text}"
+    );
+    assert!(
+        text.contains("4 GAMES"),
+        "the strip counts the remaining live games:\n{text}"
+    );
 }
 
 #[test]
@@ -3638,12 +4336,21 @@ fn tv_never_jumps_when_a_band_fires() {
         let shown = app.tv_shown.clone().expect("TV shows a game");
         // Score on a game that is neither shown nor MY GAMES: a band, not a
         // takeover (spec v3.3 §9 decision B).
-        let other = games.iter_mut().find(|g| g.id != shown).expect("another live game");
+        let other = games
+            .iter_mut()
+            .find(|g| g.id != shown)
+            .expect("another live game");
         other.away_score += 7;
         other.last_plays = vec![scoring_play()];
         app.apply_boards(League::Nfl, games, false);
-        let cut = app.cuts.active(app.tick).expect("the unshown score fires a cut");
-        assert!(!cut.full, "an unshown, unpinned game's cut is the quiet band");
+        let cut = app
+            .cuts
+            .active(app.tick)
+            .expect("the unshown score fires a cut");
+        assert!(
+            !cut.full,
+            "an unshown, unpinned game's cut is the quiet band"
+        );
         if !fired {
             app.tick += gameday::board::cut::CUT_TICKS + 1;
         }
@@ -3703,7 +4410,15 @@ fn tv_never_panics_and_never_blanks_the_score() {
     app.apply_boards(League::Nfl, tv_slate(), false);
     app.tab = Tab::League(League::Nfl);
     app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
-    for (w, h) in [(40, 12), (41, 13), (60, 20), (80, 24), (100, 30), (120, 40), (200, 60)] {
+    for (w, h) in [
+        (40, 12),
+        (41, 13),
+        (60, 20),
+        (80, 24),
+        (100, 30),
+        (120, 40),
+        (200, 60),
+    ] {
         let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
         term.draw(|f| app.draw(f)).unwrap();
         let text = buf_text(&term);
@@ -3772,7 +4487,10 @@ fn in_tv_only_the_shown_game_and_my_teams_take_the_screen() {
         false,
     );
     let cut = app.cuts.active(app.tick).expect("a delta fires a cut");
-    assert!(cut.full, "a pinned/favorited game takes the whole screen even unshown");
+    assert!(
+        cut.full,
+        "a pinned/favorited game takes the whole screen even unshown"
+    );
     assert_eq!(cut.game_id, "2");
 
     app.tick += 31;
@@ -3786,8 +4504,15 @@ fn in_tv_only_the_shown_game_and_my_teams_take_the_screen() {
         ..Default::default()
     }];
     app.apply_boards(League::Nfl, vec![cur1, cur2, cur3], false);
-    let cut = app.cuts.active(app.tick).expect("a delta fires a cut").clone();
-    assert!(!cut.full, "an unrelated game's cut is the quiet band, not a takeover");
+    let cut = app
+        .cuts
+        .active(app.tick)
+        .expect("a delta fires a cut")
+        .clone();
+    assert!(
+        !cut.full,
+        "an unrelated game's cut is the quiet band, not a takeover"
+    );
     assert_eq!(cut.game_id, "3");
 
     // The band draws over TV's top rows; TV's own body still renders
@@ -3828,7 +4553,11 @@ fn a_locked_shown_game_keeps_the_takeover_even_when_a_better_game_scores() {
     let cut = app.cuts.active(app.tick).expect("a delta fires a cut");
     assert!(cut.full, "the locked/shown game takes the whole screen");
     assert_eq!(cut.game_id, "1");
-    assert_eq!(app.tv_shown.as_deref(), Some("1"), "the lock held tv_shown on 1");
+    assert_eq!(
+        app.tv_shown.as_deref(),
+        Some("1"),
+        "the lock held tv_shown on 1"
+    );
 
     app.tick += 31; // clear the takeover before the next fire
 
@@ -3842,7 +4571,11 @@ fn a_locked_shown_game_keeps_the_takeover_even_when_a_better_game_scores() {
         ..Default::default()
     }];
     app.apply_boards(League::Nfl, vec![cur1, cur2], false);
-    let cut = app.cuts.active(app.tick).expect("a delta fires a cut").clone();
+    let cut = app
+        .cuts
+        .active(app.tick)
+        .expect("a delta fires a cut")
+        .clone();
     assert!(
         !cut.full,
         "an unshown game's cut is the quiet band even when it outranks the locked game"
@@ -3895,7 +4628,9 @@ fn mlb_zoom_game() -> Game {
             ],
             ..Default::default()
         }),
-        meter: Some(Meter::Diamond { occupied: [true, false, true] }),
+        meter: Some(Meter::Diamond {
+            occupied: [true, false, true],
+        }),
         last_plays: vec![Play {
             period: "B7".into(),
             team: "BOS".into(),
@@ -3903,7 +4638,10 @@ fn mlb_zoom_game() -> Game {
             ..Default::default()
         }],
         linescore: vec![(0, 1), (2, 0), (0, 0), (1, 1), (0, 0), (1, 0), (0, 1)],
-        extras: Extras::Baseball { hits: Some((8, 7)), errors: Some((0, 1)) },
+        extras: Extras::Baseball {
+            hits: Some((8, 7)),
+            errors: Some((0, 1)),
+        },
         ..Game::default()
     }
 }
@@ -3950,7 +4688,10 @@ fn digit_grid(term: &Terminal<TestBackend>) -> Vec<Vec<(String, ratatui::style::
 
 fn zoomed(app: &mut App, game: &Game) {
     use gameday::views::{View, ZoomTab};
-    app.view = View::Zoom { game_id: game.id.clone(), tab: ZoomTab::Overview };
+    app.view = View::Zoom {
+        game_id: game.id.clone(),
+        tab: ZoomTab::Overview,
+    };
 }
 
 #[test]
@@ -3974,13 +4715,20 @@ fn zoom_overview_reuses_the_hero_and_shows_the_matchup_line() {
     assert!(s.contains("P: G. Kirby"), "pitcher missing:\n{s}");
     assert!(s.contains("AB: R. Devers"), "batter missing:\n{s}");
     assert!(s.contains("DUE UP"), "due up missing:\n{s}");
-    assert!(s.contains("A. Riley"), "the first due-up hitter missing:\n{s}");
+    assert!(
+        s.contains("A. Riley"),
+        "the first due-up hitter missing:\n{s}"
+    );
     // …and the linescore table.
     assert!(
-        s.lines().any(|l| l.contains("SEA") && l.trim_end().ends_with(" 0")),
+        s.lines()
+            .any(|l| l.contains("SEA") && l.trim_end().ends_with(" 0")),
         "away linescore row (R H E ending in E=0) missing:\n{s}"
     );
-    assert!(s.contains("LAST PLAYS"), "the feed survived the rebuild:\n{s}");
+    assert!(
+        s.contains("LAST PLAYS"),
+        "the feed survived the rebuild:\n{s}"
+    );
 
     // Spec §1's hard rule: one score formatter. The zoom hero IS the board
     // hero, so the digits match cell for cell — chars and colors.
@@ -4004,7 +4752,11 @@ fn zoom_overview_reuses_the_hero_and_shows_the_matchup_line() {
     let board_quad = digit_grid(&board);
     // The rung really is quad here: `PixelSize::Full` is 8 rows tall, the
     // quad table is 4, and nothing else on this frame draws these glyphs.
-    assert_eq!(board_quad.len(), 4, "80×24 must render the 4-row quad form, got {board_quad:?}");
+    assert_eq!(
+        board_quad.len(),
+        4,
+        "80×24 must render the 4-row quad form, got {board_quad:?}"
+    );
 
     zoomed(&mut app, &game);
     let mut zoom = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -4035,7 +4787,11 @@ fn football_zoom_shows_timeouts_and_possession() {
     );
     // The hero's fragment line owns `KC BALL` on football; the matchup line
     // must not print a second copy of it three rows down.
-    assert_eq!(s.matches("KC BALL").count(), 1, "possession said twice:\n{s}");
+    assert_eq!(
+        s.matches("KC BALL").count(),
+        1,
+        "possession said twice:\n{s}"
+    );
 }
 
 #[test]
@@ -4052,10 +4808,34 @@ fn soccer_zoom_lists_match_events_with_minute_and_letter() {
     game.meter = None;
     game.extras = Extras::Soccer {
         events: vec![
-            MatchEvent { minute: "12'".into(), kind: EventKind::Yellow, team: "NEW".into(), player: "B. Burn".into(), athlete_id: None },
-            MatchEvent { minute: "24'".into(), kind: EventKind::Goal, team: "NEW".into(), player: "D. Ndoye".into(), athlete_id: None },
-            MatchEvent { minute: "61'".into(), kind: EventKind::Yellow, team: "NFO".into(), player: "O. Aina".into(), athlete_id: None },
-            MatchEvent { minute: "70'".into(), kind: EventKind::Penalty, team: "NFO".into(), player: "M. Gibbs-White".into(), athlete_id: None },
+            MatchEvent {
+                minute: "12'".into(),
+                kind: EventKind::Yellow,
+                team: "NEW".into(),
+                player: "B. Burn".into(),
+                athlete_id: None,
+            },
+            MatchEvent {
+                minute: "24'".into(),
+                kind: EventKind::Goal,
+                team: "NEW".into(),
+                player: "D. Ndoye".into(),
+                athlete_id: None,
+            },
+            MatchEvent {
+                minute: "61'".into(),
+                kind: EventKind::Yellow,
+                team: "NFO".into(),
+                player: "O. Aina".into(),
+                athlete_id: None,
+            },
+            MatchEvent {
+                minute: "70'".into(),
+                kind: EventKind::Penalty,
+                team: "NFO".into(),
+                player: "M. Gibbs-White".into(),
+                athlete_id: None,
+            },
         ],
         men: None,
     };
@@ -4069,10 +4849,19 @@ fn soccer_zoom_lists_match_events_with_minute_and_letter() {
     // The last three events, newest last, letters not emoji (terminal-legal).
     assert!(s.contains("24' G D. Ndoye"), "goal event missing:\n{s}");
     assert!(s.contains("61' Y O. Aina"), "card event missing:\n{s}");
-    assert!(s.contains("70' PEN M. Gibbs-White"), "penalty event missing:\n{s}");
-    assert!(!s.contains("12' Y B. Burn"), "only the last three events:\n{s}");
+    assert!(
+        s.contains("70' PEN M. Gibbs-White"),
+        "penalty event missing:\n{s}"
+    );
+    assert!(
+        !s.contains("12' Y B. Burn"),
+        "only the last three events:\n{s}"
+    );
     for emoji in ['⚽', '🟨', '🟥'] {
-        assert!(!s.contains(emoji), "emoji {emoji} in a terminal frame:\n{s}");
+        assert!(
+            !s.contains(emoji),
+            "emoji {emoji} in a terminal frame:\n{s}"
+        );
     }
 }
 
@@ -4113,7 +4902,10 @@ fn the_ten_men_chip_renders_hot() {
     thriller.situation = None;
     thriller.meter = None;
     thriller.last_plays = vec![];
-    thriller.extras = Extras::Soccer { events: vec![], men: None };
+    thriller.extras = Extras::Soccer {
+        events: vec![],
+        men: None,
+    };
 
     let mut app = mk();
     app.apply_boards(League::Epl, vec![game, thriller], false);
@@ -4121,8 +4913,14 @@ fn the_ten_men_chip_renders_hot() {
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    assert!(s.contains("10 MEN"), "the short-handed chip is on the board:\n{s}");
-    assert!(s.contains("STOPPAGE"), "and the hero is the other match:\n{s}");
+    assert!(
+        s.contains("10 MEN"),
+        "the short-handed chip is on the board:\n{s}"
+    );
+    assert!(
+        s.contains("STOPPAGE"),
+        "and the hero is the other match:\n{s}"
+    );
 
     // Cell level: the chip's own cells are hot, not merely present. The row
     // chip is drawn in the hot foreground (the hero's is filled instead).
@@ -4140,7 +4938,10 @@ fn the_ten_men_chip_renders_hot() {
     for i in 0..6u16 {
         assert_eq!(b[(cx + i, cy)].fg, r.hot, "chip cell {i} is hot\n{s}");
     }
-    assert!(!s[..s.find("10 MEN").unwrap()].contains("MEN"), "one chip, one match:\n{s}");
+    assert!(
+        !s[..s.find("10 MEN").unwrap()].contains("MEN"),
+        "one chip, one match:\n{s}"
+    );
 
     // 11 v 11 says nothing.
     let mut quiet = g("s2", "ARS", "LIV", true);
@@ -4150,7 +4951,10 @@ fn the_ten_men_chip_renders_hot() {
     quiet.situation = None;
     quiet.meter = None;
     quiet.last_plays = vec![];
-    quiet.extras = Extras::Soccer { events: vec![], men: None };
+    quiet.extras = Extras::Soccer {
+        events: vec![],
+        men: None,
+    };
     let mut app = mk();
     app.apply_boards(League::Epl, vec![quiet], false);
     app.tab = Tab::League(League::Epl);
@@ -4199,7 +5003,10 @@ fn standings_use_two_columns_at_width() {
         .unwrap_or_else(|| panic!("120 cols must put both conferences on one row:\n{s}"));
     let afc = row.find("AMERICAN").unwrap();
     let nfc = row.find("NATIONAL").unwrap();
-    assert!(nfc - afc >= 40, "columns must be a real split, {afc} vs {nfc}: {row:?}");
+    assert!(
+        nfc - afc >= 40,
+        "columns must be a real split, {afc} vs {nfc}: {row:?}"
+    );
     // Both tables keep their own rows under their own header.
     assert!(s.contains("CHIEFS") && s.contains("EAGLES"), "{s}");
 
@@ -4212,7 +5019,10 @@ fn standings_use_two_columns_at_width() {
         }),
         "below 100 cols the table is one column:\n{n}"
     );
-    assert!(n.contains("NATIONAL FOOTBALL CONFERENCE"), "stacked, still both groups:\n{n}");
+    assert!(
+        n.contains("NATIONAL FOOTBALL CONFERENCE"),
+        "stacked, still both groups:\n{n}"
+    );
 }
 
 #[test]
@@ -4255,7 +5065,11 @@ fn the_plays_feed_fills_the_width() {
     for row in &rows {
         let end = row.trim_end().chars().count();
         assert!(end > 80, "row stops short of the frame at {end}: {row:?}");
-        assert_eq!(word_col(row), word_col(rows[0]), "stamp column drifts: {row:?}");
+        assert_eq!(
+            word_col(row),
+            word_col(rows[0]),
+            "stamp column drifts: {row:?}"
+        );
     }
 }
 
@@ -4270,7 +5084,12 @@ fn the_re_laid_out_screens_survive_every_size() {
     use gameday::views::View;
     // (name, view, header needle, the right column's first word)
     for (name, view, needle, right) in [
-        ("standings", View::Standings(League::Nfl), "STANDINGS", Some("NATIONAL")),
+        (
+            "standings",
+            View::Standings(League::Nfl),
+            "STANDINGS",
+            Some("NATIONAL"),
+        ),
         ("plays feed", View::PlaysFeed, "PLAYS", None),
         ("config", View::ConfigView, "CONFIG", Some("FAVORITES")),
     ] {
@@ -4297,22 +5116,30 @@ fn the_re_laid_out_screens_survive_every_size() {
                 let at = format!("{name} at {w}x{h}");
                 assert!(s.contains(needle), "{at} lost its header:\n{s}");
                 // Nothing renders past the frame's last column.
-                let widest = s.lines().map(|l| l.trim_end().chars().count()).max().unwrap();
-                assert!(widest <= w as usize, "{at} wrote to column {widest} of {w}:\n{s}");
+                let widest = s
+                    .lines()
+                    .map(|l| l.trim_end().chars().count())
+                    .max()
+                    .unwrap();
+                assert!(
+                    widest <= w as usize,
+                    "{at} wrote to column {widest} of {w}:\n{s}"
+                );
 
                 match right {
                     // The gate: two columns at 100 and up, one below it.
                     Some(right) => {
-                        let paired = s
-                            .lines()
-                            .find(|l| l.contains(right) && l.contains(if name == "standings" {
-                                "AMERICAN"
-                            } else {
-                                "TABS"
-                            }));
+                        let paired = s.lines().find(|l| {
+                            l.contains(right)
+                                && l.contains(if name == "standings" {
+                                    "AMERICAN"
+                                } else {
+                                    "TABS"
+                                })
+                        });
                         if w >= 100 {
-                            let row = paired
-                                .unwrap_or_else(|| panic!("{at} must be two columns:\n{s}"));
+                            let row =
+                                paired.unwrap_or_else(|| panic!("{at} must be two columns:\n{s}"));
                             // The gutter is real: the left column's rule stops
                             // before the right column's title.
                             let cut = row.find(right).unwrap();
@@ -4332,7 +5159,10 @@ fn the_re_laid_out_screens_survive_every_size() {
                             .find(|l| l.contains("TOUCHDOWN"))
                             .unwrap_or_else(|| panic!("{at} lost its play row:\n{s}"));
                         let end = row.trim_end().chars().count();
-                        assert!(end + 3 >= w as usize, "{at} row ends at {end} of {w}: {row:?}");
+                        assert!(
+                            end + 3 >= w as usize,
+                            "{at} row ends at {end} of {w}: {row:?}"
+                        );
                     }
                 }
             }
@@ -4362,12 +5192,18 @@ fn a_resize_that_shortens_the_standings_does_not_swallow_a_keypress() {
 
     let mut wide = Terminal::new(TestBackend::new(120, 40)).unwrap();
     wide.draw(|f| app.draw(f)).unwrap();
-    assert_eq!(app.standings_scroll, 0, "a table that now fits carries no offset");
+    assert_eq!(
+        app.standings_scroll, 0,
+        "a table that now fits carries no offset"
+    );
     let before = buf_text(&wide);
     gameday::input::handle_key(&mut app, KeyCode::Char('k'), KeyModifiers::NONE);
     assert_eq!(app.standings_scroll, 0, "k at the top stays at the top");
     // And the table is drawn from the top, not from the stale offset.
-    assert!(before.contains("ATEAM00"), "the top of the table is on screen:\n{before}");
+    assert!(
+        before.contains("ATEAM00"),
+        "the top of the table is on screen:\n{before}"
+    );
 }
 
 #[test]
@@ -4398,9 +5234,17 @@ fn no_screen_floats_a_dead_column() {
     // The CONFIG chip is chrome, like the top bar — the block under it is
     // what has to be centered.
     let top = lines.iter().position(|l| l.contains("CONFIG")).unwrap() + 1;
-    let content: Vec<usize> = (top..bar).filter(|&y| !lines[y].trim().is_empty()).collect();
-    let last = *content.last().unwrap_or_else(|| panic!("config has no content:\n{s}"));
-    assert!(bar - last <= 2, "key bar floats {} rows under the content:\n{s}", bar - last);
+    let content: Vec<usize> = (top..bar)
+        .filter(|&y| !lines[y].trim().is_empty())
+        .collect();
+    let last = *content
+        .last()
+        .unwrap_or_else(|| panic!("config has no content:\n{s}"));
+    assert!(
+        bar - last <= 2,
+        "key bar floats {} rows under the content:\n{s}",
+        bar - last
+    );
     // The block is centered: its left and right margins match.
     let left = content
         .iter()
@@ -4421,8 +5265,14 @@ fn no_screen_floats_a_dead_column() {
     // The two overlays carry their own key bar inside the panel, one row
     // under the last content row, and the panel is centered in the frame.
     for (name, open) in [
-        ("help", Box::new(|a: &mut App| a.help_open = true) as Box<dyn Fn(&mut App)>),
-        ("theme picker", Box::new(|a: &mut App| a.view = View::ThemePicker)),
+        (
+            "help",
+            Box::new(|a: &mut App| a.help_open = true) as Box<dyn Fn(&mut App)>,
+        ),
+        (
+            "theme picker",
+            Box::new(|a: &mut App| a.view = View::ThemePicker),
+        ),
     ] {
         let mut app = mk();
         app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
@@ -4447,7 +5297,10 @@ fn no_screen_floats_a_dead_column() {
         let border = lines[bottom];
         let l = border.chars().position(|c| c == '└').unwrap();
         let r = border.chars().rev().position(|c| c == '┘').unwrap();
-        assert!(l.abs_diff(r) <= 2, "{name}: panel off center: left {l}, right {r}\n{s}");
+        assert!(
+            l.abs_diff(r) <= 2,
+            "{name}: panel off center: left {l}, right {r}\n{s}"
+        );
     }
 }
 
@@ -4473,7 +5326,10 @@ fn the_drive_description_is_available_without_moving_the_board() {
     };
     let without = text_at(None);
     let with = text_at(Some("1 play, 3 yards, 0:08"));
-    assert_eq!(with, without, "drive_desc must not redesign the fragment yet");
+    assert_eq!(
+        with, without,
+        "drive_desc must not redesign the fragment yet"
+    );
     assert!(
         !with.contains("1 play, 3 yards"),
         "the drive line is data, not a rendered row yet:\n{with}"
@@ -4538,7 +5394,11 @@ fn the_zoom_shows_the_penalty_meter_and_pp_chip() {
             }
         }
     }
-    assert_eq!(chip.trim(), "POWER PLAY", "the hot-filled chip cells: {chip:?}");
+    assert_eq!(
+        chip.trim(),
+        "POWER PLAY",
+        "the hot-filled chip cells: {chip:?}"
+    );
 
     // The penalty meter row: label, the penalized team, and a countdown bar.
     let row = (0..b.area().height)
@@ -4551,9 +5411,11 @@ fn the_zoom_shows_the_penalty_meter_and_pp_chip() {
         .expect("the Penalty meter must render a row");
     let cells: String = (0..b.area().width).map(|x| b[(x, row)].symbol()).collect();
     assert!(cells.contains("PENALTY  WSH"), "meter row: {cells:?}");
-    assert!(cells.contains('▮'), "the countdown bar draws filled cells: {cells:?}");
+    assert!(
+        cells.contains('▮'),
+        "the countdown bar draws filled cells: {cells:?}"
+    );
     assert!(cells.contains("2:00"), "a minor's clock: {cells:?}");
-
 }
 
 #[test]
@@ -4584,10 +5446,17 @@ fn the_board_never_wears_the_zoomed_games_power_play() {
 
     let (chip, text) = render(&mut app);
     assert_eq!(chip.trim(), "", "no hot-filled chip on the board: {chip:?}");
-    assert!(!text.contains("PENALTY"), "and no penalty meter row either:\n{text}");
+    assert!(
+        !text.contains("PENALTY"),
+        "and no penalty meter row either:\n{text}"
+    );
 
     zoomed(&mut app, &game);
     let (chip, text) = render(&mut app);
-    assert_eq!(chip.trim(), "POWER PLAY", "the zoom is where it shows: {chip:?}");
+    assert_eq!(
+        chip.trim(),
+        "POWER PLAY",
+        "the zoom is where it shows: {chip:?}"
+    );
     assert!(text.contains("PENALTY"), "with its meter:\n{text}");
 }

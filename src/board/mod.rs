@@ -88,7 +88,6 @@ impl Block<'_> {
             }
         }
     }
-
 }
 
 pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -121,10 +120,7 @@ fn board_walk<'a>(
     // — `layout::plan` counts the hero separately and says double-charging it
     // is the caller's bug.
     let hero_id = d.hero_id.clone();
-    let hero_in_band = d
-        .my_games
-        .iter()
-        .any(|g| Some(&g.id) == hero_id.as_ref());
+    let hero_in_band = d.my_games.iter().any(|g| Some(&g.id) == hero_id.as_ref());
     let band_rows = d.my_games.len() - usize::from(hero_in_band);
     let plan = layout::plan(
         area.width,
@@ -142,11 +138,7 @@ fn board_walk<'a>(
     let hero_block =
         |game: &'a Game, i: usize| -> Block<'a> { Block::Hero(game, i, plan.hero_rows) };
     if !d.my_games.is_empty() {
-        let pinned = d
-            .my_games
-            .iter()
-            .filter(|g| app_pins_hold(app, g))
-            .count();
+        let pinned = d.my_games.iter().filter(|g| app_pins_hold(app, g)).count();
         let caption = if pinned > 0 {
             format!("{pinned} PINNED · NEVER RE-SORTS")
         } else {
@@ -251,7 +243,12 @@ fn board_walk<'a>(
     if let (Some(Block::Rule(label, caption)), 0) = (&hoisted, first) {
         draw_rule(
             frame,
-            Rect { x: area.x, y: area.y, width: area.width, height: layout::RULE_ROWS },
+            Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: layout::RULE_ROWS,
+            },
             label,
             caption,
         );
@@ -428,8 +425,7 @@ fn draw_rule(frame: &mut Frame, area: Rect, label: &str, caption: &str) {
     let caption_w = caption.chars().count();
     // One space of air on each side of the dashes; a rule too narrow for any
     // dash just prints the label.
-    let dashes = w
-        .saturating_sub(label_w + caption_w + if caption.is_empty() { 2 } else { 3 });
+    let dashes = w.saturating_sub(label_w + caption_w + if caption.is_empty() { 2 } else { 3 });
     let mut spans = vec![
         Span::styled(
             label.to_string(),
@@ -440,7 +436,10 @@ fn draw_rule(frame: &mut Frame, area: Rect, label: &str, caption: &str) {
     ];
     if !caption.is_empty() {
         spans.push(Span::raw(" "));
-        spans.push(Span::styled(caption.to_string(), Style::default().fg(r.dim)));
+        spans.push(Span::styled(
+            caption.to_string(),
+            Style::default().fg(r.dim),
+        ));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
@@ -476,7 +475,10 @@ fn draw_lane(frame: &mut Frame, area: Rect, off: &[&Game]) {
                 "SCORES  ",
                 Style::default().fg(r.cool).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(crate::text::truncate(&body, room), Style::default().fg(r.dim)),
+            Span::styled(
+                crate::text::truncate(&body, room),
+                Style::default().fg(r.dim),
+            ),
         ])),
         area,
     );

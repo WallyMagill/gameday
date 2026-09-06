@@ -74,7 +74,10 @@ fn draw_header(frame: &mut Frame, area: Rect, count: usize) {
         Span::raw(" "),
         Span::styled(
             "PLAYS",
-            Style::default().fg(th.bg).bg(th.star).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(th.bg)
+                .bg(th.star)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled("  all boards", Style::default().fg(th.muted)),
     ];
@@ -132,7 +135,10 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool, width: usize) -> Line<
     Line::from(vec![
         Span::styled(marker, Style::default().fg(th.star)),
         Span::styled(
-            format!("{:<CHIP_W$}", format!("[{}]", game.league.slug().to_uppercase())),
+            format!(
+                "{:<CHIP_W$}",
+                format!("[{}]", game.league.slug().to_uppercase())
+            ),
             Style::default()
                 .fg(th.chip(game.league))
                 .add_modifier(Modifier::BOLD),

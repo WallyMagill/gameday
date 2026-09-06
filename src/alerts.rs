@@ -150,7 +150,10 @@ mod tests {
         let mut state = AlertState::default();
         let favs = kc_favorite();
         // First sighting seeds silently — startup never alerts.
-        assert_eq!(state.check(&favs, &boards(vec![game("1", "KC", "TB", 20, 24)]), 0), None);
+        assert_eq!(
+            state.check(&favs, &boards(vec![game("1", "KC", "TB", 20, 24)]), 0),
+            None
+        );
         let alert = state
             .check(&favs, &boards(vec![game("1", "KC", "TB", 27, 24)]), 5)
             .expect("favorite delta must alert");
@@ -163,7 +166,9 @@ mod tests {
         let mut state = AlertState::default();
         let favs = kc_favorite();
         state.check(&favs, &boards(vec![game("1", "KC", "TB", 20, 24)]), 0);
-        assert!(state.check(&favs, &boards(vec![game("1", "KC", "TB", 27, 24)]), 5).is_some());
+        assert!(state
+            .check(&favs, &boards(vec![game("1", "KC", "TB", 27, 24)]), 5)
+            .is_some());
         // Another delta inside the 30s window: silent, and the delta is consumed.
         let inside = 5 + COOLDOWN_TICKS - 1;
         assert_eq!(
@@ -172,7 +177,9 @@ mod tests {
         );
         // Past the window a fresh delta alerts again.
         let past = 5 + COOLDOWN_TICKS;
-        assert!(state.check(&favs, &boards(vec![game("1", "KC", "TB", 37, 24)]), past).is_some());
+        assert!(state
+            .check(&favs, &boards(vec![game("1", "KC", "TB", 37, 24)]), past)
+            .is_some());
     }
 
     #[test]
@@ -181,11 +188,21 @@ mod tests {
         let favs = kc_favorite();
         // DAL@PHI has no favorite; TB scoring against favorite KC is also
         // not KC's alert.
-        state.check(&favs, &boards(vec![game("1", "DAL", "PHI", 0, 0), game("2", "KC", "TB", 20, 24)]), 0);
+        state.check(
+            &favs,
+            &boards(vec![
+                game("1", "DAL", "PHI", 0, 0),
+                game("2", "KC", "TB", 20, 24),
+            ]),
+            0,
+        );
         assert_eq!(
             state.check(
                 &favs,
-                &boards(vec![game("1", "DAL", "PHI", 7, 0), game("2", "KC", "TB", 20, 31)]),
+                &boards(vec![
+                    game("1", "DAL", "PHI", 7, 0),
+                    game("2", "KC", "TB", 20, 31)
+                ]),
                 5
             ),
             None

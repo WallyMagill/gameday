@@ -265,8 +265,9 @@ pub const KEYMAP: &[Binding] = &[
 /// whole chord list, least valuable first. HELP and QUIT are deliberately
 /// absent: whatever gets clipped, the way out and the way to the full keymap
 /// stay visible.
-pub const FOOTER_DROP_ORDER: &[&str] =
-    &["MOVE", "PIN", "LEAGUE", "CYCLE", "EDIT", "TOGGLE", "FILTER", "CMD"];
+pub const FOOTER_DROP_ORDER: &[&str] = &[
+    "MOVE", "PIN", "LEAGUE", "CYCLE", "EDIT", "TOGGLE", "FILTER", "CMD",
+];
 
 /// The Board footer's legend (spec §1): `↑↓ move  enter zoom  space pin
 /// / filter  s sort  v tv  ? help  q quit`, fixed order, lowercase, no
@@ -399,30 +400,82 @@ mod tests {
         use crate::domain::*;
         use crossterm::event::{KeyCode, KeyModifiers};
         let mk = || {
-            let mut app = App::new(Config::default_all(), vec![], std::env::temp_dir().join(format!("gd-km-{}", std::process::id())), time::UtcOffset::UTC);
-            let g = |id: &str| Game { id: id.into(), status: Status::Live, away: Team { abbr: "KC".into(), ..Default::default() }, home: Team { abbr: "TB".into(), ..Default::default() }, ..Default::default() };
-            app.apply_boards(League::Nfl, vec![g("1"), g("2"), g("3"), g("4"), g("5")], false);
+            let mut app = App::new(
+                Config::default_all(),
+                vec![],
+                std::env::temp_dir().join(format!("gd-km-{}", std::process::id())),
+                time::UtcOffset::UTC,
+            );
+            let g = |id: &str| Game {
+                id: id.into(),
+                status: Status::Live,
+                away: Team {
+                    abbr: "KC".into(),
+                    ..Default::default()
+                },
+                home: Team {
+                    abbr: "TB".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            app.apply_boards(
+                League::Nfl,
+                vec![g("1"), g("2"), g("3"), g("4"), g("5")],
+                false,
+            );
             app.tab = crate::app::Tab::League(League::Nfl);
             app
         };
-        let snapshot = |a: &App| format!("{:?}|{}|{}|{:?}|{}|{}|{}|{:?}|{:?}|{:?}|{}|{:?}",
-            a.tab, a.selected, a.pins.len(), a.view, a.help_open, a.should_quit, a.refresh_now,
-            a.filter, a.config.sort, a.config.theme, a.config.favorites.len(), a.viewed_date_offset);
-        let chord_for = |c: char| -> String { match c {
-            ' ' => "SPC".into(), '[' | ']' => "[/]".into(), '?' => "?".into(), ':' => ":".into(), '/' => "/".into(),
-            other => other.to_ascii_uppercase().to_string(),
-        }};
+        let snapshot = |a: &App| {
+            format!(
+                "{:?}|{}|{}|{:?}|{}|{}|{}|{:?}|{:?}|{:?}|{}|{:?}",
+                a.tab,
+                a.selected,
+                a.pins.len(),
+                a.view,
+                a.help_open,
+                a.should_quit,
+                a.refresh_now,
+                a.filter,
+                a.config.sort,
+                a.config.theme,
+                a.config.favorites.len(),
+                a.viewed_date_offset
+            )
+        };
+        let chord_for = |c: char| -> String {
+            match c {
+                ' ' => "SPC".into(),
+                '[' | ']' => "[/]".into(),
+                '?' => "?".into(),
+                ':' => ":".into(),
+                '/' => "/".into(),
+                other => other.to_ascii_uppercase().to_string(),
+            }
+        };
         let mut unadvertised = vec![];
         for c in (b' '..=b'~').map(char::from) {
             let mut app = mk();
             let before = snapshot(&app);
             app.on_key(KeyCode::Char(c), KeyModifiers::NONE);
-            if snapshot(&app) == before { continue; }
+            if snapshot(&app) == before {
+                continue;
+            }
             let chord = chord_for(c);
-            let advertised = KEYMAP.iter().any(|b| b.keys.iter().any(|k| k.split('/').any(|part| part == chord) || *k == chord));
-            if !advertised { unadvertised.push(c); }
+            let advertised = KEYMAP.iter().any(|b| {
+                b.keys
+                    .iter()
+                    .any(|k| k.split('/').any(|part| part == chord) || *k == chord)
+            });
+            if !advertised {
+                unadvertised.push(c);
+            }
         }
-        assert!(unadvertised.is_empty(), "keys that change state but appear in no Binding: {unadvertised:?}");
+        assert!(
+            unadvertised.is_empty(),
+            "keys that change state but appear in no Binding: {unadvertised:?}"
+        );
     }
 
     #[test]
@@ -431,9 +484,14 @@ mod tests {
         // h/l cycle nothing in the plays feed / standings — never advertised.
         assert!(!feed.iter().any(|(_, l)| *l == "TABS"), "{feed:?}");
         for label in ["LEAGUE", "BACK", "HELP", "CMD"] {
-            assert!(feed.iter().any(|(_, l)| *l == label), "feed footer missing {label}: {feed:?}");
+            assert!(
+                feed.iter().any(|(_, l)| *l == label),
+                "feed footer missing {label}: {feed:?}"
+            );
         }
-        assert!(!feed.iter().any(|(_, l)| *l == "QUIT" || *l == "ZOOM" || *l == "TOGGLE"));
+        assert!(!feed
+            .iter()
+            .any(|(_, l)| *l == "QUIT" || *l == "ZOOM" || *l == "TOGGLE"));
     }
 
     #[test]

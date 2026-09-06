@@ -399,7 +399,10 @@ mod tests {
         type_line(&mut app, "foo");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         let status = app.status_line.clone().expect("error status");
-        assert!(status.contains("\"foo\"") && status.contains("nfl"), "{status}");
+        assert!(
+            status.contains("\"foo\"") && status.contains("nfl"),
+            "{status}"
+        );
         // Any Normal-mode key dismisses the status.
         handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
         assert!(app.status_line.is_none());
@@ -442,19 +445,32 @@ mod tests {
         // j previews live: the current theme changes with the cursor.
         handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
         handle_key(&mut app, KeyCode::Char('j'), KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), "gruvbox", "j/j previews the third theme");
+        assert_eq!(
+            theme::current_name(),
+            "gruvbox",
+            "j/j previews the third theme"
+        );
         assert_eq!(app.config.theme, "broadcast", "preview is not persisted");
         // Esc reverts to what was current when the picker opened.
         handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(app.view, View::Board);
         assert_eq!(theme::current_name(), "broadcast");
-        assert!(!std::path::Path::new(&app.config_dir).join("config.toml").exists(), "nothing saved");
+        assert!(
+            !std::path::Path::new(&app.config_dir)
+                .join("config.toml")
+                .exists(),
+            "nothing saved"
+        );
         // Enter commits + persists.
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "theme");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         handle_key(&mut app, KeyCode::Char('k'), KeyModifiers::NONE);
-        assert_eq!(theme::current_name(), "daygame", "k wraps to the last theme");
+        assert_eq!(
+            theme::current_name(),
+            "daygame",
+            "k wraps to the last theme"
+        );
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(app.view, View::Board);
         assert_eq!(app.config.theme, "daygame");
@@ -490,16 +506,31 @@ mod tests {
         assert_eq!(theme::current_name(), "studio", "j previews");
         for key in [':', '/'] {
             handle_key(&mut app, KeyCode::Char(key), KeyModifiers::NONE);
-            assert_eq!(app.mode, InputMode::Normal, "{key:?} opens no prompt over the picker");
-            assert_eq!(app.view, View::ThemePicker, "{key:?} does not pop the picker");
-            assert_eq!(theme::current_name(), "studio", "{key:?} leaves the preview alone");
+            assert_eq!(
+                app.mode,
+                InputMode::Normal,
+                "{key:?} opens no prompt over the picker"
+            );
+            assert_eq!(
+                app.view,
+                View::ThemePicker,
+                "{key:?} does not pop the picker"
+            );
+            assert_eq!(
+                theme::current_name(),
+                "studio",
+                "{key:?} leaves the preview alone"
+            );
         }
         // Esc still reverts; nothing was persisted along the way.
         handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(app.view, View::Board);
         assert_eq!(theme::current_name(), "broadcast");
         assert_eq!(app.config.theme, "broadcast");
-        assert!(!app.config_dir.join("config.toml").exists(), "nothing saved");
+        assert!(
+            !app.config_dir.join("config.toml").exists(),
+            "nothing saved"
+        );
         theme::set_current("broadcast").unwrap();
     }
 
@@ -531,7 +562,11 @@ mod tests {
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "sort time");
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(app.config.sort, SortKey::Time, "the in-memory sort still changes");
+        assert_eq!(
+            app.config.sort,
+            SortKey::Time,
+            "the in-memory sort still changes"
+        );
         let line = app.status_line.clone().unwrap_or_default();
         assert!(
             line.starts_with("sort time") && line.ends_with("· not saving (config error)"),
@@ -577,10 +612,20 @@ mod tests {
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
         type_line(&mut app, "st");
         handle_key(&mut app, KeyCode::Tab, KeyModifiers::NONE);
-        assert_eq!(app.mode, InputMode::Command { buf: "standings".into() });
+        assert_eq!(
+            app.mode,
+            InputMode::Command {
+                buf: "standings".into()
+            }
+        );
         // A single match cycles back onto itself.
         handle_key(&mut app, KeyCode::Tab, KeyModifiers::NONE);
-        assert_eq!(app.mode, InputMode::Command { buf: "standings".into() });
+        assert_eq!(
+            app.mode,
+            InputMode::Command {
+                buf: "standings".into()
+            }
+        );
         // Multiple matches cycle in registry order against the typed stem.
         handle_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
         handle_key(&mut app, KeyCode::Char(':'), KeyModifiers::NONE);
@@ -596,8 +641,10 @@ mod tests {
         // Typing clears the cycle; completion then works on the new buffer.
         type_line(&mut app, " n");
         handle_key(&mut app, KeyCode::Tab, KeyModifiers::NONE);
-        assert!(matches!(&app.mode, InputMode::Command { buf } if buf == "nfl n"),
-            "no league args for a league jump: buffer unchanged");
+        assert!(
+            matches!(&app.mode, InputMode::Command { buf } if buf == "nfl n"),
+            "no league args for a league jump: buffer unchanged"
+        );
     }
 
     #[test]
@@ -641,6 +688,9 @@ mod tests {
         handle_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(app.tab, Tab::Home, "tab unchanged");
         let status = app.status_line.clone().expect("status");
-        assert!(status.contains("\"nba\"") && status.contains("nfl"), "{status}");
+        assert!(
+            status.contains("\"nba\"") && status.contains("nfl"),
+            "{status}"
+        );
     }
 }

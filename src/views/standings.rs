@@ -26,8 +26,7 @@ const VAL_W: usize = 4;
 /// back with nothing. `standings_url` pins `?group=80`, which answered with
 /// 138 FBS teams on 2026-08-31 — so this is the failure path, and the copy
 /// says only that (no table right now), never that ESPN has none to give.
-const CFB_NO_TABLE: &str =
-    "no FBS standings right now · try :standings <conf> (coming in v3.3)";
+const CFB_NO_TABLE: &str = "no FBS standings right now · try :standings <conf> (coming in v3.3)";
 
 /// Total composed body lines for `table` — the key handler's scroll clamp.
 /// Per group: name + column header + rows, with one blank line between groups.
@@ -85,7 +84,9 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, league: League) -> Opt
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
-    let teams: usize = table.map(|t| t.groups.iter().map(|g| g.rows.len()).sum()).unwrap_or(0);
+    let teams: usize = table
+        .map(|t| t.groups.iter().map(|g| g.rows.len()).sum())
+        .unwrap_or(0);
     draw_header(frame, chunks[0], league, teams, table.and_then(label));
     // A table with no groups is as empty as no table at all — both get the
     // message, never a blank pane pretending to be a standings board.
@@ -148,7 +149,11 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, league: League) -> Opt
         );
     }
     if total > body {
-        let marker = Rect { y: pane.y + body as u16, height: 1, ..pane };
+        let marker = Rect {
+            y: pane.y + body as u16,
+            height: 1,
+            ..pane
+        };
         frame.render_widget(
             Paragraph::new(more_marker(offset, total.saturating_sub(offset + body)))
                 .style(Style::default().bg(th.bg)),
@@ -203,7 +208,10 @@ fn draw_header(frame: &mut Frame, area: Rect, league: League, teams: usize, labe
         Span::raw(" "),
         Span::styled(
             "STANDINGS",
-            Style::default().fg(th.bg).bg(th.star).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(th.bg)
+                .bg(th.star)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("  {}", league.slug().to_uppercase()),
@@ -216,7 +224,11 @@ fn draw_header(frame: &mut Frame, area: Rect, league: League, teams: usize, labe
             Style::default().fg(th.dim),
         ));
     }
-    let right = if teams > 0 { format!("{teams} TEAMS ") } else { String::new() };
+    let right = if teams > 0 {
+        format!("{teams} TEAMS ")
+    } else {
+        String::new()
+    };
     let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
     let spacer = (area.width as usize).saturating_sub(left_len + right.chars().count());
     spans.push(Span::raw(" ".repeat(spacer)));
@@ -244,7 +256,10 @@ fn sections<'a>(table: &'a StandingsTable, cols: usize) -> Vec<Vec<Section<'a>>>
         return vec![table
             .groups
             .iter()
-            .map(|g| Section { title: title(g), rows: &g.rows })
+            .map(|g| Section {
+                title: title(g),
+                rows: &g.rows,
+            })
             .collect()];
     }
     if table.groups.len() == 1 {
@@ -255,7 +270,10 @@ fn sections<'a>(table: &'a StandingsTable, cols: usize) -> Vec<Vec<Section<'a>>>
         let (a, b) = g.rows.split_at(half);
         let name = title(g);
         return vec![
-            vec![Section { title: format!("{name} · 1-{}", a.len()), rows: a }],
+            vec![Section {
+                title: format!("{name} · 1-{}", a.len()),
+                rows: a,
+            }],
             vec![Section {
                 title: format!("{name} · {}-{}", a.len() + 1, g.rows.len()),
                 rows: b,
@@ -268,7 +286,10 @@ fn sections<'a>(table: &'a StandingsTable, cols: usize) -> Vec<Vec<Section<'a>>>
     let (mut left, mut right) = (Vec::new(), Vec::new());
     let mut used = 0usize;
     for g in &table.groups {
-        let section = Section { title: title(g), rows: &g.rows };
+        let section = Section {
+            title: title(g),
+            rows: &g.rows,
+        };
         if left.is_empty() || used + height(g) <= total.div_ceil(2) {
             used += height(g);
             left.push(section);
@@ -311,12 +332,17 @@ fn column_lines<'a>(
                 lines.push(Line::from(""));
             }
             lines.push(title_rule(&section.title, col_w));
-            let mut header =
-                format!(" {:<ABBR_W$}{:<name_w$}{:>VAL_W$}{:>VAL_W$}", "TEAM", "", "W", "L");
+            let mut header = format!(
+                " {:<ABBR_W$}{:<name_w$}{:>VAL_W$}{:>VAL_W$}",
+                "TEAM", "", "W", "L"
+            );
             if let Some(label) = third_label {
                 header.push_str(&format!("{label:>VAL_W$}"));
             }
-            lines.push(Line::from(Span::styled(header, Style::default().fg(th.muted))));
+            lines.push(Line::from(Span::styled(
+                header,
+                Style::default().fg(th.muted),
+            )));
             for row in section.rows {
                 let mut tail = format!("{:>VAL_W$}{:>VAL_W$}", row.wins, row.losses);
                 if third_label.is_some() {

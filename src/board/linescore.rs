@@ -49,7 +49,10 @@ pub fn linescore_lines(game: &Game, th: &Theme) -> Option<Vec<Line<'static>>> {
         home.push_str(&cell(h.to_string()));
     }
     let team_row = |text: String, color: ratatui::style::Color| {
-        Line::from(Span::styled(text, Style::default().fg(color).add_modifier(Modifier::BOLD)))
+        Line::from(Span::styled(
+            text,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ))
     };
     Some(vec![
         Line::from(Span::styled(head, Style::default().fg(th.roles().dim))),

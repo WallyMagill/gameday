@@ -30,9 +30,9 @@
 /// `app/mod.rs` DOES read (to size the ticker lane on every non-Board view).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TierPlan {
-    pub hero_rows: u16, // 0 = no hero fits (only < 12 total rows)
+    pub hero_rows: u16,         // 0 = no hero fits (only < 12 total rows)
     pub hero_digits_full: bool, // 8-row PixelSize::Full vs the 3x4 quad form
-    pub tier1: usize,   // promoted 3-row rows (0..=3)
+    pub tier1: usize,           // promoted 3-row rows (0..=3)
     /// The scoring band's rows (spec §3), reserved at the TOP of the body:
     /// [`crate::board::cut::BAND_ROWS`] whenever something is live, 0 when
     /// nothing is. Reserved, not inserted on fire — a band that appeared out
@@ -101,7 +101,14 @@ fn live_alloc(live: usize, tier1_cap: usize, budget: u16) -> (usize, usize, u16)
 /// game is the hero and whether to fold it out of the band's count is the
 /// caller's job — double-charging a pinned hero here is a caller bug, not a
 /// layout one.
-pub fn plan(width: u16, height: u16, live: usize, finals: usize, later: usize, my_games: usize) -> TierPlan {
+pub fn plan(
+    width: u16,
+    height: u16,
+    live: usize,
+    finals: usize,
+    later: usize,
+    my_games: usize,
+) -> TierPlan {
     let full = plan_detailed(width, height, live, finals, later, my_games);
     TierPlan {
         hero_rows: full.hero_rows,
@@ -128,7 +135,14 @@ struct FullPlan {
     scores_lane: bool,
 }
 
-fn plan_detailed(width: u16, height: u16, live: usize, finals: usize, later: usize, my_games: usize) -> FullPlan {
+fn plan_detailed(
+    width: u16,
+    height: u16,
+    live: usize,
+    finals: usize,
+    later: usize,
+    my_games: usize,
+) -> FullPlan {
     // spec §4 last row: `need 40×12, have W×H` — no hero fits below the floor.
     let (hero_rows, hero_digits_full): (u16, bool) = if width < 40 || height < 12 {
         (0, false)
@@ -194,8 +208,7 @@ fn plan_detailed(width: u16, height: u16, live: usize, finals: usize, later: usi
 
     // spec §1 Ticker: the lane comes on exactly when the un-laned pass would
     // have cut something short of what it asked for.
-    let would_truncate =
-        tier2_0 < live_left || finals_0 < finals_target || later_0 < later;
+    let would_truncate = tier2_0 < live_left || finals_0 < finals_target || later_0 < later;
 
     let (tier1, tier2, finals_rows, later_rows) = if would_truncate {
         // The lane pays for its own row before the cascade fills again.

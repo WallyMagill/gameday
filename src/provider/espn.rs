@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::domain::{League, StandingsTable};
-use crate::provider::map::{map_scoreboard, map_standings, map_stats, map_summary};
 use crate::poll::STANDINGS_TTL;
+use crate::provider::map::{map_scoreboard, map_standings, map_stats, map_summary};
 use crate::provider::{ProviderError, SportsProvider};
 use crate::{Game, GameStats, Summary};
 

@@ -383,7 +383,11 @@ impl App {
             .retain(|_, start| tick.saturating_sub(*start) < FLASH_TICKS);
         // The alert banner is one-shot too: past its lifetime it vanishes
         // and only a fresh score delta can bring one back.
-        if self.active_alert.as_ref().is_some_and(|a| tick >= a.until_tick) {
+        if self
+            .active_alert
+            .as_ref()
+            .is_some_and(|a| tick >= a.until_tick)
+        {
             self.active_alert = None;
         }
     }
@@ -460,7 +464,9 @@ impl App {
         if off == 0 {
             return None;
         }
-        self.now().date().checked_add(time::Duration::days(off as i64))
+        self.now()
+            .date()
+            .checked_add(time::Duration::days(off as i64))
     }
 
     /// `[`/`]` on the board: step the current league tab's viewed date,
@@ -1094,15 +1100,11 @@ impl App {
     /// to whichever list the active tab shows.
     fn move_zoom_scroll(&mut self, delta: isize) {
         let len = match &self.view {
-            View::Zoom { game_id, tab: ZoomTab::Stats } => self
-                .stats
-                .get(game_id)
-                .map(|s| s.rows.len())
-                .unwrap_or(0),
-            _ => self
-                .zoomed_game()
-                .map(|g| g.last_plays.len())
-                .unwrap_or(0),
+            View::Zoom {
+                game_id,
+                tab: ZoomTab::Stats,
+            } => self.stats.get(game_id).map(|s| s.rows.len()).unwrap_or(0),
+            _ => self.zoomed_game().map(|g| g.last_plays.len()).unwrap_or(0),
         };
         if len == 0 {
             self.zoom_scroll = 0;
@@ -1270,9 +1272,9 @@ impl App {
         // (a banner and a bell for a score going backwards), and consuming
         // its delta would swallow the real one when the fresh board lands.
         if !stale {
-            if let Some(alert) =
-                self.alerts
-                    .check(&self.config.favorites, &self.boards, self.tick)
+            if let Some(alert) = self
+                .alerts
+                .check(&self.config.favorites, &self.boards, self.tick)
             {
                 self.active_alert = Some(alert);
                 self.bell_pending = true;
@@ -1375,9 +1377,7 @@ impl App {
         }
         if let Some((id, play)) = fresh {
             if !self.cut_suppressed() {
-                let full = self
-                    .game_by_id(&id)
-                    .is_some_and(|g| self.cut_is_full(&g));
+                let full = self.game_by_id(&id).is_some_and(|g| self.cut_is_full(&g));
                 self.cuts.fire(&id, &play, full, self.tick);
                 if full {
                     self.bell_pending = true;
@@ -1561,11 +1561,15 @@ impl App {
             .position(|f| f.league == game.league && f.team_abbr.eq_ignore_ascii_case(&abbr))
         {
             self.config.favorites.remove(idx);
-            self.status_line =
-                Some(format!("unfavorited {} {abbr}", game.league.slug().to_uppercase()));
+            self.status_line = Some(format!(
+                "unfavorited {} {abbr}",
+                game.league.slug().to_uppercase()
+            ));
         } else {
-            self.status_line =
-                Some(format!("favorited {} {abbr}", game.league.slug().to_uppercase()));
+            self.status_line = Some(format!(
+                "favorited {} {abbr}",
+                game.league.slug().to_uppercase()
+            ));
             self.config.favorites.push(Favorite {
                 league: game.league,
                 team_abbr: abbr,
@@ -1641,11 +1645,8 @@ impl App {
             // expected values — "need more columns" didn't say how many, or
             // whether it was rows that were short.
             frame.render_widget(
-                Paragraph::new(format!(
-                    "need 40×12, have {}×{}",
-                    area.width, area.height
-                ))
-                .style(Style::default().fg(th.muted).bg(th.bg)),
+                Paragraph::new(format!("need 40×12, have {}×{}", area.width, area.height))
+                    .style(Style::default().fg(th.muted).bg(th.bg)),
                 area,
             );
             return;
@@ -1717,7 +1718,16 @@ impl App {
             .cloned()
             .and_then(|cut| self.game_by_id(&cut.game_id).map(|game| (cut, game)))
             .filter(|_| body.height > crate::board::cut::BAND_ROWS)
-            .map(|(cut, game)| (Rect { height: crate::board::cut::BAND_ROWS, ..body }, cut, game));
+            .map(|(cut, game)| {
+                (
+                    Rect {
+                        height: crate::board::cut::BAND_ROWS,
+                        ..body
+                    },
+                    cut,
+                    game,
+                )
+            });
         // Spec §3, v3.3: the Board and TV RESERVE the band's rows up front
         // (`layout::TierPlan::band_rows`), so the band is painted over rows
         // they already set aside and nothing moves. Every other view is a
@@ -1733,7 +1743,11 @@ impl App {
         // board to avoid.
         let reserves_band = matches!(self.view, View::Board | View::ThemePicker | View::Tv);
         if let (Some((slot, ..)), false) = (&band, reserves_band) {
-            body = Rect { y: slot.bottom(), height: body.height - slot.height, ..body };
+            body = Rect {
+                y: slot.bottom(),
+                height: body.height - slot.height,
+                ..body
+            };
         }
         let content_end = views::draw(self, frame, body);
         // After the view, not before: a reserved band is drawn ON the rows the
@@ -1750,9 +1764,11 @@ impl App {
         // owns the bottom of the frame when it renders, so the footer stays
         // put underneath it rather than leapfrogging it.
         let footer = match content_end {
-            Some(end) if ticker_h == 0 && end + 1 < chunks[3].y => {
-                Rect { y: end + 1, height: 1, ..chunks[3] }
-            }
+            Some(end) if ticker_h == 0 && end + 1 < chunks[3].y => Rect {
+                y: end + 1,
+                height: 1,
+                ..chunks[3]
+            },
             _ => chunks[3],
         };
         self.draw_footer(frame, footer);
@@ -1932,7 +1948,10 @@ mod tests {
         // Space is the user asking for a save; that one has to answer.
         app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
         assert!(
-            app.status_line.as_deref().unwrap_or("").contains("not saving"),
+            app.status_line
+                .as_deref()
+                .unwrap_or("")
+                .contains("not saving"),
             "{:?}",
             app.status_line
         );
@@ -1945,10 +1964,8 @@ mod tests {
     fn a_failed_standings_fetch_shows_the_error_where_the_table_would_be() {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.view = View::Standings(League::Cfb);
-        let mut term =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 30)).unwrap();
-        let screen = |t: &mut ratatui::Terminal<ratatui::backend::TestBackend>,
-                      app: &mut App| {
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 30)).unwrap();
+        let screen = |t: &mut ratatui::Terminal<ratatui::backend::TestBackend>, app: &mut App| {
             t.draw(|f| app.draw(f)).unwrap();
             t.backend()
                 .buffer()
@@ -1985,7 +2002,10 @@ mod tests {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
         let healthy = app.status_line.clone().unwrap_or_default();
-        assert!(healthy.starts_with("theme ") && !healthy.contains("not saving"), "{healthy}");
+        assert!(
+            healthy.starts_with("theme ") && !healthy.contains("not saving"),
+            "{healthy}"
+        );
         app.set_config_error(Some("config.toml:7: unknown variant `NFLL`".into()));
         app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
         let line = app.status_line.clone().unwrap_or_default();
@@ -2005,8 +2025,7 @@ mod tests {
             app.config_error.as_deref(),
             Some("config.toml:7: unknown variant `NFLL`")
         );
-        let mut term =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 30)).unwrap();
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 30)).unwrap();
         term.draw(|f| app.draw(f)).unwrap();
         let buf = term.backend().buffer().clone();
         let screen: String = (0..30)
@@ -2059,7 +2078,10 @@ mod tests {
             ..Default::default()
         };
         app.merge_summary("1", s);
-        assert_eq!(app.boards[&League::Nfl][0].last_plays[0].text, "from summary");
+        assert_eq!(
+            app.boards[&League::Nfl][0].last_plays[0].text,
+            "from summary"
+        );
     }
 
     #[test]
@@ -2146,7 +2168,10 @@ mod tests {
         app.on_key(KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(
             app.view,
-            View::Zoom { game_id: "1".into(), tab: ZoomTab::Overview }
+            View::Zoom {
+                game_id: "1".into(),
+                tab: ZoomTab::Overview
+            }
         );
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(app.view, View::Board);
@@ -2176,8 +2201,18 @@ mod tests {
     fn zoom_tabs_cycle_with_hl_and_brackets_and_jk_clamp() {
         let mut game = g("1", "KC", "TB", true);
         game.last_plays = vec![
-            Play { clock: "1:00".into(), team: "KC".into(), text: "a".into(), ..Default::default() },
-            Play { clock: "2:00".into(), team: "TB".into(), text: "b".into(), ..Default::default() },
+            Play {
+                clock: "1:00".into(),
+                team: "KC".into(),
+                text: "a".into(),
+                ..Default::default()
+            },
+            Play {
+                clock: "2:00".into(),
+                team: "TB".into(),
+                text: "b".into(),
+                ..Default::default()
+            },
         ];
         let mut app = app_with(vec![game], vec![]);
         app.tab = Tab::League(League::Nfl);
@@ -2253,7 +2288,11 @@ mod tests {
         app.on_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.view, View::Board, "Tab pops the picker onto the board");
         assert_eq!(app.tab, Tab::League(League::Nfl));
-        assert_eq!(theme::current_name(), "broadcast", "a tab switch never commits a preview");
+        assert_eq!(
+            theme::current_name(),
+            "broadcast",
+            "a tab switch never commits a preview"
+        );
     }
 
     #[test]
@@ -2267,13 +2306,24 @@ mod tests {
         assert_eq!(theme::current_name(), "studio");
         // Opening again while open must not adopt the preview as "prior".
         app.open_theme_picker();
-        assert_eq!(app.theme_prior, "broadcast", "reopen keeps the real prior theme");
-        assert_eq!(theme::current_name(), "studio", "reopen leaves the preview in place");
+        assert_eq!(
+            app.theme_prior, "broadcast",
+            "reopen keeps the real prior theme"
+        );
+        assert_eq!(
+            theme::current_name(),
+            "studio",
+            "reopen leaves the preview in place"
+        );
         // A header tab click pops the picker like the Tab key: revert first.
         app.on_hit(keymap::Hit::TabChip(Tab::League(League::Nfl)));
         assert_eq!(app.view, View::Board);
         assert_eq!(app.tab, Tab::League(League::Nfl));
-        assert_eq!(theme::current_name(), "broadcast", "a tab click never commits a preview");
+        assert_eq!(
+            theme::current_name(),
+            "broadcast",
+            "a tab click never commits a preview"
+        );
         assert_eq!(app.config.theme, "broadcast");
     }
 
@@ -2287,7 +2337,11 @@ mod tests {
         assert_eq!(app.config.sort, SortKey::Watch);
         app.on_key(KeyCode::Char('s'), KeyModifiers::NONE);
         assert_eq!(app.config.sort, SortKey::Time);
-        assert!(app.status_line.as_deref().unwrap_or("").contains("sort time"));
+        assert!(app
+            .status_line
+            .as_deref()
+            .unwrap_or("")
+            .contains("sort time"));
     }
 
     #[test]
@@ -2376,15 +2430,12 @@ mod tests {
     /// first — the pair ruling R35 is about.
     fn my_game_and_a_better_one() -> App {
         let mut app = app_with(
-            vec![
-                ranked("mine", "Q1", "15:00", 3, 0),
-                {
-                    let mut other = ranked("other", "Q4", "5:00", 24, 21);
-                    other.away = team("DAL");
-                    other.home = team("PHI");
-                    other
-                },
-            ],
+            vec![ranked("mine", "Q1", "15:00", 3, 0), {
+                let mut other = ranked("other", "Q4", "5:00", 24, 21);
+                other.away = team("DAL");
+                other.home = team("PHI");
+                other
+            }],
             vec![],
         );
         app.config.favorites.push(Favorite {
@@ -2402,7 +2453,11 @@ mod tests {
         // cut away from your own team and could never cut back.
         let mut app = my_game_and_a_better_one();
         app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
-        assert_eq!(app.tv_shown.as_deref(), Some("mine"), ":tv opens on my game");
+        assert_eq!(
+            app.tv_shown.as_deref(),
+            Some("mine"),
+            ":tv opens on my game"
+        );
 
         // "other" outranks it by a mile, and an event lands. The screen holds.
         let mut better = ranked("other", "Q4", "5:00", 24, 24);
@@ -2714,7 +2769,10 @@ mod tests {
         for _ in 0..FLASH_TICKS - 1 {
             app.advance_tick();
         }
-        assert!(app.flash_active("1"), "still lit one tick before the window ends");
+        assert!(
+            app.flash_active("1"),
+            "still lit one tick before the window ends"
+        );
         app.advance_tick();
         assert!(!app.flash_active("1"), "settles after FLASH_TICKS");
         // One-shot: the same score arriving again never re-flashes.
@@ -2735,7 +2793,10 @@ mod tests {
             ..Default::default()
         }];
         app.apply_boards(League::Nfl, vec![g1.clone()], false);
-        assert!(app.scoring_events().is_empty(), "first sighting seeds silently");
+        assert!(
+            app.scoring_events().is_empty(),
+            "first sighting seeds silently"
+        );
         let mut g2 = g1.clone();
         g2.away_score = 8;
         g2.last_plays = vec![Play {
@@ -2846,16 +2907,25 @@ mod tests {
         );
         assert_eq!(
             after.extras.penalty_meter(),
-            Some(Meter::Penalty { team_abbr: "WSH".into(), seconds: 120 }),
+            Some(Meter::Penalty {
+                team_abbr: "WSH".into(),
+                seconds: 120
+            }),
             "so the zoom's penalty meter is still derivable"
         );
-        assert_eq!(after.meter, None, "and the shared meter field stays empty (R49)");
+        assert_eq!(
+            after.meter, None,
+            "and the shared meter field stays empty (R49)"
+        );
 
         // A game going Final drops it: no power play survives the horn.
         let mut done = nhl_live("n1");
         done.status = Status::Final;
         app.apply_boards(League::Nhl, vec![done], false);
-        assert_eq!(app.game_by_id("n1").unwrap().extras, crate::domain::Extras::None);
+        assert_eq!(
+            app.game_by_id("n1").unwrap().extras,
+            crate::domain::Extras::None
+        );
     }
 
     #[test]
@@ -2870,7 +2940,10 @@ mod tests {
         app.merge_summary("n1", power_play_summary());
         let now = app.now();
         let watch = crate::rank::watchability(&app.game_by_id("n1").unwrap(), now);
-        assert_eq!(watch.chip, None, "no board chip for a summary-derived power play");
+        assert_eq!(
+            watch.chip, None,
+            "no board chip for a summary-derived power play"
+        );
         assert!(!watch.hot, "and it does not read hot");
 
         // Another poll: the order and the fingerprint set are untouched, so
@@ -2882,8 +2955,14 @@ mod tests {
         // Demo and sim penalty meters carry no Extras::Hockey — they still
         // light the chip, so the gallery keeps its showcase.
         let mut demo = nhl_live("n3");
-        demo.meter = Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 42 });
-        assert_eq!(crate::rank::watchability(&demo, now).chip, Some("POWER PLAY"));
+        demo.meter = Some(Meter::Penalty {
+            team_abbr: "DAL".into(),
+            seconds: 42,
+        });
+        assert_eq!(
+            crate::rank::watchability(&demo, now).chip,
+            Some("POWER PLAY")
+        );
     }
 
     /// A live EPL match the scoreboard maps: minute in `period`, no clock,
@@ -2897,7 +2976,10 @@ mod tests {
         x.home_score = home;
         x.situation = None;
         x.meter = None;
-        x.extras = crate::domain::Extras::Soccer { events: vec![], men: None };
+        x.extras = crate::domain::Extras::Soccer {
+            events: vec![],
+            men: None,
+        };
         x
     }
 
@@ -2933,7 +3015,11 @@ mod tests {
         assert_eq!(w.chip, Some("10 MEN"), "the card names the state");
         assert!(w.hot, "a red card is hot by definition");
 
-        app.apply_boards(League::Epl, vec![carded.clone(), epl_live("b", "63'", 1, 0)], false);
+        app.apply_boards(
+            League::Epl,
+            vec![carded.clone(), epl_live("b", "63'", 1, 0)],
+            false,
+        );
         assert_eq!(ord(&app), vec!["a", "b"], "one honest reorder");
         let after = ord(&app);
         let fps = app.rank_fingerprints.clone();
@@ -2944,14 +3030,21 @@ mod tests {
             let mut still = carded.clone();
             still.period = minute.into();
             app.apply_boards(League::Epl, vec![still, epl_live("b", "63'", 1, 0)], false);
-            assert_eq!(ord(&app), after, "the card fires once, not once per poll (R24)");
+            assert_eq!(
+                ord(&app),
+                after,
+                "the card fires once, not once per poll (R24)"
+            );
         }
         assert_eq!(app.rank_fingerprints, fps, "nor did the fingerprint move");
 
         // A SECOND sending-off is a new event: the fingerprint carries the
         // count, not merely "somebody is short-handed".
         let mut two = carded.clone();
-        two.extras = crate::domain::Extras::Soccer { events: vec![], men: Some((9, 11)) };
+        two.extras = crate::domain::Extras::Soccer {
+            events: vec![],
+            men: Some((9, 11)),
+        };
         app.apply_boards(League::Epl, vec![two, epl_live("b", "63'", 1, 0)], false);
         assert_ne!(app.rank_fingerprints, fps, "nine men is not ten men");
     }
@@ -3026,10 +3119,15 @@ mod tests {
         let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
         app.apply_boards(League::Nba, vec![g("2", "DEN", "BOS", true)], false);
         app.tab = Tab::League(League::Nfl);
-        let ids = |app: &App| -> Vec<String> { app.ticker_live().into_iter().map(|x| x.id).collect() };
+        let ids =
+            |app: &App| -> Vec<String> { app.ticker_live().into_iter().map(|x| x.id).collect() };
         assert_eq!(ids(&app), vec!["1", "2"], "the ticker ignores the tab");
         app.filter = Some("den".into());
-        assert_eq!(ids(&app), vec!["2"], "a typed filter narrows the ticker too");
+        assert_eq!(
+            ids(&app),
+            vec!["2"],
+            "a typed filter narrows the ticker too"
+        );
     }
 
     #[test]
@@ -3074,7 +3172,10 @@ mod tests {
         // Esc closes help FIRST; the zoom survives. A second Esc pops it.
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
         assert!(!app.help_open);
-        assert!(matches!(app.view, View::Zoom { .. }), "help closes before the view");
+        assert!(
+            matches!(app.view, View::Zoom { .. }),
+            "help closes before the view"
+        );
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(app.view, View::Board);
         // '?' also closes it.
@@ -3149,7 +3250,10 @@ mod tests {
         app.tab = Tab::League(League::Nfl);
         app.selected = 5;
         app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
-        assert_eq!(app.selected, 0, "the selection can never point past the end");
+        assert_eq!(
+            app.selected, 0,
+            "the selection can never point past the end"
+        );
     }
 
     #[test]
@@ -3166,7 +3270,11 @@ mod tests {
             !app.flash_active("1"),
             "re-appearing game must seed, not flash a stale diff"
         );
-        assert_eq!(app.last_scores.len(), 1, "only games on the boards are remembered");
+        assert_eq!(
+            app.last_scores.len(),
+            1,
+            "only games on the boards are remembered"
+        );
     }
 
     #[test]
@@ -3220,7 +3328,10 @@ mod tests {
         let mut cached = first.clone();
         cached.away_score = 7;
         app.apply_boards(League::Nfl, vec![cached], true);
-        assert!(app.active_alert.is_none(), "no banner from a cached payload");
+        assert!(
+            app.active_alert.is_none(),
+            "no banner from a cached payload"
+        );
         assert!(!app.bell_pending, "no bell from a cached payload");
 
         let mut next = first.clone();
@@ -3237,11 +3348,20 @@ mod tests {
     fn apply_boards_marks_the_connection_live() {
         let mut app = app_with(vec![], vec![]);
         let now = std::time::Instant::now();
-        assert!(matches!(app.net.chip(now, app.stale_after()), crate::app::net::NetChip::Live));
-        assert!(app.net.upd_label(now, app.stale_after()).is_some(), "app_with applies a board");
+        assert!(matches!(
+            app.net.chip(now, app.stale_after()),
+            crate::app::net::NetChip::Live
+        ));
+        assert!(
+            app.net.upd_label(now, app.stale_after()).is_some(),
+            "app_with applies a board"
+        );
         app.apply_boards(League::Nba, vec![], true);
         assert!(
-            matches!(app.net.chip(now, app.stale_after()), crate::app::net::NetChip::Stale { .. }),
+            matches!(
+                app.net.chip(now, app.stale_after()),
+                crate::app::net::NetChip::Stale { .. }
+            ),
             "a cached apply is stale on arrival"
         );
     }

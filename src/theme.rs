@@ -238,12 +238,16 @@ impl Theme {
     /// black (reads fine, hue carries it) and 1.30:1 on nord (vanishes) —
     /// so the knob is redmean color distance. See ART_FLOOR.
     pub fn art_color(&self, c: [u8; 3]) -> Color {
-        let Color::Rgb(br, bg_, bb) = self.bg else { return rgb(c) };
+        let Color::Rgb(br, bg_, bb) = self.bg else {
+            return rgb(c);
+        };
         let bg = [br, bg_, bb];
         if redmean(c, bg) >= ART_FLOOR {
             return rgb(c);
         }
-        let Color::Rgb(fr, fg_, fb) = self.fg else { return rgb(c) };
+        let Color::Rgb(fr, fg_, fb) = self.fg else {
+            return rgb(c);
+        };
         let toward = [fr, fg_, fb];
         for step in 1..=20u32 {
             let t = step as f64 / 20.0;
@@ -359,7 +363,9 @@ fn parse_hex(key: &str, value: &str) -> Result<Color, String> {
     let parsed = hex.and_then(|h| u32::from_str_radix(h, 16).ok());
     match parsed {
         Some(v) => Ok(Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)),
-        None => Err(format!("{key} = {value:?} is not a color, expected \"#rrggbb\"")),
+        None => Err(format!(
+            "{key} = {value:?} is not a color, expected \"#rrggbb\""
+        )),
     }
 }
 
@@ -467,7 +473,10 @@ fn parse_theme_inner(text: &str, compat_note: bool) -> Result<(String, Theme), S
             TeamColorScope::Hero
         }
         Some(v) => TeamColorScope::parse(v).ok_or_else(|| {
-            format!("roles.team = {v:?} is not a scope, expected one of {}", TeamColorScope::VALID)
+            format!(
+                "roles.team = {v:?} is not a scope, expected one of {}",
+                TeamColorScope::VALID
+            )
         })?,
     };
     let roles = Roles {
@@ -522,7 +531,10 @@ pub fn to_toml(name: &str, th: &Theme) -> String {
             th.bg, th.fg, th.bright, th.muted, th.dim, th.border, th.live, th.green, th.cyan,
             th.magenta, th.star,
         ];
-        colors.iter().position(|x| *x == c).map(|i| PALETTE_KEYS[i].to_string())
+        colors
+            .iter()
+            .position(|x| *x == c)
+            .map(|i| PALETTE_KEYS[i].to_string())
     };
     let r = th.roles;
     let file = ThemeFile {
@@ -582,8 +594,15 @@ fn builtins() -> &'static [Entry] {
                 // and a self-warning built-in is noise, not information.
                 let (name, theme) = parse_theme_inner(text, false)
                     .unwrap_or_else(|e| panic!("built-in theme {expected} fails to parse: {e}"));
-                assert_eq!(&name, expected, "assets/themes/{expected}.toml names itself {name:?}");
-                Entry { name, theme, user: false }
+                assert_eq!(
+                    &name, expected,
+                    "assets/themes/{expected}.toml names itself {name:?}"
+                );
+                Entry {
+                    name,
+                    theme,
+                    user: false,
+                }
             })
             .collect()
     })
@@ -624,7 +643,9 @@ pub fn names() -> Vec<String> {
 /// Case-insensitive lookup by name.
 pub fn lookup(name: &str) -> Option<Entry> {
     let name = name.trim();
-    entries().into_iter().find(|e| e.name.eq_ignore_ascii_case(name))
+    entries()
+        .into_iter()
+        .find(|e| e.name.eq_ignore_ascii_case(name))
 }
 
 /// A built-in by name (panics on a typo — it's a programmer's constant).
@@ -632,7 +653,12 @@ pub fn builtin(name: &str) -> Theme {
     builtins()
         .iter()
         .find(|e| e.name == name)
-        .unwrap_or_else(|| panic!("no built-in theme {name:?}, valid: {}", BUILTIN_NAMES.join("|")))
+        .unwrap_or_else(|| {
+            panic!(
+                "no built-in theme {name:?}, valid: {}",
+                BUILTIN_NAMES.join("|")
+            )
+        })
         .theme
 }
 
@@ -645,12 +671,22 @@ pub fn candidate(name: &str) -> Entry {
         .iter()
         .position(|n| *n == name)
         .unwrap_or_else(|| {
-            panic!("no candidate theme {name:?}, valid: {}", CANDIDATE_NAMES.join("|"))
+            panic!(
+                "no candidate theme {name:?}, valid: {}",
+                CANDIDATE_NAMES.join("|")
+            )
         });
     let (parsed, theme) = parse_theme_inner(CANDIDATE_TOML[i], false)
         .unwrap_or_else(|e| panic!("candidate theme {name} fails to parse: {e}"));
-    assert_eq!(&parsed, name, "assets/candidates/{name}.toml names itself {parsed:?}");
-    Entry { name: parsed, theme, user: false }
+    assert_eq!(
+        &parsed, name,
+        "assets/candidates/{name}.toml names itself {parsed:?}"
+    );
+    Entry {
+        name: parsed,
+        theme,
+        user: false,
+    }
 }
 
 /// Install (or replace) a user theme on this thread.
@@ -658,7 +694,10 @@ pub fn install(entry: Entry) {
     USER.with(|u| {
         let mut u = u.borrow_mut();
         u.retain(|e| !e.name.eq_ignore_ascii_case(&entry.name));
-        u.push(Entry { user: true, ..entry });
+        u.push(Entry {
+            user: true,
+            ..entry
+        });
     });
 }
 
@@ -666,7 +705,10 @@ pub fn install(entry: Entry) {
 /// it so a candidate exists for exactly one capture and never reaches the
 /// picker; unknown names are a no-op (there is nothing to undo).
 pub fn uninstall(name: &str) {
-    USER.with(|u| u.borrow_mut().retain(|e| !e.name.eq_ignore_ascii_case(name)));
+    USER.with(|u| {
+        u.borrow_mut()
+            .retain(|e| !e.name.eq_ignore_ascii_case(name))
+    });
 }
 
 /// Read `<dir>/themes/*.toml` (sorted by file name). Returns the themes that
@@ -688,7 +730,11 @@ pub fn load_user_themes(dir: &Path) -> (Vec<Entry>, Vec<String>) {
             .map_err(|e| e.to_string())
             .and_then(|text| parse_theme(&text));
         match result {
-            Ok((name, theme)) => entries.push(Entry { name, theme, user: true }),
+            Ok((name, theme)) => entries.push(Entry {
+                name,
+                theme,
+                user: true,
+            }),
             Err(e) => errors.push(format!("theme file {} skipped: {e}", path.display())),
         }
     }
@@ -760,7 +806,11 @@ pub fn next_name(name: &str, delta: isize) -> String {
         .position(|x| x.eq_ignore_ascii_case(name))
         .map(|i| i as isize)
         .unwrap_or(-1);
-    let next = if i < 0 && delta >= 0 { (delta - 1).rem_euclid(n) } else { (i + delta).rem_euclid(n) };
+    let next = if i < 0 && delta >= 0 {
+        (delta - 1).rem_euclid(n)
+    } else {
+        (i + delta).rem_euclid(n)
+    };
     all[next as usize].clone()
 }
 
@@ -821,10 +871,9 @@ pub fn scoring_word_for_play(league: League, play: &Play) -> &'static str {
         // Cards and hockey penalties are never scoring plays; Other is the
         // honest fallback where the mapper didn't (or couldn't) classify a
         // scoring play — the league word rather than a guess.
-        PlayKind::YellowCard
-        | PlayKind::RedCard
-        | PlayKind::HockeyPenalty
-        | PlayKind::Other => scoring_word(league),
+        PlayKind::YellowCard | PlayKind::RedCard | PlayKind::HockeyPenalty | PlayKind::Other => {
+            scoring_word(league)
+        }
     }
 }
 
@@ -851,7 +900,11 @@ fn redmean(a: [u8; 3], b: [u8; 3]) -> f64 {
 /// family?", which is exactly what an HSL hue wheel answers, and the two
 /// thresholds were picked against it.
 fn hsl(c: [u8; 3]) -> (f32, f32) {
-    let (r, g, b) = (c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0);
+    let (r, g, b) = (
+        c[0] as f32 / 255.0,
+        c[1] as f32 / 255.0,
+        c[2] as f32 / 255.0,
+    );
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
     let l = (max + min) / 2.0;
@@ -902,7 +955,9 @@ pub fn hero_pair(th: &Theme, away: [u8; 3], home: [u8; 3]) -> (Color, Color, boo
 }
 
 fn blend(a: u8, b: u8, t: f64) -> u8 {
-    (a as f64 + (b as f64 - a as f64) * t).round().clamp(0.0, 255.0) as u8
+    (a as f64 + (b as f64 - a as f64) * t)
+        .round()
+        .clamp(0.0, 255.0) as u8
 }
 
 #[cfg(test)]
@@ -923,7 +978,10 @@ mod tests {
                 ("hot", r.hot),
                 ("cool", r.cool),
             ] {
-                assert!(matches!(c, Color::Rgb(..)), "{name}: role {label} must be a concrete color");
+                assert!(
+                    matches!(c, Color::Rgb(..)),
+                    "{name}: role {label} must be a concrete color"
+                );
             }
         }
     }
@@ -960,11 +1018,17 @@ mod tests {
         // spec v3.3 §6: gruvbox published palette yellow is #d79921, not the
         // bright #fabd2f this file used to carry.
         assert_eq!(builtin("gruvbox").star, Color::Rgb(0xd7, 0x99, 0x21));
-        assert_eq!(builtin("gruvbox").league_accent(League::Nhl), Color::Rgb(0x8e, 0xc0, 0x7c));
+        assert_eq!(
+            builtin("gruvbox").league_accent(League::Nhl),
+            Color::Rgb(0x8e, 0xc0, 0x7c)
+        );
     }
 
     fn kinded_play(kind: PlayKind) -> Play {
-        Play { kind, ..Default::default() }
+        Play {
+            kind,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -973,7 +1037,11 @@ mod tests {
         // per call site — cover the league word and every kind
         // scoring_word_for_play can take.
         for league in League::ALL {
-            assert!(!scoring_word(league).contains('!'), "{league:?}: {}", scoring_word(league));
+            assert!(
+                !scoring_word(league).contains('!'),
+                "{league:?}: {}",
+                scoring_word(league)
+            );
         }
         let cases = [
             (League::Nfl, PlayKind::Touchdown),
@@ -1007,7 +1075,10 @@ mod tests {
 
     #[test]
     fn mlb_words_come_from_kinds() {
-        assert_eq!(scoring_word_for_play(League::Mlb, &kinded_play(PlayKind::HomeRun)), "HOME RUN");
+        assert_eq!(
+            scoring_word_for_play(League::Mlb, &kinded_play(PlayKind::HomeRun)),
+            "HOME RUN"
+        );
         // A bases-loaded walk carries a scoring-play kind, not a home run one.
         let walk = Play {
             text: "Walk — J. Sanoja".into(),
@@ -1022,15 +1093,29 @@ mod tests {
         // spec v3.4 §2: an unclassified scoring play (fixture predates
         // mapper coverage, or the feed's id table didn't land in a named
         // variant) keeps the league's honest generic rather than a guess.
-        assert_eq!(scoring_word_for_play(League::Nfl, &kinded_play(PlayKind::Other)), "TOUCHDOWN");
-        assert_eq!(scoring_word_for_play(League::Mlb, &kinded_play(PlayKind::Other)), "HOME RUN");
-        assert_eq!(scoring_word_for_play(League::Nhl, &kinded_play(PlayKind::Other)), "GOAL");
-        assert_eq!(scoring_word_for_play(League::Nba, &kinded_play(PlayKind::Other)), "BUCKET");
+        assert_eq!(
+            scoring_word_for_play(League::Nfl, &kinded_play(PlayKind::Other)),
+            "TOUCHDOWN"
+        );
+        assert_eq!(
+            scoring_word_for_play(League::Mlb, &kinded_play(PlayKind::Other)),
+            "HOME RUN"
+        );
+        assert_eq!(
+            scoring_word_for_play(League::Nhl, &kinded_play(PlayKind::Other)),
+            "GOAL"
+        );
+        assert_eq!(
+            scoring_word_for_play(League::Nba, &kinded_play(PlayKind::Other)),
+            "BUCKET"
+        );
     }
 
     /// Chroma of a truecolor: `max(r,g,b) - min(r,g,b)`, 0 for a pure gray.
     fn chroma(c: Color) -> i32 {
-        let Color::Rgb(r, g, b) = c else { panic!("not truecolor") };
+        let Color::Rgb(r, g, b) = c else {
+            panic!("not truecolor")
+        };
         r.max(g).max(b) as i32 - r.min(g).min(b) as i32
     }
 
@@ -1058,8 +1143,14 @@ mod tests {
                 chroma(c)
             );
         }
-        assert_eq!(r.digits, Color::Rgb(0xff, 0xff, 0xff), "studio's hero/row digits are white");
-        let Color::Rgb(hr, hg, hb) = r.hot else { panic!("studio hot is not truecolor") };
+        assert_eq!(
+            r.digits,
+            Color::Rgb(0xff, 0xff, 0xff),
+            "studio's hero/row digits are white"
+        );
+        let Color::Rgb(hr, hg, hb) = r.hot else {
+            panic!("studio hot is not truecolor")
+        };
         let (hr, hg, hb) = (hr as i32, hg as i32, hb as i32);
         assert!(
             hr - hg >= 64 && hr - hb >= 64,
@@ -1130,7 +1221,10 @@ mod tests {
         );
         // And it ships as a built-in now: in the picker, in the cycle.
         assert!(BUILTIN_NAMES.contains(&"daygame"), "daygame is a built-in");
-        assert!(lookup("daygame").is_some(), "daygame is selectable now that it is promoted");
+        assert!(
+            lookup("daygame").is_some(),
+            "daygame is selectable now that it is promoted"
+        );
     }
 
     #[test]
@@ -1139,7 +1233,11 @@ mod tests {
         // (#32302f, morhetz's own next step up) instead of the true #282828.
         let warm = candidate("gruvbox-warm").theme;
         let base = builtin("gruvbox");
-        assert_eq!(warm.bg, Color::Rgb(0x32, 0x30, 0x2f), "the one lifted value");
+        assert_eq!(
+            warm.bg,
+            Color::Rgb(0x32, 0x30, 0x2f),
+            "the one lifted value"
+        );
         assert_eq!(warm.roles().ground, warm.bg);
         for (label, a, b) in [
             ("fg", warm.fg, base.fg),
@@ -1161,7 +1259,10 @@ mod tests {
 
     #[test]
     fn gruvbox_ground_is_the_published_282828() {
-        assert_eq!(builtin("gruvbox").roles().ground, Color::Rgb(0x28, 0x28, 0x28));
+        assert_eq!(
+            builtin("gruvbox").roles().ground,
+            Color::Rgb(0x28, 0x28, 0x28)
+        );
     }
 
     #[test]
@@ -1181,7 +1282,10 @@ mod tests {
         assert_eq!(parse_hex("k", "#0a0B0c").unwrap(), Color::Rgb(10, 11, 12));
         for bad in ["#fff", "ffffff", "#gggggg", "", "#12345678"] {
             let err = parse_hex("palette.k", bad).unwrap_err();
-            assert!(err.contains("palette.k") && err.contains("#rrggbb"), "{err}");
+            assert!(
+                err.contains("palette.k") && err.contains("#rrggbb"),
+                "{err}"
+            );
         }
     }
 
@@ -1202,7 +1306,10 @@ mod tests {
             };
             let key = typo.split(' ').next().unwrap();
             let err = parse_theme(&text).unwrap_err();
-            assert!(err.contains(key), "error for {typo:?} must name {key:?}: {err}");
+            assert!(
+                err.contains(key),
+                "error for {typo:?} must name {key:?}: {err}"
+            );
         }
         // The valid file still parses, so the check is not just "fails".
         assert!(parse_theme(&base).is_ok());
@@ -1249,9 +1356,15 @@ mod tests {
         set_current("gruvbox").unwrap();
         let th = current();
         // Primary clears the floor: used as-is.
-        assert_eq!(th.team_mark_color([237, 237, 237], [0, 43, 109]), rgb([237, 237, 237]));
+        assert_eq!(
+            th.team_mark_color([237, 237, 237], [0, 43, 109]),
+            rgb([237, 237, 237])
+        );
         // Primary sinks, alt clears: brand-correct fallback.
-        assert_eq!(th.team_mark_color([0, 43, 109], [237, 237, 237]), rgb([237, 237, 237]));
+        assert_eq!(
+            th.team_mark_color([0, 43, 109], [237, 237, 237]),
+            rgb([237, 237, 237])
+        );
         // Both sink: lift rather than vanish.
         let both = th.team_mark_color([0, 43, 109], [10, 50, 100]);
         assert_ne!(both, rgb([0, 43, 109]));
@@ -1286,6 +1399,9 @@ mod tests {
     fn league_slugs_in_a_theme_file_are_validated() {
         let text = to_toml("x", &builtin("gruvbox")).replace("nfl = ", "xfl = ");
         let err = parse_theme(&text).unwrap_err();
-        assert!(err.contains("palette.league.xfl") && err.contains("nfl|cfb"), "{err}");
+        assert!(
+            err.contains("palette.league.xfl") && err.contains("nfl|cfb"),
+            "{err}"
+        );
     }
 }

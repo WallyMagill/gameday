@@ -188,13 +188,26 @@ mod tests {
     #[test]
     fn parses_league_theme_pin_and_errors() {
         assert_eq!(parse("nfl").unwrap(), Cmd::GoLeague(League::Nfl));
-        assert_eq!(parse("standings nba").unwrap(), Cmd::Standings(Some(League::Nba)));
+        assert_eq!(
+            parse("standings nba").unwrap(),
+            Cmd::Standings(Some(League::Nba))
+        );
         assert_eq!(parse("standings").unwrap(), Cmd::Standings(None));
-        assert_eq!(parse("theme gruvbox").unwrap(), Cmd::Theme(Some("gruvbox".into())));
-        assert_eq!(parse("theme").unwrap(), Cmd::Theme(None), "bare :theme opens the picker");
+        assert_eq!(
+            parse("theme gruvbox").unwrap(),
+            Cmd::Theme(Some("gruvbox".into()))
+        );
+        assert_eq!(
+            parse("theme").unwrap(),
+            Cmd::Theme(None),
+            "bare :theme opens the picker"
+        );
         assert_eq!(parse("pin kc").unwrap(), Cmd::Pin("kc".into()));
         let err = parse("foo").unwrap_err();
-        assert!(err.contains("\"foo\"") && err.contains("nfl") && err.contains("standings"), "{err}");
+        assert!(
+            err.contains("\"foo\"") && err.contains("nfl") && err.contains("standings"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -208,10 +221,17 @@ mod tests {
         let all = complete("theme ");
         assert_eq!(all.len(), theme::names().len(), "{all:?}");
         for name in theme::BUILTIN_NAMES {
-            assert!(all.contains(&format!("theme {name}")), "missing {name}: {all:?}");
+            assert!(
+                all.contains(&format!("theme {name}")),
+                "missing {name}: {all:?}"
+            );
         }
         assert_eq!(complete("theme gr"), vec!["theme gruvbox"]);
-        assert_eq!(complete("theme STUD"), vec!["theme studio"], "case-insensitive");
+        assert_eq!(
+            complete("theme STUD"),
+            vec!["theme studio"],
+            "case-insensitive"
+        );
         // A user theme installed on this thread completes too.
         theme::install(theme::Entry {
             name: "zebra".into(),
@@ -219,7 +239,10 @@ mod tests {
             user: true,
         });
         assert_eq!(complete("theme z"), vec!["theme zebra"]);
-        assert_eq!(parse("theme Zebra").unwrap(), Cmd::Theme(Some("zebra".into())));
+        assert_eq!(
+            parse("theme Zebra").unwrap(),
+            Cmd::Theme(Some("zebra".into()))
+        );
     }
 
     #[test]
@@ -240,12 +263,18 @@ mod tests {
         assert_eq!(parse("all").unwrap(), Cmd::GoHome);
         assert_eq!(parse("plays").unwrap(), Cmd::Plays);
         assert_eq!(parse("config").unwrap(), Cmd::ConfigView);
-        assert_eq!(parse("sort league").unwrap(), Cmd::Sort(Some(SortKey::League)));
+        assert_eq!(
+            parse("sort league").unwrap(),
+            Cmd::Sort(Some(SortKey::League))
+        );
         assert_eq!(parse("tv").unwrap(), Cmd::Tv);
         assert_eq!(parse("q").unwrap(), Cmd::Quit);
         assert_eq!(parse("quit").unwrap(), Cmd::Quit);
         // Case-insensitive, whitespace-tolerant.
-        assert_eq!(parse("  THEME Gruvbox ").unwrap(), Cmd::Theme(Some("gruvbox".into())));
+        assert_eq!(
+            parse("  THEME Gruvbox ").unwrap(),
+            Cmd::Theme(Some("gruvbox".into()))
+        );
     }
 
     // Task 10 (spec §9): `:sort`/`:tv` land, `:layout`/`:score` and the old
@@ -254,7 +283,9 @@ mod tests {
     fn sort_and_tv_parse_and_layout_score_are_gone() {
         assert_eq!(parse("sort").unwrap(), Cmd::Sort(None));
         assert_eq!(parse("sort time").unwrap(), Cmd::Sort(Some(SortKey::Time)));
-        assert!(parse("sort sideways").unwrap_err().contains("watch|time|league"));
+        assert!(parse("sort sideways")
+            .unwrap_err()
+            .contains("watch|time|league"));
         assert_eq!(parse("tv").unwrap(), Cmd::Tv);
         let err = parse("layout").unwrap_err();
         assert!(err.contains("unknown command"), "{err}");
@@ -264,7 +295,10 @@ mod tests {
     #[test]
     fn argument_errors_name_the_value_and_the_valid_set() {
         let err = parse("theme solarized").unwrap_err();
-        assert!(err.contains("\"solarized\"") && err.contains("broadcast|studio|gruvbox"), "{err}");
+        assert!(
+            err.contains("\"solarized\"") && err.contains("broadcast|studio|gruvbox"),
+            "{err}"
+        );
         // The valid set is the whole loaded list, not just the built-ins: a
         // user theme installed on this thread has to appear in it too.
         theme::install(theme::Entry {
@@ -273,11 +307,20 @@ mod tests {
             user: true,
         });
         let err = parse("theme solarized").unwrap_err();
-        assert!(err.contains("zebra"), "the valid set is the whole loaded list: {err}");
+        assert!(
+            err.contains("zebra"),
+            "the valid set is the whole loaded list: {err}"
+        );
         let err = parse("standings xfl").unwrap_err();
-        assert!(err.contains("\"xfl\"") && err.contains("nfl") && err.contains("mls"), "{err}");
+        assert!(
+            err.contains("\"xfl\"") && err.contains("nfl") && err.contains("mls"),
+            "{err}"
+        );
         let err = parse("sort sideways").unwrap_err();
-        assert!(err.contains("\"sideways\"") && err.contains("watch|time|league"), "{err}");
+        assert!(
+            err.contains("\"sideways\"") && err.contains("watch|time|league"),
+            "{err}"
+        );
         let err = parse("pin").unwrap_err();
         assert!(err.contains("abbr"), "{err}");
         let err = parse("nfl extra").unwrap_err();
@@ -290,11 +333,23 @@ mod tests {
     fn completion_covers_names_and_args() {
         assert_eq!(complete("nf"), vec!["nfl".to_string()]);
         let n: Vec<String> = complete("n");
-        assert!(n.contains(&"nfl".into()) && n.contains(&"nba".into()) && n.contains(&"nhl".into()));
-        assert_eq!(complete("standings n"), vec!["standings nfl", "standings nba", "standings nhl"]);
-        assert_eq!(complete("sort "), vec!["sort watch", "sort time", "sort league"]);
+        assert!(
+            n.contains(&"nfl".into()) && n.contains(&"nba".into()) && n.contains(&"nhl".into())
+        );
+        assert_eq!(
+            complete("standings n"),
+            vec!["standings nfl", "standings nba", "standings nhl"]
+        );
+        assert_eq!(
+            complete("sort "),
+            vec!["sort watch", "sort time", "sort league"]
+        );
         assert!(complete("pin k").is_empty(), "abbrs are free text");
         assert!(complete("bogus x").is_empty());
-        assert_eq!(complete("").len(), REGISTRY.len(), "empty prompt offers everything");
+        assert_eq!(
+            complete("").len(),
+            REGISTRY.len(),
+            "empty prompt offers everything"
+        );
     }
 }

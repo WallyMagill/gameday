@@ -202,8 +202,18 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
         }
         let y = area.y + (area.height - gh) / 2;
         return ScoreSpots {
-            away: Rect { x: area.x + third - aw, y, width: aw, height: gh },
-            home: Rect { x: area.right() - third, y, width: hw, height: gh },
+            away: Rect {
+                x: area.x + third - aw,
+                y,
+                width: aw,
+                height: gh,
+            },
+            home: Rect {
+                x: area.right() - third,
+                y,
+                width: hw,
+                height: gh,
+            },
             form,
             scale,
         };
@@ -214,8 +224,18 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
     let x0 = area.x + area.width.saturating_sub(text_w) / 2;
     let y = area.y + area.height.saturating_sub(1) / 2;
     ScoreSpots {
-        away: Rect { x: x0, y, width: away.len() as u16, height: 1 },
-        home: Rect { x: x0 + text_w - home.len() as u16, y, width: home.len() as u16, height: 1 },
+        away: Rect {
+            x: x0,
+            y,
+            width: away.len() as u16,
+            height: 1,
+        },
+        home: Rect {
+            x: x0 + text_w - home.len() as u16,
+            y,
+            width: home.len() as u16,
+            height: 1,
+        },
         form: ScoreForm::Text,
         scale: (1, 1),
     }
@@ -244,11 +264,22 @@ pub fn score_block(frame: &mut Frame, area: Rect, game: &Game, full: bool) {
     if spots.form == ScoreForm::Text {
         let bold = Modifier::BOLD;
         let line = Line::from(vec![
-            Span::styled(game.away_score.to_string(), Style::default().fg(away_color).add_modifier(bold)),
+            Span::styled(
+                game.away_score.to_string(),
+                Style::default().fg(away_color).add_modifier(bold),
+            ),
             Span::styled(" - ", Style::default().fg(th.roles().dim)),
-            Span::styled(game.home_score.to_string(), Style::default().fg(home_color).add_modifier(bold)),
+            Span::styled(
+                game.home_score.to_string(),
+                Style::default().fg(home_color).add_modifier(bold),
+            ),
         ]);
-        let row = Rect { x: area.x, y: spots.away.y, width: area.width, height: 1 };
+        let row = Rect {
+            x: area.x,
+            y: spots.away.y,
+            width: area.width,
+            height: 1,
+        };
         frame.render_widget(Paragraph::new(line).alignment(Alignment::Center), row);
         return;
     }
@@ -261,7 +292,11 @@ pub fn score_block(frame: &mut Frame, area: Rect, game: &Game, full: bool) {
     // size: this is `PixelSize::Full` magnified, so a doubled score and a
     // board score are the same shape.
     let (sx, sy) = spots.scale;
-    let unstretched = |r: Rect| Rect { width: r.width / sx, height: r.height / sy, ..r };
+    let unstretched = |r: Rect| Rect {
+        width: r.width / sx,
+        height: r.height / sy,
+        ..r
+    };
     let (drew_away, drew_home) = if spots.form == ScoreForm::Full {
         (
             tiles::digit_glyphs(frame, unstretched(spots.away), game.away_score, away_color),
@@ -329,13 +364,20 @@ pub fn fragment_line(game: &Game) -> Option<Line<'static>> {
         push(Span::styled(sit.down_distance.to_uppercase(), ink));
     }
     if let Some(on) = sit.ball_on.as_deref().filter(|s| !s.is_empty()) {
-        push(Span::styled(format!("BALL ON {}", on.to_uppercase()), Style::default().fg(r.ink)));
+        push(Span::styled(
+            format!("BALL ON {}", on.to_uppercase()),
+            Style::default().fg(r.ink),
+        ));
     }
     if let Some(poss) = sit.possession.as_deref().filter(|s| !s.is_empty()) {
         // The team with the ball wears its own color — the hero is where
         // team color is allowed, and this is the one word that names a team.
         let (away_color, home_color, _) = theme::hero_pair(&th, game.away.color, game.home.color);
-        let color = if poss.eq_ignore_ascii_case(&game.home.abbr) { home_color } else { away_color };
+        let color = if poss.eq_ignore_ascii_case(&game.home.abbr) {
+            home_color
+        } else {
+            away_color
+        };
         push(Span::styled(
             format!("{} BALL", poss.to_uppercase()),
             Style::default().fg(color).add_modifier(Modifier::BOLD),
@@ -353,7 +395,10 @@ fn clock_text(game: &Game, now: OffsetDateTime) -> String {
     match game.status {
         Status::Live => format!("{} {}", game.period, game.clock).trim().to_string(),
         Status::Final => "FINAL".to_string(),
-        Status::Pre => game.start.map(|t| crate::text::fmt_start(t, now)).unwrap_or_default(),
+        Status::Pre => game
+            .start
+            .map(|t| crate::text::fmt_start(t, now))
+            .unwrap_or_default(),
     }
 }
 
@@ -380,11 +425,16 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
     if plan.favorite {
         marks.push("★");
     }
-    let abbr = Span::styled(team.abbr.clone(), Style::default().fg(color).add_modifier(Modifier::BOLD));
-    let record = (!team.record.is_empty()).then(|| Span::styled(team.record.clone(), Style::default().fg(r.dim)));
+    let abbr = Span::styled(
+        team.abbr.clone(),
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    );
+    let record = (!team.record.is_empty())
+        .then(|| Span::styled(team.record.clone(), Style::default().fg(r.dim)));
     // A home side that lost its color to the lookalike rule says so with a
     // one-cell block in its real (lifted) color — spec §6.
-    let block = (!away && fell).then(|| Span::styled("▌", Style::default().fg(th.art_color(team.color))));
+    let block =
+        (!away && fell).then(|| Span::styled("▌", Style::default().fg(th.art_color(team.color))));
     let mut spans: Vec<Span<'static>> = Vec::new();
     if away {
         if plan.selected {
@@ -403,7 +453,12 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
         }
         spans.extend(block);
         spans.push(abbr);
-        spans.extend(marks.iter().rev().map(|m| Span::styled(format!(" {m}"), star)));
+        spans.extend(
+            marks
+                .iter()
+                .rev()
+                .map(|m| Span::styled(format!(" {m}"), star)),
+        );
         if plan.selected {
             spans.push(Span::styled(" ▸", caret));
         }
@@ -461,7 +516,10 @@ fn row_plan(area: Rect, have: [bool; 3], digits_full: bool) -> (u16, [bool; 3]) 
     }
     // Rows the options declined stay with the band, so a taller-than-bracket
     // hero grows its digits' breathing room rather than stranding rows.
-    (under_nameplate - want.iter().filter(|w| **w).count() as u16, want)
+    (
+        under_nameplate - want.iter().filter(|w| **w).count() as u16,
+        want,
+    )
 }
 
 /// The digit band inside a hero `area` — the rect [`draw_hero`] hands
@@ -475,7 +533,11 @@ pub fn band_rect(area: Rect, game: &Game, digits_full: bool) -> Rect {
         !game.last_plays.is_empty(),
     ];
     let (band_rows, _) = row_plan(area, have, digits_full);
-    Rect { y: area.y + 1, height: band_rows, ..area }
+    Rect {
+        y: area.y + 1,
+        height: band_rows,
+        ..area
+    }
 }
 
 pub fn draw_hero(frame: &mut Frame, area: Rect, game: &Game, plan: &HeroPlan) {
@@ -500,14 +562,25 @@ pub fn draw_hero(frame: &mut Frame, area: Rect, game: &Game, plan: &HeroPlan) {
     let half = area.width / 2;
     frame.render_widget(
         Paragraph::new(nameplate(game, true, plan)).alignment(Alignment::Left),
-        Rect { width: half, ..name_row },
+        Rect {
+            width: half,
+            ..name_row
+        },
     );
     frame.render_widget(
         Paragraph::new(nameplate(game, false, plan)).alignment(Alignment::Right),
-        Rect { x: area.x + half, width: area.width - half, ..name_row },
+        Rect {
+            x: area.x + half,
+            width: area.width - half,
+            ..name_row
+        },
     );
 
-    let band = Rect { y: area.y + 1, height: band_rows, ..area };
+    let band = Rect {
+        y: area.y + 1,
+        height: band_rows,
+        ..area
+    };
     let spots = score_spots(band, game, plan.digits_full);
     score_block(frame, band, game, plan.digits_full);
     // The glyph forms leave the center column empty by construction (digits
@@ -520,7 +593,12 @@ pub fn draw_hero(frame: &mut Frame, area: Rect, game: &Game, plan: &HeroPlan) {
     }
 
     let mut y = band.bottom();
-    let row = |y: u16| Rect { x: area.x, y, width: area.width, height: 1 };
+    let row = |y: u16| Rect {
+        x: area.x,
+        y,
+        width: area.width,
+        height: 1,
+    };
     if show_fragment {
         if let Some(line) = fragment {
             frame.render_widget(Paragraph::new(line).alignment(Alignment::Center), row(y));
@@ -572,8 +650,14 @@ pub(crate) fn draw_center_column(
     if third == 0 || band.height == 0 {
         return;
     }
-    let center = Rect { x: band.x + third, width: band.width - 2 * third, ..band };
-    let free: Vec<u16> = (center.y..center.bottom()).filter(|y| Some(*y) != taken).collect();
+    let center = Rect {
+        x: band.x + third,
+        width: band.width - 2 * third,
+        ..band
+    };
+    let free: Vec<u16> = (center.y..center.bottom())
+        .filter(|y| Some(*y) != taken)
+        .collect();
     let Some(&first) = free.first() else {
         return;
     };
@@ -589,9 +673,16 @@ pub(crate) fn draw_center_column(
     let text = clock_text(game, plan.now);
     if !text.is_empty() {
         frame.render_widget(
-            Paragraph::new(Span::styled(text, Style::default().fg(r.ink).add_modifier(Modifier::BOLD)))
-                .alignment(Alignment::Center),
-            Rect { y: clock_y, height: 1, ..center },
+            Paragraph::new(Span::styled(
+                text,
+                Style::default().fg(r.ink).add_modifier(Modifier::BOLD),
+            ))
+            .alignment(Alignment::Center),
+            Rect {
+                y: clock_y,
+                height: 1,
+                ..center
+            },
         );
     }
     if let Some(chip) = plan.chip {
@@ -599,10 +690,17 @@ pub(crate) fn draw_center_column(
             frame.render_widget(
                 Paragraph::new(Span::styled(
                     format!(" {chip} "),
-                    Style::default().fg(r.ground).bg(r.hot).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(r.ground)
+                        .bg(r.hot)
+                        .add_modifier(Modifier::BOLD),
                 ))
                 .alignment(Alignment::Center),
-                Rect { y: chip_y, height: 1, ..center },
+                Rect {
+                    y: chip_y,
+                    height: 1,
+                    ..center
+                },
             );
         }
     }
@@ -613,7 +711,12 @@ pub(crate) fn draw_center_column(
 /// its identity is already in the nameplate, and a placeholder there reads
 /// as a broken image.
 fn draw_flanks(frame: &mut Frame, band: Rect, game: &Game, spots: ScoreSpots) {
-    let left = Rect { x: band.x, y: band.y, width: spots.away.x - band.x, height: band.height };
+    let left = Rect {
+        x: band.x,
+        y: band.y,
+        width: spots.away.x - band.x,
+        height: band.height,
+    };
     let right = Rect {
         x: spots.home.right(),
         y: band.y,
@@ -630,9 +733,10 @@ fn draw_flanks(frame: &mut Frame, band: Rect, game: &Game, spots: ScoreSpots) {
     // logo reads as a rendering bug, not as "one team has art and one
     // doesn't". So the gate lives here, before either side is drawn, not
     // inside a per-side loop where it can only skip one of them.
-    let (Some(away_mark), Some(home_mark)) =
-        (crate::board::logo::hero_mark(&game.away.logo_key), crate::board::logo::hero_mark(&game.home.logo_key))
-    else {
+    let (Some(away_mark), Some(home_mark)) = (
+        crate::board::logo::hero_mark(&game.away.logo_key),
+        crate::board::logo::hero_mark(&game.home.logo_key),
+    ) else {
         return;
     };
     // Whole mark or none: a clipped mark is a smear, not an identity. Width
@@ -644,7 +748,8 @@ fn draw_flanks(frame: &mut Frame, band: Rect, game: &Game, spots: ScoreSpots) {
     // draws — never one flank alone because its own mark happened to be
     // shorter.
     let away_fits = away_mark.width <= MARK_COLS.min(left.width) && away_mark.height <= left.height;
-    let home_fits = home_mark.width <= MARK_COLS.min(right.width) && home_mark.height <= right.height;
+    let home_fits =
+        home_mark.width <= MARK_COLS.min(right.width) && home_mark.height <= right.height;
     if !away_fits || !home_fits {
         return;
     }
@@ -657,8 +762,8 @@ mod tests {
     use super::*;
     use crate::domain::{Meter, Play, Situation, Team};
     use ratatui::backend::TestBackend;
-    use ratatui::style::Color;
     use ratatui::buffer::Buffer;
+    use ratatui::style::Color;
     use ratatui::Terminal;
 
     fn team(abbr: &str, color: [u8; 3], key: &str) -> Team {
@@ -727,7 +832,9 @@ mod tests {
                 text: "Rodriguez singles to right, Crawford to third".into(),
                 ..Default::default()
             }],
-            meter: Some(Meter::Diamond { occupied: [false, false, true] }),
+            meter: Some(Meter::Diamond {
+                occupied: [false, false, true],
+            }),
             ..Game::default()
         }
     }
@@ -753,7 +860,11 @@ mod tests {
     fn text_of(buf: &Buffer) -> String {
         let area = *buf.area();
         (0..area.height)
-            .map(|y| (0..area.width).map(|x| buf[(x, y)].symbol()).collect::<String>())
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -774,7 +885,12 @@ mod tests {
     /// The digit band of a `h`-row hero: everything under the nameplate and
     /// above the three text rows at the bottom.
     fn band_of(w: u16, h: u16) -> Rect {
-        Rect { x: 0, y: 1, width: w, height: h - 4 }
+        Rect {
+            x: 0,
+            y: 1,
+            width: w,
+            height: h - 4,
+        }
     }
 
     #[test]
@@ -782,14 +898,23 @@ mod tests {
         let th = theme::current();
         let (w, h) = (120u16, 12u16);
         let game = nfl_game();
-        let (away_color, home_color, fell) = theme::hero_pair(&th, game.away.color, game.home.color);
+        let (away_color, home_color, fell) =
+            theme::hero_pair(&th, game.away.color, game.home.color);
         assert!(!fell, "KC red and BUF blue are not lookalikes");
         let term = render(w, h, &game, &plan());
         let buf = term.backend().buffer();
         let band = band_of(w, h);
         let third = w / 3;
-        let left = Rect { x: 0, width: third, ..band };
-        let right = Rect { x: w - third, width: third, ..band };
+        let left = Rect {
+            x: 0,
+            width: third,
+            ..band
+        };
+        let right = Rect {
+            x: w - third,
+            width: third,
+            ..band
+        };
         assert!(
             cells_with_fg(buf, left, away_color) >= 8,
             "away digits must paint the left third in KC's lifted red ({away_color:?})\n{}",
@@ -800,7 +925,11 @@ mod tests {
             "home digits must paint the right third in BUF's lifted blue ({home_color:?})\n{}",
             text_of(buf)
         );
-        assert_eq!(cells_with_fg(buf, right, away_color), 0, "away color must not leak into the home third");
+        assert_eq!(
+            cells_with_fg(buf, right, away_color),
+            0,
+            "away color must not leak into the home third"
+        );
 
         // Two navies: the home side falls back to the amber `digits` role,
         // and its own color appears nowhere in the home third.
@@ -812,8 +941,16 @@ mod tests {
         assert_eq!(home2, th.roles().digits);
         let term = render(w, h, &look, &plan());
         let buf = term.backend().buffer();
-        assert!(cells_with_fg(buf, right, home2) >= 8, "home digits fall back to amber\n{}", text_of(buf));
-        assert_eq!(cells_with_fg(buf, right, away2), 0, "the two navies must not both draw navy digits");
+        assert!(
+            cells_with_fg(buf, right, home2) >= 8,
+            "home digits fall back to amber\n{}",
+            text_of(buf)
+        );
+        assert_eq!(
+            cells_with_fg(buf, right, away2),
+            0,
+            "the two navies must not both draw navy digits"
+        );
     }
 
     #[test]
@@ -829,12 +966,19 @@ mod tests {
             for x in 0..w {
                 let bg = buf[(x, y)].bg;
                 if bg != Color::Reset {
-                    assert_eq!(bg, r.hot, "the only filled background in the hero is the chip, at ({x},{y})");
+                    assert_eq!(
+                        bg, r.hot,
+                        "the only filled background in the hero is the chip, at ({x},{y})"
+                    );
                     filled.push((x, y));
                 }
             }
         }
-        assert!(!filled.is_empty(), "RED ZONE chip must render\n{}", text_of(buf));
+        assert!(
+            !filled.is_empty(),
+            "RED ZONE chip must render\n{}",
+            text_of(buf)
+        );
         let rows: Vec<u16> = {
             let mut ys: Vec<u16> = filled.iter().map(|(_, y)| *y).collect();
             ys.dedup();
@@ -843,24 +987,40 @@ mod tests {
         assert_eq!(rows.len(), 1, "the chip is one row");
         let (min_x, max_x) = (filled[0].0, filled[filled.len() - 1].0);
         let third = w / 3;
-        assert!(min_x >= third && max_x < w - third, "the chip sits in the center column ({min_x}..={max_x})");
-        let chip: String = (min_x..=max_x).map(|x| buf[(x, rows[0])].symbol()).collect();
+        assert!(
+            min_x >= third && max_x < w - third,
+            "the chip sits in the center column ({min_x}..={max_x})"
+        );
+        let chip: String = (min_x..=max_x)
+            .map(|x| buf[(x, rows[0])].symbol())
+            .collect();
         assert_eq!(chip, " RED ZONE ");
     }
 
     #[test]
     fn mlb_hero_has_no_duplicate_fragment_line() {
         let game = mlb_game();
-        assert!(fragment_line(&game).is_none(), "MLB's meter row IS its fragment line");
+        assert!(
+            fragment_line(&game).is_none(),
+            "MLB's meter row IS its fragment line"
+        );
         let term = render(120, 12, &game, &{
             let mut p = plan();
             p.chip = Some("TYING RUN 3RD"); // spec v3.3 §7
             p
         });
         let text = text_of(term.backend().buffer());
-        assert_eq!(text.matches("BASES").count(), 1, "one diamond row, not two\n{text}");
+        assert_eq!(
+            text.matches("BASES").count(),
+            1,
+            "one diamond row, not two\n{text}"
+        );
         assert_eq!(text.matches("OUTS").count(), 1, "one outs cluster\n{text}");
-        assert_eq!(text.matches("1 OUT · 1-0").count(), 0, "the count headline must not repeat as a fragment\n{text}");
+        assert_eq!(
+            text.matches("1 OUT · 1-0").count(),
+            0,
+            "the count headline must not repeat as a fragment\n{text}"
+        );
     }
 
     #[test]
@@ -870,8 +1030,17 @@ mod tests {
         // The flank is the margin the digits didn't take: left third minus
         // the right-aligned away digits.
         let spots = score_spots(band, &nfl_game(), true);
-        let left = Rect { x: 0, y: band.y, width: spots.away.x, height: band.height };
-        assert!(left.width >= FLANK_MIN_COLS, "the reference frame leaves a real margin: {}", left.width);
+        let left = Rect {
+            x: 0,
+            y: band.y,
+            width: spots.away.x,
+            height: band.height,
+        };
+        assert!(
+            left.width >= FLANK_MIN_COLS,
+            "the reference frame leaves a real margin: {}",
+            left.width
+        );
 
         let term = render(w, h, &nfl_game(), &plan());
         let painted = {
@@ -887,7 +1056,10 @@ mod tests {
             }
             n
         };
-        assert!(painted >= 20, "nfl/kc art must fill the left flank, painted {painted} cells");
+        assert!(
+            painted >= 20,
+            "nfl/kc art must fill the left flank, painted {painted} cells"
+        );
 
         // A team with no committed art: the margin stays ground, and no
         // placeholder is drawn in its place.
@@ -899,7 +1071,11 @@ mod tests {
         for y in left.y..left.bottom() {
             for x in left.x..left.right() {
                 let c = &buf[(x, y)];
-                assert_eq!(c.symbol(), " ", "missing art leaves the margin empty at ({x},{y})");
+                assert_eq!(
+                    c.symbol(),
+                    " ",
+                    "missing art leaves the margin empty at ({x},{y})"
+                );
                 assert_eq!(c.bg, Color::Reset, "no placeholder background at ({x},{y})");
             }
         }
@@ -925,7 +1101,12 @@ mod tests {
 
         // The art is on screen in the lit render — without this the
         // comparison below can pass for a `draw_flanks` that reflows digits.
-        let flank = Rect { x: 0, y: band.y, width: spots.away.x, height: band.height };
+        let flank = Rect {
+            x: 0,
+            y: band.y,
+            width: spots.away.x,
+            height: band.height,
+        };
         let painted = |t: &Terminal<TestBackend>| {
             let buf = t.backend().buffer();
             let mut n = 0;
@@ -938,16 +1119,31 @@ mod tests {
             }
             n
         };
-        assert!(painted(&lit) >= 20, "the KC mark must be drawn for this test to mean anything");
-        assert_eq!(painted(&dark), 0, "show_logos = false leaves the flank untouched ground");
+        assert!(
+            painted(&lit) >= 20,
+            "the KC mark must be drawn for this test to mean anything"
+        );
+        assert_eq!(
+            painted(&dark),
+            0,
+            "show_logos = false leaves the flank untouched ground"
+        );
 
         // Cell for cell, both digit rects are the same pixels either way.
         let (a, b) = (lit.backend().buffer(), dark.backend().buffer());
         for rect in [spots.away, spots.home] {
             for y in rect.y..rect.bottom() {
                 for x in rect.x..rect.right() {
-                    assert_eq!(a[(x, y)].symbol(), b[(x, y)].symbol(), "digit cell ({x},{y}) moved with the logos on");
-                    assert_eq!(a[(x, y)].fg, b[(x, y)].fg, "digit color at ({x},{y}) changed with the logos on");
+                    assert_eq!(
+                        a[(x, y)].symbol(),
+                        b[(x, y)].symbol(),
+                        "digit cell ({x},{y}) moved with the logos on"
+                    );
+                    assert_eq!(
+                        a[(x, y)].fg,
+                        b[(x, y)].fg,
+                        "digit color at ({x},{y}) changed with the logos on"
+                    );
                 }
             }
         }
@@ -965,7 +1161,12 @@ mod tests {
         let digit_rows = |t: &Terminal<TestBackend>, w: u16, h: u16| -> Vec<u16> {
             let buf = t.backend().buffer();
             (0..h)
-                .filter(|y| (0..w / 3).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 4)
+                .filter(|y| {
+                    (0..w / 3)
+                        .filter(|x| buf[(*x, *y)].fg == away_color)
+                        .count()
+                        >= 4
+                })
                 .collect()
         };
         // (terminal size, rows of away-colored digit cells the bracket owes)
@@ -973,7 +1174,12 @@ mod tests {
         // sitting-1 pick 1A: the mid rung is the 4-row quad form, so the
         // 6-row bracket owes 4 digit rows where it used to owe 3 sextant
         // ones. The bracket table itself did not move (R28/R32).
-        for (w, h, want) in [(120u16, 40u16, 8usize), (100, 32, 8), (80, 24, 4), (60, 20, 4)] {
+        for (w, h, want) in [
+            (120u16, 40u16, 8usize),
+            (100, 32, 8),
+            (80, 24, 4),
+            (60, 20, 4),
+        ] {
             let tier = crate::board::layout::plan(w, h, 8, 2, 4, 0);
             let mut p = plan();
             p.digits_full = tier.hero_digits_full;
@@ -989,11 +1195,21 @@ mod tests {
             );
             // Contiguous, and under the nameplate — not scattered by a stray
             // team-colored span somewhere else in the block.
-            assert_eq!(rows[0], 1, "the digit band starts right under the nameplate");
-            assert_eq!(*rows.last().unwrap() as usize, rows.len(), "the digit band is contiguous: {rows:?}");
+            assert_eq!(
+                rows[0], 1,
+                "the digit band starts right under the nameplate"
+            );
+            assert_eq!(
+                *rows.last().unwrap() as usize,
+                rows.len(),
+                "the digit band is contiguous: {rows:?}"
+            );
             // R30 keep order: the fragment is the row a football hero keeps.
             let text = text_of(term.backend().buffer());
-            assert!(text.contains("2ND & GOAL"), "the fragment line survives at {w}x{h}\n{text}");
+            assert!(
+                text.contains("2ND & GOAL"),
+                "the fragment line survives at {w}x{h}\n{text}"
+            );
         }
         // The compact bracket has no room for a glyph at all and says so in text.
         let tier = crate::board::layout::plan(55, 38, 3, 1, 2, 0);
@@ -1021,7 +1237,16 @@ mod tests {
             for (w, h) in [(120u16, 12u16), (100, 10), (80, 6), (80, 5), (60, 6)] {
                 let mut p = plan();
                 p.digits_full = h >= 10;
-                let band = band_rect(Rect { x: 0, y: 0, width: w, height: h }, &game, p.digits_full);
+                let band = band_rect(
+                    Rect {
+                        x: 0,
+                        y: 0,
+                        width: w,
+                        height: h,
+                    },
+                    &game,
+                    p.digits_full,
+                );
                 let term = render(w, h, &game, &p);
                 let buf = term.backend().buffer();
                 let inked: Vec<u16> = (0..h)
@@ -1033,9 +1258,18 @@ mod tests {
                     // starts at `w/6`: the digits are right-aligned against
                     // the third's edge and never reach back that far, and the
                     // abbr never reaches forward that far.
-                    .filter(|y| (w / 6..w / 3).filter(|x| buf[(*x, *y)].fg == away_color).count() >= 3)
+                    .filter(|y| {
+                        (w / 6..w / 3)
+                            .filter(|x| buf[(*x, *y)].fg == away_color)
+                            .count()
+                            >= 3
+                    })
                     .collect();
-                assert!(!inked.is_empty(), "no away digits at {w}x{h}\n{}", text_of(buf));
+                assert!(
+                    !inked.is_empty(),
+                    "no away digits at {w}x{h}\n{}",
+                    text_of(buf)
+                );
                 assert!(
                     inked.iter().all(|y| (band.y..band.bottom()).contains(y)),
                     "{w}x{h}: digits on rows {inked:?}, band_rect says {}..{}\n{}",
@@ -1043,7 +1277,10 @@ mod tests {
                     band.bottom(),
                     text_of(buf)
                 );
-                assert!(band.y == 1 && band.bottom() <= h, "{w}x{h}: band {band:?} escapes the hero");
+                assert!(
+                    band.y == 1 && band.bottom() <= h,
+                    "{w}x{h}: band {band:?} escapes the hero"
+                );
             }
         }
         // Under the quad floor (sitting-1 pick 1A): a 4-row hero has 3 rows
@@ -1051,11 +1288,34 @@ mod tests {
         // text arm — a score, never a blank — and `band_rect` still reports a
         // band inside the hero for a caller to find it in.
         let game = nfl_game();
-        let band = band_rect(Rect { x: 0, y: 0, width: 60, height: 4 }, &game, false);
-        assert!(band.y == 1 && band.bottom() <= 4, "short band {band:?} escapes the hero");
-        let term = render(60, 4, &game, &HeroPlan { digits_full: false, ..plan() });
+        let band = band_rect(
+            Rect {
+                x: 0,
+                y: 0,
+                width: 60,
+                height: 4,
+            },
+            &game,
+            false,
+        );
+        assert!(
+            band.y == 1 && band.bottom() <= 4,
+            "short band {band:?} escapes the hero"
+        );
+        let term = render(
+            60,
+            4,
+            &game,
+            &HeroPlan {
+                digits_full: false,
+                ..plan()
+            },
+        );
         let text = text_of(term.backend().buffer());
-        assert!(text.contains("24 - 21"), "a hero under the quad floor still says its score\n{text}");
+        assert!(
+            text.contains("24 - 21"),
+            "a hero under the quad floor still says its score\n{text}"
+        );
     }
 
     #[test]
@@ -1076,15 +1336,31 @@ mod tests {
         let right: &String = &cells[(w / 2) as usize..].concat();
         // Glyphs, abbr, record outward-in on the away side; the exact reverse
         // on the home side — that mirror is the hero's whole shape.
-        assert_eq!(left.trim_end(), "⚑ ★ KC 2-0", "away nameplate is left-aligned, glyphs outermost");
-        assert_eq!(right.trim_start(), "2-0 BUF ★ ⚑", "home nameplate mirrors it, right-aligned");
+        assert_eq!(
+            left.trim_end(),
+            "⚑ ★ KC 2-0",
+            "away nameplate is left-aligned, glyphs outermost"
+        );
+        assert_eq!(
+            right.trim_start(),
+            "2-0 BUF ★ ⚑",
+            "home nameplate mirrors it, right-aligned"
+        );
         // The abbr is the identity floor: it wears the team's hero color.
         // (Column, not byte offset — the glyphs ahead of it are multi-byte.)
         let col = |hay: &str, needle: &str| hay[..hay.find(needle).unwrap()].chars().count() as u16;
         let ax = col(&row, "KC");
-        assert_eq!(buf[(ax, 0)].fg, away_color, "away abbr carries KC's hero color");
+        assert_eq!(
+            buf[(ax, 0)].fg,
+            away_color,
+            "away abbr carries KC's hero color"
+        );
         let hx = (w / 2) + col(right, "BUF");
-        assert_eq!(buf[(hx, 0)].fg, home_color, "home abbr carries BUF's hero color");
+        assert_eq!(
+            buf[(hx, 0)].fg,
+            home_color,
+            "home abbr carries BUF's hero color"
+        );
         // The record beside a giant digit reads as a second score unless it
         // is dim (spec §6) — check the away record's first cell.
         let rx = col(&row, "2-0");
@@ -1106,12 +1382,22 @@ mod tests {
         let cells: Vec<&str> = (0..w).map(|x| buf[(x, 0)].symbol()).collect();
         let left: String = cells[..(w / 2) as usize].concat();
         let right: String = cells[(w / 2) as usize..].concat();
-        assert!(left.trim_start().starts_with('▸'), "away caret on the outside edge: {left:?}");
-        assert!(right.trim_end().ends_with('▸'), "home caret on the outside edge: {right:?}");
+        assert!(
+            left.trim_start().starts_with('▸'),
+            "away caret on the outside edge: {left:?}"
+        );
+        assert!(
+            right.trim_end().ends_with('▸'),
+            "home caret on the outside edge: {right:?}"
+        );
         let ax = left.find('▸').unwrap();
         assert_eq!(buf[(ax as u16, 0)].fg, th.bright, "the caret is bright");
         let hx = (w / 2) as usize + right.rfind('▸').unwrap();
-        assert_eq!(buf[(hx as u16, 0)].fg, th.bright, "the home caret is bright too");
+        assert_eq!(
+            buf[(hx as u16, 0)].fg,
+            th.bright,
+            "the home caret is bright too"
+        );
 
         // Unselected: no caret anywhere on the nameplate row.
         let mut unselected = plan();
@@ -1119,7 +1405,10 @@ mod tests {
         let term = render(w, h, &nfl_game(), &unselected);
         let buf = term.backend().buffer();
         let row: String = (0..w).map(|x| buf[(x, 0)].symbol()).collect();
-        assert!(!row.contains('▸'), "no caret when the hero is not selected: {row:?}");
+        assert!(
+            !row.contains('▸'),
+            "no caret when the hero is not selected: {row:?}"
+        );
     }
 
     #[test]
@@ -1130,18 +1419,35 @@ mod tests {
         let (w, h) = (55u16, 2u16);
         let term = render(w, h, &nfl_game(), &plan());
         let buf = term.backend().buffer();
-        let rows: Vec<String> =
-            (0..h).map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect()).collect();
-        assert!(rows[0].starts_with("KC 2-0"), "away nameplate survives\n{}", rows.join("\n"));
-        assert!(rows[0].trim_end().ends_with("2-0 BUF"), "home nameplate survives\n{}", rows.join("\n"));
-        assert_eq!(rows[1].trim(), "24 - 21", "the score is never blank\n{}", rows.join("\n"));
+        let rows: Vec<String> = (0..h)
+            .map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect())
+            .collect();
+        assert!(
+            rows[0].starts_with("KC 2-0"),
+            "away nameplate survives\n{}",
+            rows.join("\n")
+        );
+        assert!(
+            rows[0].trim_end().ends_with("2-0 BUF"),
+            "home nameplate survives\n{}",
+            rows.join("\n")
+        );
+        assert_eq!(
+            rows[1].trim(),
+            "24 - 21",
+            "the score is never blank\n{}",
+            rows.join("\n")
+        );
         for y in 0..h {
             for x in 0..w {
-                assert_eq!(buf[(x, y)].bg, Color::Reset, "no chip crowds a two-row hero at ({x},{y})");
+                assert_eq!(
+                    buf[(x, y)].bg,
+                    Color::Reset,
+                    "no chip crowds a two-row hero at ({x},{y})"
+                );
             }
         }
     }
-
 
     #[test]
     fn the_score_block_doubles_at_jumbotron_heights() {
@@ -1153,12 +1459,15 @@ mod tests {
         let game = nfl_game();
         let block = |w: u16, h: u16| {
             let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
-            term.draw(|f| score_block(f, f.area(), &game, true)).unwrap();
+            term.draw(|f| score_block(f, f.area(), &game, true))
+                .unwrap();
             term
         };
         let inked = |term: &Terminal<TestBackend>, w: u16, h: u16| -> Vec<u16> {
             let buf = term.backend().buffer();
-            (0..h).filter(|y| (0..w).any(|x| buf[(x, *y)].symbol() != " ")).collect()
+            (0..h)
+                .filter(|y| (0..w).any(|x| buf[(x, *y)].symbol() != " "))
+                .collect()
         };
 
         // 16 rows: the form starts at the rect's top and every glyph row is
@@ -1207,23 +1516,49 @@ mod tests {
         // test and falling to the 4-row quad form.
         let (w, h) = (120u16, 16u16);
         let third = w / 3;
-        let spots = |game: &Game| score_spots(Rect { x: 0, y: 0, width: w, height: h }, game, true);
+        let spots = |game: &Game| {
+            score_spots(
+                Rect {
+                    x: 0,
+                    y: 0,
+                    width: w,
+                    height: h,
+                },
+                game,
+                true,
+            )
+        };
 
         let two = nfl_game(); // 24 - 21
         let s = spots(&two);
-        assert_eq!(s.form, ScoreForm::Full, "a 2-digit score stays on the Full rung");
+        assert_eq!(
+            s.form,
+            ScoreForm::Full,
+            "a 2-digit score stays on the Full rung"
+        );
         assert_eq!(s.scale, (2, 2), "and takes both axes: {s:?}");
         assert_eq!(s.away.width, 32, "two glyphs at 2× columns");
         assert_eq!(s.away.height, DOUBLE_MIN_ROWS);
-        assert!(s.away.width <= third && s.home.width <= third, "still inside the third");
+        assert!(
+            s.away.width <= third && s.home.width <= third,
+            "still inside the third"
+        );
 
         // An NBA score: three digits, so columns may not double.
         let mut three = nfl_game();
         three.away_score = 118;
         three.home_score = 121;
         let s = spots(&three);
-        assert_eq!(s.form, ScoreForm::Full, "a 3-digit score must NOT fall to quad at 120 cols");
-        assert_eq!(s.scale, (1, 2), "rows only — 3 × 8 × 2 = 48 does not fit the 40-col third");
+        assert_eq!(
+            s.form,
+            ScoreForm::Full,
+            "a 3-digit score must NOT fall to quad at 120 cols"
+        );
+        assert_eq!(
+            s.scale,
+            (1, 2),
+            "rows only — 3 × 8 × 2 = 48 does not fit the 40-col third"
+        );
         assert_eq!(s.away.width, 24, "three glyphs at 1× columns");
         assert_eq!(s.away.height, DOUBLE_MIN_ROWS, "the rows still double");
 
@@ -1232,7 +1567,11 @@ mod tests {
         let mut lopsided = nfl_game();
         lopsided.away_score = 9;
         lopsided.home_score = 121;
-        assert_eq!(spots(&lopsided).scale, (1, 2), "the wider side decides for both");
+        assert_eq!(
+            spots(&lopsided).scale,
+            (1, 2),
+            "the wider side decides for both"
+        );
 
         // Cell level: the 2× render really is the 1× render magnified.
         let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
@@ -1245,7 +1584,11 @@ mod tests {
                 let seed = buf[(x, y)].clone();
                 for (dx, dy) in [(1, 0), (0, 1), (1, 1)] {
                     let cell = &buf[(x + dx, y + dy)];
-                    assert_eq!(cell.symbol(), seed.symbol(), "the 2×2 block at ({x},{y}) is not solid");
+                    assert_eq!(
+                        cell.symbol(),
+                        seed.symbol(),
+                        "the 2×2 block at ({x},{y}) is not solid"
+                    );
                     assert_eq!(cell.fg, seed.fg, "the 2×2 block at ({x},{y}) changes color");
                 }
             }

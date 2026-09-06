@@ -89,7 +89,12 @@ pub fn quad_digits(frame: &mut Frame, rect: Rect, value: u32, color: Color) -> b
     }
     let style = Style::default().fg(color);
     let buf = frame.buffer_mut();
-    for (i, digit) in value.to_string().bytes().map(|b| usize::from(b - b'0')).enumerate() {
+    for (i, digit) in value
+        .to_string()
+        .bytes()
+        .map(|b| usize::from(b - b'0'))
+        .enumerate()
+    {
         let x0 = rect.x + i as u16 * (QUAD_COLS + QUAD_GAP);
         for (dy, row) in GLYPHS[digit].iter().enumerate() {
             for (dx, ch) in row.chars().enumerate() {
@@ -116,7 +121,8 @@ mod tests {
     fn render(w: u16, h: u16, rect: Rect, value: u32, color: Color) -> (Buffer, bool) {
         let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
         let mut fit = false;
-        term.draw(|f| fit = quad_digits(f, rect, value, color)).unwrap();
+        term.draw(|f| fit = quad_digits(f, rect, value, color))
+            .unwrap();
         (term.backend().buffer().clone(), fit)
     }
 
@@ -129,7 +135,12 @@ mod tests {
 
     #[test]
     fn quad_digits_draw_readable_numerals_in_four_rows() {
-        let rect = Rect { x: 1, y: 1, width: 8, height: 5 };
+        let rect = Rect {
+            x: 1,
+            y: 1,
+            width: 8,
+            height: 5,
+        };
         let (buf, fit) = render(12, 8, rect, 87, Color::Red);
         assert!(fit, "87 needs 7x4, rect is {}x{}", rect.width, rect.height);
         let rows = rows_of(&buf);
@@ -140,7 +151,12 @@ mod tests {
             .filter(|(_, r)| r.trim() != "")
             .map(|(y, _)| y)
             .collect();
-        assert_eq!(inked, vec![1, 2, 3, 4], "glyph rows, got:\n{}", rows.join("\n"));
+        assert_eq!(
+            inked,
+            vec![1, 2, 3, 4],
+            "glyph rows, got:\n{}",
+            rows.join("\n")
+        );
         // Cell-level: the exact table for 8 then a gap then 7.
         assert_eq!(
             &rows[1][..],
@@ -159,7 +175,11 @@ mod tests {
                 .filter(|p| buf[*p].symbol() != " ")
                 .count()
         };
-        assert_ne!(ink_in(eight.clone()), ink_in(seven.clone()), "8 and 7 must not share a mask");
+        assert_ne!(
+            ink_in(eight.clone()),
+            ink_in(seven.clone()),
+            "8 and 7 must not share a mask"
+        );
         assert_eq!(ink_in(eight), 12, "8 fills all 12 of its cells");
         assert_eq!(ink_in(seven), 6, "7 fills 6 of its 12 cells");
         // fg is the passed color on every glyph cell, and nowhere else.
@@ -167,7 +187,11 @@ mod tests {
             for x in 1..=8u16 {
                 let cell = &buf[(x, y)];
                 if cell.symbol() != " " {
-                    assert_eq!(cell.fg, Color::Red, "glyph cell ({x},{y}) wears the passed color");
+                    assert_eq!(
+                        cell.fg,
+                        Color::Red,
+                        "glyph cell ({x},{y}) wears the passed color"
+                    );
                 }
             }
         }
@@ -175,7 +199,12 @@ mod tests {
 
     #[test]
     fn quad_digits_refuse_too_small_and_report_it() {
-        let rect = Rect { x: 0, y: 0, width: 12, height: 3 };
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 12,
+            height: 3,
+        };
         let (buf, fit) = render(12, 8, rect, 87, Color::Red);
         assert!(!fit, "a 3-row rect cannot hold a {QUAD_ROWS}-row digit");
         let rows = rows_of(&buf);
@@ -185,7 +214,18 @@ mod tests {
             rows.join("\n")
         );
         // Narrow refuses too: 87 wants 7 columns.
-        let (buf, fit) = render(12, 8, Rect { x: 0, y: 0, width: 6, height: 4 }, 87, Color::Red);
+        let (buf, fit) = render(
+            12,
+            8,
+            Rect {
+                x: 0,
+                y: 0,
+                width: 6,
+                height: 4,
+            },
+            87,
+            Color::Red,
+        );
         assert!(!fit, "87 needs {} columns, rect gave 6", quad_size(87).0);
         assert!(rows_of(&buf).iter().all(|r| r.trim().is_empty()));
     }
@@ -199,8 +239,18 @@ mod tests {
                 // The pairs a reader actually confuses need more than one
                 // row of difference — one differing row is one squint away.
                 let differing = (0..4).filter(|r| ga[*r] != gb[*r]).count();
-                if [(0, 8), (6, 8), (8, 9), (0, 6), (0, 9), (1, 7), (3, 5), (5, 6), (3, 9)]
-                    .contains(&(a, b))
+                if [
+                    (0, 8),
+                    (6, 8),
+                    (8, 9),
+                    (0, 6),
+                    (0, 9),
+                    (1, 7),
+                    (3, 5),
+                    (5, 6),
+                    (3, 9),
+                ]
+                .contains(&(a, b))
                 {
                     assert!(
                         differing >= 2,

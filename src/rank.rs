@@ -296,7 +296,10 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             // Below eight men the match is abandoned, so the ladder stops
             // there and anything lower reads as the floor rather than
             // inventing a word for a scoreline that cannot exist.
-            if let Extras::Soccer { men: Some((a, h)), .. } = &g.extras {
+            if let Extras::Soccer {
+                men: Some((a, h)), ..
+            } = &g.extras
+            {
                 let chip = match (*a).min(*h) {
                     10 => Some("10 MEN"),
                     9 => Some("9 MEN"),
@@ -922,7 +925,10 @@ mod tests {
     fn a_sending_off_is_hot_at_any_scoreline() {
         let carded = |men: Option<(u8, u8)>, period: &str, away, home| {
             let mut x = g(League::Epl, period, "", away, home);
-            x.extras = Extras::Soccer { events: vec![], men };
+            x.extras = Extras::Soccer {
+                events: vec![],
+                men,
+            };
             x
         };
 

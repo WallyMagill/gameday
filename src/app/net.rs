@@ -153,7 +153,10 @@ mod tests {
         assert!(matches!(n.chip(t0, LIVE), NetChip::NoDataYet));
         assert_eq!(n.upd_label(t0, LIVE), None);
         n.ok(t0, false);
-        assert!(matches!(n.chip(t0 + Duration::from_secs(10), LIVE), NetChip::Live));
+        assert!(matches!(
+            n.chip(t0 + Duration::from_secs(10), LIVE),
+            NetChip::Live
+        ));
         assert_eq!(
             n.upd_label(t0 + Duration::from_secs(10), LIVE).as_deref(),
             Some("UPD 10s")
@@ -193,8 +196,14 @@ mod tests {
         let mut n = NetStatus::default();
         n.ok(t0, false);
         let at = |s: u64| t0 + Duration::from_secs(s);
-        assert!(matches!(n.chip(at(60), IDLE), NetChip::Live), "one idle poll");
-        assert!(matches!(n.chip(at(76), IDLE), NetChip::Stale { .. }), "a poll plus a cadence");
+        assert!(
+            matches!(n.chip(at(60), IDLE), NetChip::Live),
+            "one idle poll"
+        );
+        assert!(
+            matches!(n.chip(at(76), IDLE), NetChip::Stale { .. }),
+            "a poll plus a cadence"
+        );
         // The same 60 s while live is three missed polls, and does say so.
         assert!(matches!(n.chip(at(60), LIVE), NetChip::Stale { .. }));
     }
@@ -215,7 +224,9 @@ mod tests {
         n.ok(t0, false);
         assert_eq!(n.chip(t0, LIVE).label(), None, "the tiles already say LIVE");
         assert_eq!(
-            n.chip(t0 + Duration::from_secs(240), LIVE).label().as_deref(),
+            n.chip(t0 + Duration::from_secs(240), LIVE)
+                .label()
+                .as_deref(),
             Some("STALE 4m")
         );
         n.failed(
@@ -224,7 +235,9 @@ mod tests {
             Some(Duration::from_secs(40)),
         );
         assert_eq!(
-            n.chip(t0 + Duration::from_secs(240), LIVE).label().as_deref(),
+            n.chip(t0 + Duration::from_secs(240), LIVE)
+                .label()
+                .as_deref(),
             Some("OFFLINE · retry 40s")
         );
     }

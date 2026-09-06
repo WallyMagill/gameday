@@ -99,6 +99,10 @@ mod tests {
         assert_eq!(ZoomTab::Overview.cycled(1), ZoomTab::Plays);
         assert_eq!(ZoomTab::Plays.cycled(1), ZoomTab::Stats);
         assert_eq!(ZoomTab::Stats.cycled(1), ZoomTab::Overview, "wraps forward");
-        assert_eq!(ZoomTab::Overview.cycled(-1), ZoomTab::Stats, "wraps backward");
+        assert_eq!(
+            ZoomTab::Overview.cycled(-1),
+            ZoomTab::Stats,
+            "wraps backward"
+        );
     }
 }

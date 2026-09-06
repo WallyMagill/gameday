@@ -59,7 +59,9 @@ fn parse_hero_mark(raw: &str) -> Option<HeroMark> {
                     }
                     seq.push(c);
                 }
-                let Some(final_byte) = seq.pop() else { continue };
+                let Some(final_byte) = seq.pop() else {
+                    continue;
+                };
                 if final_byte != 'm' {
                     continue; // cursor hide/show etc.
                 }
@@ -103,7 +105,11 @@ fn parse_hero_mark(raw: &str) -> Option<HeroMark> {
                 if reverse {
                     std::mem::swap(&mut cfg, &mut cbg);
                 }
-                row.push(ArtCell { ch, fg: cfg, bg: cbg });
+                row.push(ArtCell {
+                    ch,
+                    fg: cfg,
+                    bg: cbg,
+                });
             }
         }
     }
@@ -117,7 +123,11 @@ fn parse_hero_mark(raw: &str) -> Option<HeroMark> {
     }
     let width = rows.iter().map(|r| r.len()).max()? as u16;
     let height = rows.len() as u16;
-    Some(HeroMark { rows, width, height })
+    Some(HeroMark {
+        rows,
+        width,
+        height,
+    })
 }
 
 fn cell_visible(c: &ArtCell) -> bool {
@@ -204,8 +214,16 @@ pub fn draw_hero_mark(frame: &mut Frame, area: Rect, mark: &HeroMark) {
             }
             let cell = &mut buf[(x0 + x as u16, y0 + y as u16)];
             cell.set_char(art_cell.ch);
-            cell.set_fg(art_cell.fg.map_or(th.fg, |(r, g, b)| th.art_color([r, g, b])));
-            cell.set_bg(art_cell.bg.map_or(th.bg, |(r, g, b)| th.art_color([r, g, b])));
+            cell.set_fg(
+                art_cell
+                    .fg
+                    .map_or(th.fg, |(r, g, b)| th.art_color([r, g, b])),
+            );
+            cell.set_bg(
+                art_cell
+                    .bg
+                    .map_or(th.bg, |(r, g, b)| th.art_color([r, g, b])),
+            );
         }
     }
 }

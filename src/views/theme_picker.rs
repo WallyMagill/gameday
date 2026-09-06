@@ -129,11 +129,17 @@ mod tests {
         let s = swatches("studio");
         let d = swatches("daygame");
         assert_ne!(b, s, "broadcast and studio must not render as the same row");
-        assert_ne!(b, d, "broadcast and daygame must not render as the same row");
+        assert_ne!(
+            b, d,
+            "broadcast and daygame must not render as the same row"
+        );
         assert_ne!(s, d, "studio and daygame must not render as the same row");
         // Where they differ hardest: the digits swatch (4th) is amber vs white.
-        let (bt, st, dt) =
-            (theme::builtin("broadcast"), theme::builtin("studio"), theme::builtin("daygame"));
+        let (bt, st, dt) = (
+            theme::builtin("broadcast"),
+            theme::builtin("studio"),
+            theme::builtin("daygame"),
+        );
         assert_eq!(b[3], bt.star, "broadcast's digits swatch is amber");
         assert_eq!(s[3], st.bright, "studio's digits swatch is white");
         assert_eq!(d[3], dt.star, "daygame's digits swatch is deep amber");
@@ -146,7 +152,9 @@ mod tests {
         assert_ne!(d[0], b[0], "daygame's ground swatch is its own");
         assert_ne!(d[0], s[0], "daygame's ground swatch is its own");
         let luma = |c: Color| -> i32 {
-            let Color::Rgb(r, g, bl) = c else { panic!("swatch is not truecolor") };
+            let Color::Rgb(r, g, bl) = c else {
+                panic!("swatch is not truecolor")
+            };
             r as i32 + g as i32 + bl as i32
         };
         assert!(
@@ -156,12 +164,17 @@ mod tests {
         // Every swatch but `hot` is gray on studio; `hot` is the one chroma
         // the two themes still share.
         for (i, c) in s.iter().enumerate() {
-            let Color::Rgb(r, g, bl) = *c else { panic!("studio swatch {i} is not truecolor") };
+            let Color::Rgb(r, g, bl) = *c else {
+                panic!("studio swatch {i} is not truecolor")
+            };
             let chroma = r.max(g).max(bl) as i32 - r.min(g).min(bl) as i32;
             if i == 4 {
                 assert_eq!(*c, st.live, "studio's hot swatch is the red");
             } else {
-                assert!(chroma <= 8, "studio swatch {i} #{r:02x}{g:02x}{bl:02x} has chroma {chroma}, expected <= 8");
+                assert!(
+                    chroma <= 8,
+                    "studio swatch {i} #{r:02x}{g:02x}{bl:02x} has chroma {chroma}, expected <= 8"
+                );
             }
         }
         assert_eq!(b[4], s[4], "the identity floor: both spend the same red");

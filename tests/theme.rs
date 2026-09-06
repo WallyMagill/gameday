@@ -3,10 +3,10 @@
 //! naming the file/key/expected form, and the discipline knobs visibly change
 //! specific cells of a rendered tile.
 
-use gameday::domain::{Game, League, Meter, Play, Situation, Status, Team};
-use gameday::theme::{self, Discipline, Entry, SidebarHeaders, Theme};
 use gameday::app::App;
 use gameday::config::Config;
+use gameday::domain::{Game, League, Meter, Play, Situation, Status, Team};
+use gameday::theme::{self, Discipline, Entry, SidebarHeaders, Theme};
 use gameday::views::{View, ZoomTab};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
@@ -28,8 +28,14 @@ fn tmp(name: &str) -> std::path::PathBuf {
 #[test]
 fn the_three_builtins_ship_in_the_decided_order() {
     // daygame promoted at the v3.4 render gate 2026-09-04: four now, not three.
-    assert_eq!(theme::BUILTIN_NAMES, ["broadcast", "studio", "gruvbox", "daygame"]);
-    assert_eq!(theme::names(), theme::BUILTIN_NAMES.map(String::from).to_vec());
+    assert_eq!(
+        theme::BUILTIN_NAMES,
+        ["broadcast", "studio", "gruvbox", "daygame"]
+    );
+    assert_eq!(
+        theme::names(),
+        theme::BUILTIN_NAMES.map(String::from).to_vec()
+    );
 }
 
 #[test]
@@ -41,10 +47,16 @@ fn every_builtin_round_trips_through_toml() {
         let (back_name, back) = theme::parse_theme(&text)
             .unwrap_or_else(|e| panic!("{name} does not re-parse from its own TOML: {e}\n{text}"));
         assert_eq!(back_name, name);
-        assert_eq!(back, entry.theme, "{name} palette/discipline changed across a round trip");
+        assert_eq!(
+            back, entry.theme,
+            "{name} palette/discipline changed across a round trip"
+        );
         // Truecolor only — no ANSI-16 leaks into any palette role or accent.
         for league in League::ALL {
-            assert!(matches!(entry.theme.league_accent(league), Color::Rgb(..)), "{name}/{league:?}");
+            assert!(
+                matches!(entry.theme.league_accent(league), Color::Rgb(..)),
+                "{name}/{league:?}"
+            );
         }
     }
 }
@@ -93,7 +105,11 @@ fn broadcast_is_loud_and_studio_is_the_press_box() {
         assert_ne!(a, c, "studio is no longer broadcast's palette: {label}");
     }
     for league in League::ALL {
-        assert_ne!(b.league_accent(league), s.league_accent(league), "{league:?} accent");
+        assert_ne!(
+            b.league_accent(league),
+            s.league_accent(league),
+            "{league:?} accent"
+        );
     }
     // Different at the ROLE layer too: studio's scores are white where
     // broadcast's are amber. (Before v3.2 the two themes had identical
@@ -101,7 +117,11 @@ fn broadcast_is_loud_and_studio_is_the_press_box() {
     assert_ne!(b.roles(), s.roles(), "studio must differ as a role mapping");
     assert_eq!(b.roles().digits, b.star, "broadcast scores are amber");
     assert_eq!(s.roles().digits, s.bright, "studio scores are white");
-    assert_eq!(s.roles().cool, s.border, "studio's structure is gray, not colored");
+    assert_eq!(
+        s.roles().cool,
+        s.border,
+        "studio's structure is gray, not colored"
+    );
     // The identity floor holds in both: red is red. The ground does not —
     // press-box studio sits a step off true black.
     assert_eq!(b.roles().hot, s.roles().hot, "one red, shared");
@@ -128,13 +148,19 @@ fn a_retired_builtin_still_loads_and_selects_as_a_user_theme() {
         include_str!("../assets/themes/nord.toml"),
     )
     .unwrap();
-    assert!(theme::lookup("nord").is_none(), "nord is not a built-in any more");
+    assert!(
+        theme::lookup("nord").is_none(),
+        "nord is not a built-in any more"
+    );
     theme::install_user_themes(&dir);
     let entry = theme::lookup("nord").expect("nord loads as a user file");
     assert!(entry.user, "and is reported as a user theme");
     assert_eq!(theme::set_current("nord").unwrap(), "nord");
     assert_eq!(theme::current(), entry.theme);
-    assert!(theme::names().iter().any(|n| n == "nord"), "it is offered in the picker");
+    assert!(
+        theme::names().iter().any(|n| n == "nord"),
+        "it is offered in the picker"
+    );
     theme::set_current("broadcast").unwrap();
 }
 
@@ -160,7 +186,11 @@ nfl = "#ff4444"
     let (name, th) = theme::parse_theme(text).unwrap();
     assert_eq!(name, "minimal");
     assert_eq!(th.league_accent(League::Nfl), Color::Rgb(255, 68, 68));
-    assert_eq!(th.league_accent(League::Nhl), th.star, "missing slug -> star");
+    assert_eq!(
+        th.league_accent(League::Nhl),
+        th.star,
+        "missing slug -> star"
+    );
     // No [discipline] table: the calm defaults from the spec example.
     assert_eq!(
         th.discipline,
@@ -194,7 +224,10 @@ star = "#ffcc00"
     let err = theme::parse_theme(bad_color).unwrap_err();
     assert!(err.contains("palette.live"), "must name the key: {err}");
     assert!(err.contains("\"red\""), "must name the value: {err}");
-    assert!(err.contains("#rrggbb"), "must name the expected form: {err}");
+    assert!(
+        err.contains("#rrggbb"),
+        "must name the expected form: {err}"
+    );
 
     let bad_mode = r##"
 name = "oops"
@@ -214,8 +247,14 @@ star = "#ffcc00"
 sidebar_headers = "rainbow"
 "##;
     let err = theme::parse_theme(bad_mode).unwrap_err();
-    assert!(err.contains("sidebar_headers") && err.contains("rainbow"), "{err}");
-    assert!(err.contains("multi") && err.contains("single") && err.contains("muted"), "{err}");
+    assert!(
+        err.contains("sidebar_headers") && err.contains("rainbow"),
+        "{err}"
+    );
+    assert!(
+        err.contains("multi") && err.contains("single") && err.contains("muted"),
+        "{err}"
+    );
 
     let missing = "name = \"x\"\n[palette]\nbg = \"#000000\"\n";
     let err = theme::parse_theme(missing).unwrap_err();
@@ -236,15 +275,27 @@ fn user_theme_overrides_builtin_and_bad_files_are_skipped_with_a_note() {
     )
     .unwrap();
     // A broken one: skipped, never fatal.
-    fs::write(dir.join("themes/broken.toml"), "name = \"broken\"\n[palette]\nbg = \"nope\"\n").unwrap();
+    fs::write(
+        dir.join("themes/broken.toml"),
+        "name = \"broken\"\n[palette]\nbg = \"nope\"\n",
+    )
+    .unwrap();
     // Not a .toml file: ignored.
     fs::write(dir.join("themes/notes.txt"), "hello").unwrap();
 
     let (entries, errors) = theme::load_user_themes(&dir);
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
-    assert_eq!(names, ["gruvbox", "mine"], "sorted by file name, broken skipped");
+    assert_eq!(
+        names,
+        ["gruvbox", "mine"],
+        "sorted by file name, broken skipped"
+    );
     assert_eq!(errors.len(), 1, "{errors:?}");
-    assert!(errors[0].contains("broken.toml"), "error names the file: {}", errors[0]);
+    assert!(
+        errors[0].contains("broken.toml"),
+        "error names the file: {}",
+        errors[0]
+    );
 
     theme::install_user_themes(&dir);
     let gruv = theme::lookup("gruvbox").unwrap();
@@ -252,14 +303,22 @@ fn user_theme_overrides_builtin_and_bad_files_are_skipped_with_a_note() {
     assert_eq!(gruv.theme.bg, Color::Rgb(0x1d, 0x20, 0x21));
     let names = theme::names();
     assert_eq!(names.len(), theme::BUILTIN_NAMES.len() + 1, "{names:?}");
-    assert_eq!(names.last().map(String::as_str), Some("mine"), "user-only names follow the built-ins");
+    assert_eq!(
+        names.last().map(String::as_str),
+        Some("mine"),
+        "user-only names follow the built-ins"
+    );
     assert_eq!(
         names.iter().position(|n| n == "gruvbox"),
         Some(2),
         "an overriding user theme keeps the built-in's slot"
     );
     theme::set_current("MINE").unwrap();
-    assert_eq!(theme::current_name(), "mine", "names are case-insensitive, canonical on read");
+    assert_eq!(
+        theme::current_name(),
+        "mine",
+        "names are case-insensitive, canonical on read"
+    );
     assert_eq!(theme::current(), theme::builtin("studio"));
     fs::remove_dir_all(&dir).ok();
 }
@@ -273,19 +332,36 @@ fn the_eight_retired_palettes_still_load_as_user_files() {
     for (name, text) in [
         ("ceefax", include_str!("../assets/themes/ceefax.toml")),
         ("phosphor", include_str!("../assets/themes/phosphor.toml")),
-        ("tokyo-night", include_str!("../assets/themes/tokyo-night.toml")),
+        (
+            "tokyo-night",
+            include_str!("../assets/themes/tokyo-night.toml"),
+        ),
         ("nord", include_str!("../assets/themes/nord.toml")),
-        ("catppuccin-mocha", include_str!("../assets/themes/catppuccin-mocha.toml")),
+        (
+            "catppuccin-mocha",
+            include_str!("../assets/themes/catppuccin-mocha.toml"),
+        ),
         ("rose-pine", include_str!("../assets/themes/rose-pine.toml")),
-        ("everforest", include_str!("../assets/themes/everforest.toml")),
+        (
+            "everforest",
+            include_str!("../assets/themes/everforest.toml"),
+        ),
         ("dracula", include_str!("../assets/themes/dracula.toml")),
     ] {
         fs::write(dir.join(format!("themes/{name}.toml")), text).unwrap();
         let (parsed, th) = theme::parse_theme(text).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(parsed, name);
         let r = th.roles();
-        assert_eq!((r.ground, r.ink, r.dim), (th.bg, th.fg, th.muted), "{name} default roles");
-        assert_eq!((r.digits, r.hot, r.cool), (th.star, th.live, th.border), "{name} default roles");
+        assert_eq!(
+            (r.ground, r.ink, r.dim),
+            (th.bg, th.fg, th.muted),
+            "{name} default roles"
+        );
+        assert_eq!(
+            (r.digits, r.hot, r.cool),
+            (th.star, th.live, th.border),
+            "{name} default roles"
+        );
     }
     let (entries, errors) = theme::load_user_themes(&dir);
     assert!(errors.is_empty(), "{errors:?}");
@@ -300,18 +376,34 @@ fn a_theme_file_can_reassign_roles_and_scope_team_color() {
         .replace("digits = \"star\"", "digits = \"cyan\"")
         .replace("team = \"hero\"", "team = \"hero+marks\"");
     let (_, th) = theme::parse_theme(&text).unwrap();
-    assert_eq!(th.roles().digits, th.cyan, "the role follows the palette key it names");
+    assert_eq!(
+        th.roles().digits,
+        th.cyan,
+        "the role follows the palette key it names"
+    );
     assert_eq!(th.roles().team, theme::TeamColorScope::HeroMarks);
 
     let bad_key = base.replace("hot = \"live\"", "hot = \"crimson\"");
     let err = theme::parse_theme(&bad_key).unwrap_err();
-    assert!(err.contains("roles.hot") && err.contains("\"crimson\""), "{err}");
-    assert!(err.contains("live") && err.contains("star"), "the valid set: {err}");
+    assert!(
+        err.contains("roles.hot") && err.contains("\"crimson\""),
+        "{err}"
+    );
+    assert!(
+        err.contains("live") && err.contains("star"),
+        "the valid set: {err}"
+    );
 
     let bad_scope = base.replace("team = \"hero\"", "team = \"everywhere\"");
     let err = theme::parse_theme(&bad_scope).unwrap_err();
-    assert!(err.contains("roles.team") && err.contains("hero+marks"), "{err}");
-    assert!(!err.contains("never"), "`never` is retired and must not be offered: {err}");
+    assert!(
+        err.contains("roles.team") && err.contains("hero+marks"),
+        "{err}"
+    );
+    assert!(
+        !err.contains("never"),
+        "`never` is retired and must not be offered: {err}"
+    );
 }
 
 /// v3.3 deleted `TeamColorScope::Never`: nothing read it, so `never` and
@@ -322,7 +414,10 @@ fn a_theme_file_can_reassign_roles_and_scope_team_color() {
 fn a_theme_file_still_saying_team_never_loads_as_hero() {
     let base = theme::to_toml("mine", &theme::builtin("broadcast"));
     let retired = base.replace("team = \"hero\"", "team = \"never\"");
-    assert!(retired.contains("team = \"never\""), "the fixture must actually say never");
+    assert!(
+        retired.contains("team = \"never\""),
+        "the fixture must actually say never"
+    );
     let (name, th) = theme::parse_theme(&retired).expect("a retired scope must not fail the load");
     assert_eq!(name, "mine");
     assert_eq!(
@@ -339,7 +434,11 @@ fn unknown_names_fall_back_to_broadcast_and_errors_name_the_valid_set() {
     let err = theme::set_current("solarized").unwrap_err();
     assert!(err.contains("\"solarized\""), "{err}");
     assert!(err.contains("broadcast|studio|gruvbox"), "{err}");
-    assert_eq!(theme::current_name(), "broadcast", "a failed set leaves the theme alone");
+    assert_eq!(
+        theme::current_name(),
+        "broadcast",
+        "a failed set leaves the theme alone"
+    );
     theme::set_current("gruvbox").unwrap();
     assert_eq!(theme::select_or_default("nope"), "broadcast");
     assert_eq!(theme::current_name(), "broadcast");
@@ -351,8 +450,16 @@ fn unknown_names_fall_back_to_broadcast_and_errors_name_the_valid_set() {
 fn next_name_cycles_the_loaded_set_both_ways() {
     assert_eq!(theme::next_name("broadcast", 1), "studio");
     assert_eq!(theme::next_name("daygame", 1), "broadcast", "wraps forward");
-    assert_eq!(theme::next_name("broadcast", -1), "daygame", "wraps backward");
-    assert_eq!(theme::next_name("unknown", 1), "broadcast", "unknown restarts at the top");
+    assert_eq!(
+        theme::next_name("broadcast", -1),
+        "daygame",
+        "wraps backward"
+    );
+    assert_eq!(
+        theme::next_name("unknown", 1),
+        "broadcast",
+        "unknown restarts at the top"
+    );
 }
 
 // ---- discipline changes specific cells --------------------------------------
@@ -415,7 +522,10 @@ fn render(game: &Game) -> Buffer {
     fs::create_dir_all(&dir).unwrap();
     let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
     app.apply_boards(game.league, vec![game.clone()], false);
-    app.view = View::Zoom { game_id: game.id.clone(), tab: ZoomTab::Overview };
+    app.view = View::Zoom {
+        game_id: game.id.clone(),
+        tab: ZoomTab::Overview,
+    };
     let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
     term.draw(|f| app.draw(f)).unwrap();
     term.backend().buffer().clone()
@@ -425,7 +535,10 @@ fn render(game: &Game) -> Buffer {
 fn fg_of(buf: &Buffer, needle: &str) -> Color {
     let area = *buf.area();
     for y in 0..area.height {
-        let row: String = (0..area.width).map(|x| buf[(x, y)].symbol()).collect::<Vec<_>>().join("");
+        let row: String = (0..area.width)
+            .map(|x| buf[(x, y)].symbol())
+            .collect::<Vec<_>>()
+            .join("");
         if let Some(pos) = row.find(needle) {
             let x = row[..pos].chars().count() as u16;
             return buf[(x, y)].fg;
@@ -437,7 +550,11 @@ fn fg_of(buf: &Buffer, needle: &str) -> Color {
 fn install_variant(name: &str, discipline: Discipline) -> Theme {
     let mut th = theme::builtin("broadcast");
     th.discipline = discipline;
-    theme::install(Entry { name: name.into(), theme: th, user: true });
+    theme::install(Entry {
+        name: name.into(),
+        theme: th,
+        user: true,
+    });
     theme::set_current(name).unwrap();
     th
 }
@@ -459,9 +576,21 @@ fn discipline_toggles_recolor_section_label_meter_and_play_abbr_cells() {
     // v3.2 §7: the `[NFL]` tile chip and the tile's `27 - 24` score row died
     // with the tile grammar (Task 13); the three grants that still render are
     // the section label, the meter label and the play abbr.
-    assert_eq!(fg_of(&buf, "LAST PLAYS"), loud.league_accent(League::Nfl), "section label in accent");
-    assert_eq!(fg_of(&buf, "LEAD"), loud.league_accent(League::Nfl), "meter label in accent");
-    assert_eq!(fg_of(&buf, "KC  Mahomes"), theme::rgb([227, 24, 55]), "play abbr in team color");
+    assert_eq!(
+        fg_of(&buf, "LAST PLAYS"),
+        loud.league_accent(League::Nfl),
+        "section label in accent"
+    );
+    assert_eq!(
+        fg_of(&buf, "LEAD"),
+        loud.league_accent(League::Nfl),
+        "meter label in accent"
+    );
+    assert_eq!(
+        fg_of(&buf, "KC  Mahomes"),
+        theme::rgb([227, 24, 55]),
+        "play abbr in team color"
+    );
 
     let quiet = install_variant(
         "quiet",
@@ -474,9 +603,17 @@ fn discipline_toggles_recolor_section_label_meter_and_play_abbr_cells() {
         },
     );
     let buf = render(&game);
-    assert_eq!(fg_of(&buf, "LAST PLAYS"), quiet.muted, "section_labels=false: label muted");
+    assert_eq!(
+        fg_of(&buf, "LAST PLAYS"),
+        quiet.muted,
+        "section_labels=false: label muted"
+    );
     assert_eq!(fg_of(&buf, "LEAD"), quiet.muted, "meter label muted");
-    assert_eq!(fg_of(&buf, "KC  Mahomes"), quiet.fg, "play_abbrs=false: abbr in fg");
+    assert_eq!(
+        fg_of(&buf, "KC  Mahomes"),
+        quiet.fg,
+        "play_abbrs=false: abbr in fg"
+    );
     theme::set_current("broadcast").unwrap();
 }
 

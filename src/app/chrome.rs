@@ -81,8 +81,8 @@ impl App {
         // The sort chip (spec §1: `s SORT: WATCH`) — Board view only. It
         // sits on the right, ahead of the NetStatus chip, and — like that
         // chip — degrades to nothing rather than ever clip the clock.
-        let sort_text = (self.view == View::Board)
-            .then(|| format!("s SORT: {} ", self.config.sort.label()));
+        let sort_text =
+            (self.view == View::Board).then(|| format!("s SORT: {} ", self.config.sort.label()));
         let sort_len = sort_text.as_ref().map_or(0, |s| s.chars().count());
 
         // --- The left side, as measurements rather than spans: the shed
@@ -119,8 +119,8 @@ impl App {
             let inner = label.chars().count();
             let framed = match (bracketed, selected) {
                 (false, _) => inner,
-                (true, true) => inner + 2,   // [NFL]
-                (true, false) => inner + 4,  // [ NFL ]
+                (true, true) => inner + 2,  // [NFL]
+                (true, false) => inner + 4, // [ NFL ]
             };
             framed + 1
         };
@@ -139,8 +139,7 @@ impl App {
         // The chip is always followed by the date or the clock, so a form
         // with no trailing padding costs one extra column: the separator
         // that keeps "OFFLINE" from reading as "OFFLINEMON SEP 1".
-        let chip_width =
-            |form: &str| form.chars().count() + usize::from(!form.ends_with(' '));
+        let chip_width = |form: &str| form.chars().count() + usize::from(!form.ends_with(' '));
 
         // The ladder, most generous first. Each rung gives up exactly one
         // thing, and the first rung whose left side plus the whole right side
@@ -259,7 +258,10 @@ impl App {
                 NetChip::Offline { .. } => th.live,
                 NetChip::Live => th.muted,
             };
-            Span::styled(text, Style::default().fg(color).add_modifier(Modifier::BOLD))
+            Span::styled(
+                text,
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            )
         });
         let rendered_left: usize = spans.iter().map(|s| s.content.chars().count()).sum();
         let chip_pad = chip_span
@@ -284,7 +286,10 @@ impl App {
                 key.to_string(),
                 Style::default().fg(th.fg).add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::styled(rest.to_string(), Style::default().fg(th.muted)));
+            spans.push(Span::styled(
+                rest.to_string(),
+                Style::default().fg(th.muted),
+            ));
         }
         if let Some(s) = chip_span {
             spans.push(s);
@@ -354,10 +359,7 @@ impl App {
                 }
             }
             let line = Line::from(line_spans);
-            frame.render_widget(
-                Paragraph::new(line).style(Style::default().bg(th.bg)),
-                area,
-            );
+            frame.render_widget(Paragraph::new(line).style(Style::default().bg(th.bg)), area);
             return;
         }
         if let Some(status) = &self.status_line {
@@ -400,7 +402,10 @@ impl App {
             // n next  esc board  q quit`, and `unlock` while a game is held.
             for (key, label) in keymap::tv_legend(self.tv_lock.is_some()) {
                 spans.push(Span::styled(format!(" {key}"), Style::default().fg(th.fg)));
-                spans.push(Span::styled(format!(" {label} "), Style::default().fg(th.muted)));
+                spans.push(Span::styled(
+                    format!(" {label} "),
+                    Style::default().fg(th.muted),
+                ));
             }
         } else if ctx == keymap::FooterCtx::Board {
             // Spec §1: the Board footer is the fixed A′ legend — lowercase,
@@ -423,7 +428,10 @@ impl App {
             }
             for (key, label) in pairs {
                 spans.push(Span::styled(format!(" {key}"), Style::default().fg(th.fg)));
-                spans.push(Span::styled(format!(" {label} "), Style::default().fg(th.muted)));
+                spans.push(Span::styled(
+                    format!(" {label} "),
+                    Style::default().fg(th.muted),
+                ));
             }
         } else {
             // Spec §5: every other view speaks the same lowercase, no-caps,
@@ -493,7 +501,11 @@ impl App {
                 // GAME/UPD is status, clock-shaped: it takes the clocks
                 // discipline (cyan on broadcast, muted on studio), never raw
                 // cyan — except a frozen UPD, which drops to dim.
-                let color = if part.ends_with('·') { th.dim } else { th.clock() };
+                let color = if part.ends_with('·') {
+                    th.dim
+                } else {
+                    th.clock()
+                };
                 spans.push(Span::styled(part.clone(), Style::default().fg(color)));
             }
         }

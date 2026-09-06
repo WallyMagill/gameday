@@ -53,7 +53,10 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: Rect, game: &Game, activ
             spans.push(Span::styled(" │ ", Style::default().fg(th.dim)));
         }
         let style = if tab == active {
-            Style::default().fg(th.bg).bg(th.star).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(th.bg)
+                .bg(th.star)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(th.muted)
         };
@@ -111,7 +114,10 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     let with_meter;
     let game = match game.extras.penalty_meter() {
         Some(meter) if game.meter.is_none() => {
-            with_meter = Game { meter: Some(meter), ..game.clone() };
+            with_meter = Game {
+                meter: Some(meter),
+                ..game.clone()
+            };
             &with_meter
         }
         _ => game,
@@ -119,8 +125,13 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     let th = theme::current();
     let hero_rows = HERO_ROWS.min(area.height);
     let mut rest = area.height - hero_rows;
-    let linescore = linescore::linescore_lines(game, &th).filter(|_| rest >= linescore::ROWS + FEED_MIN);
-    let ls_rows = if linescore.is_some() { linescore::ROWS } else { 0 };
+    let linescore =
+        linescore::linescore_lines(game, &th).filter(|_| rest >= linescore::ROWS + FEED_MIN);
+    let ls_rows = if linescore.is_some() {
+        linescore::ROWS
+    } else {
+        0
+    };
     rest -= ls_rows;
     let matchup = matchup_line(app, game, area.width as usize).filter(|_| rest > FEED_MIN);
     let matchup_rows = u16::from(matchup.is_some());
@@ -129,7 +140,10 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     let now = app.now();
     hero::draw_hero(
         frame,
-        Rect { height: hero_rows, ..area },
+        Rect {
+            height: hero_rows,
+            ..area
+        },
         game,
         &hero::HeroPlan {
             // The zoom is a full-width surface, so it takes the board's own
@@ -152,19 +166,35 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     if let Some(lines) = linescore {
         frame.render_widget(
             Paragraph::new(lines).style(Style::default().bg(theme::current().bg)),
-            Rect { y, height: ls_rows, ..area },
+            Rect {
+                y,
+                height: ls_rows,
+                ..area
+            },
         );
         y += ls_rows;
     }
     if let Some(line) = matchup {
         frame.render_widget(
             Paragraph::new(line).alignment(Alignment::Center),
-            Rect { y, height: 1, ..area },
+            Rect {
+                y,
+                height: 1,
+                ..area
+            },
         );
         y += matchup_rows;
     }
     if rest > 0 {
-        draw_feed(frame, Rect { y, height: rest, ..area }, game);
+        draw_feed(
+            frame,
+            Rect {
+                y,
+                height: rest,
+                ..area
+            },
+            game,
+        );
     }
 }
 
@@ -237,8 +267,13 @@ fn matchup_line(app: &App, game: &Game, width: usize) -> Option<Line<'static>> {
     match game.league {
         League::Mlb => {
             let sit = game.situation.as_ref()?;
-            for (tag, who) in [("P: ", sit.pitcher.as_deref()), ("AB: ", sit.batter.as_deref())] {
-                let Some(who) = who.filter(|s| !s.is_empty()) else { continue };
+            for (tag, who) in [
+                ("P: ", sit.pitcher.as_deref()),
+                ("AB: ", sit.batter.as_deref()),
+            ] {
+                let Some(who) = who.filter(|s| !s.is_empty()) else {
+                    continue;
+                };
                 if !spans.is_empty() {
                     spans.push(sep());
                 }
@@ -250,7 +285,10 @@ fn matchup_line(app: &App, game: &Game, width: usize) -> Option<Line<'static>> {
                     spans.push(sep());
                 }
                 spans.push(Span::styled("DUE UP ", label));
-                spans.push(Span::styled(sit.due_up.join(", "), Style::default().fg(r.ink)));
+                spans.push(Span::styled(
+                    sit.due_up.join(", "),
+                    Style::default().fg(r.ink),
+                ));
             }
         }
         League::Nfl | League::Cfb | League::Nba | League::Wnba | League::Cbb => {
@@ -266,14 +304,20 @@ fn matchup_line(app: &App, game: &Game, width: usize) -> Option<Line<'static>> {
             // for the sports the hero says nothing about (basketball).
             if let Some(poss) = hero::fragment_line(game)
                 .is_none()
-                .then(|| game.situation.as_ref().and_then(|s| s.possession.as_deref()))
+                .then(|| {
+                    game.situation
+                        .as_ref()
+                        .and_then(|s| s.possession.as_deref())
+                })
                 .flatten()
                 .filter(|s| !s.is_empty())
             {
                 spans.push(sep());
                 spans.push(Span::styled(
                     format!("{} BALL", poss.to_uppercase()),
-                    Style::default().fg(team_color(poss)).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(team_color(poss))
+                        .add_modifier(Modifier::BOLD),
                 ));
             }
         }
@@ -290,10 +334,15 @@ fn matchup_line(app: &App, game: &Game, width: usize) -> Option<Line<'static>> {
                 if !spans.is_empty() {
                     spans.push(sep());
                 }
-                spans.push(Span::styled(format!("{} ", ev.minute), Style::default().fg(th.clock())));
+                spans.push(Span::styled(
+                    format!("{} ", ev.minute),
+                    Style::default().fg(th.clock()),
+                ));
                 spans.push(Span::styled(
                     format!("{} ", event_letter(ev.kind)),
-                    Style::default().fg(team_color(&ev.team)).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(team_color(&ev.team))
+                        .add_modifier(Modifier::BOLD),
                 ));
                 spans.push(Span::styled(ev.player.clone(), Style::default().fg(r.ink)));
             }
@@ -393,8 +442,14 @@ fn draw_feed(frame: &mut Frame, area: Rect, game: &Game) {
         let head = format!(" [{}] {:<3} ", tiles::play_stamp(p), p.team);
         let used = head.chars().count() + word.chars().count() + 1;
         lines.push(Line::from(vec![
-            Span::styled(head, Style::default().fg(color).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("{word} "), Style::default().fg(r.hot).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                head,
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{word} "),
+                Style::default().fg(r.hot).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(
                 truncate(&p.text, width.saturating_sub(used + 1)),
                 Style::default().fg(r.ink),
@@ -402,7 +457,10 @@ fn draw_feed(frame: &mut Frame, area: Rect, game: &Game) {
         ]));
     }
     if game.scoring_plays.is_empty() {
-        lines.push(Line::from(Span::styled(" no scoring yet", Style::default().fg(r.dim))));
+        lines.push(Line::from(Span::styled(
+            " no scoring yet",
+            Style::default().fg(r.dim),
+        )));
     }
     lines.truncate(area.height as usize);
     frame.render_widget(
@@ -445,7 +503,10 @@ fn draw_plays(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
             };
             let mut spans = vec![
                 Span::styled(marker, Style::default().fg(th.star)),
-                Span::styled(format!("{:>5} ", play.clock), Style::default().fg(th.clock())),
+                Span::styled(
+                    format!("{:>5} ", play.clock),
+                    Style::default().fg(th.clock()),
+                ),
                 Span::styled(
                     format!("{:<4}", play.team),
                     Style::default()
@@ -455,7 +516,9 @@ fn draw_plays(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
                 Span::styled(play.text.clone(), text_style),
             ];
             if i == sel {
-                spans[3] = spans[3].clone().style(text_style.add_modifier(Modifier::BOLD));
+                spans[3] = spans[3]
+                    .clone()
+                    .style(text_style.add_modifier(Modifier::BOLD));
             }
             Line::from(spans)
         })

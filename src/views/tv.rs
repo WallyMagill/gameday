@@ -151,13 +151,23 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     // ------------------------------------------------------------ the hero
     // Row budget, in keep order: the hero's floor first, then the plays, then
     // the linescore.
-    let plays: Vec<&crate::domain::Play> = game.last_plays.iter().take(PLAY_ROWS as usize).collect();
-    let floor = if body.height >= JUMBO_BODY_ROWS { HERO_JUMBO_ROWS } else { HERO_MIN_ROWS };
+    let plays: Vec<&crate::domain::Play> =
+        game.last_plays.iter().take(PLAY_ROWS as usize).collect();
+    let floor = if body.height >= JUMBO_BODY_ROWS {
+        HERO_JUMBO_ROWS
+    } else {
+        HERO_MIN_ROWS
+    };
     let mut spare = body.height.saturating_sub(floor);
     let plays_rows = spare.min(plays.len() as u16);
     spare -= plays_rows;
-    let linescore = crate::board::linescore::linescore_lines(game, &th).filter(|_| spare >= LINESCORE_ROWS);
-    let ls_rows = if linescore.is_some() { LINESCORE_ROWS } else { 0 };
+    let linescore =
+        crate::board::linescore::linescore_lines(game, &th).filter(|_| spare >= LINESCORE_ROWS);
+    let ls_rows = if linescore.is_some() {
+        LINESCORE_ROWS
+    } else {
+        0
+    };
     // What the hero can have, and what it actually wants. Before v3.3 these
     // were the same number: every leftover row went into the digit band, so a
     // 40-row terminal centered 8 rows of digits inside a 25-row band and left
@@ -186,7 +196,10 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     headline.last_plays.clear();
     hero::draw_hero(
         frame,
-        Rect { height: hero_rows, ..body },
+        Rect {
+            height: hero_rows,
+            ..body
+        },
         &headline,
         &hero::HeroPlan {
             // The jumbotron always asks for the big digits; a terminal too
@@ -214,7 +227,11 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     if let Some(lines) = linescore {
         frame.render_widget(
             Paragraph::new(lines).alignment(Alignment::Center),
-            Rect { y, height: ls_rows, ..body },
+            Rect {
+                y,
+                height: ls_rows,
+                ..body
+            },
         );
         y += ls_rows;
     }
@@ -226,14 +243,22 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         let text_room = (body.width as usize).saturating_sub(STAMP_W + 6);
         frame.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::styled(format!("{stamp:>STAMP_W$}"), Style::default().fg(th.clock())),
+                Span::styled(
+                    format!("{stamp:>STAMP_W$}"),
+                    Style::default().fg(th.clock()),
+                ),
                 Span::styled("  ▸ ", Style::default().fg(r.dim)),
                 Span::styled(
                     truncate(&play.text, text_room),
                     Style::default().fg(if play.scoring { r.hot } else { r.ink }),
                 ),
             ])),
-            Rect { x: body.x + 2, y, width: body.width.saturating_sub(2), height: 1 },
+            Rect {
+                x: body.x + 2,
+                y,
+                width: body.width.saturating_sub(2),
+                height: 1,
+            },
         );
         y += 1;
     }
@@ -242,7 +267,11 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         draw_strip(
             app,
             frame,
-            Rect { y: body.bottom(), height: strip_rows, ..area },
+            Rect {
+                y: body.bottom(),
+                height: strip_rows,
+                ..area
+            },
             &others,
             now,
         );
@@ -299,7 +328,10 @@ fn draw_strip(
     let dashes = w.saturating_sub(label.chars().count() + caption.chars().count() + 3);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(label, Style::default().fg(r.cool).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                label,
+                Style::default().fg(r.cool).add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" "),
             Span::styled("─".repeat(dashes), Style::default().fg(r.dim)),
             Span::raw(" "),
@@ -375,8 +407,20 @@ mod tests {
     /// has rows it never draws — the caption counts what is on screen.
     #[test]
     fn the_strip_has_a_ceiling_the_caption_has_to_respect() {
-        assert_eq!(strip_columns(STRIP_TWO_COL_COLS), 2, "the gate width runs two columns");
-        assert_eq!(strip_columns(STRIP_TWO_COL_COLS - 1), 1, "under the gate, one");
-        assert_eq!(strip_columns(120) as usize * STRIP_MAX_ROWS, 10, "ten rows is the ceiling at 120 cols");
+        assert_eq!(
+            strip_columns(STRIP_TWO_COL_COLS),
+            2,
+            "the gate width runs two columns"
+        );
+        assert_eq!(
+            strip_columns(STRIP_TWO_COL_COLS - 1),
+            1,
+            "under the gate, one"
+        );
+        assert_eq!(
+            strip_columns(120) as usize * STRIP_MAX_ROWS,
+            10,
+            "ten rows is the ceiling at 120 cols"
+        );
     }
 }

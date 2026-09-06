@@ -29,13 +29,39 @@ const SCORES_DWELL_TICKS: u64 = 30;
 pub fn score_segment(g: &Game) -> Cells {
     let th = theme::current();
     let mut seg = Cells::new();
-    push(&mut seg, &g.league.slug().to_uppercase(), Style::default().fg(th.chip(g.league)).add_modifier(Modifier::BOLD));
-    push(&mut seg, &format!(" {} ", g.away.abbr), Style::default().fg(th.fg));
-    push(&mut seg, &g.away_score.to_string(), Style::default().fg(th.bright).add_modifier(Modifier::BOLD));
-    push(&mut seg, &format!(" {} ", g.home.abbr), Style::default().fg(th.fg));
-    push(&mut seg, &g.home_score.to_string(), Style::default().fg(th.bright).add_modifier(Modifier::BOLD));
+    push(
+        &mut seg,
+        &g.league.slug().to_uppercase(),
+        Style::default()
+            .fg(th.chip(g.league))
+            .add_modifier(Modifier::BOLD),
+    );
+    push(
+        &mut seg,
+        &format!(" {} ", g.away.abbr),
+        Style::default().fg(th.fg),
+    );
+    push(
+        &mut seg,
+        &g.away_score.to_string(),
+        Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
+    );
+    push(
+        &mut seg,
+        &format!(" {} ", g.home.abbr),
+        Style::default().fg(th.fg),
+    );
+    push(
+        &mut seg,
+        &g.home_score.to_string(),
+        Style::default().fg(th.bright).add_modifier(Modifier::BOLD),
+    );
     let when = format!("{} {}", g.period, g.clock);
-    push(&mut seg, &format!(" {}", when.trim()), Style::default().fg(th.clock()));
+    push(
+        &mut seg,
+        &format!(" {}", when.trim()),
+        Style::default().fg(th.clock()),
+    );
     seg
 }
 
@@ -50,7 +76,11 @@ pub fn whole_segments(segments: &[Cells], width: usize, step: u64, sep: Style) -
     }
     let sep_cells: Cells = " │ ".chars().map(|c| (c, sep)).collect();
     let total: usize = segments.iter().map(Vec::len).sum::<usize>() + sep_cells.len() * (n - 1);
-    let start = if total <= width { 0 } else { (step as usize) % n };
+    let start = if total <= width {
+        0
+    } else {
+        (step as usize) % n
+    };
     for k in 0..n {
         let seg = &segments[(start + k) % n];
         let need = seg.len() + if out.is_empty() { 0 } else { sep_cells.len() };
@@ -104,15 +134,17 @@ fn group_spans(cells: impl Iterator<Item = (char, Style)>) -> Vec<Span<'static>>
             _ => out.push((ch.to_string(), style)),
         }
     }
-    out.into_iter().map(|(text, style)| Span::styled(text, style)).collect()
+    out.into_iter()
+        .map(|(text, style)| Span::styled(text, style))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::*;
-    use ratatui::style::Style;
     use ratatui::backend::TestBackend;
+    use ratatui::style::Style;
     use ratatui::Terminal;
 
     fn team(abbr: &str) -> Team {
@@ -126,7 +158,13 @@ mod tests {
         }
     }
 
-    fn game(league: League, away: &str, home: &str, scores: (u16, u16), when: (&str, &str)) -> Game {
+    fn game(
+        league: League,
+        away: &str,
+        home: &str,
+        scores: (u16, u16),
+        when: (&str, &str),
+    ) -> Game {
         Game {
             id: format!("{away}-{home}"),
             league,
@@ -172,8 +210,16 @@ mod tests {
         assert_eq!(text(&whole_segments(&segs, 11, 0, sep)), "AAAA │ BBBB");
         assert_eq!(text(&whole_segments(&segs, 11, 1, sep)), "BBBB │ CCCC");
         assert_eq!(text(&whole_segments(&segs, 11, 2, sep)), "CCCC │ AAAA");
-        assert_eq!(text(&whole_segments(&segs, 11, 3, sep)), "AAAA │ BBBB", "wraps");
-        assert_eq!(text(&whole_segments(&segs, 10, 0, sep)), "AAAA", "never a cut game");
+        assert_eq!(
+            text(&whole_segments(&segs, 11, 3, sep)),
+            "AAAA │ BBBB",
+            "wraps"
+        );
+        assert_eq!(
+            text(&whole_segments(&segs, 10, 0, sep)),
+            "AAAA",
+            "never a cut game"
+        );
         assert_eq!(
             text(&whole_segments(&segs, 40, 7, sep)),
             "AAAA │ BBBB │ CCCC",
@@ -192,6 +238,10 @@ mod tests {
         let buf = term.backend().buffer();
         let row: String = (0..80).map(|x| buf[(x, 0)].symbol().to_string()).collect();
         assert_eq!(row.trim_end(), " SCORES NFL KC 27 TB 24 Q4 1:27", "{row:?}");
-        assert_eq!(buf[(1, 0)].fg, theme::current().muted, "the gutter takes the muted role");
+        assert_eq!(
+            buf[(1, 0)].fg,
+            theme::current().muted,
+            "the gutter takes the muted role"
+        );
     }
 }

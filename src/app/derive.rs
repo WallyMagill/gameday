@@ -67,9 +67,9 @@ impl App {
             Tab::Home => {
                 let concat = self.concat_boards();
                 home_games(&self.pins, &self.config.favorites, &concat, self.now())
-                .into_iter()
-                .cloned()
-                .collect()
+                    .into_iter()
+                    .cloned()
+                    .collect()
             }
             Tab::League(league) => self.league_games(league),
         };
@@ -305,8 +305,7 @@ mod tests {
     #[test]
     fn draw_derives_once_per_frame() {
         let mut app = crate::app::tests::app_with(crate::app::tests::six_live(), vec![]);
-        let mut term =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
         DERIVE_COUNT.with(|c| c.set(0));
         term.draw(|f| app.draw(f)).unwrap();
         assert_eq!(
@@ -337,11 +336,25 @@ mod tests {
         ];
         games[3].status = Status::Final;
 
-        let mut app = app_with(games.clone(), vec![Pin { game_id: "live2".into(), league: League::Nfl, final_at: None }]);
-        app.config.favorites.push(Favorite { league: League::Nfl, team_abbr: "NE".into() });
+        let mut app = app_with(
+            games.clone(),
+            vec![Pin {
+                game_id: "live2".into(),
+                league: League::Nfl,
+                final_at: None,
+            }],
+        );
+        app.config.favorites.push(Favorite {
+            league: League::Nfl,
+            team_abbr: "NE".into(),
+        });
         let d = app.derive();
 
-        assert_eq!(ids(&d.my_games), vec!["live2", "pre1"], "pins then favorites");
+        assert_eq!(
+            ids(&d.my_games),
+            vec!["live2", "pre1"],
+            "pins then favorites"
+        );
         assert_eq!(ids(&d.in_play), vec!["live1"], "the band is not in play");
         assert_eq!(ids(&d.finals), vec!["fin1"]);
         assert!(d.later.is_empty(), "pre1 is a my-game: {:?}", ids(&d.later));
@@ -364,11 +377,22 @@ mod tests {
         assert!(!d.mixed, "one league on the board");
 
         // A band whose top game is not live hands the hero to the ranking.
-        let mut app = app_with(games, vec![Pin { game_id: "pre1".into(), league: League::Nfl, final_at: None }]);
+        let mut app = app_with(
+            games,
+            vec![Pin {
+                game_id: "pre1".into(),
+                league: League::Nfl,
+                final_at: None,
+            }],
+        );
         app.tab = Tab::League(League::Nfl);
         let d = app.derive();
         assert_eq!(ids(&d.my_games), vec!["pre1"]);
-        assert_eq!(d.hero_id.as_deref(), Some("live1"), "a pre-game pin never takes the hero");
+        assert_eq!(
+            d.hero_id.as_deref(),
+            Some("live1"),
+            "a pre-game pin never takes the hero"
+        );
     }
 
     /// `derived()` is a frame-scoped borrow, and saying so out loud beats a

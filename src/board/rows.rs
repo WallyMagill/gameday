@@ -128,12 +128,25 @@ const T1_CHIP_W: u16 = TEXT_X - CLOCK_X;
 /// Render `line` into the column `x..x+w` of row `y` (both relative to
 /// `area`). A column that starts past the right edge is dropped — that is
 /// how a row narrows on a small terminal, rather than wrapping.
-fn col(frame: &mut Frame, area: Rect, x: u16, w: u16, y: u16, align: Alignment, line: Line<'static>) {
+fn col(
+    frame: &mut Frame,
+    area: Rect,
+    x: u16,
+    w: u16,
+    y: u16,
+    align: Alignment,
+    line: Line<'static>,
+) {
     if x >= area.width || y >= area.height || w == 0 {
         return;
     }
     let width = w.min(area.width - x);
-    let rect = Rect { x: area.x + x, y: area.y + y, width, height: 1 };
+    let rect = Rect {
+        x: area.x + x,
+        y: area.y + y,
+        width,
+        height: 1,
+    };
     frame.render_widget(Paragraph::new(line).alignment(align), rect);
 }
 
@@ -162,7 +175,10 @@ fn abbr_span(game_pinned: bool, team: &crate::domain::Team, ctx: &RowCtx) -> Lin
         ink(ctx)
     };
     let padded = format!("{:<3}", team.abbr);
-    Line::from(Span::styled(padded, Style::default().fg(color).add_modifier(Modifier::BOLD)))
+    Line::from(Span::styled(
+        padded,
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    ))
 }
 
 /// A score. Amber, bold in the live tiers — the one color a row spends on a
@@ -252,7 +268,15 @@ fn mark_cell(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) 
         ("▌", r.dim)
     };
     for y in 0..rows.min(area.height) {
-        col(frame, area, 0, 1, y, Alignment::Left, Line::from(Span::styled(glyph, Style::default().fg(color))));
+        col(
+            frame,
+            area,
+            0,
+            1,
+            y,
+            Alignment::Left,
+            Line::from(Span::styled(glyph, Style::default().fg(color))),
+        );
     }
 }
 
@@ -265,16 +289,34 @@ fn gutters(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
     // Selection wins the gutter over a nudge: the caret says where the
     // keyboard is, which the viewer needs more than why the row moved.
     let mark = if ctx.selected {
-        Some(Span::styled("▸", Style::default().fg(theme::current().bright).add_modifier(Modifier::BOLD)))
+        Some(Span::styled(
+            "▸",
+            Style::default()
+                .fg(theme::current().bright)
+                .add_modifier(Modifier::BOLD),
+        ))
     } else {
         // Ruling R31: the gutter is two cells, so the DISPLAYED climb clamps
         // at 9 — `↑9` reads "rose 9 or more". Clipping `↑12` to `↑1` would
         // print a number that never happened; an understated climb is the
         // honest failure.
-        ctx.nudge.map(|n| Span::styled(format!("↑{}", n.min(NUDGE_MAX)), Style::default().fg(r.digits)))
+        ctx.nudge.map(|n| {
+            Span::styled(
+                format!("↑{}", n.min(NUDGE_MAX)),
+                Style::default().fg(r.digits),
+            )
+        })
     };
     if let Some(span) = mark {
-        col(frame, area, NUDGE_X, GUTTER - NUDGE_X, 0, Alignment::Left, Line::from(span));
+        col(
+            frame,
+            area,
+            NUDGE_X,
+            GUTTER - NUDGE_X,
+            0,
+            Alignment::Left,
+            Line::from(span),
+        );
     }
 }
 
@@ -294,30 +336,74 @@ pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     // fragment and last-play rows — but its score is read the same way.
     pair_line(frame, area, game, ctx, true);
     if ctx.league_tag {
-        let tag = Span::styled(game.league.slug().to_uppercase(), Style::default().fg(r.dim));
-        col(frame, area, AWAY_ABBR_X, ABBR_W, 1, Alignment::Right, Line::from(tag));
+        let tag = Span::styled(
+            game.league.slug().to_uppercase(),
+            Style::default().fg(r.dim),
+        );
+        col(
+            frame,
+            area,
+            AWAY_ABBR_X,
+            ABBR_W,
+            1,
+            Alignment::Right,
+            Line::from(tag),
+        );
     }
     let state = state_text(game, ctx.now);
     if !state.is_empty() {
-        let span = Span::styled(state, Style::default().fg(ink(ctx)).add_modifier(Modifier::BOLD));
-        col(frame, area, CLOCK_X, CLOCK_W, 0, Alignment::Left, Line::from(span));
+        let span = Span::styled(
+            state,
+            Style::default().fg(ink(ctx)).add_modifier(Modifier::BOLD),
+        );
+        col(
+            frame,
+            area,
+            CLOCK_X,
+            CLOCK_W,
+            0,
+            Alignment::Left,
+            Line::from(span),
+        );
     }
     // The state chip sits directly under the clock (A′ frame: red `2-MIN`
     // beneath `Q4 0:48`). Plain hot text, not a filled block — the filled
     // chip is the hero's alone (spec §1).
     if let Some(chip) = ctx.chip {
-        let span = Span::styled(chip, Style::default().fg(r.hot).add_modifier(Modifier::BOLD));
-        col(frame, area, CLOCK_X, T1_CHIP_W, 1, Alignment::Left, Line::from(span));
+        let span = Span::styled(
+            chip,
+            Style::default().fg(r.hot).add_modifier(Modifier::BOLD),
+        );
+        col(
+            frame,
+            area,
+            CLOCK_X,
+            T1_CHIP_W,
+            1,
+            Alignment::Left,
+            Line::from(span),
+        );
     }
     let room = (area.width.saturating_sub(TEXT_X)) as usize;
     if let Some(fragment) = situation_summary(game) {
         let span = Span::styled(truncate(&fragment, room), Style::default().fg(r.dim));
-        col(frame, area, TEXT_X, area.width, 0, Alignment::Left, Line::from(span));
+        col(
+            frame,
+            area,
+            TEXT_X,
+            area.width,
+            0,
+            Alignment::Left,
+            Line::from(span),
+        );
     }
     if let Some(play) = game.last_plays.first() {
         let line = Line::from(vec![
             Span::styled("▸ ", Style::default().fg(r.dim)),
-            Span::styled(truncate(&play.text, room.saturating_sub(2)), Style::default().fg(ink(ctx))),
+            Span::styled(
+                truncate(&play.text, room.saturating_sub(2)),
+                Style::default().fg(ink(ctx)),
+            ),
         ]);
         col(frame, area, TEXT_X, area.width, 1, Alignment::Left, line);
     }
@@ -335,14 +421,33 @@ pub fn draw_tier2(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
 
     let state = state_text(game, ctx.now);
     if !state.is_empty() {
-        let span = Span::styled(state, Style::default().fg(ink(ctx)).add_modifier(Modifier::BOLD));
-        col(frame, area, CLOCK_X, CLOCK_W, 0, Alignment::Left, Line::from(span));
+        let span = Span::styled(
+            state,
+            Style::default().fg(ink(ctx)).add_modifier(Modifier::BOLD),
+        );
+        col(
+            frame,
+            area,
+            CLOCK_X,
+            CLOCK_W,
+            0,
+            Alignment::Left,
+            Line::from(span),
+        );
     }
     league_tag(frame, area, game, ctx);
     if let Some(fragment) = situation_summary(game) {
         let room = (area.width.saturating_sub(TEXT_X)) as usize;
         let span = Span::styled(truncate(&fragment, room), Style::default().fg(r.dim));
-        col(frame, area, TEXT_X, area.width, 0, Alignment::Left, Line::from(span));
+        col(
+            frame,
+            area,
+            TEXT_X,
+            area.width,
+            0,
+            Alignment::Left,
+            Line::from(span),
+        );
     }
 }
 
@@ -358,10 +463,34 @@ pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     if later {
         // No score to print yet: the `@` takes the away score's column so a
         // LATER row and a FINAL row keep the same grid.
-        col(frame, area, AWAY_ABBR_X, ABBR_W, 0, Alignment::Right, abbr_span(ctx.pinned, &game.away, ctx));
+        col(
+            frame,
+            area,
+            AWAY_ABBR_X,
+            ABBR_W,
+            0,
+            Alignment::Right,
+            abbr_span(ctx.pinned, &game.away, ctx),
+        );
         let at = Span::styled("@", Style::default().fg(r.dim));
-        col(frame, area, AWAY_SCORE_X, SCORE_W, 0, Alignment::Center, Line::from(at));
-        col(frame, area, HOME_ABBR_X, ABBR_W, 0, Alignment::Left, abbr_span(ctx.pinned, &game.home, ctx));
+        col(
+            frame,
+            area,
+            AWAY_SCORE_X,
+            SCORE_W,
+            0,
+            Alignment::Center,
+            Line::from(at),
+        );
+        col(
+            frame,
+            area,
+            HOME_ABBR_X,
+            ABBR_W,
+            0,
+            Alignment::Left,
+            abbr_span(ctx.pinned, &game.home, ctx),
+        );
     } else {
         pair_line(frame, area, game, ctx, false);
     }
@@ -383,13 +512,29 @@ pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     if later {
         if let Some(net) = game.broadcast.as_deref().filter(|s| !s.is_empty()) {
             let span = Span::styled(net.to_uppercase(), Style::default().fg(r.dim));
-            col(frame, area, TEXT_X, BCAST_W, 0, Alignment::Left, Line::from(span));
+            col(
+                frame,
+                area,
+                TEXT_X,
+                BCAST_W,
+                0,
+                Alignment::Left,
+                Line::from(span),
+            );
         }
         if let Some(odds) = game.odds.as_deref().filter(|s| !s.is_empty()) {
             let x = TEXT_X + BCAST_W;
             let room = (area.width.saturating_sub(x)) as usize;
             let span = Span::styled(truncate(odds, room), Style::default().fg(r.dim));
-            col(frame, area, x, area.width, 0, Alignment::Left, Line::from(span));
+            col(
+                frame,
+                area,
+                x,
+                area.width,
+                0,
+                Alignment::Left,
+                Line::from(span),
+            );
         }
         return;
     }
@@ -402,17 +547,57 @@ pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     if !headline.is_empty() {
         let room = (area.width.saturating_sub(TEXT_X)) as usize;
         let span = Span::styled(truncate(&headline, room), Style::default().fg(r.dim));
-        col(frame, area, TEXT_X, area.width, 0, Alignment::Left, Line::from(span));
+        col(
+            frame,
+            area,
+            TEXT_X,
+            area.width,
+            0,
+            Alignment::Left,
+            Line::from(span),
+        );
     }
 }
 
 /// `GB 13 CHI 10` on the shared one-line grid.
 fn pair_line(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx, strong: bool) {
     let r = theme::current().roles();
-    col(frame, area, AWAY_ABBR_X, ABBR_W, 0, Alignment::Right, abbr_span(ctx.pinned, &game.away, ctx));
-    col(frame, area, AWAY_SCORE_X, SCORE_W, 0, Alignment::Right, score_span(game.away_score, &r, strong));
-    col(frame, area, HOME_ABBR_X, ABBR_W, 0, Alignment::Left, abbr_span(ctx.pinned, &game.home, ctx));
-    col(frame, area, HOME_SCORE_X, SCORE_W, 0, Alignment::Right, score_span(game.home_score, &r, strong));
+    col(
+        frame,
+        area,
+        AWAY_ABBR_X,
+        ABBR_W,
+        0,
+        Alignment::Right,
+        abbr_span(ctx.pinned, &game.away, ctx),
+    );
+    col(
+        frame,
+        area,
+        AWAY_SCORE_X,
+        SCORE_W,
+        0,
+        Alignment::Right,
+        score_span(game.away_score, &r, strong),
+    );
+    col(
+        frame,
+        area,
+        HOME_ABBR_X,
+        ABBR_W,
+        0,
+        Alignment::Left,
+        abbr_span(ctx.pinned, &game.home, ctx),
+    );
+    col(
+        frame,
+        area,
+        HOME_SCORE_X,
+        SCORE_W,
+        0,
+        Alignment::Right,
+        score_span(game.home_score, &r, strong),
+    );
 }
 
 fn league_tag(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
@@ -420,8 +605,19 @@ fn league_tag(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
         return;
     }
     let r = theme::current().roles();
-    let span = Span::styled(game.league.slug().to_uppercase(), Style::default().fg(r.dim));
-    col(frame, area, LEAGUE_X, LEAGUE_W, 0, Alignment::Left, Line::from(span));
+    let span = Span::styled(
+        game.league.slug().to_uppercase(),
+        Style::default().fg(r.dim),
+    );
+    col(
+        frame,
+        area,
+        LEAGUE_X,
+        LEAGUE_W,
+        0,
+        Alignment::Left,
+        Line::from(span),
+    );
 }
 
 #[cfg(test)]
@@ -514,16 +710,24 @@ mod tests {
     fn text_of(buf: &Buffer) -> String {
         let area = *buf.area();
         (0..area.height)
-            .map(|y| (0..area.width).map(|x| buf[(x, y)].symbol()).collect::<String>())
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
 
     /// The columns `needle` occupies in row `y`, or None when it isn't there.
     fn col_of(buf: &Buffer, y: u16, needle: &str) -> Option<u16> {
-        let row: Vec<&str> = (0..buf.area().width).map(|x| buf[(x, y)].symbol()).collect();
+        let row: Vec<&str> = (0..buf.area().width)
+            .map(|x| buf[(x, y)].symbol())
+            .collect();
         let joined: String = row.concat();
-        joined.find(needle).map(|byte| joined[..byte].chars().count() as u16)
+        joined
+            .find(needle)
+            .map(|byte| joined[..byte].chars().count() as u16)
     }
 
     fn cells_with_fg(buf: &Buffer, rect: Rect, color: Color) -> usize {
@@ -545,7 +749,11 @@ mod tests {
             .replace("name = \"broadcast\"", "name = \"marks\"")
             .replace("team = \"hero\"", "team = \"hero+marks\"");
         let (name, th) = theme::parse_theme(&text).unwrap();
-        theme::install(theme::Entry { name, theme: th, user: true });
+        theme::install(theme::Entry {
+            name,
+            theme: th,
+            user: true,
+        });
         theme::set_current("marks").unwrap();
     }
 
@@ -557,33 +765,81 @@ mod tests {
         let r = theme::current().roles();
         let text = text_of(buf);
 
-        assert_eq!(buf[(0, 0)].symbol(), "▌", "the hot mark owns column 0\n{text}");
+        assert_eq!(
+            buf[(0, 0)].symbol(),
+            "▌",
+            "the hot mark owns column 0\n{text}"
+        );
         // The frame's grid: abbr right-aligned into the gutter's shoulder,
         // score right-aligned two columns later, home pair mirrored.
         // spec v3.3 §4: the abbr pads to a 3-cell minimum, so a 2-char abbr
         // right-aligned in the 4-cell field now starts one column left of
         // where the unpadded text used to (ABBR_W-3, not ABBR_W-2).
-        assert_eq!(col_of(buf, 0, "GB"), Some(AWAY_ABBR_X + ABBR_W - 3), "away abbr right-aligned\n{text}");
-        assert_eq!(col_of(buf, 0, "13"), Some(AWAY_SCORE_X + SCORE_W - 2), "away score right-aligned\n{text}");
-        assert_eq!(col_of(buf, 0, "CHI"), Some(HOME_ABBR_X), "home abbr left-aligned\n{text}");
-        assert_eq!(col_of(buf, 0, "10"), Some(HOME_SCORE_X + SCORE_W - 2), "home score right-aligned\n{text}");
-        assert_eq!(col_of(buf, 0, "Q3 4:20"), Some(CLOCK_X), "clock column\n{text}");
+        assert_eq!(
+            col_of(buf, 0, "GB"),
+            Some(AWAY_ABBR_X + ABBR_W - 3),
+            "away abbr right-aligned\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 0, "13"),
+            Some(AWAY_SCORE_X + SCORE_W - 2),
+            "away score right-aligned\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 0, "CHI"),
+            Some(HOME_ABBR_X),
+            "home abbr left-aligned\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 0, "10"),
+            Some(HOME_SCORE_X + SCORE_W - 2),
+            "home score right-aligned\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 0, "Q3 4:20"),
+            Some(CLOCK_X),
+            "clock column\n{text}"
+        );
 
         // Amber, bold, and only on the scores: the two abbrs stay ink.
-        for x in [AWAY_SCORE_X + 1, AWAY_SCORE_X + 2, HOME_SCORE_X + 1, HOME_SCORE_X + 2] {
+        for x in [
+            AWAY_SCORE_X + 1,
+            AWAY_SCORE_X + 2,
+            HOME_SCORE_X + 1,
+            HOME_SCORE_X + 2,
+        ] {
             let c = &buf[(x, 0)];
-            assert_eq!(c.fg, r.digits, "score cell {x} is amber ({:?})\n{text}", c.symbol());
-            assert!(c.modifier.contains(Modifier::BOLD), "score cell {x} is bold\n{text}");
+            assert_eq!(
+                c.fg,
+                r.digits,
+                "score cell {x} is amber ({:?})\n{text}",
+                c.symbol()
+            );
+            assert!(
+                c.modifier.contains(Modifier::BOLD),
+                "score cell {x} is bold\n{text}"
+            );
         }
-        assert_eq!(buf[(HOME_ABBR_X, 0)].fg, r.ink, "an unpinned abbr is ink\n{text}");
+        assert_eq!(
+            buf[(HOME_ABBR_X, 0)].fg,
+            r.ink,
+            "an unpinned abbr is ink\n{text}"
+        );
 
         // The league tag is a mixed-list decision, not a row decision.
-        assert_eq!(col_of(buf, 0, "NFL"), Some(LEAGUE_X), "league tag column\n{text}");
+        assert_eq!(
+            col_of(buf, 0, "NFL"),
+            Some(LEAGUE_X),
+            "league tag column\n{text}"
+        );
         let mut plain = ctx();
         plain.league_tag = false;
         let term = render(120, 1, &game, &plain, draw_tier2);
         let bare = text_of(term.backend().buffer());
-        assert!(!bare.contains("NFL"), "no league tag when the list is single-league\n{bare}");
+        assert!(
+            !bare.contains("NFL"),
+            "no league tag when the list is single-league\n{bare}"
+        );
         assert!(bare.contains("Q3 4:20"), "everything else survives\n{bare}");
     }
 
@@ -599,11 +855,23 @@ mod tests {
             (true, Some(2), r.hot),
         ];
         for (hot, nudge, want) in cases {
-            let c = RowCtx { hot, nudge, ..ctx() };
+            let c = RowCtx {
+                hot,
+                nudge,
+                ..ctx()
+            };
             let term = render(120, 1, &game, &c, draw_tier2);
             let buf = term.backend().buffer();
-            assert_eq!(buf[(0, 0)].symbol(), "▌", "hot={hot} nudge={nudge:?}: the mark is always ▌");
-            assert_eq!(buf[(0, 0)].fg, want, "hot={hot} nudge={nudge:?}: two ink states only");
+            assert_eq!(
+                buf[(0, 0)].symbol(),
+                "▌",
+                "hot={hot} nudge={nudge:?}: the mark is always ▌"
+            );
+            assert_eq!(
+                buf[(0, 0)].fg,
+                want,
+                "hot={hot} nudge={nudge:?}: two ink states only"
+            );
         }
     }
 
@@ -612,18 +880,47 @@ mod tests {
         let game = tier2_game();
         let r = theme::current().roles();
         let quiet = render(120, 1, &game, &ctx(), draw_tier2);
-        let risen = render(120, 1, &game, &RowCtx { nudge: Some(2), ..ctx() }, draw_tier2);
+        let risen = render(
+            120,
+            1,
+            &game,
+            &RowCtx {
+                nudge: Some(2),
+                ..ctx()
+            },
+            draw_tier2,
+        );
         let (a, b) = (quiet.backend().buffer(), risen.backend().buffer());
-        assert_eq!(col_of(a, 0, "GB"), col_of(b, 0, "GB"), "the abbr keeps its column");
+        assert_eq!(
+            col_of(a, 0, "GB"),
+            col_of(b, 0, "GB"),
+            "the abbr keeps its column"
+        );
         for x in GUTTER..120 {
-            assert_eq!(a[(x, 0)].symbol(), b[(x, 0)].symbol(), "cell {x} moved with the nudge");
-            assert_eq!(a[(x, 0)].fg, b[(x, 0)].fg, "cell {x} changed color with the nudge");
+            assert_eq!(
+                a[(x, 0)].symbol(),
+                b[(x, 0)].symbol(),
+                "cell {x} moved with the nudge"
+            );
+            assert_eq!(
+                a[(x, 0)].fg,
+                b[(x, 0)].fg,
+                "cell {x} changed color with the nudge"
+            );
         }
         // The gutter is reserved either way: empty without a nudge, ↑2 with one.
-        assert_eq!(col_of(b, 0, "↑2"), Some(NUDGE_X), "the nudge lives in its own gutter");
+        assert_eq!(
+            col_of(b, 0, "↑2"),
+            Some(NUDGE_X),
+            "the nudge lives in its own gutter"
+        );
         assert_eq!(b[(NUDGE_X, 0)].fg, r.digits, "the nudge is amber");
         for x in NUDGE_X..GUTTER {
-            assert_eq!(a[(x, 0)].symbol(), " ", "no nudge leaves the gutter empty at {x}");
+            assert_eq!(
+                a[(x, 0)].symbol(),
+                " ",
+                "no nudge leaves the gutter empty at {x}"
+            );
         }
     }
 
@@ -634,15 +931,37 @@ mod tests {
         let game = tier2_game();
         let r = theme::current().roles();
         for (nudge, want) in [(2usize, "↑2"), (9, "↑9"), (12, "↑9"), (137, "↑9")] {
-            let term = render(120, 1, &game, &RowCtx { nudge: Some(nudge), ..ctx() }, draw_tier2);
+            let term = render(
+                120,
+                1,
+                &game,
+                &RowCtx {
+                    nudge: Some(nudge),
+                    ..ctx()
+                },
+                draw_tier2,
+            );
             let buf = term.backend().buffer();
             let got: String = (NUDGE_X..GUTTER).map(|x| buf[(x, 0)].symbol()).collect();
-            assert_eq!(got, want, "nudge {nudge} renders {want} in the gutter\n{}", text_of(buf));
+            assert_eq!(
+                got,
+                want,
+                "nudge {nudge} renders {want} in the gutter\n{}",
+                text_of(buf)
+            );
             for x in NUDGE_X..GUTTER {
-                assert_eq!(buf[(x, 0)].fg, r.digits, "nudge {nudge}: the gutter is amber at {x}");
+                assert_eq!(
+                    buf[(x, 0)].fg,
+                    r.digits,
+                    "nudge {nudge}: the gutter is amber at {x}"
+                );
             }
             // Whatever it says, it says it inside the gutter.
-            assert_eq!(buf[(GUTTER, 0)].symbol(), " ", "nudge {nudge} must not spill past the gutter");
+            assert_eq!(
+                buf[(GUTTER, 0)].symbol(),
+                " ",
+                "nudge {nudge} must not spill past the gutter"
+            );
         }
     }
 
@@ -651,30 +970,86 @@ mod tests {
         let game = tier2_game();
         let th = theme::current();
         let quiet = render(120, 1, &game, &ctx(), draw_tier2);
-        let picked = render(120, 1, &game, &RowCtx { selected: true, ..ctx() }, draw_tier2);
+        let picked = render(
+            120,
+            1,
+            &game,
+            &RowCtx {
+                selected: true,
+                ..ctx()
+            },
+            draw_tier2,
+        );
         let (a, b) = (quiet.backend().buffer(), picked.backend().buffer());
         let text = text_of(b);
 
-        assert_eq!(b[(NUDGE_X, 0)].symbol(), "▸", "the caret takes the nudge gutter\n{text}");
+        assert_eq!(
+            b[(NUDGE_X, 0)].symbol(),
+            "▸",
+            "the caret takes the nudge gutter\n{text}"
+        );
         assert_eq!(b[(NUDGE_X, 0)].fg, th.bright, "the caret is bright\n{text}");
-        assert_eq!(a[(NUDGE_X, 0)].symbol(), " ", "an unselected row has no caret");
+        assert_eq!(
+            a[(NUDGE_X, 0)].symbol(),
+            " ",
+            "an unselected row has no caret"
+        );
 
         // The abbrs and the clock brighten; the score keeps its amber, and
         // nothing moves.
         for needle in ["GB", "CHI"] {
             let x = col_of(b, 0, needle).unwrap();
-            assert_eq!(col_of(a, 0, needle), Some(x), "selection never moves {needle}\n{text}");
-            assert_eq!(b[(x, 0)].fg, th.bright, "{needle} is bright while selected\n{text}");
-            assert_eq!(a[(x, 0)].fg, th.roles().ink, "{needle} is plain ink otherwise");
+            assert_eq!(
+                col_of(a, 0, needle),
+                Some(x),
+                "selection never moves {needle}\n{text}"
+            );
+            assert_eq!(
+                b[(x, 0)].fg,
+                th.bright,
+                "{needle} is bright while selected\n{text}"
+            );
+            assert_eq!(
+                a[(x, 0)].fg,
+                th.roles().ink,
+                "{needle} is plain ink otherwise"
+            );
         }
-        assert_eq!(b[(CLOCK_X, 0)].fg, th.bright, "the clock brightens too\n{text}");
-        assert_eq!(b[(AWAY_SCORE_X + 2, 0)].fg, th.roles().digits, "the score stays amber\n{text}");
+        assert_eq!(
+            b[(CLOCK_X, 0)].fg,
+            th.bright,
+            "the clock brightens too\n{text}"
+        );
+        assert_eq!(
+            b[(AWAY_SCORE_X + 2, 0)].fg,
+            th.roles().digits,
+            "the score stays amber\n{text}"
+        );
 
         // Selection wins the gutter over a nudge — one glyph, not two facts.
-        let both = render(120, 1, &game, &RowCtx { selected: true, nudge: Some(3), ..ctx() }, draw_tier2);
+        let both = render(
+            120,
+            1,
+            &game,
+            &RowCtx {
+                selected: true,
+                nudge: Some(3),
+                ..ctx()
+            },
+            draw_tier2,
+        );
         let c = both.backend().buffer();
-        assert_eq!(c[(NUDGE_X, 0)].symbol(), "▸", "the caret outranks the nudge\n{}", text_of(c));
-        assert!(!text_of(c).contains("↑3"), "no nudge beside the caret\n{}", text_of(c));
+        assert_eq!(
+            c[(NUDGE_X, 0)].symbol(),
+            "▸",
+            "the caret outranks the nudge\n{}",
+            text_of(c)
+        );
+        assert!(
+            !text_of(c).contains("↑3"),
+            "no nudge beside the caret\n{}",
+            text_of(c)
+        );
     }
 
     #[test]
@@ -685,18 +1060,46 @@ mod tests {
         let r = th.roles();
         assert_eq!(r.team, theme::TeamColorScope::HeroMarks);
         let mut term = Terminal::new(TestBackend::new(120, 1)).unwrap();
-        let pinned = RowCtx { pinned: true, ..ctx() };
-        term.draw(|f| draw_tier2(f, f.area(), &game, &pinned)).unwrap();
+        let pinned = RowCtx {
+            pinned: true,
+            ..ctx()
+        };
+        term.draw(|f| draw_tier2(f, f.area(), &game, &pinned))
+            .unwrap();
         let buf = term.backend().buffer();
         let text = text_of(buf);
-        let (ax, hx) = (col_of(buf, 0, "GB").unwrap(), col_of(buf, 0, "CHI").unwrap());
-        assert_eq!(buf[(ax, 0)].fg, th.art_color(game.away.color), "a pinned away abbr wears its color\n{text}");
-        assert_eq!(buf[(hx, 0)].fg, th.art_color(game.home.color), "a pinned home abbr wears its color\n{text}");
+        let (ax, hx) = (
+            col_of(buf, 0, "GB").unwrap(),
+            col_of(buf, 0, "CHI").unwrap(),
+        );
+        assert_eq!(
+            buf[(ax, 0)].fg,
+            th.art_color(game.away.color),
+            "a pinned away abbr wears its color\n{text}"
+        );
+        assert_eq!(
+            buf[(hx, 0)].fg,
+            th.art_color(game.home.color),
+            "a pinned home abbr wears its color\n{text}"
+        );
         // Nothing else in the row does — the scores stay amber, the clock ink.
-        assert_eq!(buf[(AWAY_SCORE_X + 2, 0)].fg, r.digits, "scores are never team-colored\n{text}");
+        assert_eq!(
+            buf[(AWAY_SCORE_X + 2, 0)].fg,
+            r.digits,
+            "scores are never team-colored\n{text}"
+        );
         assert_eq!(buf[(CLOCK_X, 0)].fg, r.ink, "the clock is ink\n{text}");
         assert_eq!(
-            cells_with_fg(buf, Rect { x: CLOCK_X, y: 0, width: 120 - CLOCK_X, height: 1 }, th.art_color(game.away.color)),
+            cells_with_fg(
+                buf,
+                Rect {
+                    x: CLOCK_X,
+                    y: 0,
+                    width: 120 - CLOCK_X,
+                    height: 1
+                },
+                th.art_color(game.away.color)
+            ),
             0,
             "team color stops at the abbr\n{text}"
         );
@@ -704,9 +1107,14 @@ mod tests {
         // At the default `hero` scope even a pinned abbr is ink.
         theme::set_current("broadcast").unwrap();
         let mut term = Terminal::new(TestBackend::new(120, 1)).unwrap();
-        term.draw(|f| draw_tier2(f, f.area(), &game, &pinned)).unwrap();
+        term.draw(|f| draw_tier2(f, f.area(), &game, &pinned))
+            .unwrap();
         let buf = term.backend().buffer();
-        assert_eq!(buf[(ax, 0)].fg, theme::current().roles().ink, "hero-scope keeps rows monochrome");
+        assert_eq!(
+            buf[(ax, 0)].fg,
+            theme::current().roles().ink,
+            "hero-scope keeps rows monochrome"
+        );
     }
 
     #[test]
@@ -721,15 +1129,39 @@ mod tests {
         let term = render(120, 1, &game, &ctx(), draw_tier3);
         let buf = term.backend().buffer();
         let text = text_of(buf);
-        assert_eq!(col_of(buf, 0, "4:25 PM"), Some(CLOCK_X), "fmt_start(ctx.now) in the clock column\n{text}");
+        assert_eq!(
+            col_of(buf, 0, "4:25 PM"),
+            Some(CLOCK_X),
+            "fmt_start(ctx.now) in the clock column\n{text}"
+        );
         assert!(!text.contains("2026-"), "never an ISO stamp\n{text}");
         // spec v3.3 §4: padded to a 3-cell minimum, ABBR_W-3 not ABBR_W-2.
-        assert_eq!(col_of(buf, 0, "TB"), Some(AWAY_ABBR_X + ABBR_W - 3), "away abbr right-aligned\n{text}");
-        assert_eq!(col_of(buf, 0, "@"), Some(AWAY_SCORE_X + 1), "the @ takes the score column\n{text}");
-        assert_eq!(col_of(buf, 0, "ATL"), Some(HOME_ABBR_X), "home abbr left-aligned\n{text}");
+        assert_eq!(
+            col_of(buf, 0, "TB"),
+            Some(AWAY_ABBR_X + ABBR_W - 3),
+            "away abbr right-aligned\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 0, "@"),
+            Some(AWAY_SCORE_X + 1),
+            "the @ takes the score column\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 0, "ATL"),
+            Some(HOME_ABBR_X),
+            "home abbr left-aligned\n{text}"
+        );
         assert_eq!(col_of(buf, 0, "FOX"), Some(TEXT_X), "broadcast\n{text}");
-        assert_eq!(col_of(buf, 0, "TB -1.5"), Some(TEXT_X + BCAST_W), "odds\n{text}");
-        assert_eq!(buf[(0, 0)].symbol(), "·", "tier 3 is a dot, never a bar\n{text}");
+        assert_eq!(
+            col_of(buf, 0, "TB -1.5"),
+            Some(TEXT_X + BCAST_W),
+            "odds\n{text}"
+        );
+        assert_eq!(
+            buf[(0, 0)].symbol(),
+            "·",
+            "tier 3 is a dot, never a bar\n{text}"
+        );
         assert_eq!(buf[(0, 0)].fg, theme::current().roles().dim);
 
         // A final row: newest scoring play as the headline, amber scores.
@@ -739,17 +1171,37 @@ mod tests {
         fin.away_score = 3;
         fin.home_score = 0;
         fin.scoring_plays = vec![
-            Play { text: "Saka opens the scoring".into(), scoring: true, ..Default::default() },
-            Play { text: "Ødegaard 2 assists".into(), scoring: true, ..Default::default() },
+            Play {
+                text: "Saka opens the scoring".into(),
+                scoring: true,
+                ..Default::default()
+            },
+            Play {
+                text: "Ødegaard 2 assists".into(),
+                scoring: true,
+                ..Default::default()
+            },
         ];
         let term = render(120, 1, &fin, &ctx(), draw_tier3);
         let buf = term.backend().buffer();
         let text = text_of(buf);
-        assert_eq!(col_of(buf, 0, "FT"), Some(CLOCK_X), "soccer finals say FT\n{text}");
+        assert_eq!(
+            col_of(buf, 0, "FT"),
+            Some(CLOCK_X),
+            "soccer finals say FT\n{text}"
+        );
         assert_eq!(col_of(buf, 0, "EPL"), Some(LEAGUE_X), "league tag\n{text}");
-        assert_eq!(col_of(buf, 0, "Ødegaard 2 assists"), Some(TEXT_X), "newest scoring play\n{text}");
+        assert_eq!(
+            col_of(buf, 0, "Ødegaard 2 assists"),
+            Some(TEXT_X),
+            "newest scoring play\n{text}"
+        );
         assert!(!text.contains("Saka"), "only the newest\n{text}");
-        assert_eq!(buf[(AWAY_SCORE_X + 2, 0)].fg, theme::current().roles().digits, "scores stay amber\n{text}");
+        assert_eq!(
+            buf[(AWAY_SCORE_X + 2, 0)].fg,
+            theme::current().roles().digits,
+            "scores stay amber\n{text}"
+        );
     }
 
     /// Spec v3.4 §6 / ruling R47: the tier-3 FINAL ladder in the spec's
@@ -763,23 +1215,42 @@ mod tests {
         let mut fin = live_game("ARS", "BHA");
         fin.league = League::Epl;
         fin.status = Status::Final;
-        fin.scoring_plays = vec![Play { text: "Saka opens the scoring".into(), scoring: true, ..Default::default() }];
+        fin.scoring_plays = vec![Play {
+            text: "Saka opens the scoring".into(),
+            scoring: true,
+            ..Default::default()
+        }];
 
         // Headline present: it wins over both lower rungs.
         fin.headline = Some("Arsenal beat Brighton to go top of the table".into());
-        let with_headline = RowCtx { leaders_line: Some("ARS Saka: 2 G, 1 A".into()), ..ctx() };
+        let with_headline = RowCtx {
+            leaders_line: Some("ARS Saka: 2 G, 1 A".into()),
+            ..ctx()
+        };
         let term = render(120, 1, &fin, &with_headline, draw_tier3);
         let text = text_of(term.backend().buffer());
-        assert!(text.contains("Arsenal beat Brighton to go top of the table"), "{text}");
-        assert!(!text.contains("Saka opens"), "the headline wins over the scoring play\n{text}");
+        assert!(
+            text.contains("Arsenal beat Brighton to go top of the table"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("Saka opens"),
+            "the headline wins over the scoring play\n{text}"
+        );
 
         // No headline: falls to the leaders line.
         fin.headline = None;
-        let leaders_only = RowCtx { leaders_line: Some("ARS Saka: 2 G, 1 A".into()), ..ctx() };
+        let leaders_only = RowCtx {
+            leaders_line: Some("ARS Saka: 2 G, 1 A".into()),
+            ..ctx()
+        };
         let term = render(120, 1, &fin, &leaders_only, draw_tier3);
         let text = text_of(term.backend().buffer());
         assert!(text.contains("ARS Saka: 2 G, 1 A"), "{text}");
-        assert!(!text.contains("Saka opens"), "leaders wins over the scoring play\n{text}");
+        assert!(
+            !text.contains("Saka opens"),
+            "leaders wins over the scoring play\n{text}"
+        );
 
         // Neither headline nor leaders: existing behavior — newest scoring
         // play — is pinned.
@@ -801,9 +1272,19 @@ mod tests {
         let term = render(60, 1, &fin, &ctx(), draw_tier3);
         let buf = term.backend().buffer();
         let text = text_of(buf);
-        assert_eq!(text.chars().count(), 60, "row must stay exactly the frame's width, no overflow\n{text}");
-        assert!(text.contains('…'), "a 200-char headline at 60 cols must be truncated with an ellipsis\n{text}");
-        assert!(!text.contains(&"A".repeat(23)), "the headline itself must be cut, not just clipped by the terminal\n{text}");
+        assert_eq!(
+            text.chars().count(),
+            60,
+            "row must stay exactly the frame's width, no overflow\n{text}"
+        );
+        assert!(
+            text.contains('…'),
+            "a 200-char headline at 60 cols must be truncated with an ellipsis\n{text}"
+        );
+        assert!(
+            !text.contains(&"A".repeat(23)),
+            "the headline itself must be cut, not just clipped by the terminal\n{text}"
+        );
     }
 
     /// v3.4 T9 review: a final that already carries a headline, then gets a
@@ -823,10 +1304,18 @@ mod tests {
         fin.status = Status::Final;
         fin.headline = Some("Arsenal beat Brighton to go top of the table".into());
         fin.scoring_plays = vec![
-            Play { text: "Saka opens the scoring".into(), scoring: true, ..Default::default() },
+            Play {
+                text: "Saka opens the scoring".into(),
+                scoring: true,
+                ..Default::default()
+            },
             // A refresh lands a newer scoring play after the headline was
             // already set.
-            Play { text: "Ødegaard doubles the lead".into(), scoring: true, ..Default::default() },
+            Play {
+                text: "Ødegaard doubles the lead".into(),
+                scoring: true,
+                ..Default::default()
+            },
         ];
         assert_eq!(
             final_story(&fin, None).as_deref(),
@@ -866,7 +1355,8 @@ mod tests {
                 // element a row is allowed, and it is a gutter, not a score.
                 let allowed = ch == '▌' && x == 0;
                 assert!(
-                    allowed || !((0x2580..=0x259F).contains(&o) || (0x1FB00..=0x1FBFF).contains(&o)),
+                    allowed
+                        || !((0x2580..=0x259F).contains(&o) || (0x1FB00..=0x1FBFF).contains(&o)),
                     "tier 1 draws a glyph score at ({x},{y}): U+{o:04X} — the numerals ARE the \
                      score now (R39)\n{text}"
                 );
@@ -876,29 +1366,72 @@ mod tests {
         // spec v3.3 §4: the stack sits on the shared nameplate grid — abbr
         // over league tag at tier 2's own columns — and the clock and the two
         // text rows sit in tier 2's own columns as well.
-        assert_eq!(col_of(buf, 0, "DAL"), Some(AWAY_ABBR_X + ABBR_W - 3), "away abbr, row 0\n{text}");
-        assert_eq!(col_of(buf, 1, "NFL"), Some(AWAY_ABBR_X + ABBR_W - 3), "league under it, row 1\n{text}");
-        assert_eq!(col_of(buf, 0, "PHI"), Some(HOME_ABBR_X), "home abbr, row 0\n{text}");
-        assert_eq!(col_of(buf, 0, "Q4 0:48"), Some(CLOCK_X), "clock column, row 0\n{text}");
-        assert_eq!(col_of(buf, 0, "PHI 3RD & 6 AT DAL 38"), Some(TEXT_X), "situation, row 0\n{text}");
-        assert_eq!(col_of(buf, 1, "▸ Hurts hit"), Some(TEXT_X), "last play, row 1\n{text}");
+        assert_eq!(
+            col_of(buf, 0, "DAL"),
+            Some(AWAY_ABBR_X + ABBR_W - 3),
+            "away abbr, row 0\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 1, "NFL"),
+            Some(AWAY_ABBR_X + ABBR_W - 3),
+            "league under it, row 1\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 0, "PHI"),
+            Some(HOME_ABBR_X),
+            "home abbr, row 0\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 0, "Q4 0:48"),
+            Some(CLOCK_X),
+            "clock column, row 0\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 0, "PHI 3RD & 6 AT DAL 38"),
+            Some(TEXT_X),
+            "situation, row 0\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 1, "▸ Hurts hit"),
+            Some(TEXT_X),
+            "last play, row 1\n{text}"
+        );
 
         // The mark is a bar down the whole block, one state.
         for y in 0..3 {
-            assert_eq!(buf[(0, y)].symbol(), "▌", "the mark runs the block's height\n{text}");
+            assert_eq!(
+                buf[(0, y)].symbol(),
+                "▌",
+                "the mark runs the block's height\n{text}"
+            );
             assert_eq!(buf[(0, y)].fg, r.hot, "hot row\n{text}");
         }
 
         // The state chip rides under the clock, in `hot` — the A′ frame's red
         // `2-MIN` beneath `Q4 0:48` (docs/research/v3-identity/nfl-sunday-120x40.png).
-        let chipped = RowCtx { chip: Some("2-MIN"), ..ctx() };
+        let chipped = RowCtx {
+            chip: Some("2-MIN"),
+            ..ctx()
+        };
         let term = render(120, 3, &game, &chipped, draw_tier1);
         let buf = term.backend().buffer();
         let text = text_of(buf);
-        assert_eq!(col_of(buf, 1, "2-MIN"), Some(CLOCK_X), "chip under the clock\n{text}");
+        assert_eq!(
+            col_of(buf, 1, "2-MIN"),
+            Some(CLOCK_X),
+            "chip under the clock\n{text}"
+        );
         assert_eq!(buf[(CLOCK_X, 1)].fg, r.hot, "the chip is hot\n{text}");
-        assert_eq!(col_of(buf, 0, "Q4 0:48"), Some(CLOCK_X), "the clock keeps row 0\n{text}");
-        assert_eq!(col_of(buf, 1, "▸ Hurts hit"), Some(TEXT_X), "the play keeps its column\n{text}");
+        assert_eq!(
+            col_of(buf, 0, "Q4 0:48"),
+            Some(CLOCK_X),
+            "the clock keeps row 0\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 1, "▸ Hurts hit"),
+            Some(TEXT_X),
+            "the play keeps its column\n{text}"
+        );
         let bare = text_of(render(120, 3, &game, &ctx(), draw_tier1).backend().buffer());
         assert!(!bare.contains("2-MIN"), "no chip, no row\n{bare}");
 
@@ -907,8 +1440,12 @@ mod tests {
         // "10 MEN" (spec v3.4 §5) is the shortest of the family and the
         // reason the men chip could not name the side: "AVL 10 MEN" is 10
         // cells but the chip is a `&'static str`, not a format.
-        for chip in ["BASES LOADED", "TYING RUN 3RD", "GO-AHEAD 3RD", "10 MEN"] { // spec v3.3 §7
-            let c = RowCtx { chip: Some(chip), ..ctx() };
+        for chip in ["BASES LOADED", "TYING RUN 3RD", "GO-AHEAD 3RD", "10 MEN"] {
+            // spec v3.3 §7
+            let c = RowCtx {
+                chip: Some(chip),
+                ..ctx()
+            };
             let term = render(120, 3, &game, &c, draw_tier1);
             let text = text_of(term.backend().buffer());
             assert!(text.contains(chip), "{chip} must not be clipped\n{text}");
@@ -918,7 +1455,10 @@ mod tests {
         // its score just because the rows under it were cut.
         let term = render(120, 1, &game, &ctx(), draw_tier1);
         let text = text_of(term.backend().buffer());
-        assert!(text.contains("17"), "a one-row tier 1 still prints its score\n{text}");
+        assert!(
+            text.contains("17"),
+            "a one-row tier 1 still prints its score\n{text}"
+        );
     }
 
     #[test]
@@ -941,13 +1481,34 @@ mod tests {
                 "{needle} shares tier 2's column\n{text1}\n---\n{text2}"
             );
         }
-        assert_eq!(col_of(b1, 0, "13"), Some(AWAY_SCORE_X + SCORE_W - 2), "away numeral\n{text1}");
-        assert_eq!(col_of(b1, 0, "10"), Some(HOME_SCORE_X + SCORE_W - 2), "home numeral\n{text1}");
+        assert_eq!(
+            col_of(b1, 0, "13"),
+            Some(AWAY_SCORE_X + SCORE_W - 2),
+            "away numeral\n{text1}"
+        );
+        assert_eq!(
+            col_of(b1, 0, "10"),
+            Some(HOME_SCORE_X + SCORE_W - 2),
+            "home numeral\n{text1}"
+        );
         // Amber and bold, the score's one color, on both numerals.
-        for x in [AWAY_SCORE_X + 1, AWAY_SCORE_X + 2, HOME_SCORE_X + 1, HOME_SCORE_X + 2] {
+        for x in [
+            AWAY_SCORE_X + 1,
+            AWAY_SCORE_X + 2,
+            HOME_SCORE_X + 1,
+            HOME_SCORE_X + 2,
+        ] {
             let c = &b1[(x, 0)];
-            assert_eq!(c.fg, r.digits, "numeral cell {x} is amber ({:?})\n{text1}", c.symbol());
-            assert!(c.modifier.contains(Modifier::BOLD), "numeral cell {x} is bold\n{text1}");
+            assert_eq!(
+                c.fg,
+                r.digits,
+                "numeral cell {x} is amber ({:?})\n{text1}",
+                c.symbol()
+            );
+            assert!(
+                c.modifier.contains(Modifier::BOLD),
+                "numeral cell {x} is bold\n{text1}"
+            );
         }
     }
 
@@ -964,14 +1525,32 @@ mod tests {
         let (b1, b2) = (t1.backend().buffer(), t2.backend().buffer());
         let (text1, text2) = (text_of(b1), text_of(b2));
         let clock = state_text(&game, ctx().now);
-        assert!(!clock.is_empty(), "the fixture must have a clock to compare");
+        assert!(
+            !clock.is_empty(),
+            "the fixture must have a clock to compare"
+        );
         let (c1, c2) = (col_of(b1, 0, &clock), col_of(b2, 0, &clock));
-        assert_eq!(c1, Some(CLOCK_X), "tier 1 clocks at the shared column\n{text1}");
-        assert_eq!(c1, c2, "tier 1 and tier 2 clock in the same column\n{text1}\n---\n{text2}");
+        assert_eq!(
+            c1,
+            Some(CLOCK_X),
+            "tier 1 clocks at the shared column\n{text1}"
+        );
+        assert_eq!(
+            c1, c2,
+            "tier 1 and tier 2 clock in the same column\n{text1}\n---\n{text2}"
+        );
         // Cell for cell, not just "same x": the clock's first cell is the
         // same symbol in the same ink on both tiers.
-        assert_eq!(b1[(CLOCK_X, 0)].symbol(), b2[(CLOCK_X, 0)].symbol(), "same clock cell\n{text1}");
-        assert_eq!(b1[(CLOCK_X, 0)].fg, b2[(CLOCK_X, 0)].fg, "same clock ink\n{text1}");
+        assert_eq!(
+            b1[(CLOCK_X, 0)].symbol(),
+            b2[(CLOCK_X, 0)].symbol(),
+            "same clock cell\n{text1}"
+        );
+        assert_eq!(
+            b1[(CLOCK_X, 0)].fg,
+            b2[(CLOCK_X, 0)].fg,
+            "same clock ink\n{text1}"
+        );
         // The prose column follows the clock: tier 1's fragment starts where
         // tier 2's does.
         assert_eq!(
@@ -996,9 +1575,17 @@ mod tests {
         // so only its position — not its glyph or color — is compared here.
         let b3 = t3.backend().buffer();
         assert_eq!(b1[(0, 0)].symbol(), "▌", "tier1 mark at (0,0)");
-        assert_eq!(b1[(0, 0)].fg, theme::current().roles().hot, "tier1 mark is hot");
+        assert_eq!(
+            b1[(0, 0)].fg,
+            theme::current().roles().hot,
+            "tier1 mark is hot"
+        );
         assert_eq!(b2[(0, 0)].symbol(), "▌", "tier2 mark at (0,0)");
-        assert_eq!(b2[(0, 0)].fg, theme::current().roles().hot, "tier2 mark is hot");
+        assert_eq!(
+            b2[(0, 0)].fg,
+            theme::current().roles().hot,
+            "tier2 mark is hot"
+        );
         assert_eq!(b3[(0, 0)].symbol(), "·", "tier3 mark at (0,0)");
     }
 
@@ -1013,12 +1600,22 @@ mod tests {
         let b = render(120, 1, &long, &ctx(), draw_tier2);
         let (ba, bb) = (a.backend().buffer(), b.backend().buffer());
         let score_x = |buf: &Buffer| -> u16 {
-            (0..buf.area().width).find(|&x| buf[(x, 0)].fg == r.digits).unwrap()
+            (0..buf.area().width)
+                .find(|&x| buf[(x, 0)].fg == r.digits)
+                .unwrap()
         };
-        assert_eq!(score_x(ba), score_x(bb), "the score column doesn't move with abbr length");
+        assert_eq!(
+            score_x(ba),
+            score_x(bb),
+            "the score column doesn't move with abbr length"
+        );
         // KC's cell pads right with a space, one past the "KC" glyphs.
         let kc_end = col_of(ba, 0, "KC").unwrap() + 2;
-        assert_eq!(ba[(kc_end, 0)].symbol(), " ", "KC's cell pads right with a space");
+        assert_eq!(
+            ba[(kc_end, 0)].symbol(),
+            " ",
+            "KC's cell pads right with a space"
+        );
     }
 
     fn tier2_game_with(away: &str, home: &str) -> Game {

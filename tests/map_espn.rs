@@ -108,7 +108,12 @@ fn maps_live_mlb_inning_count_and_diamond() {
     assert_eq!(sit.outs, Some(2));
     assert_eq!(sit.on_base, Some([true, false, true]));
     assert_eq!(sit.down_distance, "2 OUT · 4-2");
-    assert_eq!(g.meter, Some(Meter::Diamond { occupied: [true, false, true] }));
+    assert_eq!(
+        g.meter,
+        Some(Meter::Diamond {
+            occupied: [true, false, true]
+        })
+    );
     // Play attributed to the team on the payload (id 27 = COL), not possession.
     assert_eq!(g.last_plays[0].team, "COL");
     assert_eq!(g.home.record, "80-55");
@@ -205,7 +210,11 @@ fn maps_soccer_summary_key_events_with_header_team_abbrs() {
     let s = map_summary(League::Epl, json).unwrap();
     assert!(!s.last_plays.is_empty(), "keyEvents must map to plays");
     // Newest first: the last keyEvent (End Regular Time) leads.
-    assert!(s.last_plays[0].text.starts_with("Second Half ends"), "{:?}", s.last_plays[0]);
+    assert!(
+        s.last_plays[0].text.starts_with("Second Half ends"),
+        "{:?}",
+        s.last_plays[0]
+    );
     // Goals are flagged scoring and credited via the header id->abbr map.
     let goal = s
         .last_plays
@@ -213,7 +222,11 @@ fn maps_soccer_summary_key_events_with_header_team_abbrs() {
         .find(|p| p.scoring)
         .expect("a goal within the last 8 events");
     assert_eq!(goal.team, "LIV");
-    assert!(goal.clock.ends_with('\''), "match minute clock: {:?}", goal.clock);
+    assert!(
+        goal.clock.ends_with('\''),
+        "match minute clock: {:?}",
+        goal.clock
+    );
     // Empty-text markers (Start Delay) are dropped, not mapped as blanks.
     assert!(s.last_plays.iter().all(|p| !p.text.is_empty()));
     // scoringPlays absent => derived from keyEvents, newest goal first.
@@ -240,7 +253,9 @@ fn nfl_summary_plays_carry_kinds() {
         "expected a FieldGoal among scoring plays"
     );
     assert!(
-        s.last_plays.iter().any(|p| !p.scoring && p.kind == PlayKind::Other),
+        s.last_plays
+            .iter()
+            .any(|p| !p.scoring && p.kind == PlayKind::Other),
         "a non-scoring play stays Other"
     );
 }
@@ -280,7 +295,9 @@ fn nhl_goals_and_penalties_are_kinds() {
         "expected a 505 Goal play"
     );
     assert!(
-        s.last_plays.iter().any(|p| p.kind == PlayKind::HockeyPenalty),
+        s.last_plays
+            .iter()
+            .any(|p| p.kind == PlayKind::HockeyPenalty),
         "expected a play carrying type.penaltyMinutes"
     );
 }
@@ -292,7 +309,9 @@ fn cbb_uses_its_own_table() {
     let json = include_str!("../fixtures/cbb_summary_full.json");
     let s = map_summary(League::Cbb, json).unwrap();
     assert!(
-        s.last_plays.iter().any(|p| p.kind == PlayKind::ThreePointer),
+        s.last_plays
+            .iter()
+            .any(|p| p.kind == PlayKind::ThreePointer),
         "expected a made three (558/scoringPlay/scoreValue 3) to map ThreePointer"
     );
     // v3.4 T3 review: fixtures/cbb_summary_full.json carries 7 missed
@@ -334,9 +353,21 @@ fn maps_basketball_summary_flat_plays_array() {
     // Newest first.
     assert_eq!(s.last_plays[0].text, "End of Game");
     // Team ids resolve to abbrs through the header (9 = NY, 19 = CHI).
-    assert!(s.last_plays.iter().any(|p| p.team == "NY"), "{:?}", s.last_plays);
-    assert!(s.last_plays.iter().any(|p| p.team == "CHI"), "{:?}", s.last_plays);
-    let bucket = s.last_plays.iter().find(|p| p.scoring).expect("a made shot");
+    assert!(
+        s.last_plays.iter().any(|p| p.team == "NY"),
+        "{:?}",
+        s.last_plays
+    );
+    assert!(
+        s.last_plays.iter().any(|p| p.team == "CHI"),
+        "{:?}",
+        s.last_plays
+    );
+    let bucket = s
+        .last_plays
+        .iter()
+        .find(|p| p.scoring)
+        .expect("a made shot");
     assert_eq!(bucket.team, "NY");
     assert!(bucket.text.contains("makes free throw"));
 }
@@ -356,7 +387,10 @@ fn maps_nfl_boxscore_stats_and_leaders() {
     assert_eq!(ty.away, "251", "SEA is the away team");
     assert_eq!(ty.home, "277", "TEN is the home team");
     // Every row carries both sides — no half-mapped rows.
-    assert!(s.rows.iter().all(|r| !r.away.is_empty() && !r.home.is_empty()));
+    assert!(s
+        .rows
+        .iter()
+        .all(|r| !r.away.is_empty() && !r.home.is_empty()));
     let lock = s
         .leaders
         .iter()
@@ -385,7 +419,12 @@ fn maps_nfl_standings_conferences_and_rows() {
     assert_eq!(t.groups[0].name, "American Football Conference");
     assert_eq!(t.groups[1].name, "National Football Conference");
     for g in &t.groups {
-        assert!(g.rows.len() >= 4, "group {:?} rows={}", g.name, g.rows.len());
+        assert!(
+            g.rows.len() >= 4,
+            "group {:?} rows={}",
+            g.name,
+            g.rows.len()
+        );
     }
     let buf = t.groups[0]
         .rows
@@ -425,7 +464,12 @@ fn maps_dated_scoreboard_odds() {
     assert_eq!(det.odds.as_deref(), Some("DET -7  O/U 49.5"));
     // The live scoreboard fixture carries no odds objects: mapped as None,
     // never an empty string.
-    let live = map_scoreboard(League::Nfl, include_str!("../fixtures/nfl_scoreboard.json"), et()).unwrap();
+    let live = map_scoreboard(
+        League::Nfl,
+        include_str!("../fixtures/nfl_scoreboard.json"),
+        et(),
+    )
+    .unwrap();
     assert!(!live.is_empty());
     assert!(live.iter().all(|g| g.odds.is_none()));
 }
@@ -460,9 +504,12 @@ fn all_events_unmappable_is_an_error_not_an_empty_board() {
 
 #[test]
 fn start_is_local_and_never_a_raw_string() {
-    let games =
-        map_scoreboard(League::Wnba, include_str!("../fixtures/wnba_scoreboard.json"), et())
-            .unwrap();
+    let games = map_scoreboard(
+        League::Wnba,
+        include_str!("../fixtures/wnba_scoreboard.json"),
+        et(),
+    )
+    .unwrap();
     let pre = games
         .iter()
         .find(|g| g.status == Status::Pre)
@@ -473,10 +520,18 @@ fn start_is_local_and_never_a_raw_string() {
 
 #[test]
 fn mlb_maps_linescore_hits_errors_matchup_and_play_period() {
-    let games =
-        map_scoreboard(League::Mlb, include_str!("../fixtures/mlb_scoreboard.json"), et()).unwrap();
+    let games = map_scoreboard(
+        League::Mlb,
+        include_str!("../fixtures/mlb_scoreboard.json"),
+        et(),
+    )
+    .unwrap();
     let g = games.iter().find(|g| g.id == "401816718").unwrap();
-    assert!(g.linescore.len() >= 7, "per-inning linescore, got {:?}", g.linescore);
+    assert!(
+        g.linescore.len() >= 7,
+        "per-inning linescore, got {:?}",
+        g.linescore
+    );
     match &g.extras {
         gameday::domain::Extras::Baseball { hits, errors } => {
             assert!(
@@ -501,8 +556,12 @@ fn mlb_maps_linescore_hits_errors_matchup_and_play_period() {
 
 #[test]
 fn soccer_details_become_match_events() {
-    let games =
-        map_scoreboard(League::Epl, include_str!("../fixtures/epl_scoreboard.json"), et()).unwrap();
+    let games = map_scoreboard(
+        League::Epl,
+        include_str!("../fixtures/epl_scoreboard.json"),
+        et(),
+    )
+    .unwrap();
     let g = games.iter().find(|g| g.id == "401879314").unwrap();
     let gameday::domain::Extras::Soccer { events, .. } = &g.extras else {
         panic!("soccer extras")
@@ -516,7 +575,11 @@ fn soccer_details_become_match_events() {
     assert!(!goal.player.is_empty());
     // Every event names the athlete ESPN credited (spec v3.4 §5) — the id is
     // what makes a second yellow countable.
-    assert_eq!(goal.athlete_id.as_deref().map(str::is_empty), Some(false), "{goal:?}");
+    assert_eq!(
+        goal.athlete_id.as_deref().map(str::is_empty),
+        Some(false),
+        "{goal:?}"
+    );
 }
 
 /// Spec v3.4 §5: the men-on-field count is derivable from the scoreboard
@@ -556,14 +619,22 @@ fn a_red_card_yields_ten_men_from_the_scoreboard_alone() {
 /// `None`, not a panic or an empty string.
 #[test]
 fn finals_headline_from_short_link_text() {
-    let games = map_scoreboard(League::Nfl, include_str!("../fixtures/nfl_scoreboard_full.json"), et()).unwrap();
+    let games = map_scoreboard(
+        League::Nfl,
+        include_str!("../fixtures/nfl_scoreboard_full.json"),
+        et(),
+    )
+    .unwrap();
     let carroll = games.iter().find(|g| g.id == "401772964").unwrap();
     assert_eq!(
         carroll.headline.as_deref(),
         Some("Garrett sets sacks record and Szmyt's field goal on last play gives Browns 20-18 win over Bengals")
     );
     let headless = games.iter().find(|g| g.id == "401772966").unwrap();
-    assert_eq!(headless.headline, None, "no headlines object on this event, not an empty string");
+    assert_eq!(
+        headless.headline, None,
+        "no headlines object on this event, not an empty string"
+    );
 }
 
 /// The defensive half of the rule (spec v3.4 §5): ESPN's second-yellow
@@ -605,12 +676,28 @@ fn two_yellows_on_one_athlete_count_as_a_red() {
     };
 
     // Two yellows, one athlete, no explicit red: ten men.
-    let two = format!("{},{}", yellow("10", "301524", "22'"), yellow("10", "301524", "58'"));
-    assert_eq!(men_of(slate(&two)), Some((10, 11)), "a second yellow is a red");
+    let two = format!(
+        "{},{}",
+        yellow("10", "301524", "22'"),
+        yellow("10", "301524", "58'")
+    );
+    assert_eq!(
+        men_of(slate(&two)),
+        Some((10, 11)),
+        "a second yellow is a red"
+    );
 
     // Two yellows on DIFFERENT athletes are two bookings, not a sending-off.
-    let split = format!("{},{}", yellow("10", "301524", "22'"), yellow("10", "162843", "58'"));
-    assert_eq!(men_of(slate(&split)), None, "two players, two yellows, eleven men");
+    let split = format!(
+        "{},{}",
+        yellow("10", "301524", "22'"),
+        yellow("10", "162843", "58'")
+    );
+    assert_eq!(
+        men_of(slate(&split)),
+        None,
+        "two players, two yellows, eleven men"
+    );
 
     // Both spellings for the same sending-off — a 93 AND the second 94 —
     // must not count the player twice.
@@ -620,10 +707,18 @@ fn two_yellows_on_one_athlete_count_as_a_red() {
         yellow("10", "301524", "58'"),
         red("10", "301524", "58'")
     );
-    assert_eq!(men_of(slate(&both)), Some((10, 11)), "one athlete, one sending-off");
+    assert_eq!(
+        men_of(slate(&both)),
+        Some((10, 11)),
+        "one athlete, one sending-off"
+    );
 
     // Both sides down to ten.
-    let each = format!("{},{}", red("10", "301524", "58'"), red("20", "999999", "61'"));
+    let each = format!(
+        "{},{}",
+        red("10", "301524", "58'"),
+        red("20", "999999", "61'")
+    );
     assert_eq!(men_of(slate(&each)), Some((10, 10)));
 }
 
@@ -650,7 +745,11 @@ use gameday::provider::map::map_stats;
 
 #[test]
 fn mlb_summary_keeps_only_at_bat_results_and_scoring_and_tags_the_inning() {
-    let s = map_summary(League::Mlb, include_str!("../fixtures/mlb_summary_min.json")).unwrap();
+    let s = map_summary(
+        League::Mlb,
+        include_str!("../fixtures/mlb_summary_min.json"),
+    )
+    .unwrap();
     let texts: Vec<&str> = s.last_plays.iter().map(|p| p.text.as_str()).collect();
     assert_eq!(
         texts,
@@ -681,7 +780,11 @@ fn the_home_run_kind_rides_the_narrative_play() {
         .iter()
         .find(|p| p.text == "Crow-Armstrong homered to center (413 feet), Kelly scored.")
         .expect("the narrative row for the home-run at-bat is still mapped");
-    assert_eq!(homer.kind, PlayKind::HomeRun, "the pitch row's kind (28) rides the narrative row");
+    assert_eq!(
+        homer.kind,
+        PlayKind::HomeRun,
+        "the pitch row's kind (28) rides the narrative row"
+    );
     // P rows (227 of them) stay filtered out; the mapped play count is
     // unchanged from today's mapping — pinned via jq over the fixture: rows
     // with non-empty text whose summaryType isn't P/I/A/C.
@@ -702,9 +805,20 @@ fn a_scoring_non_homer_is_run_scoring_play() {
         {"summaryType":"S","atBatId":"1","type":{"id":"57"},"scoreValue":1,"scoringPlay":true,"text":"Devers sacrifice fly to center, Duran scores.","team":{"id":"1"},"period":{"type":"Bottom","number":3}}
       ]}"#;
     let s = map_summary(League::Mlb, json).unwrap();
-    assert_eq!(s.last_plays.len(), 1, "the sac-fly pitch row is filtered, the narrative row stays");
-    assert_eq!(s.last_plays[0].text, "Devers sacrifice fly to center, Duran scores.");
-    assert_eq!(s.last_plays[0].kind, PlayKind::RunScoringPlay, "score_value > 0, joined pitch id isn't 28");
+    assert_eq!(
+        s.last_plays.len(),
+        1,
+        "the sac-fly pitch row is filtered, the narrative row stays"
+    );
+    assert_eq!(
+        s.last_plays[0].text,
+        "Devers sacrifice fly to center, Duran scores."
+    );
+    assert_eq!(
+        s.last_plays[0].kind,
+        PlayKind::RunScoringPlay,
+        "score_value > 0, joined pitch id isn't 28"
+    );
 }
 
 #[test]
@@ -720,7 +834,11 @@ fn mlb_narrative_play_with_no_joined_pitch_row_stays_other() {
     let s = map_summary(League::Mlb, json).unwrap();
     assert_eq!(s.last_plays.len(), 1);
     assert_eq!(s.last_plays[0].text, "Devers grounds out to short.");
-    assert_eq!(s.last_plays[0].kind, PlayKind::Other, "join miss must fall back to Other, not panic");
+    assert_eq!(
+        s.last_plays[0].kind,
+        PlayKind::Other,
+        "join miss must fall back to Other, not panic"
+    );
 }
 
 #[test]
@@ -853,10 +971,18 @@ fn cfb_divisions_become_their_own_groups_and_an_absent_zero_stat_is_zero() {
     let names: Vec<&str> = t.groups.iter().map(|g| g.name.as_str()).collect();
     assert_eq!(
         names,
-        ["Big Ten Conference", "Sun Belt Conference · Sun Belt - East", "Sun Belt Conference · Sun Belt - West"]
+        [
+            "Big Ten Conference",
+            "Sun Belt Conference · Sun Belt - East",
+            "Sun Belt Conference · Sun Belt - West"
+        ]
     );
     let osu = &t.groups[0].rows[0];
-    assert_eq!((osu.abbr.as_str(), osu.wins, osu.losses), ("OSU", 1, 0), "1-0 sorts first");
+    assert_eq!(
+        (osu.abbr.as_str(), osu.wins, osu.losses),
+        ("OSU", 1, 0),
+        "1-0 sorts first"
+    );
     let mich = &t.groups[0].rows[1];
     assert_eq!((mich.abbr.as_str(), mich.wins, mich.losses), ("MICH", 0, 1));
     assert_eq!(osu.third, None, "no ties stat, no ties column");
@@ -874,9 +1000,21 @@ fn an_entry_with_neither_wins_nor_losses_is_dropped_not_read_as_0_0() {
     let t = map_standings(League::Cfb, json).unwrap();
     let rows = &t.groups[0].rows;
     let abbrs: Vec<&str> = rows.iter().map(|r| r.abbr.as_str()).collect();
-    assert_eq!(abbrs, ["OSU", "PUR"], "an entry with no W and no L is not a row");
-    assert_eq!((rows[0].wins, rows[0].losses), (3, 0), "wins only maps as W-0");
-    assert_eq!((rows[1].wins, rows[1].losses), (0, 2), "losses only maps as 0-L");
+    assert_eq!(
+        abbrs,
+        ["OSU", "PUR"],
+        "an entry with no W and no L is not a row"
+    );
+    assert_eq!(
+        (rows[0].wins, rows[0].losses),
+        (3, 0),
+        "wins only maps as W-0"
+    );
+    assert_eq!(
+        (rows[1].wins, rows[1].losses),
+        (0, 2),
+        "losses only maps as 0-L"
+    );
 }
 
 /// The truth test: real, untrimmed scoreboards and summaries from all nine
@@ -955,7 +1093,12 @@ fn every_league_maps_its_full_scoreboard_and_summary_with_no_skips() {
             league.slug()
         );
         for g in &games {
-            assert!(g.start.is_some(), "{}: {} has no start", league.slug(), g.id);
+            assert!(
+                g.start.is_some(),
+                "{}: {} has no start",
+                league.slug(),
+                g.id
+            );
             if g.status != Status::Pre {
                 assert!(
                     !g.linescore.is_empty() || matches!(league, League::Epl | League::Mls),
@@ -1002,8 +1145,11 @@ fn live_fixtures_carry_live_state() {
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_str().unwrap().to_string();
-        let Some(slug) = name.strip_suffix("_scoreboard_live.json") else { continue };
-        let league = League::from_slug(slug).unwrap_or_else(|| panic!("unknown league slug in fixture name: {slug}"));
+        let Some(slug) = name.strip_suffix("_scoreboard_live.json") else {
+            continue;
+        };
+        let league = League::from_slug(slug)
+            .unwrap_or_else(|| panic!("unknown league slug in fixture name: {slug}"));
         let json = std::fs::read_to_string(&path).unwrap();
         let raw: serde_json::Value = serde_json::from_str(&json).unwrap();
         let events = raw["events"].as_array().unwrap();
@@ -1017,35 +1163,66 @@ fn live_fixtures_carry_live_state() {
             .unwrap_or_else(|| panic!("{name}: no live event with a situation object"));
 
         let games = map_scoreboard(league, &json, et()).unwrap();
-        let g = games.iter().find(|g| g.id == live_id).unwrap_or_else(|| panic!("{name}: live event {live_id} did not map"));
-        assert_eq!(g.status, Status::Live, "{name}: {live_id} should map to Status::Live");
-        let sit = g.situation.as_ref().unwrap_or_else(|| panic!("{name}: {live_id} mapped with no situation at all"));
+        let g = games
+            .iter()
+            .find(|g| g.id == live_id)
+            .unwrap_or_else(|| panic!("{name}: live event {live_id} did not map"));
+        assert_eq!(
+            g.status,
+            Status::Live,
+            "{name}: {live_id} should map to Status::Live"
+        );
+        let sit = g
+            .situation
+            .as_ref()
+            .unwrap_or_else(|| panic!("{name}: {live_id} mapped with no situation at all"));
 
         match league {
             League::Cfb | League::Nfl => {
-                assert!(!sit.down_distance.is_empty(), "{name}: {live_id} down/distance empty");
-                assert!(sit.possession.is_some(), "{name}: {live_id} possession missing");
+                assert!(
+                    !sit.down_distance.is_empty(),
+                    "{name}: {live_id} down/distance empty"
+                );
+                assert!(
+                    sit.possession.is_some(),
+                    "{name}: {live_id} possession missing"
+                );
                 // spec v3.4 §3: the structured fields, not the strings.
                 assert!(sit.down.is_some(), "{name}: {live_id} down missing");
                 assert!(sit.distance.is_some(), "{name}: {live_id} distance missing");
-                assert!(sit.yard_line.is_some(), "{name}: {live_id} yardLine missing");
-                assert!(sit.is_red_zone.is_some(), "{name}: {live_id} isRedZone missing");
+                assert!(
+                    sit.yard_line.is_some(),
+                    "{name}: {live_id} yardLine missing"
+                );
+                assert!(
+                    sit.is_red_zone.is_some(),
+                    "{name}: {live_id} isRedZone missing"
+                );
             }
             League::Mlb => {
                 assert!(
                     sit.balls.is_some() || sit.strikes.is_some() || sit.outs.is_some(),
                     "{name}: {live_id} carries no count fields"
                 );
-                assert!(sit.on_base.is_some(), "{name}: {live_id} carries no base state");
+                assert!(
+                    sit.on_base.is_some(),
+                    "{name}: {live_id} carries no base state"
+                );
             }
             League::Epl | League::Mls => {
                 let gameday::domain::Extras::Soccer { events, .. } = &g.extras else {
                     panic!("{name}: {live_id} soccer game without Soccer extras");
                 };
-                assert!(!events.is_empty(), "{name}: {live_id} carries no match events");
+                assert!(
+                    !events.is_empty(),
+                    "{name}: {live_id} carries no match events"
+                );
             }
             _ => {
-                assert!(!sit.down_distance.is_empty(), "{name}: {live_id} situation summary empty");
+                assert!(
+                    !sit.down_distance.is_empty(),
+                    "{name}: {live_id} situation summary empty"
+                );
             }
         }
         checked += 1;
@@ -1062,7 +1239,11 @@ fn the_mlb_live_summary_is_untruncated() {
     let json = include_str!("../fixtures/live/mlb_summary_live_full.json");
     let raw: serde_json::Value = serde_json::from_str(json).unwrap();
     let plays = raw["plays"].as_array().unwrap();
-    assert!(plays.len() > 100, "expected > 100 plays, fixture has {}", plays.len());
+    assert!(
+        plays.len() > 100,
+        "expected > 100 plays, fixture has {}",
+        plays.len()
+    );
     assert!(
         plays.iter().any(|p| p["summaryType"].as_str() == Some("P")),
         "expected at least one pitch (summaryType == \"P\") row"
@@ -1193,7 +1374,13 @@ fn nhl_strength_is_structural_and_current() {
     // the game-level strength is Even — the most recent play's, not a
     // scan-for-the-interesting-one.
     assert!(
-        matches!(s.extras, Extras::Hockey { strength: HockeyStrength::Even, .. }),
+        matches!(
+            s.extras,
+            Extras::Hockey {
+                strength: HockeyStrength::Even,
+                ..
+            }
+        ),
         "expected an even-strength Extras::Hockey, got {:?}",
         s.extras
     );
@@ -1208,7 +1395,13 @@ fn nhl_strength_is_structural_and_current() {
     v["plays"] = serde_json::Value::Array(plays[..=last_pp].to_vec());
     let s = map_summary(League::Nhl, &v.to_string()).unwrap();
     assert!(
-        matches!(s.extras, Extras::Hockey { strength: HockeyStrength::PowerPlay, .. }),
+        matches!(
+            s.extras,
+            Extras::Hockey {
+                strength: HockeyStrength::PowerPlay,
+                ..
+            }
+        ),
         "a 702 tail is a power play: {:?}",
         s.extras
     );
@@ -1218,7 +1411,10 @@ fn nhl_strength_is_structural_and_current() {
     // minutes), and `seconds` is the nominal length, not time remaining.
     assert_eq!(
         s.extras.penalty_meter(),
-        Some(Meter::Penalty { team_abbr: "WSH".into(), seconds: 120 }),
+        Some(Meter::Penalty {
+            team_abbr: "WSH".into(),
+            seconds: 120
+        }),
         "the special-teams tail builds the penalty meter"
     );
     // R49: derived on demand, never stored on the shared game — the board
@@ -1257,7 +1453,10 @@ fn penalties_carry_their_metadata() {
             clock: "10:48".into(),
         }
     );
-    assert_eq!(penalties[2].period, 2, "the newest penalty is the 2nd-period one");
+    assert_eq!(
+        penalties[2].period, 2,
+        "the newest penalty is the 2nd-period one"
+    );
     assert_eq!(penalties[2].clock, "15:37");
 }
 

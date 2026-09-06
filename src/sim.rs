@@ -147,7 +147,12 @@ fn step_nfl(g: &mut Game, t: u64) {
     g.clock = fmt_clock(NFL_CLOCK0.saturating_sub(t));
     match t {
         8 => {
-            push_play(g, "KC", "Mahomes pass to Rice incomplete (2nd & Goal)", false);
+            push_play(
+                g,
+                "KC",
+                "Mahomes pass to Rice incomplete (2nd & Goal)",
+                false,
+            );
             if let Some(sit) = &mut g.situation {
                 sit.down_distance = "2nd & Goal".into();
             }
@@ -245,7 +250,12 @@ fn step_mlb(g: &mut Game, t: u64) {
             }
         }
         MLB_INNING_TICK => {
-            push_play(g, "TOR", "Alejandro Kirk grounds out to short — inning over", false);
+            push_play(
+                g,
+                "TOR",
+                "Alejandro Kirk grounds out to short — inning over",
+                false,
+            );
             g.period = "TOP 8TH".into();
             g.situation = Some(Situation {
                 balls: Some(0),
@@ -255,7 +265,9 @@ fn step_mlb(g: &mut Game, t: u64) {
                 down_distance: "0 OUT · 0-0".into(),
                 ..Default::default()
             });
-            g.meter = Some(Meter::Diamond { occupied: [false; 3] });
+            g.meter = Some(Meter::Diamond {
+                occupied: [false; 3],
+            });
         }
         38 => {
             push_play(g, "NYY", "Anthony Volpe singles to center", false);
@@ -263,7 +275,9 @@ fn step_mlb(g: &mut Game, t: u64) {
                 sit.on_base = Some([true, false, false]);
                 sit.batter = Some("J. Chisholm Jr.".into());
             }
-            g.meter = Some(Meter::Diamond { occupied: [true, false, false] });
+            g.meter = Some(Meter::Diamond {
+                occupied: [true, false, false],
+            });
         }
         39 => {
             push_play(g, "NYY", "Jazz Chisholm Jr. doubles, Volpe to third", false);
@@ -271,14 +285,21 @@ fn step_mlb(g: &mut Game, t: u64) {
                 sit.on_base = Some([false, true, true]);
                 sit.batter = Some("A. Judge".into());
             }
-            g.meter = Some(Meter::Diamond { occupied: [false, true, true] });
+            g.meter = Some(Meter::Diamond {
+                occupied: [false, true, true],
+            });
         }
         // The scripted re-sort (the `nudge-seq` captures). Loading the bases
         // is worth +30 in `rank::watchability` and flips the game hot, which
         // is what moves the rank fingerprint and makes `OrderState` re-sort:
         // NYY@TOR climbs two places and the rows under it show `↑2`.
         NUDGE_TICK => {
-            push_play(g, "NYY", "Aaron Judge walks on four pitches — bases loaded", false);
+            push_play(
+                g,
+                "NYY",
+                "Aaron Judge walks on four pitches — bases loaded",
+                false,
+            );
             if let Some(sit) = &mut g.situation {
                 sit.on_base = Some([true, true, true]);
                 sit.balls = Some(0);
@@ -288,7 +309,9 @@ fn step_mlb(g: &mut Game, t: u64) {
                     sit.down_distance = h;
                 }
             }
-            g.meter = Some(Meter::Diamond { occupied: [true, true, true] });
+            g.meter = Some(Meter::Diamond {
+                occupied: [true, true, true],
+            });
         }
         _ => {}
     }
@@ -303,7 +326,12 @@ fn step_nhl(g: &mut Game, t: u64) {
             *seconds -= 1;
         } else {
             g.meter = None;
-            push_play(g, "DAL", "Penalty expires — Stars back to full strength", false);
+            push_play(
+                g,
+                "DAL",
+                "Penalty expires — Stars back to full strength",
+                false,
+            );
         }
     }
     match t {
@@ -322,7 +350,12 @@ fn step_epl(g: &mut Game, t: u64) {
     g.period = format!("{}'", 78 + t / 30);
     if t == 55 {
         g.home_score += 1; // 2 -> 3
-        push_play(g, "LIV", "Dominik Szoboszlai smashes one in off the bar  [3-1]", true);
+        push_play(
+            g,
+            "LIV",
+            "Dominik Szoboszlai smashes one in off the bar  [3-1]",
+            true,
+        );
     }
 }
 
@@ -410,7 +443,10 @@ mod tests {
         let nhl = game(&boards, League::Nhl, "nhl-live");
         assert_eq!(
             nhl.meter,
-            Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 1 })
+            Some(Meter::Penalty {
+                team_abbr: "DAL".into(),
+                seconds: 1
+            })
         );
     }
 
@@ -432,7 +468,12 @@ mod tests {
         let mlb = game(&after, League::Mlb, "mlb-live");
         let sit = mlb.situation.as_ref().expect("situation");
         assert_eq!(sit.on_base, Some([true; 3]));
-        assert_eq!(mlb.meter, Some(Meter::Diamond { occupied: [true; 3] }));
+        assert_eq!(
+            mlb.meter,
+            Some(Meter::Diamond {
+                occupied: [true; 3]
+            })
+        );
         let a = watch(&after, League::Mlb, "mlb-live");
         assert_eq!(a.chip, Some("BASES LOADED"));
         assert!(a.hot, "the fingerprint's hot flag must flip: {a:?}");
@@ -456,7 +497,10 @@ mod tests {
             .iter()
             .filter(|(l, id)| watch(&before, *l, id).score > b.score)
             .count();
-        assert_eq!(above_before, 2, "mlb must be third the tick before, so the climb is ↑2");
+        assert_eq!(
+            above_before, 2,
+            "mlb must be third the tick before, so the climb is ↑2"
+        );
     }
 
     /// v3.1 deferred item: a sport with no play clock stamps its plays with
@@ -467,12 +511,19 @@ mod tests {
         assert_eq!(period_tag("TOP 8TH"), "T8");
         assert_eq!(period_tag("MID 5TH"), "T5");
         assert_eq!(period_tag("END 8TH"), "B8");
-        assert_eq!(period_tag("79'"), "79'", "soccer's own label is already short");
+        assert_eq!(
+            period_tag("79'"),
+            "79'",
+            "soccer's own label is already short"
+        );
 
         let boards = Simulator::boards_at(MLB_INNING_TICK);
         let mlb = game(&boards, League::Mlb, "mlb-live");
         let p = &mlb.last_plays[0];
-        assert_eq!(p.period, "B7", "the out that ended the 7th is stamped B7: {p:?}");
+        assert_eq!(
+            p.period, "B7",
+            "the out that ended the 7th is stamped B7: {p:?}"
+        );
         assert!(p.clock.is_empty(), "and carries no game clock: {p:?}");
         // A sport WITH a clock is unchanged.
         let nfl = game(&boards, League::Nfl, "nfl-live");

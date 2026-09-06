@@ -17,8 +17,8 @@
 //! same command produce the same bytes.
 
 use crate::app::App;
-use crate::dump::{self, setup, Page};
 use crate::domain::Status;
+use crate::dump::{self, setup, Page};
 use crate::theme;
 use std::path::{Path, PathBuf};
 
@@ -167,7 +167,8 @@ impl Scenario {
                 // One league (the NFL board is the one with a game in every
                 // status) and one game per status: three rows, three
                 // sections — the board with nothing to rank.
-                app.boards.retain(|league, _| *league == crate::domain::League::Nfl);
+                app.boards
+                    .retain(|league, _| *league == crate::domain::League::Nfl);
                 for games in app.boards.values_mut() {
                     let mut kept: Vec<crate::domain::Game> = Vec::new();
                     for status in [Status::Live, Status::Final, Status::Pre] {
@@ -261,7 +262,11 @@ pub fn resolve_theme(spec: &str) -> Result<String, String> {
         .map_err(|e| format!("theme file {} could not be read: {e}", path.display()))?;
     let (name, th) = theme::parse_theme(&text)
         .map_err(|e| format!("theme file {} did not parse: {e}", path.display()))?;
-    theme::install(theme::Entry { name: name.clone(), theme: th, user: true });
+    theme::install(theme::Entry {
+        name: name.clone(),
+        theme: th,
+        user: true,
+    });
     Ok(name)
 }
 
@@ -295,13 +300,18 @@ pub fn run(spec: &Spec) -> std::io::Result<()> {
                 spec.scenario.name()
             ))
         })?;
-        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(
-            spec.cols, spec.rows,
-        ))?;
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(spec.cols, spec.rows))?;
         term.draw(|f| app.draw(f))?;
         Ok::<_, std::io::Error>(term.backend().buffer().clone())
     })?;
-    let page = Page { stem, cols: spec.cols, rows: spec.rows, theme: theme_name, buf };
+    let page = Page {
+        stem,
+        cols: spec.cols,
+        rows: spec.rows,
+        theme: theme_name,
+        buf,
+    };
     let pages = [page];
     dump::write_pages(&out_dir, &pages)?;
     let chrome = dump::screenshot_pages(&out_dir, &pages);
@@ -337,10 +347,8 @@ mod tests {
     }
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "gameday-frame-test-{}-{name}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("gameday-frame-test-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -372,7 +380,10 @@ mod tests {
             assert!(err.contains(name), "error must list {name}: {err}");
         }
         assert_eq!(FrameView::parse("board").unwrap(), FrameView::Board);
-        assert_eq!(FrameView::parse("theme-picker").unwrap(), FrameView::ThemePicker);
+        assert_eq!(
+            FrameView::parse("theme-picker").unwrap(),
+            FrameView::ThemePicker
+        );
     }
 
     #[test]
@@ -382,7 +393,10 @@ mod tests {
         for (name, _) in Scenario::ALL {
             assert!(err.contains(name), "error must list {name}: {err}");
         }
-        assert_eq!(Scenario::parse("nudge-resort").unwrap(), Scenario::NudgeResort);
+        assert_eq!(
+            Scenario::parse("nudge-resort").unwrap(),
+            Scenario::NudgeResort
+        );
     }
 
     #[test]
@@ -406,7 +420,10 @@ mod tests {
         for name in theme::BUILTIN_NAMES {
             assert!(err.contains(name), "error must list {name}: {err}");
         }
-        assert!(err.contains(".toml"), "the file escape hatch is named: {err}");
+        assert!(
+            err.contains(".toml"),
+            "the file escape hatch is named: {err}"
+        );
         assert_eq!(resolve_theme("studio").unwrap(), "studio");
         // A missing file names the path, not just "not found".
         let err = resolve_theme("themes/nope.toml").unwrap_err();
@@ -428,7 +445,10 @@ mod tests {
         s.theme = path.display().to_string();
         let name = resolve_theme(&s.theme).unwrap();
         assert_eq!(name, "gruvbox-warm");
-        assert!(!theme::BUILTIN_NAMES.contains(&"gruvbox-warm"), "still not a built-in");
+        assert!(
+            !theme::BUILTIN_NAMES.contains(&"gruvbox-warm"),
+            "still not a built-in"
+        );
         let buf = dump::with_theme(&name, || {
             let d = std::env::temp_dir().join(format!("gameday-frame-c-{}", std::process::id()));
             std::fs::create_dir_all(&d).unwrap();
@@ -457,15 +477,24 @@ mod tests {
         let thin = render(&spec("board", Scenario::ThinSlate, "x.png".into()));
         assert!(thin.contains("KC"), "the one live game survives:\n{thin}");
         // One league only: the NBA/NHL/MLB rows are gone.
-        assert!(!thin.contains("EDM") && !thin.contains("NYY"), "one league only:\n{thin}");
+        assert!(
+            !thin.contains("EDM") && !thin.contains("NYY"),
+            "one league only:\n{thin}"
+        );
 
         let finals = render(&spec("board", Scenario::FinalsOnly, "x.png".into()));
         assert!(finals.contains("FINAL"), "the FINAL section:\n{finals}");
         assert!(!finals.contains("IN PLAY"), "nothing is live:\n{finals}");
 
         let empty = render(&spec("board", Scenario::Empty, "x.png".into()));
-        assert!(!empty.contains("IN PLAY"), "no sections on an empty board:\n{empty}");
-        assert!(empty.contains("GAMEDAY"), "the chrome is still drawn:\n{empty}");
+        assert!(
+            !empty.contains("IN PLAY"),
+            "no sections on an empty board:\n{empty}"
+        );
+        assert!(
+            empty.contains("GAMEDAY"),
+            "the chrome is still drawn:\n{empty}"
+        );
 
         // The nudge scenario lands on the scripted re-sort: the cause is on
         // screen and the risen row wears its arrow.
@@ -520,7 +549,8 @@ mod tests {
             // Chrome is not required for the files this test judges.
             let theme_name = resolve_theme(&s.theme).unwrap();
             let buf = dump::with_theme(&theme_name, || {
-                let d = std::env::temp_dir().join(format!("gameday-frame-w-{}", std::process::id()));
+                let d =
+                    std::env::temp_dir().join(format!("gameday-frame-w-{}", std::process::id()));
                 std::fs::create_dir_all(&d).unwrap();
                 let mut app = dump::demo_app(d, 0);
                 s.scenario.apply(&mut app);

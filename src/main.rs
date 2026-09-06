@@ -148,10 +148,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
 }
 
 /// The value after a flag that requires one; the error names the flag.
-fn next_value<'a>(
-    it: &mut impl Iterator<Item = &'a String>,
-    flag: &str,
-) -> Result<String, String> {
+fn next_value<'a>(it: &mut impl Iterator<Item = &'a String>, flag: &str) -> Result<String, String> {
     it.next()
         .cloned()
         .ok_or_else(|| format!("{flag} expects a value"))
@@ -261,7 +258,12 @@ fn main() -> std::io::Result<()> {
         thread::spawn(move || sim_loop(tx));
         // The simulator ignores what the UI wants polled; the snapshot is
         // published and simply never read.
-        return run_ui(app, Some(rx), WantsShared::default(), RefreshFlag::default());
+        return run_ui(
+            app,
+            Some(rx),
+            WantsShared::default(),
+            RefreshFlag::default(),
+        );
     }
 
     if let Err(e) = require_tty() {
@@ -703,7 +705,9 @@ mod tests {
             );
             let _ = std::panic::catch_unwind(|| panic!("poll thread died"));
         });
-        other.join().expect("the spawned thread caught its own panic");
+        other
+            .join()
+            .expect("the spawned thread caught its own panic");
         assert_eq!(
             super::RESTORE_CALLS.load(Ordering::Relaxed),
             before,
@@ -731,10 +735,16 @@ mod tests {
         assert_eq!(parsed(&["gameday", "dump"]).tick, 0);
         assert_eq!(parsed(&["gameday", "dump", "--tick", "15"]).tick, 15);
         // Bad or missing value is a readable error, not a silent 0.
-        let owned: Vec<String> = ["gameday", "dump", "--tick", "abc"].iter().map(|s| s.to_string()).collect();
+        let owned: Vec<String> = ["gameday", "dump", "--tick", "abc"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let err = parse_args(&owned).unwrap_err();
         assert!(err.contains("abc"), "{err}");
-        let owned: Vec<String> = ["gameday", "dump", "--tick"].iter().map(|s| s.to_string()).collect();
+        let owned: Vec<String> = ["gameday", "dump", "--tick"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert!(parse_args(&owned).is_err());
     }
 
@@ -753,22 +763,56 @@ mod tests {
         assert!(parsed(&["gameday", "-h"]).help);
         assert!(parsed(&["gameday", "--version"]).version);
         assert!(parsed(&["gameday", "-V"]).version);
-        assert_eq!(parsed(&["gameday", "--config-dir", "/tmp/x"]).config_dir.as_deref(), Some(std::path::Path::new("/tmp/x")));
-        let owned: Vec<String> = ["gameday", "--nonsense"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            parsed(&["gameday", "--config-dir", "/tmp/x"])
+                .config_dir
+                .as_deref(),
+            Some(std::path::Path::new("/tmp/x"))
+        );
+        let owned: Vec<String> = ["gameday", "--nonsense"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let err = parse_args(&owned).unwrap_err();
-        assert!(err.contains("--nonsense") && err.contains("--demo") && err.contains("--help"), "{err}");
-        let owned: Vec<String> = ["gameday", "nonsense"].iter().map(|s| s.to_string()).collect();
-        assert!(parse_args(&owned).is_err(), "bare unknown words are errors too");
-        let owned: Vec<String> = ["gameday", "--config-dir"].iter().map(|s| s.to_string()).collect();
-        assert!(parse_args(&owned).unwrap_err().contains("--config-dir expects a path"));
+        assert!(
+            err.contains("--nonsense") && err.contains("--demo") && err.contains("--help"),
+            "{err}"
+        );
+        let owned: Vec<String> = ["gameday", "nonsense"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(
+            parse_args(&owned).is_err(),
+            "bare unknown words are errors too"
+        );
+        let owned: Vec<String> = ["gameday", "--config-dir"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(parse_args(&owned)
+            .unwrap_err()
+            .contains("--config-dir expects a path"));
     }
 
     #[test]
     fn frame_parses_every_flag_and_defaults_the_rest() {
         use gameday::frame::{FrameView, Scenario, DEFAULT_SIZE};
         let a = parsed(&[
-            "gameday", "frame", "--view", "tv", "--theme", "studio", "--size", "80x24",
-            "--scenario", "redzone", "--tick", "40", "--out", "out/design/tv.png",
+            "gameday",
+            "frame",
+            "--view",
+            "tv",
+            "--theme",
+            "studio",
+            "--size",
+            "80x24",
+            "--scenario",
+            "redzone",
+            "--tick",
+            "40",
+            "--out",
+            "out/design/tv.png",
         ]);
         let f = a.frame.expect("frame spec");
         assert_eq!(f.view, FrameView::Tv);
@@ -779,7 +823,9 @@ mod tests {
         assert_eq!(f.out, std::path::PathBuf::from("out/design/tv.png"));
         // Only --out is required; everything else has a default, and an
         // unflagged --tick means "the scenario's own beat", not tick 0.
-        let f = parsed(&["gameday", "frame", "--out", "x.png"]).frame.expect("frame spec");
+        let f = parsed(&["gameday", "frame", "--out", "x.png"])
+            .frame
+            .expect("frame spec");
         assert_eq!(f.view, FrameView::Board);
         assert_eq!(f.scenario, Scenario::FullSlate);
         assert_eq!(f.theme, "broadcast");
@@ -796,7 +842,14 @@ mod tests {
         };
         let e = err(&["gameday", "frame", "--view", "jumbotron", "--out", "x.png"]);
         assert!(e.contains("jumbotron") && e.contains("theme-picker"), "{e}");
-        let e = err(&["gameday", "frame", "--scenario", "blowout", "--out", "x.png"]);
+        let e = err(&[
+            "gameday",
+            "frame",
+            "--scenario",
+            "blowout",
+            "--out",
+            "x.png",
+        ]);
         assert!(e.contains("blowout") && e.contains("nudge-resort"), "{e}");
         let e = err(&["gameday", "frame", "--size", "80", "--out", "x.png"]);
         assert!(e.contains("WxH") && e.contains("80"), "{e}");
@@ -814,9 +867,26 @@ mod tests {
 
     #[test]
     fn help_text_lists_every_flag_and_the_dev_commands_under_their_own_heading() {
-        for needle in ["--demo", "--help", "--version", "--config-dir", "dev:", "dump", "frame", "--view", "--scenario", "--out", "probe", "--tick", "~/.config/gameday"] {
+        for needle in [
+            "--demo",
+            "--help",
+            "--version",
+            "--config-dir",
+            "dev:",
+            "dump",
+            "frame",
+            "--view",
+            "--scenario",
+            "--out",
+            "probe",
+            "--tick",
+            "~/.config/gameday",
+        ] {
             assert!(super::HELP.contains(needle), "HELP missing {needle}");
         }
-        assert!(super::HELP.lines().count() < 30, "help must fit a small terminal");
+        assert!(
+            super::HELP.lines().count() < 30,
+            "help must fit a small terminal"
+        );
     }
 }

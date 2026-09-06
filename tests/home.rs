@@ -35,15 +35,24 @@ fn favorite_pulls_live_team_onto_home() {
     // v3.2 §1: Home is ONE list of the day, so the pre-game is on it too —
     // what the favorite decides is the ORDER (its game leads).
     let boards = vec![game("9", "KC", Status::Live), game("8", "DAL", Status::Pre)];
-    let favs = [Favorite { league: League::Nfl, team_abbr: "KC".into() }];
+    let favs = [Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    }];
     let out = home_games(&[], &favs, &boards, OffsetDateTime::now_utc());
-    assert_eq!(out.iter().map(|g| g.id.as_str()).collect::<Vec<_>>(), vec!["9", "8"]);
+    assert_eq!(
+        out.iter().map(|g| g.id.as_str()).collect::<Vec<_>>(),
+        vec!["9", "8"]
+    );
 }
 
 #[test]
 fn favorite_matches_home_or_away_case_insensitive() {
     let boards = vec![game("1", "kc", Status::Pre)];
-    let favs = [Favorite { league: League::Nfl, team_abbr: "KC".into() }];
+    let favs = [Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    }];
     let out = home_games(&[], &favs, &boards, OffsetDateTime::now_utc());
     assert_eq!(out[0].id, "1");
 }
@@ -51,8 +60,15 @@ fn favorite_matches_home_or_away_case_insensitive() {
 #[test]
 fn pin_and_favorite_dedupe() {
     let boards = vec![game("9", "KC", Status::Live)];
-    let pins = [Pin { game_id: "9".into(), league: League::Nfl, final_at: None }];
-    let favs = [Favorite { league: League::Nfl, team_abbr: "KC".into() }];
+    let pins = [Pin {
+        game_id: "9".into(),
+        league: League::Nfl,
+        final_at: None,
+    }];
+    let favs = [Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    }];
     let out = home_games(&pins, &favs, &boards, OffsetDateTime::now_utc());
     assert_eq!(out.len(), 1);
 }
@@ -66,10 +82,20 @@ fn pin_order_then_favorites() {
         game("b", "KC", Status::Live),
         game("c", "PHI", Status::Live),
     ];
-    let pins = [Pin { game_id: "c".into(), league: League::Nfl, final_at: None }];
-    let favs = [Favorite { league: League::Nfl, team_abbr: "KC".into() }];
+    let pins = [Pin {
+        game_id: "c".into(),
+        league: League::Nfl,
+        final_at: None,
+    }];
+    let favs = [Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    }];
     let out = home_games(&pins, &favs, &boards, OffsetDateTime::now_utc());
-    assert_eq!(out.iter().map(|g| g.id.as_str()).collect::<Vec<_>>(), vec!["c", "b", "a"]);
+    assert_eq!(
+        out.iter().map(|g| g.id.as_str()).collect::<Vec<_>>(),
+        vec!["c", "b", "a"]
+    );
 }
 
 #[test]
@@ -80,8 +106,14 @@ fn favorites_follow_board_order_not_favorite_list_order() {
         game("kc", "KC", Status::Live),
     ];
     let favs = [
-        Favorite { league: League::Nfl, team_abbr: "KC".into() },
-        Favorite { league: League::Nfl, team_abbr: "DAL".into() },
+        Favorite {
+            league: League::Nfl,
+            team_abbr: "KC".into(),
+        },
+        Favorite {
+            league: League::Nfl,
+            team_abbr: "DAL".into(),
+        },
     ];
     let out = home_games(&[], &favs, &boards, OffsetDateTime::now_utc());
     assert_eq!(
@@ -117,8 +149,15 @@ fn pins_then_favorites_then_the_rest_of_the_live_slate() {
         game("3", "SD", Status::Live),
         game("4", "KC", Status::Live),
     ];
-    let pins = [Pin { game_id: "3".into(), league: League::Nfl, final_at: None }];
-    let favs = [Favorite { league: League::Nfl, team_abbr: "NYY".into() }];
+    let pins = [Pin {
+        game_id: "3".into(),
+        league: League::Nfl,
+        final_at: None,
+    }];
+    let favs = [Favorite {
+        league: League::Nfl,
+        team_abbr: "NYY".into(),
+    }];
     let out = home_games(&pins, &favs, &boards, OffsetDateTime::now_utc());
     let ids: Vec<&str> = out.iter().map(|g| g.id.as_str()).collect();
     assert_eq!(

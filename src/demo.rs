@@ -68,7 +68,13 @@ fn inning_play(period: &str, team: &str, text: &str, scoring: bool) -> Play {
 
 pub fn demo_config() -> Config {
     Config {
-        enabled_tabs: vec![League::Nfl, League::Nba, League::Mlb, League::Nhl, League::Epl],
+        enabled_tabs: vec![
+            League::Nfl,
+            League::Nba,
+            League::Mlb,
+            League::Nhl,
+            League::Epl,
+        ],
         favorites: vec![],
         theme: crate::theme::current_name(),
         sort: Default::default(),
@@ -134,7 +140,11 @@ pub fn demo_stats() -> GameStats {
             leader("KC", "Receiving Yards", "T. Kelce 8 REC, 96 YDS, 1 TD"),
             leader("KC", "Sacks", "G. Karlaftis 2.0"),
             leader("KC", "Tackles", "N. Bolton 9"),
-            leader("TB", "Passing Yards", "B. Mayfield 24/38, 250 YDS, 1 TD, 1 INT"),
+            leader(
+                "TB",
+                "Passing Yards",
+                "B. Mayfield 24/38, 250 YDS, 1 TD, 1 INT",
+            ),
             leader("TB", "Rushing Yards", "R. White 15 CAR, 71 YDS, 1 TD"),
             leader("TB", "Receiving Yards", "M. Evans 6 REC, 88 YDS, 1 TD"),
             leader("TB", "Sacks", "Y. Diaby 1.5"),
@@ -187,20 +197,132 @@ fn later_game(id: &str, league: League, away: Team, home: Team, net: &str, odds:
 pub fn demo_boards() -> HashMap<League, Vec<Game>> {
     let mut boards = HashMap::new();
 
-    let kc = team("KC", "Kansas City", "Chiefs", "11-6", [227, 24, 55], [255, 184, 28], League::Nfl);
-    let tb = team("TB", "Tampa Bay", "Buccaneers", "11-6", [255, 60, 40], [180, 180, 180], League::Nfl);
-    let sf = team("SF", "San Francisco", "49ers", "12-5", [200, 60, 50], [230, 190, 130], League::Nfl);
-    let sea = team("SEA", "Seattle", "Seahawks", "9-8", [105, 190, 40], [0, 90, 170], League::Nfl);
-    let phi = team("PHI", "Philadelphia", "Eagles", "12-5", [0, 140, 130], [200, 200, 200], League::Nfl);
-    let dal = team("DAL", "Dallas", "Cowboys", "10-7", [90, 130, 200], [180, 180, 180], League::Nfl);
-    let gb = team("GB", "Green Bay", "Packers", "9-8", [24, 48, 40], [255, 184, 28], League::Nfl);
-    let chi = team("CHI", "Chicago", "Bears", "7-10", [11, 22, 42], [200, 56, 3], League::Nfl);
-    let nyj = team("NYJ", "New York", "Jets", "6-11", [18, 87, 64], [255, 255, 255], League::Nfl);
-    let mia = team("MIA", "Miami", "Dolphins", "10-7", [0, 142, 151], [252, 76, 2], League::Nfl);
-    let hou = team("HOU", "Houston", "Texans", "10-7", [3, 32, 47], [167, 25, 48], League::Nfl);
-    let lar = team("LAR", "Los Angeles", "Rams", "10-7", [0, 53, 148], [255, 209, 0], League::Nfl);
-    let no_ = team("NO", "New Orleans", "Saints", "5-12", [211, 188, 141], [16, 24, 31], League::Nfl);
-    let car = team("CAR", "Carolina", "Panthers", "5-12", [0, 133, 202], [16, 24, 31], League::Nfl);
+    let kc = team(
+        "KC",
+        "Kansas City",
+        "Chiefs",
+        "11-6",
+        [227, 24, 55],
+        [255, 184, 28],
+        League::Nfl,
+    );
+    let tb = team(
+        "TB",
+        "Tampa Bay",
+        "Buccaneers",
+        "11-6",
+        [255, 60, 40],
+        [180, 180, 180],
+        League::Nfl,
+    );
+    let sf = team(
+        "SF",
+        "San Francisco",
+        "49ers",
+        "12-5",
+        [200, 60, 50],
+        [230, 190, 130],
+        League::Nfl,
+    );
+    let sea = team(
+        "SEA",
+        "Seattle",
+        "Seahawks",
+        "9-8",
+        [105, 190, 40],
+        [0, 90, 170],
+        League::Nfl,
+    );
+    let phi = team(
+        "PHI",
+        "Philadelphia",
+        "Eagles",
+        "12-5",
+        [0, 140, 130],
+        [200, 200, 200],
+        League::Nfl,
+    );
+    let dal = team(
+        "DAL",
+        "Dallas",
+        "Cowboys",
+        "10-7",
+        [90, 130, 200],
+        [180, 180, 180],
+        League::Nfl,
+    );
+    let gb = team(
+        "GB",
+        "Green Bay",
+        "Packers",
+        "9-8",
+        [24, 48, 40],
+        [255, 184, 28],
+        League::Nfl,
+    );
+    let chi = team(
+        "CHI",
+        "Chicago",
+        "Bears",
+        "7-10",
+        [11, 22, 42],
+        [200, 56, 3],
+        League::Nfl,
+    );
+    let nyj = team(
+        "NYJ",
+        "New York",
+        "Jets",
+        "6-11",
+        [18, 87, 64],
+        [255, 255, 255],
+        League::Nfl,
+    );
+    let mia = team(
+        "MIA",
+        "Miami",
+        "Dolphins",
+        "10-7",
+        [0, 142, 151],
+        [252, 76, 2],
+        League::Nfl,
+    );
+    let hou = team(
+        "HOU",
+        "Houston",
+        "Texans",
+        "10-7",
+        [3, 32, 47],
+        [167, 25, 48],
+        League::Nfl,
+    );
+    let lar = team(
+        "LAR",
+        "Los Angeles",
+        "Rams",
+        "10-7",
+        [0, 53, 148],
+        [255, 209, 0],
+        League::Nfl,
+    );
+    let no_ = team(
+        "NO",
+        "New Orleans",
+        "Saints",
+        "5-12",
+        [211, 188, 141],
+        [16, 24, 31],
+        League::Nfl,
+    );
+    let car = team(
+        "CAR",
+        "Carolina",
+        "Panthers",
+        "5-12",
+        [0, 133, 202],
+        [16, 24, 31],
+        League::Nfl,
+    );
     boards.insert(
         League::Nfl,
         vec![
@@ -229,7 +351,12 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                     ..Default::default()
                 }),
                 last_plays: vec![
-                    play("1:27", "KC", "Patrick Mahomes pass to T. Kelce for 3 yards (1st & Goal)", false),
+                    play(
+                        "1:27",
+                        "KC",
+                        "Patrick Mahomes pass to T. Kelce for 3 yards (1st & Goal)",
+                        false,
+                    ),
                     play("2:02", "TB", "Baker Mayfield sacked for -7 yards", false),
                     play("2:45", "KC", "Isiah Pacheco rush for 8 yards", false),
                     play("3:21", "KC", "Mahomes pass to Kelce, 12 yd TOUCHDOWN", true),
@@ -286,7 +413,12 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                     ..Default::default()
                 }),
                 last_plays: vec![
-                    play("4:20", "GB", "Love scrambles for 6, short of the sticks", false),
+                    play(
+                        "4:20",
+                        "GB",
+                        "Love scrambles for 6, short of the sticks",
+                        false,
+                    ),
                     play("5:02", "CHI", "Williams pass to Odunze for 14", false),
                 ],
                 timeouts: Some((3, 2)),
@@ -310,14 +442,52 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                 broadcast: Some("FOX".into()),
                 ..Game::default()
             },
-            final_game("nfl-final2", League::Nfl, nyj, mia, 10, 13, "Tua finds Hill for the winner"),
-            later_game("nfl-late2", League::Nfl, hou, lar, "CBS", "LAR -3  O/U 45.5"),
-            later_game("nfl-late3", League::Nfl, no_, car, "CBS", "CAR -1  O/U 40.5"),
+            final_game(
+                "nfl-final2",
+                League::Nfl,
+                nyj,
+                mia,
+                10,
+                13,
+                "Tua finds Hill for the winner",
+            ),
+            later_game(
+                "nfl-late2",
+                League::Nfl,
+                hou,
+                lar,
+                "CBS",
+                "LAR -3  O/U 45.5",
+            ),
+            later_game(
+                "nfl-late3",
+                League::Nfl,
+                no_,
+                car,
+                "CBS",
+                "CAR -1  O/U 40.5",
+            ),
         ],
     );
 
-    let den = team("DEN", "Denver", "Nuggets", "53-29", [254, 197, 36], [30, 60, 110], League::Nba);
-    let bos = team("BOS", "Boston", "Celtics", "58-24", [0, 180, 90], [220, 220, 220], League::Nba);
+    let den = team(
+        "DEN",
+        "Denver",
+        "Nuggets",
+        "53-29",
+        [254, 197, 36],
+        [30, 60, 110],
+        League::Nba,
+    );
+    let bos = team(
+        "BOS",
+        "Boston",
+        "Celtics",
+        "58-24",
+        [0, 180, 90],
+        [220, 220, 220],
+        League::Nba,
+    );
     boards.insert(
         League::Nba,
         vec![Game {
@@ -349,152 +519,360 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
         }],
     );
 
-    let nyy = team("NYY", "New York", "Yankees", "29-17", [220, 220, 230], [70, 110, 180], League::Mlb);
-    let tor = team("TOR", "Toronto", "Blue Jays", "24-22", [70, 130, 220], [220, 220, 220], League::Mlb);
-    let bos_mlb = team("BOS", "Boston", "Red Sox", "25-21", [189, 48, 57], [12, 35, 64], League::Mlb);
-    let tex = team("TEX", "Texas", "Rangers", "23-23", [0, 50, 120], [192, 17, 31], League::Mlb);
-    let sf_mlb = team("SF", "San Francisco", "Giants", "26-20", [253, 90, 30], [39, 37, 31], League::Mlb);
-    let atl = team("ATL", "Atlanta", "Braves", "22-24", [19, 39, 79], [206, 17, 65], League::Mlb);
+    let nyy = team(
+        "NYY",
+        "New York",
+        "Yankees",
+        "29-17",
+        [220, 220, 230],
+        [70, 110, 180],
+        League::Mlb,
+    );
+    let tor = team(
+        "TOR",
+        "Toronto",
+        "Blue Jays",
+        "24-22",
+        [70, 130, 220],
+        [220, 220, 220],
+        League::Mlb,
+    );
+    let bos_mlb = team(
+        "BOS",
+        "Boston",
+        "Red Sox",
+        "25-21",
+        [189, 48, 57],
+        [12, 35, 64],
+        League::Mlb,
+    );
+    let tex = team(
+        "TEX",
+        "Texas",
+        "Rangers",
+        "23-23",
+        [0, 50, 120],
+        [192, 17, 31],
+        League::Mlb,
+    );
+    let sf_mlb = team(
+        "SF",
+        "San Francisco",
+        "Giants",
+        "26-20",
+        [253, 90, 30],
+        [39, 37, 31],
+        League::Mlb,
+    );
+    let atl = team(
+        "ATL",
+        "Atlanta",
+        "Braves",
+        "22-24",
+        [19, 39, 79],
+        [206, 17, 65],
+        League::Mlb,
+    );
     boards.insert(
         League::Mlb,
-        vec![Game {
-            id: "mlb-live".into(),
-            league: League::Mlb,
-            away: nyy,
-            home: tor,
-            away_score: 5,
-            home_score: 3,
-            status: Status::Live,
-            period: "BOT 7TH".into(),
-            clock: String::new(),
-            situation: Some(Situation {
-                down_distance: "2 OUT · 1-2".into(),
-                balls: Some(1),
-                strikes: Some(2),
-                outs: Some(2),
-                on_base: Some([true, false, false]),
-                // The zoom's baseball matchup line (spec §5) is made of these
-                // three fields and nothing else.
-                pitcher: Some("C. Schmidt".into()),
-                batter: Some("A. Kirk".into()),
-                due_up: vec!["D. Varsho".into(), "E. Clement".into(), "G. Springer".into()],
-                ..Default::default()
-            }),
-            last_plays: vec![
-                inning_play("B7", "TOR", "Vladimir Guerrero Jr. singles to right", false),
-                inning_play("T7", "NYY", "Aaron Judge homers to left (18)  [5-3]", true),
-                inning_play("T7", "NYY", "Jazz Chisholm Jr. walks", false),
-                inning_play("B6", "TOR", "Bo Bichette strikes out swinging", false),
-            ],
-            meter: Some(Meter::Diamond { occupied: [true, false, false] }),
-            // Seven innings played, plus the H/E the MLB linescore row adds.
-            linescore: vec![(0, 1), (2, 0), (0, 0), (1, 1), (0, 0), (2, 1), (0, 0)],
-            extras: Extras::Baseball { hits: Some((9, 7)), errors: Some((0, 1)) },
-            broadcast: Some("SN".into()),
-            ..Game::default()
-        },
-        // A mid-table live game: tied, mid-innings, no bonus — it sits below
-        // the marquee games and above the finals, which is what a ranked list
-        // needs to look ranked.
-        Game {
-            id: "mlb-live2".into(),
-            league: League::Mlb,
-            away: bos_mlb,
-            home: tex,
-            away_score: 2,
-            home_score: 2,
-            status: Status::Live,
-            period: "TOP 6TH".into(),
-            situation: Some(Situation {
-                down_distance: "1 OUT · 0-1".into(),
-                balls: Some(0),
-                strikes: Some(1),
-                outs: Some(1),
-                on_base: Some([false; 3]),
-                ..Default::default()
-            }),
-            last_plays: vec![inning_play("T6", "BOS", "Devers lines out to left", false)],
-            meter: Some(Meter::Diamond { occupied: [false; 3] }),
-            broadcast: Some("NESN".into()),
-            ..Game::default()
-        },
-        final_game("mlb-final", League::Mlb, sf_mlb, atl, 7, 3, "Chapman homers twice"),
+        vec![
+            Game {
+                id: "mlb-live".into(),
+                league: League::Mlb,
+                away: nyy,
+                home: tor,
+                away_score: 5,
+                home_score: 3,
+                status: Status::Live,
+                period: "BOT 7TH".into(),
+                clock: String::new(),
+                situation: Some(Situation {
+                    down_distance: "2 OUT · 1-2".into(),
+                    balls: Some(1),
+                    strikes: Some(2),
+                    outs: Some(2),
+                    on_base: Some([true, false, false]),
+                    // The zoom's baseball matchup line (spec §5) is made of these
+                    // three fields and nothing else.
+                    pitcher: Some("C. Schmidt".into()),
+                    batter: Some("A. Kirk".into()),
+                    due_up: vec![
+                        "D. Varsho".into(),
+                        "E. Clement".into(),
+                        "G. Springer".into(),
+                    ],
+                    ..Default::default()
+                }),
+                last_plays: vec![
+                    inning_play("B7", "TOR", "Vladimir Guerrero Jr. singles to right", false),
+                    inning_play("T7", "NYY", "Aaron Judge homers to left (18)  [5-3]", true),
+                    inning_play("T7", "NYY", "Jazz Chisholm Jr. walks", false),
+                    inning_play("B6", "TOR", "Bo Bichette strikes out swinging", false),
+                ],
+                meter: Some(Meter::Diamond {
+                    occupied: [true, false, false],
+                }),
+                // Seven innings played, plus the H/E the MLB linescore row adds.
+                linescore: vec![(0, 1), (2, 0), (0, 0), (1, 1), (0, 0), (2, 1), (0, 0)],
+                extras: Extras::Baseball {
+                    hits: Some((9, 7)),
+                    errors: Some((0, 1)),
+                },
+                broadcast: Some("SN".into()),
+                ..Game::default()
+            },
+            // A mid-table live game: tied, mid-innings, no bonus — it sits below
+            // the marquee games and above the finals, which is what a ranked list
+            // needs to look ranked.
+            Game {
+                id: "mlb-live2".into(),
+                league: League::Mlb,
+                away: bos_mlb,
+                home: tex,
+                away_score: 2,
+                home_score: 2,
+                status: Status::Live,
+                period: "TOP 6TH".into(),
+                situation: Some(Situation {
+                    down_distance: "1 OUT · 0-1".into(),
+                    balls: Some(0),
+                    strikes: Some(1),
+                    outs: Some(1),
+                    on_base: Some([false; 3]),
+                    ..Default::default()
+                }),
+                last_plays: vec![inning_play("T6", "BOS", "Devers lines out to left", false)],
+                meter: Some(Meter::Diamond {
+                    occupied: [false; 3],
+                }),
+                broadcast: Some("NESN".into()),
+                ..Game::default()
+            },
+            final_game(
+                "mlb-final",
+                League::Mlb,
+                sf_mlb,
+                atl,
+                7,
+                3,
+                "Chapman homers twice",
+            ),
         ],
     );
 
-    let edm = team("EDM", "Edmonton", "Oilers", "49-27", [252, 100, 30], [65, 105, 225], League::Nhl);
-    let dal_nhl = team("DAL", "Dallas", "Stars", "52-21", [0, 200, 130], [220, 220, 220], League::Nhl);
-    let bos_nhl = team("BOS", "Boston", "Bruins", "44-32", [252, 181, 20], [17, 17, 17], League::Nhl);
-    let tor_nhl = team("TOR", "Toronto", "Maple Leafs", "46-30", [0, 32, 91], [220, 220, 220], League::Nhl);
+    let edm = team(
+        "EDM",
+        "Edmonton",
+        "Oilers",
+        "49-27",
+        [252, 100, 30],
+        [65, 105, 225],
+        League::Nhl,
+    );
+    let dal_nhl = team(
+        "DAL",
+        "Dallas",
+        "Stars",
+        "52-21",
+        [0, 200, 130],
+        [220, 220, 220],
+        League::Nhl,
+    );
+    let bos_nhl = team(
+        "BOS",
+        "Boston",
+        "Bruins",
+        "44-32",
+        [252, 181, 20],
+        [17, 17, 17],
+        League::Nhl,
+    );
+    let tor_nhl = team(
+        "TOR",
+        "Toronto",
+        "Maple Leafs",
+        "46-30",
+        [0, 32, 91],
+        [220, 220, 220],
+        League::Nhl,
+    );
     boards.insert(
         League::Nhl,
-        vec![Game {
-            id: "nhl-live".into(),
-            league: League::Nhl,
-            away: edm,
-            home: dal_nhl,
-            away_score: 3,
-            home_score: 2,
-            status: Status::Live,
-            period: "2ND".into(),
-            clock: "1:03".into(),
-            situation: None,
-            last_plays: vec![
-                play("1:03", "EDM", "Leon Draisaitl snap shot GOAL (32)  [3-2]", true),
-                play("2:37", "DAL", "Roope Hintz tip-in goal  [2-2]", true),
-                play("4:11", "EDM", "Evan Bouchard shot on goal", false),
-                play("5:09", "DAL", "Jamie Benn hit", false),
-            ],
-            meter: Some(Meter::Penalty { team_abbr: "DAL".into(), seconds: 42 }),
-            broadcast: Some("ESPN".into()),
-            ..Game::default()
-        },
-        final_game("nhl-final", League::Nhl, bos_nhl, tor_nhl, 4, 2, "Pastrnak two goals, Swayman 31 saves"),
+        vec![
+            Game {
+                id: "nhl-live".into(),
+                league: League::Nhl,
+                away: edm,
+                home: dal_nhl,
+                away_score: 3,
+                home_score: 2,
+                status: Status::Live,
+                period: "2ND".into(),
+                clock: "1:03".into(),
+                situation: None,
+                last_plays: vec![
+                    play(
+                        "1:03",
+                        "EDM",
+                        "Leon Draisaitl snap shot GOAL (32)  [3-2]",
+                        true,
+                    ),
+                    play("2:37", "DAL", "Roope Hintz tip-in goal  [2-2]", true),
+                    play("4:11", "EDM", "Evan Bouchard shot on goal", false),
+                    play("5:09", "DAL", "Jamie Benn hit", false),
+                ],
+                meter: Some(Meter::Penalty {
+                    team_abbr: "DAL".into(),
+                    seconds: 42,
+                }),
+                broadcast: Some("ESPN".into()),
+                ..Game::default()
+            },
+            final_game(
+                "nhl-final",
+                League::Nhl,
+                bos_nhl,
+                tor_nhl,
+                4,
+                2,
+                "Pastrnak two goals, Swayman 31 saves",
+            ),
         ],
     );
 
     // ESPN's own club ids (`/soccer/eng.1/teams`), so the marks resolve.
     let e = |t, id| with_espn_id(t, League::Epl, id);
-    let liv = e(team("LIV", "Liverpool", "Liverpool", "0-2-0", [211, 19, 23], [220, 220, 220], League::Epl), "364");
-    let ars = e(team("ARS", "London", "Arsenal", "1-1-0", [239, 1, 7], [220, 220, 220], League::Epl), "359");
-    let mci = e(team("MCI", "Manchester", "Man City", "2-0-0", [108, 171, 221], [220, 220, 220], League::Epl), "382");
-    let che = e(team("CHE", "London", "Chelsea", "1-0-1", [3, 70, 148], [220, 220, 220], League::Epl), "363");
+    let liv = e(
+        team(
+            "LIV",
+            "Liverpool",
+            "Liverpool",
+            "0-2-0",
+            [211, 19, 23],
+            [220, 220, 220],
+            League::Epl,
+        ),
+        "364",
+    );
+    let ars = e(
+        team(
+            "ARS",
+            "London",
+            "Arsenal",
+            "1-1-0",
+            [239, 1, 7],
+            [220, 220, 220],
+            League::Epl,
+        ),
+        "359",
+    );
+    let mci = e(
+        team(
+            "MCI",
+            "Manchester",
+            "Man City",
+            "2-0-0",
+            [108, 171, 221],
+            [220, 220, 220],
+            League::Epl,
+        ),
+        "382",
+    );
+    let che = e(
+        team(
+            "CHE",
+            "London",
+            "Chelsea",
+            "1-0-1",
+            [3, 70, 148],
+            [220, 220, 220],
+            League::Epl,
+        ),
+        "363",
+    );
     boards.insert(
         League::Epl,
-        vec![Game {
-            id: "epl-live".into(),
-            league: League::Epl,
-            away: ars,
-            home: liv,
-            away_score: 1,
-            home_score: 2,
-            status: Status::Live,
-            period: "78'".into(),
-            clock: String::new(),
-            situation: None,
-            last_plays: vec![
-                play("76'", "LIV", "Mohamed Salah right-footed GOAL from the box  [2-1]", true),
-                play("64'", "ARS", "Bukayo Saka curls one in from the edge  [1-1]", true),
-                play("58'", "LIV", "Virgil van Dijk header cleared off the line", false),
-                play("51'", "ARS", "Declan Rice booked for a late challenge", false),
-            ],
-            meter: None,
-            // The soccer matchup line reads `Extras::Soccer::events`; without
-            // it the zoom of an EPL game had nothing under the linescore.
-            extras: Extras::Soccer {
-                events: vec![
-                    MatchEvent { minute: "51'".into(), kind: EventKind::Yellow, team: "ARS".into(), player: "Rice".into(), athlete_id: Some("d-rice".into()) },
-                    MatchEvent { minute: "64'".into(), kind: EventKind::Goal, team: "ARS".into(), player: "Saka".into(), athlete_id: Some("d-saka".into()) },
-                    MatchEvent { minute: "76'".into(), kind: EventKind::Goal, team: "LIV".into(), player: "Salah".into(), athlete_id: Some("d-salah".into()) },
+        vec![
+            Game {
+                id: "epl-live".into(),
+                league: League::Epl,
+                away: ars,
+                home: liv,
+                away_score: 1,
+                home_score: 2,
+                status: Status::Live,
+                period: "78'".into(),
+                clock: String::new(),
+                situation: None,
+                last_plays: vec![
+                    play(
+                        "76'",
+                        "LIV",
+                        "Mohamed Salah right-footed GOAL from the box  [2-1]",
+                        true,
+                    ),
+                    play(
+                        "64'",
+                        "ARS",
+                        "Bukayo Saka curls one in from the edge  [1-1]",
+                        true,
+                    ),
+                    play(
+                        "58'",
+                        "LIV",
+                        "Virgil van Dijk header cleared off the line",
+                        false,
+                    ),
+                    play(
+                        "51'",
+                        "ARS",
+                        "Declan Rice booked for a late challenge",
+                        false,
+                    ),
                 ],
-                // Eleven a side: the demo slate's soccer match is a
-                // showcase for the matchup line, not the men chip.
-                men: None,
+                meter: None,
+                // The soccer matchup line reads `Extras::Soccer::events`; without
+                // it the zoom of an EPL game had nothing under the linescore.
+                extras: Extras::Soccer {
+                    events: vec![
+                        MatchEvent {
+                            minute: "51'".into(),
+                            kind: EventKind::Yellow,
+                            team: "ARS".into(),
+                            player: "Rice".into(),
+                            athlete_id: Some("d-rice".into()),
+                        },
+                        MatchEvent {
+                            minute: "64'".into(),
+                            kind: EventKind::Goal,
+                            team: "ARS".into(),
+                            player: "Saka".into(),
+                            athlete_id: Some("d-saka".into()),
+                        },
+                        MatchEvent {
+                            minute: "76'".into(),
+                            kind: EventKind::Goal,
+                            team: "LIV".into(),
+                            player: "Salah".into(),
+                            athlete_id: Some("d-salah".into()),
+                        },
+                    ],
+                    // Eleven a side: the demo slate's soccer match is a
+                    // showcase for the matchup line, not the men chip.
+                    men: None,
+                },
+                broadcast: Some("NBC".into()),
+                ..Game::default()
             },
-            broadcast: Some("NBC".into()),
-            ..Game::default()
-        },
-        final_game("epl-final", League::Epl, mci, che, 2, 2, "Haaland levels it in the 88th"),
+            final_game(
+                "epl-final",
+                League::Epl,
+                mci,
+                che,
+                2,
+                2,
+                "Haaland levels it in the 88th",
+            ),
         ],
     );
 
@@ -538,7 +916,10 @@ mod tests {
         assert_eq!(pins[0].game_id, "nfl-live");
         for pin in &pins {
             let board = boards.get(&pin.league).expect("board for pinned league");
-            let game = board.iter().find(|g| g.id == pin.game_id).expect("pinned game");
+            let game = board
+                .iter()
+                .find(|g| g.id == pin.game_id)
+                .expect("pinned game");
             assert_eq!(game.status, Status::Live);
             assert!(!game.last_plays.is_empty());
             assert!(game.meter.is_some());
@@ -570,12 +951,9 @@ mod tests {
 
         // …and at the gallery's own size the board overflows, so the lane
         // draws and names exactly the three LATER games it pushed off.
-        let buf = crate::dump::render_demo_buffer(
-            crate::dump::DUMP_COLS,
-            crate::dump::DUMP_ROWS,
-            0,
-        )
-        .unwrap();
+        let buf =
+            crate::dump::render_demo_buffer(crate::dump::DUMP_COLS, crate::dump::DUMP_ROWS, 0)
+                .unwrap();
         let row = |y: u16| -> String {
             (0..crate::dump::DUMP_COLS)
                 .map(|x| buf[(x, y)].symbol().to_string())

@@ -116,8 +116,14 @@ mod tests {
     #[test]
     fn cbb_ids_are_not_nba_ids() {
         // NBA 92 Jump Shot w/ 3 pts → ThreePointer; CBB uses 558 JumpShot:
-        assert_eq!(hoops_kind("92", true, Some(3), false), PlayKind::ThreePointer);
-        assert_eq!(hoops_kind("558", true, Some(3), true), PlayKind::ThreePointer);
+        assert_eq!(
+            hoops_kind("92", true, Some(3), false),
+            PlayKind::ThreePointer
+        );
+        assert_eq!(
+            hoops_kind("558", true, Some(3), true),
+            PlayKind::ThreePointer
+        );
         assert_eq!(hoops_kind("92", true, Some(3), true), PlayKind::Other); // NBA id through CBB table stays honest
     }
 

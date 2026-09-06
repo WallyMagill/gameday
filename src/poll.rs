@@ -150,7 +150,9 @@ impl Scheduler {
         let n = wants.leagues.len().max(1) as u32;
         for (i, league) in wants.leagues.iter().enumerate() {
             let st = self.leagues.entry(*league).or_default();
-            let slot = *st.next_due.get_or_insert_with(|| now + COLD_SPREAD * i as u32 / n);
+            let slot = *st
+                .next_due
+                .get_or_insert_with(|| now + COLD_SPREAD * i as u32 / n);
             if refresh_now || slot <= now + TICK {
                 out.push(Request::Scoreboard(*league));
                 st.next_due = Some(now + every); // provisional; report() re-jitters

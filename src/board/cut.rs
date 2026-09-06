@@ -63,7 +63,9 @@ impl Cut {
     /// on screen must never say `0s`, and rounding down would spend the last
     /// half second lying. Zero is reserved for expired.
     pub fn remaining_secs(&self, tick: u64) -> u64 {
-        self.until_tick.saturating_sub(tick).div_ceil(LIVE_TICKS_PER_SEC)
+        self.until_tick
+            .saturating_sub(tick)
+            .div_ceil(LIVE_TICKS_PER_SEC)
     }
 }
 
@@ -196,13 +198,32 @@ fn plan(area: Rect, word: &str) -> Plan {
     let stack = word_form.rows() + score_rows;
     let top = area.y + brackets.min(1);
     let word_y = top + middle.saturating_sub(stack) / 2;
-    let word_rect = Rect { y: word_y, height: word_form.rows(), ..area };
-    let score = Rect { y: word_rect.bottom(), height: score_rows, ..area };
+    let word_rect = Rect {
+        y: word_y,
+        height: word_form.rows(),
+        ..area
+    };
+    let score = Rect {
+        y: word_rect.bottom(),
+        height: score_rows,
+        ..area
+    };
     // The labels are the last thing planned, and only out of a row the word
     // and the score did not want. `stack < middle` is exactly the condition
     // that leaves `score.bottom()` inside the middle.
-    let labels = (stack < middle).then(|| Rect { y: score.bottom(), height: 1, ..area });
-    Plan { brackets, word_form, word_rect, score, score_full, labels }
+    let labels = (stack < middle).then(|| Rect {
+        y: score.bottom(),
+        height: 1,
+        ..area
+    });
+    Plan {
+        brackets,
+        word_form,
+        word_rect,
+        score,
+        score_full,
+        labels,
+    }
 }
 
 /// The rect the takeover hands [`hero::score_block`], and the `full` flag it
@@ -226,10 +247,20 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick
     // The board behind is not drawn dimmed or blurred — it is gone. A cut
     // that leaves rows showing through reads as a rendering fault (spec §3).
     frame.render_widget(Clear, area);
-    frame.render_widget(Block::default().style(Style::default().bg(th.bg).fg(th.fg)), area);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(th.bg).fg(th.fg)),
+        area,
+    );
 
     let word = word_for(game, play);
-    let Plan { brackets, word_form, word_rect, score, score_full, labels } = plan(area, word);
+    let Plan {
+        brackets,
+        word_form,
+        word_rect,
+        score,
+        score_full,
+        labels,
+    } = plan(area, word);
 
     if brackets > 0 {
         frame.render_widget(
@@ -264,9 +295,17 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick
         let bottom = area.bottom();
         frame.render_widget(
             Paragraph::new(detail_line(game, play, area.width)).alignment(Alignment::Center),
-            Rect { y: bottom - 2, height: 1, ..area },
+            Rect {
+                y: bottom - 2,
+                height: 1,
+                ..area
+            },
         );
-        let strip = Rect { y: bottom - 1, height: 1, ..area };
+        let strip = Rect {
+            y: bottom - 1,
+            height: 1,
+            ..area
+        };
         let dim = Style::default().fg(r.dim);
         frame.render_widget(
             Paragraph::new(Span::styled(strip_text(game), dim)).alignment(Alignment::Center),
@@ -303,7 +342,10 @@ fn draw_labels(frame: &mut Frame, row: Rect, score: Rect, game: &Game, score_ful
         if w == 0 || w > row.width {
             return None;
         }
-        let x = (col.x + col.width / 2).saturating_sub(w / 2).min(row.right() - w).max(row.x);
+        let x = (col.x + col.width / 2)
+            .saturating_sub(w / 2)
+            .min(row.right() - w)
+            .max(row.x);
         Some(Rect { x, width: w, ..row })
     };
     let (away, home) = (game.away.abbr.to_uppercase(), game.home.abbr.to_uppercase());
@@ -314,11 +356,17 @@ fn draw_labels(frame: &mut Frame, row: Rect, score: Rect, game: &Game, score_ful
         return; // no room to name both without them touching
     }
     frame.render_widget(
-        Paragraph::new(Span::styled(away, Style::default().fg(away_color).add_modifier(bold))),
+        Paragraph::new(Span::styled(
+            away,
+            Style::default().fg(away_color).add_modifier(bold),
+        )),
         a,
     );
     frame.render_widget(
-        Paragraph::new(Span::styled(home, Style::default().fg(home_color).add_modifier(bold))),
+        Paragraph::new(Span::styled(
+            home,
+            Style::default().fg(home_color).add_modifier(bold),
+        )),
         h,
     );
 }
@@ -379,7 +427,11 @@ pub fn draw_band(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick: u6
         let tail = format!("{} jump · {}", jump_key(), timer_text(cut, tick));
         frame.render_widget(
             Paragraph::new(Span::styled(truncate(&tail, area.width as usize), on_hot)),
-            Rect { y: area.y + 1, height: 1, ..area },
+            Rect {
+                y: area.y + 1,
+                height: 1,
+                ..area
+            },
         );
     }
 }
@@ -407,7 +459,10 @@ fn chip_line(play: &Play) -> Line<'static> {
     };
     Line::from(Span::styled(
         text,
-        Style::default().fg(r.ground).bg(r.hot).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(r.ground)
+            .bg(r.hot)
+            .add_modifier(Modifier::BOLD),
     ))
 }
 
@@ -426,7 +481,10 @@ fn detail_line(game: &Game, play: &Play, width: u16) -> Line<'static> {
     if let Some(name) = name {
         let color = crate::app::App::team_color(game, &play.team);
         budget = budget.saturating_sub(name.chars().count() + 3);
-        spans.push(Span::styled(name.to_uppercase(), Style::default().fg(color).add_modifier(bold)));
+        spans.push(Span::styled(
+            name.to_uppercase(),
+            Style::default().fg(color).add_modifier(bold),
+        ));
         spans.push(Span::styled(" · ", Style::default().fg(r.dim)));
     }
     if !clock.is_empty() {
@@ -436,7 +494,10 @@ fn detail_line(game: &Game, play: &Play, width: u16) -> Line<'static> {
         // Uppercase like the rest of the cut (spec §3's `4 YD RUSH`): ESPN
         // writes sentence case, and one lowercase clause under block letters
         // reads as a caption from another screen.
-        spans.push(Span::styled(truncate(&rest.to_uppercase(), budget), Style::default().fg(r.ink)));
+        spans.push(Span::styled(
+            truncate(&rest.to_uppercase(), budget),
+            Style::default().fg(r.ink),
+        ));
     }
     if !clock.is_empty() {
         if !spans.is_empty() {
@@ -473,12 +534,15 @@ fn split_surname(text: &str) -> (Option<&str>, &str) {
     // anybody's name ("End of quarter", "Safety, snap out of the end zone").
     // A stop list, not a parser: the cost of a miss is one word painted in a
     // team color for three seconds.
-    const NOT_A_NAME: [&str; 8] =
-        ["End", "Safety", "Timeout", "Penalty", "Blocked", "Missed", "Two", "Extra"];
+    const NOT_A_NAME: [&str; 8] = [
+        "End", "Safety", "Timeout", "Penalty", "Blocked", "Missed", "Two", "Extra",
+    ];
     let is_name = !NOT_A_NAME.iter().any(|w| w.eq_ignore_ascii_case(head))
         && head.len() > 1
         && head.chars().next().is_some_and(|c| c.is_uppercase())
-        && head.chars().all(|c| c.is_alphabetic() || c == '\'' || c == '-' || c == '.');
+        && head
+            .chars()
+            .all(|c| c.is_alphabetic() || c == '\'' || c == '-' || c == '.');
     if is_name {
         (Some(head), trimmed[head.len()..].trim_start())
     } else {
@@ -499,7 +563,8 @@ fn is_person(s: &str) -> bool {
     tokens.last().is_some_and(|t| t.chars().count() > 1)
         && tokens.iter().all(|t| {
             t.chars().next().is_some_and(|c| c.is_uppercase())
-                && t.chars().all(|c| c.is_alphabetic() || c == '\'' || c == '-' || c == '.')
+                && t.chars()
+                    .all(|c| c.is_alphabetic() || c == '\'' || c == '-' || c == '.')
         })
 }
 
@@ -507,7 +572,12 @@ fn is_person(s: &str) -> bool {
 /// is the one surface with room for the full names.
 fn strip_text(game: &Game) -> String {
     let name = |t: &crate::domain::Team| {
-        if t.name.is_empty() { t.abbr.clone() } else { t.name.clone() }.to_uppercase()
+        if t.name.is_empty() {
+            t.abbr.clone()
+        } else {
+            t.name.clone()
+        }
+        .to_uppercase()
     };
     format!("{} AT {}", name(&game.away), name(&game.home))
 }
@@ -557,8 +627,16 @@ mod tests {
         Game {
             id: "1".into(),
             league: League::Nfl,
-            away: Team { abbr: "KC".into(), name: "Chiefs".into(), ..Default::default() },
-            home: Team { abbr: "BUF".into(), name: "Bills".into(), ..Default::default() },
+            away: Team {
+                abbr: "KC".into(),
+                name: "Chiefs".into(),
+                ..Default::default()
+            },
+            home: Team {
+                abbr: "BUF".into(),
+                name: "Bills".into(),
+                ..Default::default()
+            },
             away_score: 24,
             home_score: 21,
             status: Status::Live,
@@ -582,7 +660,11 @@ mod tests {
 
         // A band never replaces a band — the first one owns the window.
         cuts.fire("2", &play("Someone else scores"), false, 105);
-        assert_eq!(cuts.active(105).unwrap().game_id, "1", "a band does not preempt a band");
+        assert_eq!(
+            cuts.active(105).unwrap().game_id,
+            "1",
+            "a band does not preempt a band"
+        );
 
         // A takeover does: the size is an upgrade, not a second event.
         cuts.fire("2", &play("Mahomes 12 yd pass"), true, 106);
@@ -593,11 +675,18 @@ mod tests {
 
         // ...and is never downgraded while it is up.
         cuts.fire("3", &play("A quieter score"), false, 110);
-        assert_eq!(cuts.active(110).unwrap().game_id, "2", "a takeover is never downgraded");
+        assert_eq!(
+            cuts.active(110).unwrap().game_id,
+            "2",
+            "a takeover is never downgraded"
+        );
 
         // Expiry is read at the tick, not swept.
         assert!(cuts.active(106 + CUT_TICKS - 1).is_some());
-        assert!(cuts.active(106 + CUT_TICKS).is_none(), "the cut ends on its deadline");
+        assert!(
+            cuts.active(106 + CUT_TICKS).is_none(),
+            "the cut ends on its deadline"
+        );
 
         // Once expired, anything may fire again.
         cuts.fire("3", &play("Later score"), false, 200);
@@ -614,15 +703,24 @@ mod tests {
     fn the_word_follows_the_plays_structural_kind() {
         // spec v3.4 §2: the kind decides, whatever the sentence says.
         assert_eq!(
-            word_for(&game(), &kinded("Mahomes 12 Yd pass to Kelce", PlayKind::Touchdown)),
+            word_for(
+                &game(),
+                &kinded("Mahomes 12 Yd pass to Kelce", PlayKind::Touchdown)
+            ),
             "TOUCHDOWN"
         );
         assert_eq!(
-            word_for(&game(), &kinded("Butker 41 Yd Field Goal", PlayKind::FieldGoal)),
+            word_for(
+                &game(),
+                &kinded("Butker 41 Yd Field Goal", PlayKind::FieldGoal)
+            ),
             "FIELD GOAL"
         );
         assert_eq!(
-            word_for(&game(), &kinded("Jones sacked in end zone for a Safety", PlayKind::Safety)),
+            word_for(
+                &game(),
+                &kinded("Jones sacked in end zone for a Safety", PlayKind::Safety)
+            ),
             "SAFETY"
         );
         // Ruling R34, now trivially right: ESPN really writes "Blocked Field
@@ -633,25 +731,37 @@ mod tests {
         assert_eq!(
             word_for(
                 &game(),
-                &kinded("Blocked Field Goal returned 62 yards for a TOUCHDOWN", PlayKind::Touchdown)
+                &kinded(
+                    "Blocked Field Goal returned 62 yards for a TOUCHDOWN",
+                    PlayKind::Touchdown
+                )
             ),
             "TOUCHDOWN"
         );
         assert_eq!(
             word_for(
                 &game(),
-                &kinded("Fumble on the Safety, recovered for a Touchdown", PlayKind::Touchdown)
+                &kinded(
+                    "Fumble on the Safety, recovered for a Touchdown",
+                    PlayKind::Touchdown
+                )
             ),
             "TOUCHDOWN"
         );
         // An NFL play the mapper didn't classify: the honest league fallback,
         // not a guess from the sentence.
-        assert_eq!(word_for(&game(), &play("Mahomes 12 Yd pass to Kelce")), "TOUCHDOWN");
+        assert_eq!(
+            word_for(&game(), &play("Mahomes 12 Yd pass to Kelce")),
+            "TOUCHDOWN"
+        );
 
         let mut nba = game();
         nba.league = League::Nba;
         assert_eq!(
-            word_for(&nba, &kinded("Jokic makes 3-pt field goal", PlayKind::ThreePointer)),
+            word_for(
+                &nba,
+                &kinded("Jokic makes 3-pt field goal", PlayKind::ThreePointer)
+            ),
             "BUCKET"
         ); // spec v3.3 §7
     }
@@ -665,13 +775,22 @@ mod tests {
         // 22:47:42 band): a bases-loaded walk and a run scoring on a
         // strikeout. Neither is a home run, and both carry RunScoringPlay,
         // not HomeRun.
-        assert_eq!(word_for(&mlb, &kinded("Walk — J. Sanoja", PlayKind::RunScoringPlay)), "RUN SCORES");
         assert_eq!(
-            word_for(&mlb, &kinded("Strikeout — J. Ortiz", PlayKind::RunScoringPlay)),
+            word_for(&mlb, &kinded("Walk — J. Sanoja", PlayKind::RunScoringPlay)),
             "RUN SCORES"
         );
         assert_eq!(
-            word_for(&mlb, &kinded("Play Result — J. Marsee", PlayKind::RunScoringPlay)),
+            word_for(
+                &mlb,
+                &kinded("Strikeout — J. Ortiz", PlayKind::RunScoringPlay)
+            ),
+            "RUN SCORES"
+        );
+        assert_eq!(
+            word_for(
+                &mlb,
+                &kinded("Play Result — J. Marsee", PlayKind::RunScoringPlay)
+            ),
             "RUN SCORES"
         );
         assert_eq!(
@@ -679,7 +798,10 @@ mod tests {
             "HOME RUN"
         );
         assert_eq!(
-            word_for(&mlb, &kinded("A. Judge homers to left center", PlayKind::HomeRun)),
+            word_for(
+                &mlb,
+                &kinded("A. Judge homers to left center", PlayKind::HomeRun)
+            ),
             "HOME RUN"
         );
         // A wire text the mapper didn't classify: the league's honest
@@ -709,8 +831,16 @@ mod tests {
             "End of quarter",
             "Blocked Field Goal returned 62 yards for a TOUCHDOWN",
         ] {
-            assert_eq!(split_surname(text).0, None, "{text:?} has no scorer to name");
-            assert_eq!(split_surname(text).1, text, "the whole sentence survives: {text:?}");
+            assert_eq!(
+                split_surname(text).0,
+                None,
+                "{text:?} has no scorer to name"
+            );
+            assert_eq!(
+                split_surname(text).1,
+                text,
+                "the whole sentence survives: {text:?}"
+            );
         }
         assert_eq!(split_surname("Mahomes 12 Yd pass").0, Some("Mahomes"));
     }
@@ -739,7 +869,10 @@ mod tests {
         // rearranged, and the sentence survives whole.
         let clause = "Kelce 3 Yd pass — no flag on the play";
         assert_eq!(split_surname(clause).0, Some("Kelce"));
-        assert_eq!(split_surname("End of inning — runners left on"), (None, "End of inning — runners left on"));
+        assert_eq!(
+            split_surname("End of inning — runners left on"),
+            (None, "End of inning — runners left on")
+        );
     }
 
     #[test]
@@ -773,9 +906,7 @@ mod tests {
                 continue;
             }
             match out.last_mut() {
-                Some((sx, s, fg))
-                    if *sx + s.chars().count() as u16 == x && *fg == cell.fg =>
-                {
+                Some((sx, s, fg)) if *sx + s.chars().count() as u16 == x && *fg == cell.fg => {
                     s.push_str(cell.symbol())
                 }
                 _ => out.push((x, cell.symbol().to_string(), cell.fg)),
@@ -809,7 +940,10 @@ mod tests {
                     WordForm::Text,
                     "{w}x{h}: {block_cols} cells of block letters cannot fit {w} columns"
                 );
-                assert_eq!(plan.word_rect.height, 1, "{w}x{h}: the text form is one row");
+                assert_eq!(
+                    plan.word_rect.height, 1,
+                    "{w}x{h}: the text form is one row"
+                );
 
                 // Cell level: the word row spells TOUCHDOWN in `hot`, and no
                 // cell anywhere on the frame is a legacy-computing glyph.
@@ -818,7 +952,11 @@ mod tests {
                 assert!(row.contains(word), "{w}x{h}: word row is {row:?}");
                 let x = row.find(word).unwrap() as u16;
                 let r = theme::current().roles();
-                assert_eq!(b[(x, plan.word_rect.y)].fg, r.hot, "{w}x{h}: the word wears hot");
+                assert_eq!(
+                    b[(x, plan.word_rect.y)].fg,
+                    r.hot,
+                    "{w}x{h}: the word wears hot"
+                );
                 assert!(
                     b[(x, plan.word_rect.y)].modifier.contains(Modifier::BOLD),
                     "{w}x{h}: the text form carries its weight in bold"
@@ -831,7 +969,10 @@ mod tests {
                             "{w}x{h}: legacy-computing glyph U+{:04X} at ({x},{y}) — R42 deleted \
                              the rung that drew them\n{}",
                             ch as u32,
-                            (0..h).map(|y| row_text(&b, y)).collect::<Vec<_>>().join("\n")
+                            (0..h)
+                                .map(|y| row_text(&b, y))
+                                .collect::<Vec<_>>()
+                                .join("\n")
                         );
                     }
                 }
@@ -840,7 +981,11 @@ mod tests {
 
         // And the rung above still fires the moment the columns are there.
         let wide = Rect::new(0, 0, 72, 40);
-        assert_eq!(plan(wide, word).word_form, WordForm::Full, "72 columns is exactly enough");
+        assert_eq!(
+            plan(wide, word).word_form,
+            WordForm::Full,
+            "72 columns is exactly enough"
+        );
     }
 
     #[test]
@@ -864,12 +1009,21 @@ mod tests {
         let (score, _) = score_slot(area, &g, &p);
         let labels = runs(&b, score.bottom());
         assert_eq!(
-            labels.iter().map(|(_, s, _)| s.as_str()).collect::<Vec<_>>(),
+            labels
+                .iter()
+                .map(|(_, s, _)| s.as_str())
+                .collect::<Vec<_>>(),
             ["KC", "BUF"],
             "both teams are named under the score, away first"
         );
-        assert_eq!(labels[0].2, away_color, "the away label wears the away digits' color");
-        assert_eq!(labels[1].2, home_color, "the home label wears the home digits' color");
+        assert_eq!(
+            labels[0].2, away_color,
+            "the away label wears the away digits' color"
+        );
+        assert_eq!(
+            labels[1].2, home_color,
+            "the home label wears the home digits' color"
+        );
 
         // A lookalike pair: the HOME side is the one that falls back to
         // amber (theme::hero_pair's rule) — the away side keeps its color.
@@ -877,12 +1031,19 @@ mod tests {
         look.away.color = [12, 44, 86]; // SEA navy
         look.home.color = [19, 41, 75]; // BOS navy
         let (away2, home2, fell2) = theme::hero_pair(&th, look.away.color, look.home.color);
-        assert!(fell2 && home2 == th.roles().digits, "the lookalike rule fired");
+        assert!(
+            fell2 && home2 == th.roles().digits,
+            "the lookalike rule fired"
+        );
         let b = drawn(120, 39, |f| draw_takeover(f, area, &look, &cut, 0));
         let (score, _) = score_slot(area, &look, &p);
         let labels = runs(&b, score.bottom());
         assert_eq!(labels[0].2, away2, "away is never the neutral fallback");
-        assert_ne!(labels[0].2, th.roles().digits, "away keeps its own color when home lifts");
+        assert_ne!(
+            labels[0].2,
+            th.roles().digits,
+            "away keeps its own color when home lifts"
+        );
         assert_eq!(labels[1].2, home2);
 
         // Down the ladder: both abbrs or neither, never one, and never two
@@ -914,7 +1075,10 @@ mod tests {
             }
         }
         for size in [(80, 24), (120, 40)] {
-            assert!(named_at.contains(&size), "{size:?} has room to name both: {named_at:?}");
+            assert!(
+                named_at.contains(&size),
+                "{size:?} has room to name both: {named_at:?}"
+            );
         }
     }
 
@@ -931,10 +1095,16 @@ mod tests {
 
         let y = area.bottom() - 1;
         let text = row_text(&b, y);
-        assert!(text.contains("CHIEFS AT BILLS"), "the strip names the game: {text:?}");
+        assert!(
+            text.contains("CHIEFS AT BILLS"),
+            "the strip names the game: {text:?}"
+        );
         // Zero ticks elapsed against CUT_TICKS (3 s at LIVE_TICKS_PER_SEC = 10).
         assert_eq!(cut.remaining_secs(0), 3);
-        assert!(text.ends_with("clears in 3s"), "the timer is right-aligned: {text:?}");
+        assert!(
+            text.ends_with("clears in 3s"),
+            "the timer is right-aligned: {text:?}"
+        );
         for x in 0..area.width {
             if b[(x, y)].symbol() != " " {
                 assert_eq!(b[(x, y)].fg, r.dim, "the whole strip is dim, at ({x},{y})");
@@ -957,7 +1127,11 @@ mod tests {
         assert_eq!(cut.remaining_secs(0), 2);
         assert_eq!(cut.remaining_secs(5), 1);
         assert_eq!(cut.remaining_secs(14), 1);
-        assert_eq!(cut.remaining_secs(15), 0, "expired means zero, not underflow");
+        assert_eq!(
+            cut.remaining_secs(15),
+            0,
+            "expired means zero, not underflow"
+        );
         assert_eq!(cut.remaining_secs(9_999), 0);
 
         let area = Rect::new(0, 0, 120, 2);
@@ -967,7 +1141,10 @@ mod tests {
             text.starts_with("enter jump · clears in 2s"),
             "the affordance is the second row: {text:?}"
         );
-        assert!(!text.contains("KELCE"), "the play is not repeated on row two: {text:?}");
+        assert!(
+            !text.contains("KELCE"),
+            "the play is not repeated on row two: {text:?}"
+        );
         let r = theme::current().roles();
         // Ink stays the ground role on the hot fill — `dim` is a
         // ground-relative gray and vanishes on hot (the v3.2 receipt) — so
@@ -975,8 +1152,14 @@ mod tests {
         // one is not.
         assert_eq!(b[(0, 1)].fg, r.ground);
         assert_eq!(b[(0, 1)].bg, r.hot);
-        assert!(b[(0, 0)].modifier.contains(Modifier::BOLD), "the headline is bold");
-        assert!(!b[(0, 1)].modifier.contains(Modifier::BOLD), "the affordance is not");
+        assert!(
+            b[(0, 0)].modifier.contains(Modifier::BOLD),
+            "the headline is bold"
+        );
+        assert!(
+            !b[(0, 1)].modifier.contains(Modifier::BOLD),
+            "the affordance is not"
+        );
 
         // One second later it counts down with the clock.
         let b = drawn(120, 2, |f| draw_band(f, area, &game(), &cut, 10));
