@@ -56,9 +56,27 @@ fn stamp(err: ProviderError, key: &str) -> ProviderError {
 
 impl EspnProvider {
     pub fn new(cache_dir: PathBuf, offset: time::UtcOffset) -> Self {
+        Self::with_timeouts(cache_dir, offset, HTTP_TIMEOUT)
+    }
+
+    /// Split out so tests can shrink the bound (real timeouts would make a
+    /// stalled-server test take as long as the timeout itself).
+    pub(crate) fn with_timeouts(
+        cache_dir: PathBuf,
+        offset: time::UtcOffset,
+        timeout: Duration,
+    ) -> Self {
         let config = ureq::Agent::config_builder()
-            .timeout_connect(Some(HTTP_TIMEOUT))
-            .timeout_recv_body(Some(HTTP_TIMEOUT))
+            // Three timeouts stand in for ureq 2's connect+read pair:
+            // connect (the TCP handshake), recv_response (headers — a
+            // server that accepts and then never answers would otherwise
+            // block forever, since ureq 3 leaves this unbounded by
+            // default), and recv_body (the response body). ureq 2's single
+            // `timeout_read` covered both headers and body; ureq 3 splits
+            // them, so both must be set to keep the same bound.
+            .timeout_connect(Some(timeout))
+            .timeout_recv_response(Some(timeout))
+            .timeout_recv_body(Some(timeout))
             .user_agent(USER_AGENT)
             // 4xx/5xx surface as `Error::StatusCode(code)`. 304 is neither —
             // ureq 3's `is_client_error() || is_server_error()` check never
@@ -700,7 +718,9 @@ mod tests {
     /// A one-shot raw HTTP/1.1 server: accepts a single connection, reads
     /// the request through the blank line that ends the headers (and hands
     /// that request text back over the channel for the caller to inspect),
-    /// then writes `response` verbatim and lets the stream drop.
+    /// then writes `response` verbatim and lets the stream drop. Read/write
+    /// timeouts on the accepted socket mean a malformed request fails the
+    /// test instead of hanging it.
     fn one_shot_server(
         response: &'static str,
     ) -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
@@ -710,6 +730,8 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             if let Ok((stream, _)) = listener.accept() {
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut request = String::new();
                 loop {
@@ -786,6 +808,43 @@ mod tests {
         let err = p.http(&format!("http://{addr}/x"), None).unwrap_err();
         match err {
             ProviderError::Http { status, .. } => assert_eq!(status, 403),
+            other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    /// ureq 3 leaves `recv_response` (the response-headers timeout)
+    /// unbounded by default, unlike ureq 2's single `timeout_read`, which
+    /// covered both headers and body. A server that accepts the connection
+    /// and then never answers must not wedge the poll thread forever.
+    /// `with_timeouts` overrides the real 10s `HTTP_TIMEOUT` down to 300ms
+    /// so this test doesn't take as long as the bound it's proving.
+    #[test]
+    fn a_stalled_server_times_out_instead_of_hanging_forever() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                // Accept, then go silent — bounded to 1s so the thread
+                // can't outlive the test even if the timeout under test
+                // fails to fire.
+                std::thread::sleep(Duration::from_millis(1000));
+                drop(stream);
+            }
+        });
+        let dir = tmp("stall");
+        let p = EspnProvider::with_timeouts(dir, time::UtcOffset::UTC, Duration::from_millis(300));
+        let err = p.http(&format!("http://{addr}/x"), None).unwrap_err();
+        match err {
+            ProviderError::Http { status, detail, .. } => {
+                assert_eq!(
+                    status, 0,
+                    "a stalled response is a transport failure, not a status code"
+                );
+                assert!(
+                    detail.to_lowercase().contains("timeout"),
+                    "detail must say timeout so short() reports \"ESPN timeout\": {detail:?}"
+                );
+            }
             other => panic!("expected Http, got {other:?}"),
         }
     }
