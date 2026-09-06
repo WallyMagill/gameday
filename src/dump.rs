@@ -328,8 +328,8 @@ pub fn render_demo_buffer(cols: u16, rows: u16, tick: u64) -> std::io::Result<Bu
     let dir = std::env::temp_dir().join(format!("gameday-dump-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     let mut app = demo_app(dir, tick);
-    let mut term = Terminal::new(TestBackend::new(cols, rows))?;
-    term.draw(|f| app.draw(f))?;
+    let mut term = Terminal::new(TestBackend::new(cols, rows)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
     Ok(term.backend().buffer().clone())
 }
 
@@ -343,8 +343,8 @@ pub fn render_variant(v: &Variant, tick: u64) -> std::io::Result<Buffer> {
         std::fs::create_dir_all(&dir)?;
         let mut app = demo_app(dir, tick);
         (v.setup)(&mut app).unwrap_or_else(|e| panic!("dump variant {}: {e}", v.stem));
-        let mut term = Terminal::new(TestBackend::new(v.cols, v.rows))?;
-        term.draw(|f| app.draw(f))?;
+        let mut term = Terminal::new(TestBackend::new(v.cols, v.rows)).unwrap();
+        term.draw(|f| app.draw(f)).unwrap();
         Ok(term.backend().buffer().clone())
     })
 }

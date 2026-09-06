@@ -301,8 +301,9 @@ pub fn run(spec: &Spec) -> std::io::Result<()> {
             ))
         })?;
         let mut term =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(spec.cols, spec.rows))?;
-        term.draw(|f| app.draw(f))?;
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(spec.cols, spec.rows))
+                .unwrap();
+        term.draw(|f| app.draw(f)).unwrap();
         Ok::<_, std::io::Error>(term.backend().buffer().clone())
     })?;
     let page = Page {
