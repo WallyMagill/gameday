@@ -309,6 +309,16 @@ Ready at the tag, posted when Walter says: the GIF; Terminal Trove submission (n
 
 Receipts required, one line each when landed: CI run links per wave; test counts before/after each wave; `kill -TERM` and `HTTPS_PROXY` offline captures (wave 0); catch-up request count and rate from a live window (wave 1); review-slate ranking output (wave 2); paging captures at top/middle/end (wave 3); notification screenshot and the status-line capture (wave 4); the sitting's contact sheet and letters (wave 5); rc install receipts, NFL replay provenance, probability-field finding, request-rate log over a live-to-idle transition (wave 6). The standings season-type probe result (§3.3 D10) is recorded here whichever way it goes.
 
+### Wave 0 — landed 2026-09-06
+
+- Suite: 526 → 532 tests (ureq-3 transport-error test, three real-socket http arm tests, a stalled-server timeout test, the malformed-theme proof); fmt, clippy `-D warnings`, deny, package (1,217,109 bytes) all green locally; CI file runs the same commands and awaits the first push.
+- Deps: ratatui 0.30.2, crossterm 0.29.0, ureq 3.4.1, dirs 7.0.0, tui-big-text 0.8.9, signal-hook 0.3.18; one `crossterm` in the graph (confirmed via `cargo tree`: a single `crossterm v0.29.0` node — the literal DoD grep reads `4` because it also substring-matches the unrelated `ratatui-crossterm` crate); rust-version 1.88.
+- `kill -TERM` receipt (three captured lines, verbatim): `EXIT=0`; `speed 9600 baud; 30 rows; 100 columns;` (no `-icanon`/`-echo`, cooked mode restored); `TYPED_OK` (typed input echoed normally afterward).
+- Offline receipt (`HTTPS_PROXY=http://127.0.0.1:9`), verbatim: header `` GAMEDAY [ALL]                                           s SORT: WATCH   OFFLINE · retry 9s  SUN SEP 6 2026  3:55:55 PM ``; footer `` mls · ESPN unreachable mls scoreboard · retry in 9s ``.
+- app/mod.rs: 3,329 lines pre-rustfmt (3,449 after rustfmt, start of wave) → 410 lines now; split into merge/order/persist/draw/keys/*/tests, test count unchanged by the split. `wc -l src/app/mod.rs src/app/*.rs src/app/keys/*.rs` (the DoD's own command) totals 5,209 — it double-counts mod.rs via the explicit path plus the `*.rs` glob; the 17-file tree counted once each is 4,799 lines.
+- Ruling references in comments: 465 → 0 (brief's grep). The wider class (`review finding N`, `sitting-N pick NA`, `carry forward`/`Task-N carry`, bare version markers like `v3.2 decision`) went 81 → 9; the remaining 9 are all `docs/research/v3-identity/` path references (fixture citations, not ruling numbers) that a later wave clears when that directory is renamed/removed.
+- Deferred to the final review wave: `assets/logos/wnba/con.ans` and `assets/logos-light/wnba/con.ans` (both grounds) are reserved Windows filenames and must be renamed before a Windows build target; `deny.toml` is packaged into the crate (+5.7 KB) and could join the `package.exclude` list.
+
 ## §10 Non-goals and reopens
 
 - ESPN's fastcast websocket (sub-second pushes): named, not built. Reopens if polling proves too slow for the cut after 1.0.
