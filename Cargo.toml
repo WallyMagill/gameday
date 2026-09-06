@@ -14,3 +14,6 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing", "serde", "local-offset", "macros"] }
 dirs = "7"
 tui-big-text = "0.8"
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"

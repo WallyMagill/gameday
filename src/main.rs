@@ -552,6 +552,26 @@ fn install_panic_hook() {
     }));
 }
 
+/// SIGTERM / SIGHUP (a closed terminal, `kill`, a session manager) set this
+/// flag; the UI loop treats it as `q`, so the one restore path runs and the
+/// terminal is never left in raw mode. Ctrl-C arrives as a key event through
+/// crossterm and is handled by the keymap, not here.
+#[cfg(unix)]
+fn install_signal_flag() -> Arc<AtomicBool> {
+    let flag = Arc::new(AtomicBool::new(false));
+    for sig in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGHUP] {
+        // Registration only fails for signals that cannot be caught; TERM
+        // and HUP can, and a failure here would just leave the old behavior.
+        let _ = signal_hook::flag::register(sig, Arc::clone(&flag));
+    }
+    flag
+}
+
+#[cfg(not(unix))]
+fn install_signal_flag() -> Arc<AtomicBool> {
+    Arc::new(AtomicBool::new(false))
+}
+
 struct RestoreTerminal;
 
 impl Drop for RestoreTerminal {
@@ -580,6 +600,7 @@ fn run_ui(
     refresh: RefreshFlag,
 ) -> std::io::Result<()> {
     install_panic_hook();
+    let term_signal = install_signal_flag();
     let mut published = gameday::poll::Wants::default();
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
@@ -675,6 +696,9 @@ fn run_ui(
                 *w = next.clone();
                 published = next;
             }
+        }
+        if term_signal.load(Ordering::Relaxed) {
+            app.should_quit = true;
         }
         if app.should_quit {
             break 'ui;
