@@ -1,6 +1,6 @@
 //! Shared chrome: the header row, the ticker strip, the footer row and the
 //! '?' overlay. Identical across every view — `views/` draws only the body
-//! between them. Lifted out of `app.rs` whole (Task 16); the only edits are
+//! between them. Lifted out of `app.rs` whole; the only edits are
 //! the three reads that now come from the frame's `Derived` instead of
 //! re-deriving their own lists.
 
@@ -35,14 +35,14 @@ struct HeaderRung {
 }
 
 impl App {
-    /// The header row. Its rule (spec R12): the right side — sort chip,
+    /// The header row. Its rule: the right side — sort chip,
     /// status chip, date, clock — is never dropped and never clipped. A
     /// clock that vanishes on a 120-column terminal is worse than a tab bar
     /// that reads `NFL NBA` instead of `[ NFL ] [ NBA ]`, so the LEFT side is
     /// what gives, in this order: the chips' brackets, trailing league tabs
     /// (never past the selected one), and finally the wordmark `GAMEDAY` →
-    /// `GD`. Spec §1: there is no `FILTER:` label anywhere on this ladder —
-    /// v3.1's rung 0 is gone, and the bracketed chip row is the default.
+    /// `GD`. There is no `FILTER:` label anywhere on this ladder — the old
+    /// rung 0 is gone, and the bracketed chip row is the default.
     pub(super) fn draw_header(&mut self, frame: &mut Frame, area: Rect) {
         let th = theme::current();
         let width = area.width as usize;
@@ -78,7 +78,7 @@ impl App {
         let date_len = date.chars().count() + 2;
         let clock_len = clock.chars().count() + 1;
 
-        // The sort chip (spec §1: `s SORT: WATCH`) — Board view only. It
+        // The sort chip (`s SORT: WATCH`) — Board view only. It
         // sits on the right, ahead of the NetStatus chip, and — like that
         // chip — degrades to nothing rather than ever clip the clock.
         let sort_text =
@@ -90,7 +90,7 @@ impl App {
         let labels: Vec<(String, Tab)> = self
             .tab_list()
             .into_iter()
-            // Spec §1: only an enabled league with a game today earns a
+            // Only an enabled league with a game today earns a
             // chip; the rest stay reachable via `:league`. The active tab is
             // exempt — switching to a quiet league must not erase its own
             // highlight.
@@ -313,7 +313,7 @@ impl App {
     }
 
     /// One SCORES lane, gated by `layout::plan(...).scores_lane` in
-    /// `App::draw` (spec §1) — the Board never reaches this at all, since it
+    /// `App::draw` — the Board never reaches this at all, since it
     /// draws its own inline off-screen lane (one lane, one owner).
     pub(super) fn draw_ticker(&self, frame: &mut Frame, area: Rect) {
         let d = self.derived();
@@ -408,10 +408,10 @@ impl App {
                 ));
             }
         } else if ctx == keymap::FooterCtx::Board {
-            // Spec §1: the Board footer is the fixed A′ legend — lowercase,
-            // no brackets, no `NAV:` label. CMD earns no slot here (still
-            // reachable via `:` and the help overlay); SORT/TV get real
-            // KEYMAP rows in Task 10.
+            // The Board footer is the fixed A′ legend — lowercase, no
+            // brackets, no `NAV:` label. CMD earns no slot here (still
+            // reachable via `:` and the help overlay); SORT/TV have real
+            // KEYMAP rows of their own.
             let mut pairs: Vec<(&str, &str)> = keymap::BOARD_LEGEND.to_vec();
             let legend_width = |ps: &[(&str, &str)]| -> usize {
                 filter_width
@@ -434,7 +434,7 @@ impl App {
                 ));
             }
         } else {
-            // Spec §5: every other view speaks the same lowercase, no-caps,
+            // Every other view speaks the same lowercase, no-caps,
             // no-`NAV:` grammar as the Board and TV legends — same
             // `FOOTER_DROP_ORDER` shed discipline (HELP/QUIT/BACK never
             // shed), just translated through `keymap::lower_key`.
@@ -477,8 +477,8 @@ impl App {
                 right.push(format!("GAME {}/{}", self.selected + 1, sel_len));
             }
         }
-        // v3.2 §7: no pages — the board is one scrolling list, so GAME x/y is
-        // the whole position report.
+        // There are no pages — the board is one scrolling list, so GAME x/y
+        // is the whole position report.
         // The UPD age freezes and dims the moment the data stops arriving —
         // `net` marks the frozen label with a trailing "·" so a stale number
         // can't pass for a live one.
@@ -527,7 +527,7 @@ impl App {
                 cell.bg = theme::dimmed(cell.bg);
             }
         }
-        // Spec v3.3 §5: the overlay speaks the same lowercase grammar as
+        // The overlay speaks the same lowercase grammar as
         // every footer — group titles, key chords and labels all run
         // through the keymap's lowering (`keymap::lower_key` for chords,
         // `.to_lowercase()` for labels/titles), not hand-written caps.

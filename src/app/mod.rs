@@ -70,7 +70,7 @@ pub struct App {
     pub boards: HashMap<League, Vec<Game>>,
     /// Display order of the live band. Re-sorts only when data arrives (a
     /// fresh board apply, or a summary that moved the scoring plays), so the
-    /// board never slides under the eye between events (spec §2).
+    /// board never slides under the eye between events.
     pub order: crate::rank::OrderState,
     /// Box scores by game id, filled by the ~30s stats poll while that game
     /// is zoomed. Pruned with `last_scores` when a game leaves every board.
@@ -91,7 +91,7 @@ pub struct App {
     /// Highlighted row in the Zoom Plays feed (j/k); reset when the zoom
     /// opens or its tab changes.
     pub zoom_scroll: usize,
-    /// TV (spec §3): the game filling the screen. Set when `:tv`/`v` opens,
+    /// TV: the game filling the screen. Set when `:tv`/`v` opens,
     /// then moved by `n` or by an EVENT — never by a timer. `None` falls
     /// back to the board's own hero.
     pub tv_shown: Option<String>,
@@ -108,8 +108,8 @@ pub struct App {
     /// The largest offset the Standings pane could draw on its last frame (the
     /// renderer records it, like hit zones). `None` until the first draw, when
     /// the clamp falls back to the line count. Recorded rather than recomputed
-    /// because it depends on the frame's width: spec v3.3 §5's two-column
-    /// table halves how far there is to scroll.
+    /// because it depends on the frame's width: the two-column table halves
+    /// how far there is to scroll.
     pub standings_max_scroll: Option<usize>,
     /// Selected row in the Config view, an index into
     /// `views::config_view::rows`; reset when the view opens.
@@ -167,9 +167,9 @@ pub struct App {
     /// What the live band looked like the last time it was allowed to
     /// re-sort: id -> (away, home, status, hot, men). A poll that only advanced
     /// the clock leaves every fingerprint equal, so no reorder happens — the
-    /// order is frozen even though watchability keeps rising (R24 / spec §2).
+    /// order is frozen even though watchability keeps rising.
     ///
-    /// `men` is soccer's on-field count (spec v3.4 §5). `hot` alone would not
+    /// `men` is soccer's on-field count. `hot` alone would not
     /// carry it: a match already hot on STOPPAGE that then loses a man would
     /// show the same fingerprint, and the sending-off — the biggest thing to
     /// happen to that match — would never move the board. The count, not a
@@ -182,7 +182,7 @@ pub struct App {
     /// The header banner currently showing, if any; expired by
     /// `advance_tick` once its `until_tick` passes.
     pub active_alert: Option<crate::alerts::Alert>,
-    /// The scoring cut (spec §3): a full-frame takeover for a game you care
+    /// The scoring cut: a full-frame takeover for a game you care
     /// about, a quiet 2-row band for everything else. Fired from the score
     /// delta below; read once per draw.
     pub cuts: crate::board::cut::CutState,

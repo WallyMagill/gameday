@@ -1,7 +1,7 @@
 //! Watchability: which game deserves the hero and the hot mark. Pure
 //! functions of the Game — the clock grammar strings come straight from the
 //! mapper (fixtures verified per league), and an unparsed string scores 0 so
-//! bad data can never lead the board (spec §2).
+//! bad data can never lead the board.
 use crate::domain::{Extras, Game, League, Meter, Status};
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -53,7 +53,7 @@ pub fn lateness(league: League, period: &str, clock: &str) -> u32 {
             let qlen = quarter_len(league);
             // Unparseable clock ("junk", "") reads as "just started" (played
             // = 0), not "fully elapsed" — a bad clock string must never
-            // inflate lateness (gap R23).
+            // inflate lateness.
             let played = clock_secs(clock).map(|s| qlen - s.min(qlen)).unwrap_or(0);
             (((q - 1) as u32 * qlen + played) * 100 / (4 * qlen)).min(100)
         }
@@ -135,7 +135,7 @@ fn quarter_len(league: League) -> u32 {
 
 /// "1:52" → Some(112); an unparseable clock ("junk", "") → None, so callers
 /// can treat it as "clock unknown" (played = 0, this segment just started)
-/// rather than silently reading it as fully elapsed (gap R23).
+/// rather than silently reading it as fully elapsed.
 fn clock_secs(clock: &str) -> Option<u32> {
     let mut it = clock.split(':');
     match (
@@ -177,11 +177,10 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
 
     match g.league {
         League::Nfl | League::Cfb => {
-            // Red zone bonus: spec §2 table. The source is ESPN's own
-            // `situation.isRedZone` (spec v3.4 §3), not a yard number
-            // re-derived from `possessionText`. An absent flag is not a
-            // "no" but it is not a chip either — the board stays quiet
-            // rather than guessing.
+            // Red zone bonus. The source is ESPN's own
+            // `situation.isRedZone`, not a yard number re-derived from
+            // `possessionText`. An absent flag is not a "no" but it is not
+            // a chip either — the board stays quiet rather than guessing.
             if g.situation.as_ref().and_then(|s| s.is_red_zone) == Some(true) {
                 bonus!(40, Some("RED ZONE"));
             }
@@ -219,18 +218,17 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
                 (g.home_score, g.away_score)
             };
             // `field >= bat`: a tied game with a runner on is the walk-off
-            // situation, and spec §2 says "tying/**go-ahead** run on base" —
+            // situation, and the rule is "tying/**go-ahead** run on base" —
             // the old `>` gave the tied 9th no chip and no hot mark. At 0
             // margin the runner is the go-ahead run, so the chip says so.
             if inning_late && runners > 0 && field >= bat && field - bat <= runners + 1 {
-                // Name the base (spec §2) — the lead runner's, the one whose
-                // run ties or wins it. The chip is a `&'static str`, so
-                // these are the six spellings, not a `format!`. Thirteen
-                // cells is the budget rather than a style choice: the tier-1
-                // chip rides under the clock in `rows::T1_CHIP_W`, 13 cells
-                // to the play-text column, so spec §2's literal
-                // "TYING RUN ON 3RD" (16) would still paint into the play —
-                // "TYING RUN 3RD" (13, spec v3.3 §7) fits exactly.
+                // Name the base — the lead runner's, the one whose run ties or
+                // wins it. The chip is a `&'static str`, so these are the six
+                // spellings, not a `format!`. Thirteen cells is the budget rather
+                // than a style choice: the tier-1 chip rides under the clock in
+                // `rows::T1_CHIP_W`, 13 cells to the play-text column, so the
+                // literal "TYING RUN ON 3RD" (16) would still paint into the play
+                // — "TYING RUN 3RD" (13) fits exactly.
                 let lead = bases.iter().rposition(|b| *b).unwrap_or(0);
                 let chip = match (field == bat, lead) {
                     (true, 0) => "GO-AHEAD 1ST",
@@ -253,7 +251,7 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             }
         }
         League::Nhl => {
-            // R49: real NHL strength is summary-derived, and the summary
+            // Real NHL strength is summary-derived, and the summary
             // lands only for the game the viewer has zoomed. Scoring it
             // would put a POWER PLAY chip and the hot flag on that one board
             // row while an identical unzoomed power play three rows down
@@ -277,7 +275,7 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             }
         }
         League::Epl | League::Mls => {
-            // A sending-off, first (spec v3.4 §5). It outranks STOPPAGE for
+            // A sending-off, first. It outranks STOPPAGE for
             // the chip because it is the state that reshapes everything left
             // of the match, while stoppage time is the minute you are in.
             //
@@ -319,7 +317,7 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
 
 /// How the board orders its live games. `Watch` is watchability (the default);
 /// `Time` and `League` are the stable alternatives a viewer can cycle to when
-/// they want a slate that never moves for reasons they can't see (spec §2).
+/// they want a slate that never moves for reasons they can't see.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SortKey {
@@ -348,11 +346,11 @@ impl SortKey {
     }
 }
 
-/// Render ticks a nudge stays visible: 10 s at the live cadence (spec §1).
+/// Render ticks a nudge stays visible: 10 s at the live cadence.
 pub const NUDGE_TICKS: u64 = 10 * crate::app::LIVE_TICKS_PER_SEC;
 
 /// Owns the display order of live games. Reorders ONLY in `on_event`; between
-/// events the order is frozen even as lateness rises (spec §2) — a board that
+/// events the order is frozen even as lateness rises — a board that
 /// re-sorted on every render tick would slide out from under the eye.
 #[derive(Default)]
 pub struct OrderState {
@@ -364,7 +362,7 @@ pub struct OrderState {
 
 /// Sort `games` by `key`, returning ids. `enabled` is the viewer's tab order —
 /// the League key follows it, not `League::ALL`, so the board reads in the
-/// order the tab row shows (R25). Every comparison ends in the id so the
+/// order the tab row shows. Every comparison ends in the id so the
 /// result is total: two games that tie on the key never swap between events.
 fn sorted_ids(
     games: &[Game],
@@ -404,8 +402,8 @@ fn sorted_ids(
 }
 
 /// Who the ranking would put first RIGHT NOW, ignoring the frozen display
-/// order. `:tv` is the only caller: the screen switches on the next event
-/// (spec §3), so between events it has to be able to name the game it will
+/// order. `:tv` is the only caller: the screen switches on the next event,
+/// so between events it has to be able to name the game it will
 /// switch to without moving there. Nothing here reorders anything.
 pub fn top_id(
     games: &[Game],
@@ -474,7 +472,7 @@ impl OrderState {
         out
     }
 
-    /// `Some(n)` while game `id` shows an `↑n` nudge (10 s per spec §1).
+    /// `Some(n)` while game `id` shows an `↑n` nudge (10 s at the live cadence).
     pub fn nudge(&self, id: &str, tick: u64) -> Option<usize> {
         self.nudges
             .get(id)
@@ -551,7 +549,7 @@ mod tests {
         let blowout_early = g(League::Nfl, "Q1", "12:00", 28, 0);
         assert!(watchability(&close_late, now()).score > watchability(&blowout_early, now()).score);
         // Red zone: hot + chip regardless of margin. Source is ESPN's own
-        // `isRedZone` (spec v3.4 §3), not the meter the gauge draws.
+        // `isRedZone`, not the meter the gauge draws.
         let mut rz = g(League::Nfl, "Q3", "9:05", 31, 3);
         rz.situation = Some(Situation {
             is_red_zone: Some(true),
@@ -567,7 +565,7 @@ mod tests {
         assert_eq!(w2.chip, Some("2-MIN"));
     }
 
-    /// Spec v3.4 §3: the RED ZONE chip is ESPN's `situation.isRedZone`, not a
+    /// The RED ZONE chip is ESPN's `situation.isRedZone`, not a
     /// re-derivation from `possessionText`. The old parse split the text on
     /// its last space and read the tail as a yard number, so a text it
     /// couldn't split lost the chip and a text ending in a small number won
@@ -884,7 +882,7 @@ mod tests {
             vec!["b", "a"],
             "NFL precedes MLB in the default tab order"
         );
-        // R25: the League key follows the viewer's tab order, so moving MLB
+        // The League key follows the viewer's tab order, so moving MLB
         // to the front of `enabled_tabs` moves it to the front of the board.
         let mlb_first = [League::Mlb, League::Nfl];
         os.on_event(&board, SortKey::League, &mlb_first, now(), 0);
@@ -919,7 +917,7 @@ mod tests {
         assert!(!w2.hot, "a stoppage blowout is not hot");
     }
 
-    /// Spec v3.4 §5: a sending-off is hot at any scoreline, names the count,
+    /// A sending-off is hot at any scoreline, names the count,
     /// and outranks STOPPAGE for the chip.
     #[test]
     fn a_sending_off_is_hot_at_any_scoreline() {

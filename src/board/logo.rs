@@ -152,7 +152,7 @@ pub fn committed_keys() -> impl Iterator<Item = &'static str> {
     LOGO_SOURCES.iter().map(|(key, _)| *key)
 }
 
-/// The same keys, in the light set (v3.4 §7). The two sets carry the same
+/// The same keys, in the light set. The two sets carry the same
 /// teams — `tools/gen-logos.sh` writes both from one pass.
 pub fn light_keys() -> impl Iterator<Item = &'static str> {
     LIGHT_LOGO_SOURCES.iter().map(|(key, _)| *key)
@@ -272,8 +272,8 @@ mod tests {
         assert_eq!(art.rows[0][0].bg, Some((1, 2, 3)));
     }
 
-    /// Ruling R41: every bundled mark draws on a terminal that only has the
-    /// quadrant blocks. The v3.2 art was generated with chafa's `sextant`
+    /// Every bundled mark draws on a terminal that only has the
+    /// quadrant blocks. The original art was generated with chafa's `sextant`
     /// class, whose U+1FB00–1FB3B range Terminal.app's default font does not
     /// cover — every mark was a field of tofu boxes there, and in the
     /// gallery's own PNG pipeline. `tools/gen-logos.sh` now defaults to

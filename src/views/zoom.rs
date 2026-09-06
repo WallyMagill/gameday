@@ -1,7 +1,7 @@
 //! Zoomed single-game view (`z`/Enter): a tab bar — OVERVIEW │ PLAYS │ STATS
 //! — over one game's full-body surface.
 //!
-//! Overview is spec §5: the same [`hero`] block the board and `:tv` draw, the
+//! Overview is the same [`hero`] block the board and `:tv` draw, the
 //! shared [`linescore`] table, one per-sport matchup line, then the feed.
 //! Plays is the game's full feed with a j/k highlight; Stats is the box score.
 
@@ -101,11 +101,11 @@ const HERO_ROWS: u16 = 1 + 8 + 3;
 /// section is a header over a void.
 const FEED_MIN: u16 = 5;
 
-/// The overview body, top down: hero, linescore, matchup line, feed (spec
-/// §5). Everything under the hero is charged against what the hero left, in
+/// The overview body, top down: hero, linescore, matchup line, feed.
+/// Everything under the hero is charged against what the hero left, in
 /// that order — the same "the hero shrinks last" rule the board runs on.
 fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
-    // The NHL penalty meter is the zoom's alone (R49). `hero::draw_hero`
+    // The NHL penalty meter is the zoom's alone. `hero::draw_hero`
     // reads `game.meter`, the same field the board and `:tv` read, so the
     // meter is attached to a local copy here instead of being stored on the
     // shared game — the surfaces that must not show it read a field it was
@@ -148,8 +148,8 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
         &hero::HeroPlan {
             // The zoom is a full-width surface, so it takes the board's own
             // >=100-col bracket for the big digits and the flanking marks.
-            // Spec §0 makes the marks hero-only and names TV, the cut and the
-            // row tiers as the logo-free surfaces; the zoom IS the hero
+            // The marks are hero-only, and TV, the cut and the row tiers are
+            // the logo-free surfaces; the zoom IS the hero
             // block, at the width the marks were measured for.
             digits_full: area.width >= 100,
             chip: strength_chip(game).or_else(|| crate::rank::watchability(game, now).chip),
@@ -198,7 +198,7 @@ fn draw_overview(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
     }
 }
 
-/// The NHL special-teams chip (spec v3.4 §4), from `Extras::Hockey` —
+/// The NHL special-teams chip, from `Extras::Hockey` —
 /// which only a summary fills, so only the zoomed game can wear it. The
 /// board's own chip stays `rank::watchability`'s until the October
 /// scoreboard probe says whether the scoreboard carries strength at all;
@@ -230,8 +230,8 @@ const MATCH_EVENTS: usize = 3;
 /// total.
 const TIMEOUTS_PER_HALF: u8 = 3;
 
-/// The per-sport matchup/state line under the linescore (spec §5). Every
-/// string here comes from a field sub-project 1 mapped and nothing ever drew:
+/// The per-sport matchup/state line under the linescore. Every string here
+/// comes from a field the mapper filled and nothing ever drew:
 /// `Situation::{pitcher,batter,due_up}`, `Game::timeouts`, and
 /// `Extras::Soccer::events`. `None` when the sport has no such line, or when
 /// the feed has not filled the fields it would be made of.
@@ -240,7 +240,7 @@ const TIMEOUTS_PER_HALF: u8 = 3;
 /// them once the game ends) — the per-league match below would always read
 /// `None` for one, and a startup final (loaded already-final, no delta ever
 /// captured) never printed a story anywhere in the zoom. So a final takes
-/// this line over for its own header: the spec v3.4 §6 / R47 ladder,
+/// this line over for its own header: the same final-story ladder,
 /// `rows::final_story` shared with the board's tier-3 row so the two never
 /// disagree.
 fn matchup_line(app: &App, game: &Game, width: usize) -> Option<Line<'static>> {

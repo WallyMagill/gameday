@@ -109,8 +109,8 @@ pub struct Play {
     pub text: String,
     pub scoring: bool,
     /// Structural play kind from the ESPN id tables (`provider::kinds`).
-    /// Defaults to `Other` for every legacy/demo/sim constructor — Task 3
-    /// wires the mapper to populate this from real feed ids.
+    /// Defaults to `Other` for every legacy/demo/sim constructor; only the
+    /// feed mapper fills it, from real ESPN play ids.
     pub kind: PlayKind,
     /// Runs/points this play was worth, where the feed says so (MLB pitch
     /// outcomes, NBA/WNBA/CBB shots, NHL goals). None everywhere else.
@@ -138,12 +138,11 @@ pub enum PlayKind {
     // Soccer cards.
     YellowCard,
     RedCard,
-    // NHL penalty plays (meta lives in Extras::Hockey, Task 7).
+    // NHL penalty plays (meta lives in Extras::Hockey).
     HockeyPenalty,
     // Hoops, DERIVED: scoringPlay && score_value == Some(3). Not
-    // shootingPlay: CBB's endpoint stamps scoreValue on missed threes too
-    // (v3.4 T3 review: CBB stamps scoreValue on misses), so shootingPlay
-    // alone would tag a miss as a make.
+    // shootingPlay: CBB's endpoint stamps scoreValue on missed threes
+    // too, so shootingPlay alone would tag a miss as a make.
     ThreePointer,
     /// Everything unmapped.
     #[default]
@@ -156,8 +155,8 @@ pub struct Situation {
     pub down_distance: String,
     pub possession: Option<String>,
     pub ball_on: Option<String>,
-    // Football-only structure, straight off `competition.situation` (spec
-    // v3.4 §3): the numbers ESPN already computed, never re-derived from
+    // Football-only structure, straight off `competition.situation`:
+    // the numbers ESPN already computed, never re-derived from
     // `downDistanceText`/`possessionText`. None for every other sport, and
     // for a football feed that doesn't send them (pre/final games).
     pub down: Option<u8>,
@@ -279,13 +278,13 @@ pub enum Extras {
     },
     /// Soccer, from `competition.details[]` on the SCOREBOARD — the one
     /// live-state win in v3.4 that costs no extra request, so it is
-    /// board-wide by construction (spec §5). `men` is the derived
+    /// board-wide by construction. `men` is the derived
     /// (away, home) on-field count, `None` at eleven a side.
     Soccer {
         events: Vec<MatchEvent>,
         men: Option<(u8, u8)>,
     },
-    /// NHL, from the summary's play list (spec v3.4 §4): the current
+    /// NHL, from the summary's play list: the current
     /// strength and every penalty called so far, oldest first.
     Hockey {
         strength: HockeyStrength,
@@ -298,7 +297,7 @@ impl Extras {
     /// declares. Derived on demand rather than stored on [`Game`]: only the
     /// zoomed game has a summary, so a stored meter would light a chip and a
     /// meter row on that one board row while an identical unzoomed power
-    /// play showed nothing (R49). The zoom calls this; the board and `:tv`
+    /// play showed nothing. The zoom calls this; the board and `:tv`
     /// read `game.meter`, so they cannot see it.
     ///
     /// Gate: the current strength is PowerPlay or Shorthanded — ESPN
@@ -379,7 +378,7 @@ pub struct Game {
     pub odds: Option<String>,
     /// A final's own one-line story, from the scoreboard's
     /// `competitions[0].headlines[0].shortLinkText` — never `description`,
-    /// which is em-dash wire copy, not display prose (spec v3.4 §6). `None`
+    /// which is em-dash wire copy, not display prose. `None`
     /// when the event carries no headlines object, or the field is empty.
     pub headline: Option<String>,
 }
@@ -416,8 +415,8 @@ pub struct Summary {
     pub last_plays: Vec<Play>,
     pub scoring_plays: Vec<Play>,
     pub meter: Option<Meter>,
-    /// Per-sport facts only the summary carries. NHL fills it (spec v3.4 §4:
-    /// strength + penalties); every other league leaves it `None` and the
+    /// Per-sport facts only the summary carries. NHL fills it (strength +
+    /// penalties); every other league leaves it `None` and the
     /// merge keeps whatever the scoreboard already put on the game.
     pub extras: Extras,
 }

@@ -1,10 +1,10 @@
-//! The hero block (spec §1 Hero): the one game the board is about, drawn
+//! The hero block: the one game the board is about, drawn
 //! mirror-symmetric around a center column — nameplates, team-colored
 //! digits, one fragment line, one meter row, one last play.
 //!
 //! Everything the block needs arrives in [`HeroPlan`]; the hero never reads
 //! `App`, a clock, or a tick. The digit pair is the only place team color is
-//! guaranteed (spec §6's identity floor), and it goes through
+//! guaranteed — the identity floor no theme may spend — and it goes through
 //! [`theme::hero_pair`] so two navy teams can never render as one.
 //!
 //! Two rules the layout is built around:
@@ -14,14 +14,14 @@
 //!   flank too narrow (or a team with no committed art) simply stays empty —
 //!   the nameplate already carries that team's identity, so a placeholder
 //!   would be noise.
-//! * **The digits are charged first** (ruling R29). The band reserves the
+//! * **The digits are charged first.** The band reserves the
 //!   rows the caller's bracket asked for — 8 for Full, 4 for the quadrant
 //!   mid form — and the fragment/meter/play rows split what is left, in that
-//!   keep order (R30). [`score_block`]'s 8-row → quad → bold `24 - 21` ladder
+//!   keep order. [`score_block`]'s 8-row → quad → bold `24 - 21` ladder
 //!   is for a bracket too short to hold the form, never something an optional
 //!   row can take away.
 //!
-//! sitting-1 pick 1A: the mid rung is [`tiles::quad_digits`], not
+//! The mid rung is [`tiles::quad_digits`], not
 //! `tui-big-text`'s sextants. The sextant form tofus on Terminal.app and did
 //! not resolve into a readable number at 80×24 even where the font covered
 //! it; the quadrant form is one row taller (4 vs 3) and reads at a glance.
@@ -47,7 +47,7 @@ pub struct HeroPlan {
     /// Still only a request: the band has to have the rows for them.
     pub digits_full: bool,
     /// State chip from `rank::watchability` — "RED ZONE", "2-MIN", … The
-    /// only filled-background element anywhere in the hero (spec §1).
+    /// only filled-background element anywhere in the hero.
     pub chip: Option<&'static str>,
     /// The frame's clock, for pre-game start times. Nothing here reads a
     /// wall clock, so a given tick is the same pixels every run.
@@ -57,10 +57,10 @@ pub struct HeroPlan {
     /// Draw the flanking marks at all. The board turns this off under 100
     /// cols: the flanks are the first casualty, never the digits.
     pub show_logos: bool,
-    /// The hero is a selectable row like any tier (spec §1 selection). A `▸`
+    /// The hero is a selectable row like any tier. A `▸`
     /// mark on the outside edge of each nameplate — same glyph the tier rows
     /// use in their gutter — is the only thing selection changes; the digits
-    /// keep team color regardless (task-9 review carry-forward #1).
+    /// keep team color regardless.
     pub selected: bool,
 }
 
@@ -79,23 +79,23 @@ const MARK_COLS: u16 = 16;
 /// double height — receipt, 8 glyph rows ([`tiles::glyph_cell`]`.1`) × 2. It
 /// is not a fourth ladder rung, it is the same 8-row form with every glyph
 /// row painted twice, which is why it lives inside [`score_block`] and every
-/// caller (TV, the takeover, the board's hero) gets it from the one formatter
-/// (spec §1's hard rule). Under this height nothing changes at all.
+/// caller (TV, the takeover, the board's hero) gets it from the one
+/// formatter. Under this height nothing changes at all.
 ///
-/// v3.3 §2: the design review measured TV's digits at half the mockup's
+/// The design review measured TV's digits at half the mockup's
 /// height with ~6 dead rows under them — a 40-row jumbotron has the rows, the
 /// form just never grew into them.
 ///
 /// Public because TV budgets its stack around it ([`crate::views::tv`]): the
 /// gate and the doubled form's height are the same number, and a second copy
-/// of it in a caller is exactly the drift this constant exists to prevent
-/// (review finding 1). Read it through [`digit_rows_in`].
+/// of it in a caller is exactly the drift this constant exists to prevent.
+/// Read it through [`digit_rows_in`].
 pub const DOUBLE_MIN_ROWS: u16 = tiles::GLYPH_CELL.1 * 2;
 
-/// The mid-form floor: one quadrant digit is [`quad_digits::QUAD_ROWS`] rows
-/// (sitting-1 pick 1A), so a band shorter than that has already fallen to the
-/// text form. This is what the digits are charged when the bracket didn't ask
-/// for Full — never a cap on a bracket that did (ruling R29).
+/// The mid-form floor: one quadrant digit is [`quad_digits::QUAD_ROWS`] rows,
+/// so a band shorter than that has already fallen to the text form. This is
+/// what the digits are charged when the bracket didn't ask for Full — never
+/// a cap on a bracket that did.
 const DIGIT_FLOOR_ROWS: u16 = quad_digits::QUAD_ROWS;
 
 /// Rows the score costs at each rung of the ladder. The one place the two
@@ -169,7 +169,7 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
         // what keeps the ladder honest when a rung changes cell grid.
         let (aw, hw, gh) = if form == ScoreForm::Full {
             let (gw, _) = tiles::glyph_cell();
-            // The jumbotron rung, gated per AXIS (ruling R43). Rows double
+            // The jumbotron rung, gated per AXIS. Rows double
             // when the band has `DOUBLE_MIN_ROWS` for them; columns double
             // only when BOTH scores still fit their third at the wider size.
             //
@@ -245,7 +245,7 @@ fn score_spots(area: Rect, game: &Game, full: bool) -> ScoreSpots {
 /// `full` the caller will hand [`score_block`]. Public so the takeover can
 /// hang a team label under each column without re-deriving — or disagreeing
 /// with — the digit math: the digits are placed first, and the labels take
-/// what is left (spec §1's logos-never-move-a-digit discipline).
+/// what is left — logos never move a digit.
 pub fn score_columns(area: Rect, game: &Game, full: bool) -> (Rect, Rect) {
     let spots = score_spots(area, game, full);
     (spots.away, spots.home)
@@ -253,7 +253,7 @@ pub fn score_columns(area: Rect, game: &Game, full: bool) -> (Rect, Rect) {
 
 /// The score digits alone — mirror pair, team colors through
 /// [`theme::hero_pair`]. The cut overlay and `:tv` call this same function:
-/// one formatter for the score, everywhere, always (spec §1 hard rule).
+/// one formatter for the score, everywhere, always.
 pub fn score_block(frame: &mut Frame, area: Rect, game: &Game, full: bool) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -343,7 +343,7 @@ fn stretch(frame: &mut Frame, rect: Rect, sx: u16, sy: u16) {
 /// The fragment line under the digits: football's `2ND & GOAL · BALL ON 4 ·
 /// KC BALL`. `None` everywhere else — basketball and hockey say everything
 /// in the clock line and the chip, and MLB's diamond meter row *is* its
-/// fragment line (never both; spec §1).
+/// fragment line (never both).
 pub fn fragment_line(game: &Game) -> Option<Line<'static>> {
     if !matches!(game.league, League::Nfl | League::Cfb) {
         return None;
@@ -404,7 +404,7 @@ fn clock_text(game: &Game, now: OffsetDateTime) -> String {
 
 /// One nameplate: `⚑ ★ KC 2-0` away, mirrored `74-63 BOS ★ ⚑` home. The
 /// record is dim because a bright one beside a giant digit was read as a
-/// second score (spec §6 decision).
+/// second score.
 fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
     let th = theme::current();
     let r = th.roles();
@@ -414,7 +414,7 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
     let star = Style::default().fg(th.star);
     // The caret is the same glyph a selected tier row puts in its gutter
     // (`rows.rs`); the hero has no gutter, so it sits on the outside edge —
-    // spec §1 selection, task-9 review carry-forward #1.
+    // the only thing selection changes.
     let caret = Style::default().fg(th.bright).add_modifier(Modifier::BOLD);
     // Why this game is the hero, always on the outside edge so the two
     // nameplates stay mirror images of each other.
@@ -432,7 +432,7 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
     let record = (!team.record.is_empty())
         .then(|| Span::styled(team.record.clone(), Style::default().fg(r.dim)));
     // A home side that lost its color to the lookalike rule says so with a
-    // one-cell block in its real (lifted) color — spec §6.
+    // one-cell block in its real (lifted) color.
     let block =
         (!away && fell).then(|| Span::styled("▌", Style::default().fg(th.art_color(team.color))));
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -478,20 +478,20 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
 /// computed — [`draw_hero`] draws it and [`band_rect`] reports it, so a
 /// caller asking *where the digits are* can never disagree with the draw.
 ///
-/// Ruling R29: the digits are charged FIRST. The bracket asked for a form
+/// The digits are charged FIRST. The bracket asked for a form
 /// (`digits_full`), so the band reserves the rows that form needs and the
 /// optional rows below split whatever is left. The Full → quad → text
 /// ladder is for brackets too short to hold the form — never something a
 /// meter row can take away. (Before this, the flagship 10-row bracket spent
 /// three rows on options and rendered a mid form.)
 ///
-/// sitting-1 pick 1A moved the mid rung from 3 rows to 4. The 6-row bracket
-/// (60–99 cols) therefore reads 1 nameplate + 4 digits + 1 spare, and the keep
-/// order spends that spare on the fragment — the meter and play rows it used
-/// to afford are the honest price of a readable score. The bracket table
-/// itself (R28/R32) is untouched.
+/// The mid rung moved from 3 rows to 4 when the digits became quadrant
+/// blocks. The 6-row bracket (60–99 cols) therefore reads 1 nameplate + 4
+/// digits + 1 spare, and the keep order spends that spare on the fragment —
+/// the meter and play rows it used to afford are the honest price of a
+/// readable score. The bracket boundaries themselves are untouched.
 ///
-/// Keep order, ruling R30: fragment → meter → play. The fragment carries the
+/// Keep order: fragment → meter → play. The fragment carries the
 /// only down-and-distance on screen; the meter's own label repeats the chip
 /// ("RED ZONE" twice at the 6-row bracket), so it yields first of the two,
 /// and the play stamp is the last nice-to-have.
@@ -728,7 +728,7 @@ fn draw_flanks(frame: &mut Frame, band: Rect, game: &Game, spots: ScoreSpots) {
     if left.width < FLANK_MIN_COLS || right.width < FLANK_MIN_COLS {
         return;
     }
-    // spec v3.3 §5: both or neither. A team with no committed art used to
+    // Both or neither. A team with no committed art used to
     // leave its own margin empty while the other side still drew — a lone
     // logo reads as a rendering bug, not as "one team has art and one
     // doesn't". So the gate lives here, before either side is drawn, not
@@ -1151,10 +1151,10 @@ mod tests {
 
     #[test]
     fn every_layout_bracket_renders_the_digit_form_it_asked_for() {
-        // The seam Task 5 owns the other half of: `layout::plan` picks
-        // (hero_rows, hero_digits_full) and the hero must honour it. Ruling
-        // R29 — digits are charged before any optional row, so the flagship
-        // 10-row bracket really does render 8-row LEDs.
+        // The seam: `layout::plan` picks (hero_rows, hero_digits_full)
+        // and the hero must honour it. Digits are charged before any
+        // optional row, so the flagship 10-row bracket really does render
+        // 8-row LEDs.
         let th = theme::current();
         let game = nfl_game();
         let (away_color, ..) = theme::hero_pair(&th, game.away.color, game.home.color);
@@ -1171,9 +1171,9 @@ mod tests {
         };
         // (terminal size, rows of away-colored digit cells the bracket owes)
         //
-        // sitting-1 pick 1A: the mid rung is the 4-row quad form, so the
-        // 6-row bracket owes 4 digit rows where it used to owe 3 sextant
-        // ones. The bracket table itself did not move (R28/R32).
+        // The mid rung is the 4-row quad form, so the 6-row bracket owes
+        // 4 digit rows where it used to owe 3 sextant ones. The bracket
+        // boundaries did not move.
         for (w, h, want) in [
             (120u16, 40u16, 8usize),
             (100, 32, 8),
@@ -1204,7 +1204,7 @@ mod tests {
                 rows.len(),
                 "the digit band is contiguous: {rows:?}"
             );
-            // R30 keep order: the fragment is the row a football hero keeps.
+            // Keep order: the fragment is the row a football hero keeps.
             let text = text_of(term.backend().buffer());
             assert!(
                 text.contains("2ND & GOAL"),
@@ -1362,7 +1362,7 @@ mod tests {
             "home abbr carries BUF's hero color"
         );
         // The record beside a giant digit reads as a second score unless it
-        // is dim (spec §6) — check the away record's first cell.
+        // is dim — check the away record's first cell.
         let rx = col(&row, "2-0");
         assert_eq!(buf[(rx, 0)].fg, th.roles().dim, "the record stays dim");
     }
@@ -1451,11 +1451,11 @@ mod tests {
 
     #[test]
     fn the_score_block_doubles_at_jumbotron_heights() {
-        // v3.3 Task 13: the jumbotron's digits were half the mockup's height
-        // because the Full form is a flat 8 rows however tall the band is. A
-        // rect that affords 16 rows now paints each glyph row twice — inside
-        // the one formatter, so TV, the cut and the board all get it from the
-        // same call (spec §1's hard rule).
+        // The jumbotron's digits were half the mockup's height because the
+        // Full form is a flat 8 rows however tall the band is. A rect that
+        // affords 16 rows now paints each glyph row twice — inside the one
+        // formatter, so TV, the cut and the board all get it from the same
+        // call.
         let game = nfl_game();
         let block = |w: u16, h: u16| {
             let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
@@ -1509,7 +1509,7 @@ mod tests {
 
     #[test]
     fn the_jumbotron_doubles_columns_only_when_the_third_can_hold_them() {
-        // Ruling R43: the two axes are gated separately inside the one Full
+        // The two axes are gated separately inside the one Full
         // arm. At 120 cols `third` is 40, so a 2-digit score (2 × 8 = 16,
         // doubled 32 ≤ 40) gets true 2× glyphs, and a 3-digit one (24,
         // doubled 48 > 40) keeps 8-cell columns rather than failing the fit

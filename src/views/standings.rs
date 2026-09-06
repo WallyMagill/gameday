@@ -35,7 +35,7 @@ pub fn line_count(table: &StandingsTable) -> usize {
     rows + table.groups.len().saturating_sub(1)
 }
 
-/// Two-column gate (spec v3.3 §5). Receipt: a conference table is 48 columns
+/// Two-column gate. Receipt: a conference table is 48 columns
 /// at its widest (abbr 5 + the longest NFL club name 26 + three 4-col value
 /// columns + a leading space, rounded up for the rule), so two of them plus a
 /// 4-column gutter need 100. Below that the table stays one column.
@@ -75,7 +75,7 @@ pub fn window(lines: usize, pane: usize) -> (usize, usize) {
 }
 
 /// Draws the table and returns the absolute y of its last content row when the
-/// whole table fits — the key bar anchors there (spec v3.3 §5). A clipped
+/// whole table fits — the key bar anchors there. A clipped
 /// table fills the pane, so it reports `None` and the bar stays on the floor.
 pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, league: League) -> Option<u16> {
     let th = theme::current();
@@ -112,7 +112,7 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, league: League) -> Opt
         );
         return Some(chunks[1].y);
     };
-    // Spec v3.3 §5: a wide frame gets two tables side by side instead of one
+    // A wide frame gets two tables side by side instead of one
     // narrow column against a half-empty right side.
     let pane = chunks[1];
     let cols = column_count(table, pane.width);

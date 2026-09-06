@@ -277,8 +277,8 @@ mod tests {
         );
     }
 
-    // Task 10 (spec §9): `:sort`/`:tv` land, `:layout`/`:score` and the old
-    // tile-grammar keys are removed from the registry.
+    // `:sort`/`:tv` land; `:layout`/`:score` and the old tile-grammar keys
+    // are removed from the registry.
     #[test]
     fn sort_and_tv_parse_and_layout_score_are_gone() {
         assert_eq!(parse("sort").unwrap(), Cmd::Sort(None));

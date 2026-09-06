@@ -64,7 +64,7 @@ fn nfl_tab_shows_all_league_games() {
     );
     app.tab = Tab::League(League::Nfl);
     assert_eq!(app.visible_games().len(), 2);
-    // v3.2 §1 retired live_games/slate_games: the board's sections come
+    // live_games/slate_games are retired: the board's sections come
     // out of derive() now, and a league tab is the same board filtered.
     let d = app.derive();
     assert_eq!(d.in_play.len(), 1);
@@ -101,7 +101,7 @@ fn filter_narrows_selection_and_esc_restores() {
     app.filter = Some("kc".into());
     app.filter_changed();
     assert_eq!(app.selected, 0, "selection clamps to the narrowed list");
-    // v3.2 §1 retired live_games(): the filtered live list is in_play.
+    // live_games() is retired: the filtered live list is in_play.
     assert_eq!(app.derive().in_play.len(), 1);
     // Esc in Normal mode clears the committed filter.
     app.on_key(KeyCode::Esc, KeyModifiers::NONE);
@@ -507,7 +507,7 @@ fn theme_picker_tab_chip_click_reverts_and_reopen_keeps_the_prior() {
     assert_eq!(app.config.theme, "broadcast");
 }
 
-// Task 10 (spec §9): 's' cycles the sort key and re-derives the order
+// 's' cycles the sort key and re-derives the order
 // immediately (not gated on the next score event), and the header's
 // sort chip reads it straight from config so it follows without a
 // second wire-up.
@@ -535,8 +535,8 @@ fn v_enters_tv_and_esc_leaves() {
 
 #[test]
 fn tv_auto_cuts_on_event_not_on_timer_and_lock_holds() {
-    // Spec §3: TV switches to the ranking's top on the next EVENT, never
-    // on a timer. The fingerprint gate (R24) is what makes that true —
+    // TV switches to the ranking's top on the next EVENT, never
+    // on a timer. The fingerprint gate is what makes that true —
     // a clock that merely advanced is not news, so nothing switches.
     let mut app = app_with(
         vec![
@@ -607,7 +607,7 @@ fn tv_auto_cuts_on_event_not_on_timer_and_lock_holds() {
 }
 
 /// A favorited KC game that ranks LAST, and a stranger game that ranks
-/// first — the pair ruling R35 is about.
+/// first — the pair the hero rule is about.
 fn my_game_and_a_better_one() -> App {
     let mut app = app_with(
         vec![ranked("mine", "Q1", "15:00", 3, 0), {
@@ -627,7 +627,7 @@ fn my_game_and_a_better_one() -> App {
 
 #[test]
 fn tv_follows_the_hero_rule_and_never_cuts_away_from_my_game() {
-    // Ruling R35: TV follows `Derived::hero_id` — MY GAMES' top while it
+    // TV follows `Derived::hero_id` — MY GAMES' top while it
     // is live, else the ranking's top. Following `OrderState`'s top
     // instead (which excludes MY GAMES by design) meant the first event
     // cut away from your own team and could never cut back.
@@ -697,7 +697,7 @@ fn both_tv_entries_clear_a_stale_lock() {
 
 #[test]
 fn a_lock_on_a_game_that_leaves_the_slate_releases_itself() {
-    // Ruling R36: a lock is one slate's worth of intent. When its game
+    // A lock is one slate's worth of intent. When its game
     // goes final the lock would otherwise hold a dead id — auto-cut off,
     // footer still offering `space unlock`, screen stuck on a game that
     // is not live.
@@ -772,7 +772,7 @@ fn ordering_app() -> App {
 
 #[test]
 fn a_clock_that_merely_advanced_never_reorders_the_board() {
-    // Spec §2's headline: between events the order is frozen even though
+    // The headline property: between events the order is frozen even though
     // watchability keeps rising. "a" moving Q1 -> Q3 outranks "b" on
     // score, but nothing about the DATA changed, so the board holds.
     let mut app = ordering_app();
@@ -811,7 +811,7 @@ fn a_hot_flip_reorders_the_board_with_no_score_change() {
     // hot now, and that is news the order has to answer to.
     let mut app = ordering_app();
     let mut a = ranked("a", "Q1", "15:00", 14, 10);
-    // spec v3.4 §3: the hot flag reads `situation.isRedZone`, not the
+    // The hot flag reads `situation.isRedZone`, not the
     // meter the gauge draws from it.
     a.situation = Some(crate::domain::Situation {
         is_red_zone: Some(true),
@@ -846,7 +846,7 @@ fn a_cached_apply_never_reorders_the_board() {
 
 #[test]
 fn a_pinned_game_is_not_in_the_ordered_live_band() {
-    // Pins live in the MY GAMES band and never re-sort (spec §1), so
+    // Pins live in the MY GAMES band and never re-sort, so
     // OrderState is never told about them.
     let app = app_with(
         vec![
@@ -1029,7 +1029,7 @@ fn summary_scoring_plays_replace_the_delta_derived_list_and_survive_truncation()
 }
 
 /// A live NHL game the way the scoreboard maps one: no strength, no
-/// meter — those exist only in the summary (spec v3.4 §4).
+/// meter — those exist only in the summary.
 fn nhl_live(id: &str) -> Game {
     let mut x = g(id, "PIT", "WSH", true);
     x.league = League::Nhl;
@@ -1048,7 +1048,7 @@ fn power_play_summary() -> Summary {
             ..Default::default()
         }],
         scoring_plays: vec![],
-        // R49: the summary never carries the meter — the zoom derives it
+        // The summary never carries the meter — the zoom derives it
         // from these extras.
         meter: None,
         extras: crate::domain::Extras::Hockey {
@@ -1066,7 +1066,7 @@ fn power_play_summary() -> Summary {
 
 #[test]
 fn summary_strength_and_penalty_meter_survive_the_next_scoreboard_poll() {
-    // R49 / v3.4 §4: the scoreboard poll replaces the board wholesale
+    // The scoreboard poll replaces the board wholesale
     // every 15s and carries no NHL strength at all. Without the carry
     // the zoom's chip and meter blink out until the next summary lands.
     let mut app = app_with(vec![], vec![]);
@@ -1110,7 +1110,7 @@ fn summary_strength_and_penalty_meter_survive_the_next_scoreboard_poll() {
 
 #[test]
 fn a_zoomed_power_play_never_reaches_the_board_ranking() {
-    // R49: the summary lands only for the zoomed game, so scoring its
+    // The summary lands only for the zoomed game, so scoring its
     // strength would give that one row a chip, the hot flag and a rank
     // bonus no identical unzoomed power play could earn.
     let mut app = app_with(vec![], vec![]);
@@ -1126,8 +1126,8 @@ fn a_zoomed_power_play_never_reaches_the_board_ranking() {
     );
     assert!(!watch.hot, "and it does not read hot");
 
-    // Another poll: the order and the fingerprint set are untouched, so
-    // zooming a game can never move the board (R24).
+    // Another poll: the order and the fingerprint set are untouched,
+    // so zooming a game can never move the board.
     app.apply_boards(League::Nhl, vec![nhl_live("n1"), nhl_live("n2")], false);
     assert_eq!(ord(&app), before, "zooming did not reorder the board");
     assert_eq!(app.rank_fingerprints, fps, "nor did it move a fingerprint");
@@ -1163,7 +1163,7 @@ fn epl_live(id: &str, minute: &str, away: u16, home: u16) -> Game {
     x
 }
 
-/// Spec v3.4 §5 + R24: a sending-off is a real event, so it earns exactly
+/// A sending-off is a real event, so it earns exactly
 /// ONE reorder. The men state is board-wide (it comes off the scoreboard
 /// every game already has), so unlike the NHL's summary strength it has
 /// no zoom asymmetry to defend against — what it must defend against is
@@ -1400,7 +1400,7 @@ pub(crate) fn six_live() -> Vec<Game> {
         .collect()
 }
 
-/// v3.2 §7 retired paging (`n`/`p`, `PAGE x/y`, the whole page index):
+/// Paging is retired (`n`/`p`, `PAGE x/y`, the whole page index):
 /// the board is one list that scrolls. What replaces those four tests is
 /// the walk itself — j/k move through `Derived::selection` and wrap, and
 /// a board that shrinks under the selection re-clamps it.

@@ -1,12 +1,12 @@
-//! `:tv` — the jumbotron (spec §3 TV). One game fills the screen; everything
+//! `:tv` — the jumbotron. One game fills the screen; everything
 //! else that is live rides a one-row-each strip along the bottom.
 //!
 //! Three rules this surface is built around:
 //!
 //! * **One game, drawn by the hero.** TV owns no score formatter of its own —
 //!   it hands [`hero::draw_hero`] a tall area and Full digits, which is the
-//!   same block the board draws, so a score can never render two ways (spec
-//!   §1's hard rule).
+//!   same block the board draws, so a score can never render two ways —
+//!   one formatter, always.
 //! * **The screen switches on an EVENT, never on a timer.** Nothing here
 //!   decides what is shown: `App::tv_shown` is moved by `OrderState::on_event`
 //!   (`App::tv_follow`) or by `n`. Between events the strip's right edge
@@ -26,8 +26,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-/// Plays under the hero, newest first — spec §3's "last three plays with
-/// clock stamps".
+/// Plays under the hero, newest first: the last three plays with clock
+/// stamps.
 const PLAY_ROWS: u16 = 3;
 
 /// A linescore is a header plus both sides or it is nothing (a headless
@@ -38,13 +38,13 @@ const LINESCORE_ROWS: u16 = crate::board::linescore::ROWS;
 /// the 8 rows of `PixelSize::Full` digits (`tiles::glyph_cell().1`), and
 /// the fragment and meter lines under them. Everything below is charged
 /// against what is left over, hero first — the same "digits are charged
-/// first" discipline the board's brackets follow (ruling R29).
+/// first" discipline the board's brackets follow.
 const HERO_MIN_ROWS: u16 = 11;
 
-/// The same floor at the jumbotron rung (v3.3 §2): 1 nameplate + the doubled
-/// digit rows + the fragment and meter lines. R29 again — on a terminal tall
-/// enough for the big form, the big form is charged before the linescore and
-/// the plays, not after them.
+/// The same floor at the jumbotron rung: 1 nameplate + the doubled digit
+/// rows + the fragment and meter lines. Digits first again — on a terminal
+/// tall enough for the big form, the big form is charged before the linescore
+/// and the plays, not after them.
 ///
 /// The digit half is [`hero::DOUBLE_MIN_ROWS`] itself, never a copy of it:
 /// the gate and the form's height are one number in the hero, and
@@ -112,7 +112,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     };
 
     // ----------------------------------------------------- the band's rows
-    // Spec §3: the scoring band is reserved here exactly as it is on the
+    // The scoring band is reserved here exactly as it is on the
     // board (`layout::TierPlan::band_rows`) — TV is a live surface by
     // definition (it drew a game, so something is live), and until this
     // reservation existed a band fired over TV shoved the jumbotron down two
@@ -188,7 +188,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     // `last_plays`, and the clone is local to this frame.
     //
     // This seam is load-bearing twice: an empty `last_plays` also drops the
-    // play row from the hero's R30 keep-order budget, so the row it would
+    // play row from the hero's keep-order budget, so the row it would
     // have taken goes back to the digit band (`hero.rs`'s `band_rows`) —
     // which is where TV's air around the digits comes from. Anyone changing
     // `HeroPlan` needs both halves.
@@ -209,7 +209,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
             now,
             pinned: app.pins.iter().any(|p| p.game_id == game.id),
             favorite: app.is_my_game(game),
-            // Spec §0: TV, the cut and the row tiers stay logo-free. The
+            // TV, the cut and the row tiers stay logo-free. The
             // logo study measured two 40-col marks collapsing the digits
             // from 15 rows to 6 and evicting the play feed, and the
             // reference frame has no flanks.
@@ -317,7 +317,7 @@ fn draw_strip(
     };
     // The next cut rides the caption's right edge, because that is where a
     // section says what it is about — and the switch itself waits for an
-    // event (spec §3), so this is the only warning there is.
+    // event, so this is the only warning there is.
     if let Some(next) = app.tv_next_cut_in(d) {
         caption = format!(
             "{caption} · next cut: {} {} {} {}",

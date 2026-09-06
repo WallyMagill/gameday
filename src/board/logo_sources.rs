@@ -417,7 +417,7 @@ pub(super) const LOGO_SOURCES: &[(&str, &str)] = &[
     ("wnba/wsh", include_str!("../../assets/logos/wnba/wsh.ans")),
 ];
 
-/// The same marks composited for a light ground (v3.4 §7): keyed
+/// The same marks composited for a light ground: keyed
 /// identically, selected by [`super::hero_mark`] when the active
 /// theme's ground is a light one.
 pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[

@@ -340,8 +340,8 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                     down_distance: "1st & Goal".into(),
                     possession: Some("KC".into()),
                     ball_on: Some("TB 3".into()),
-                    // Spec v3.4 §3: the demo speaks the same structure the
-                    // live feed does — KC (away) attacks the home goal at 0,
+                    // The demo speaks the same structure the live feed
+                    // does — KC (away) attacks the home goal at 0,
                     // so the ball on TB's 3 is yardLine 3.
                     down: Some(1),
                     distance: Some(3),
@@ -592,7 +592,7 @@ pub fn demo_boards() -> HashMap<League, Vec<Game>> {
                     strikes: Some(2),
                     outs: Some(2),
                     on_base: Some([true, false, false]),
-                    // The zoom's baseball matchup line (spec §5) is made of these
+                    // The zoom's baseball matchup line is made of these
                     // three fields and nothing else.
                     pitcher: Some("C. Schmidt".into()),
                     batter: Some("A. Kirk".into()),

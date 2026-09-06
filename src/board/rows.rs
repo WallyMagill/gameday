@@ -1,9 +1,9 @@
-//! The three row tiers of the ranked board (spec §1): everything under the
+//! The three row tiers of the ranked board: everything under the
 //! hero is one ranked list, and a game's tier is how loudly that list says
 //! it. Tier 1 is a three-row block, tier 2 is one line, tier 3 is one dim
 //! line for finals and later games. All three print the score as a plain
-//! numeral in the same column, and since sitting-1 pick 2A all three clock in
-//! the same column too (spec v3.3 §4): tier 1 is the same grid with height,
+//! numeral in the same column, and all three clock in the same column too:
+//! tier 1 is the same grid with height,
 //! not a grid of its own.
 //!
 //! Three rules hold across all three tiers:
@@ -16,7 +16,7 @@
 //!   reflow the line).
 //! * **Amber is the score's color.** `roles.digits`, bold, and nothing else
 //!   in a row wears it. The one exception to the monochrome rest is a pinned
-//!   game's abbrs, and only at `TeamColorScope::HeroMarks` (spec §6).
+//!   game's abbrs, and only at `TeamColorScope::HeroMarks`.
 //! * **Fixed columns, dropped from the right.** The grid below is measured
 //!   off the A′ frame; a column whose x is past the area's edge is simply not
 //!   drawn, which is how a row narrows instead of wrapping or clipping mid-word.
@@ -55,7 +55,7 @@ pub struct RowCtx {
     pub league_tag: bool,
     /// The frame's clock, for pre-game start times.
     pub now: OffsetDateTime,
-    /// The tier-3 FINAL ladder's middle rung (spec v3.4 §6 / R47), already
+    /// The tier-3 FINAL ladder's middle rung, already
     /// formatted by [`leaders_line`] from whatever `App::stats` holds for
     /// this game. The board only ever fetches stats for the zoomed game, so
     /// this is `Some` for at most one row at a time — every other final
@@ -71,7 +71,7 @@ pub const GUTTER: u16 = 4;
 /// nudge takes the rest.
 const NUDGE_X: u16 = 2;
 
-/// Largest climb the 2-cell nudge gutter can say truthfully (ruling R31):
+/// Largest climb the 2-cell nudge gutter can say truthfully:
 /// `↑9` means "rose 9 or more places".
 const NUDGE_MAX: usize = 9;
 
@@ -107,13 +107,13 @@ const TEXT_X: u16 = 38;
 /// Broadcast field on a LATER row, before the odds (`FOX`, `ESPN`, `PRIME`).
 const BCAST_W: u16 = 7;
 
-// Tier 1 shares the one-line tiers' grid (spec v3.3 §4) *entirely*: the same
-// `pair_line` draws `GB 13 CHI 10` at the same columns a tier-2 row does, and
-// since sitting-1 pick 2A the clock and the prose share those columns too.
-// What tier 1 adds is height, not a second grid.
+// Tier 1 shares the one-line tiers' grid *entirely*: the same `pair_line`
+// draws `GB 13 CHI 10` at the same columns a tier-2 row does, and the clock
+// and the prose share those columns too. What tier 1 adds is height, not a
+// second grid.
 //
-// Sitting-1 ruling R39 deleted the sextant garnish that used to sit between
-// the nameplate and the clock: it tofued on terminals without sextant
+// The sextant garnish that used to sit between the nameplate and the clock
+// was deleted: it tofued on terminals without sextant
 // coverage, it duplicated the numerals `pair_line` already draws, and it was
 // the only reason tier 1 pushed its clock out to x40 while every row under it
 // clocked at x22. Dropping it buys that alignment back for free.
@@ -121,7 +121,7 @@ const BCAST_W: u16 = 7;
 /// between the clock column and the play text, so it gets the whole gap
 /// rather than the clock's own [`CLOCK_W`] — at 11 cells the longest chips
 /// `rank::watchability` emits ("BASES LOADED" and "GO-AHEAD 3RD" at 12,
-/// "TYING RUN 3RD" at 13, spec v3.3 §7) were clipped to a word that isn't
+/// "TYING RUN 3RD" at 13) were clipped to a word that isn't
 /// one. Now `TEXT_X - CLOCK_X` = 16, which holds all of them.
 const T1_CHIP_W: u16 = TEXT_X - CLOCK_X;
 
@@ -161,9 +161,9 @@ fn ink(ctx: &RowCtx) -> Color {
 }
 
 /// A team abbr. Team color only for a pinned game, and only where the theme
-/// allows marks to carry it (spec §6); everything else is ink.
+/// allows marks to carry it; everything else is ink.
 ///
-/// Padded to a 3-cell minimum (spec v3.3 §4: `format!("{:<3}", abbr)`) so a
+/// Padded to a 3-cell minimum (`format!("{:<3}", abbr)`) so a
 /// two-letter abbr (`KC`) fills the same cell a three-letter one (`BUF`)
 /// does — the pad is part of the styled span, not a coincidence of the
 /// field's blank background.
@@ -228,7 +228,7 @@ fn situation_summary(game: &Game) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" "))
 }
 
-/// A final's story, spec v3.4 §6 / ruling R47's verbatim ladder: the
+/// A final's story, in one fixed ladder: the
 /// scoreboard's own headline, else the leaders line (already formatted by
 /// [`leaders_line`]), else the newest scoring play. Shared by the board's
 /// tier-3 row and the zoomed final's header (`views/zoom.rs`) so the two
@@ -254,8 +254,8 @@ pub fn leaders_line(stats: &GameStats) -> Option<String> {
     Some(format!("{} {}: {}", l.team, l.label, l.text))
 }
 
-/// The hot mark, column 0 — the one cell every tier draws identically (spec
-/// v3.3 §4: one mark column). `▌` in `hot`/`dim` for a bar row, `·` in `dim`
+/// The hot mark, column 0 — the one cell every tier draws identically, one
+/// mark column for all three. `▌` in `hot`/`dim` for a bar row, `·` in `dim`
 /// for tier 3's dot; drawn down `rows` rows so tier 1's taller (3-row) block
 /// gets the same mark at every row, never shifted by the layout above it.
 fn mark_cell(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
@@ -296,7 +296,7 @@ fn gutters(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
                 .add_modifier(Modifier::BOLD),
         ))
     } else {
-        // Ruling R31: the gutter is two cells, so the DISPLAYED climb clamps
+        // The gutter is two cells, so the DISPLAYED climb clamps
         // at 9 — `↑9` reads "rose 9 or more". Clipping `↑12` to `↑1` would
         // print a number that never happened; an understated climb is the
         // honest failure.
@@ -330,7 +330,7 @@ pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     let r = th.roles();
     gutters(frame, area, ctx, crate::board::TIER1_ROWS, true);
 
-    // The nameplate is tier 2's line, cell for cell (spec v3.3 §4): abbrs and
+    // The nameplate is tier 2's line, cell for cell: abbrs and
     // plain bold amber numerals on the shared columns. A promoted row is
     // louder than the rows below it — accent bar, bold weight, the indented
     // fragment and last-play rows — but its score is read the same way.
@@ -368,7 +368,7 @@ pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     }
     // The state chip sits directly under the clock (A′ frame: red `2-MIN`
     // beneath `Q4 0:48`). Plain hot text, not a filled block — the filled
-    // chip is the hero's alone (spec §1).
+    // chip is the hero's alone.
     if let Some(chip) = ctx.chip {
         let span = Span::styled(
             chip,
@@ -538,7 +538,7 @@ pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
         }
         return;
     }
-    // A final's story (spec v3.4 §6, R47's verbatim ladder): its own
+    // A final's story, in its fixed ladder: its own
     // headline, else the leaders line, else the newest scoring play (the
     // list is oldest first), else whatever the situation still says.
     let headline = final_story(game, ctx.leaders_line.as_deref())
@@ -772,7 +772,7 @@ mod tests {
         );
         // The frame's grid: abbr right-aligned into the gutter's shoulder,
         // score right-aligned two columns later, home pair mirrored.
-        // spec v3.3 §4: the abbr pads to a 3-cell minimum, so a 2-char abbr
+        // The abbr pads to a 3-cell minimum, so a 2-char abbr
         // right-aligned in the 4-cell field now starts one column left of
         // where the unpadded text used to (ABBR_W-3, not ABBR_W-2).
         assert_eq!(
@@ -926,7 +926,7 @@ mod tests {
 
     #[test]
     fn a_big_nudge_clamps_to_nine_rather_than_lying() {
-        // Ruling R31: two cells cannot say "12", and `↑1` is a number that
+        // Two cells cannot say "12", and `↑1` is a number that
         // never happened. `↑9` understates; it never fabricates.
         let game = tier2_game();
         let r = theme::current().roles();
@@ -1135,7 +1135,7 @@ mod tests {
             "fmt_start(ctx.now) in the clock column\n{text}"
         );
         assert!(!text.contains("2026-"), "never an ISO stamp\n{text}");
-        // spec v3.3 §4: padded to a 3-cell minimum, ABBR_W-3 not ABBR_W-2.
+        // Padded to a 3-cell minimum, ABBR_W-3 not ABBR_W-2.
         assert_eq!(
             col_of(buf, 0, "TB"),
             Some(AWAY_ABBR_X + ABBR_W - 3),
@@ -1204,8 +1204,8 @@ mod tests {
         );
     }
 
-    /// Spec v3.4 §6 / ruling R47: the tier-3 FINAL ladder in the spec's
-    /// verbatim order — `headline` → leaders line → newest scoring play.
+    /// The tier-3 FINAL ladder in its fixed order — `headline` → leaders line →
+    /// newest scoring play.
     /// (MLS carries no `headlines` at all on any committed fixture final —
     /// 0/9 coverage — so its finals exercise the lower two rungs honestly;
     /// this test stands in for that with a synthetic game instead of
@@ -1259,7 +1259,7 @@ mod tests {
         assert!(text.contains("Saka opens the scoring"), "{text}");
     }
 
-    /// v3.4 T9 review: an outsized headline (a 200-char string, far past
+    /// An outsized headline (a 200-char string, far past
     /// anything ESPN sends) at a narrow tier-3 width truncates with an
     /// ellipsis and never overflows the row — no panic, no bleeding past
     /// the frame's own width.
@@ -1287,7 +1287,7 @@ mod tests {
         );
     }
 
-    /// v3.4 T9 review: a final that already carries a headline, then gets a
+    /// A final that already carries a headline, then gets a
     /// later refresh that appends a newer scoring play (e.g. a correction or
     /// a stats-pass update landing after the game went final) — the ladder
     /// must still show the headline, not fall to the newly-appended play.
@@ -1341,7 +1341,7 @@ mod tests {
         let buf = term.backend().buffer();
         let text = text_of(buf);
 
-        // sitting-1 pick 2A / ruling R39: the garnish is gone, and what makes
+        // The garnish is gone, and what makes
         // that checkable is not the one column it vacated (with the clock at
         // x22 there is exactly one cell between the nameplate and the clock,
         // which is too degenerate to fail interestingly) but the *kind* of
@@ -1363,7 +1363,7 @@ mod tests {
             }
         }
 
-        // spec v3.3 §4: the stack sits on the shared nameplate grid — abbr
+        // The stack sits on the shared nameplate grid — abbr
         // over league tag at tier 2's own columns — and the clock and the two
         // text rows sit in tier 2's own columns as well.
         assert_eq!(
@@ -1437,11 +1437,10 @@ mod tests {
 
         // The longest chip the ranker emits fits whole — the clock column's
         // 11 cells clipped "BASES LOADED" to "BASES LOADE".
-        // "10 MEN" (spec v3.4 §5) is the shortest of the family and the
+        // "10 MEN" is the shortest of the family and the
         // reason the men chip could not name the side: "AVL 10 MEN" is 10
         // cells but the chip is a `&'static str`, not a format.
         for chip in ["BASES LOADED", "TYING RUN 3RD", "GO-AHEAD 3RD", "10 MEN"] {
-            // spec v3.3 §7
             let c = RowCtx {
                 chip: Some(chip),
                 ..ctx()
@@ -1463,7 +1462,7 @@ mod tests {
 
     #[test]
     fn tier1_score_is_readable_text_on_the_shared_grid() {
-        // spec v3.3 §4: a tier-1 row's score is a plain numeral in the SAME
+        // A tier-1 row's score is a plain numeral in the SAME
         // column tier 2 puts it in — both reviews flagged tier 1 as the one
         // row whose score can't be read at a glance, sitting off the grid the
         // rows below share.
@@ -1514,9 +1513,9 @@ mod tests {
 
     #[test]
     fn tier1_and_tier2_clock_in_the_same_column() {
-        // sitting-1 pick 2A: the sextant garnish was the ONLY reason tier 1
-        // pushed its clock out to x40 while every row under it clocked at
-        // x22. With the garnish deleted (ruling R39) the two tiers share the
+        // The sextant garnish was the ONLY reason tier 1 pushed its
+        // clock out to x40 while every row under it clocked at x22.
+        // With the garnish deleted the two tiers share the
         // column, and this test is what stops a future "tier 1 needs room
         // for X" from quietly re-introducing the zig-zag.
         let game = tier2_game(); // GB 13 CHI 10, Q3 4:20
@@ -1562,7 +1561,7 @@ mod tests {
 
     #[test]
     fn the_mark_column_is_column_zero_in_every_tier() {
-        // spec v3.3 §4: one mark column — tier 1's taller (3-row) layout must
+        // One mark column — tier 1's taller (3-row) layout must
         // not shift the mark off x==0, same as tiers 2 and 3.
         let game = live_game("DAL", "PHI");
         let hot = RowCtx { hot: true, ..ctx() };
@@ -1591,7 +1590,7 @@ mod tests {
 
     #[test]
     fn two_char_abbrs_occupy_the_three_char_cell() {
-        // spec v3.3 §4: abbrs pad to a fixed cell so the score column never
+        // Abbrs pad to a fixed cell so the score column never
         // shifts with the abbr's length — KC (2 chars) vs BUF (3 chars).
         let r = theme::current().roles();
         let short = tier2_game_with("KC", "TB");

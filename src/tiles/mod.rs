@@ -1,7 +1,7 @@
 //! Big-glyph, meter and play-row helpers — what is left of the tile grammar.
 //!
-//! v3.2 §7 deleted the mosaic; Task 13 deleted the last tile with it (the zoom
-//! Overview is now the hero block, spec §5). No renderer here draws a whole
+//! The mosaic and the last tile with it are deleted (the zoom Overview is
+//! now the hero block). No renderer here draws a whole
 //! surface any more: `glyph_cell`/`digit_glyphs`/`word_glyphs` are the one
 //! glyph engine the hero, the cut, `:tv` and the tier rows all share,
 //! `meter_line` is the inline gauge the hero and the zoom draw, and
@@ -39,8 +39,8 @@ const PENALTY_MINOR_SECS: u16 = 120;
 ///
 /// There is no second size here any more. `PixelSize::Sextant` was 4×3 and
 /// drew from U+1FB00–1FB3B, which Terminal.app's default font does not cover;
-/// sitting-1 pick 1A replaced the digits' sextant rung with
-/// [`quad_digits`] and ruling R42 deleted the scoring word's. What used to
+/// the digits' sextant rung was replaced with [`quad_digits`] and the
+/// scoring word's was deleted outright. What used to
 /// step down in size now steps down in *kind* — to a plain bold line.
 pub(crate) fn glyph_cell() -> (u16, u16) {
     GLYPH_CELL
@@ -76,9 +76,9 @@ pub(crate) fn word_glyphs(frame: &mut Frame, rect: Rect, word: &str, color: Colo
 /// Returns false — drawing nothing — when the glyphs don't fit `rect`, which
 /// is how every caller steps down a size instead of clipping a digit in half.
 ///
-/// There is no sextant arm any more (sitting-1 pick 1A): the mid rung of the
-/// score ladder is [`quad_digits`], and the tier-1 sextant garnish that was
-/// this function's only other small-form caller is deleted (ruling R39).
+/// There is no sextant arm any more: the mid rung of the score ladder is
+/// [`quad_digits`], and the tier-1 sextant garnish that was this function's
+/// only other small-form caller is deleted.
 pub(crate) fn digit_glyphs(frame: &mut Frame, rect: Rect, value: u16, color: Color) -> bool {
     let text = value.to_string();
     let (gw, gh) = glyph_cell();

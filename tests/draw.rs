@@ -81,7 +81,7 @@ fn mk() -> App {
 
 #[test]
 fn header_and_tabs_render() {
-    // v3.2 spec §1: only an enabled league with a game today earns a chip —
+    // Only an enabled league with a game today earns a chip —
     // NFL and MLS both need boards to show up here at all.
     let mut app = mk();
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
@@ -89,7 +89,7 @@ fn header_and_tabs_render() {
     mls_game.league = League::Mls;
     app.apply_boards(League::Mls, vec![mls_game], false);
     // Wide enough for the whole header: the chips' brackets are the first
-    // thing the shed ladder gives up (spec §1: no `FILTER:` label at all).
+    // thing the shed ladder gives up (there is no `FILTER:` label at all).
     let mut wide = Terminal::new(TestBackend::new(180, 24)).unwrap();
     wide.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&wide);
@@ -97,8 +97,8 @@ fn header_and_tabs_render() {
     assert!(!s.contains("FILTER:"), "the FILTER: label is gone: {s}");
     assert!(s.contains("[ALL]"), "{s}");
     assert!(s.contains("[ NFL ]"), "{s}");
-    // At 120 with the enabled chips the brackets shed instead of the clock
-    // (R12), but the wordmark and every chip with a game still render.
+    // At 120 with the enabled chips the brackets shed instead of the
+    // clock, but the wordmark and every chip with a game still render.
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let row = buf_text(&t).lines().next().unwrap().to_string();
@@ -136,7 +136,7 @@ fn active_alert_banner_renders_in_header_in_live_color() {
 
 #[test]
 fn footer_shows_chords() {
-    // v3.2 spec §1: the Board footer is the lowercase A′ legend — no
+    // The Board footer is the lowercase A′ legend — no
     // brackets, no "NAV:" label.
     let mut app = mk();
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
@@ -152,7 +152,7 @@ fn footer_shows_chords() {
 
 #[test]
 fn footer_advertises_sort_and_tv_not_pages() {
-    // v3.2 spec §1: the Board legend names `s sort` and `v tv`; the old caps
+    // The Board legend names `s sort` and `v tv`; the old caps
     // "PAGE"/"PIN [SPC]" style is gone.
     let mut app = mk();
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
@@ -166,7 +166,7 @@ fn footer_advertises_sort_and_tv_not_pages() {
 
 #[test]
 fn help_overlay_lists_every_group_and_the_hidden_chords() {
-    // spec v3.3 §5: the "?" overlay speaks the same lowercase grammar as
+    // The "?" overlay speaks the same lowercase grammar as
     // every footer now — group titles, chords and labels are all lowercase,
     // no hand-written caps.
     let mut app = mk();
@@ -194,8 +194,8 @@ fn help_overlay_lists_every_group_and_the_hidden_chords() {
 
 #[test]
 fn help_panel_speaks_the_lowercase_grammar_not_just_the_footer() {
-    // spec v3.3 §5: the overlay's own KEYS panel — not just the footer strip
-    // underneath it — must be lowercase. Round 1 fix: `App::draw_help` used
+    // The overlay's own KEYS panel — not just the footer strip
+    // underneath it — must be lowercase. `App::draw_help` used
     // to render `NAVIGATION`, `SPC`, `ESC/?/Q CLOSES` verbatim, a second caps
     // grammar the footer-scoped tests never saw because they only inspect
     // the buffer's last row.
@@ -234,7 +234,7 @@ fn zoomed_footer_shows_back_and_the_zoomed_game() {
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    // spec v3.3 §5: every non-board footer speaks the lowercase legend now —
+    // Every non-board footer speaks the lowercase legend now —
     // no "[ESC] BACK" bracket-caps, no "NAV:".
     assert!(s.contains("esc back"), "{s}");
     assert!(!s.contains("NAV:"), "{s}");
@@ -267,7 +267,7 @@ fn league_tab_with_only_scheduled_games_lists_them_under_later() {
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    // v3.2 §7: no mosaic and no boxed SLATE — scheduled games are the board's
+    // No mosaic and no boxed SLATE — scheduled games are the board's
     // own LATER section, and the board is never blank above it.
     assert!(s.contains("LATER"), "{s}");
     assert!(s.contains("KC"), "{s}");
@@ -380,7 +380,7 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
         }
         panic!("{needle:?} not on the board:\n{}", buf_text(&t));
     };
-    // v3.2 §6/§7: the sidebar and the tile chrome are gone. What carries the
+    // The sidebar and the tile chrome are gone. What carries the
     // theme's discipline now is the board itself — section rules in `cool`,
     // and the identity floor on the hero's digits.
     assert_eq!(fg_at("IN PLAY"), studio.roles().cool);
@@ -399,7 +399,7 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
 
 #[test]
 fn studio_spends_no_chroma_but_the_red_and_the_team_identity() {
-    // v3.3 §6: press-box studio is grayscale plus exactly one red. This is the
+    // Press-box studio is grayscale plus exactly one red. This is the
     // cell-level statement of that — every colored cell on a studio frame is a
     // gray, the hot red, or a team's own color on the hero (the identity
     // floor, which `roles.team = hero` keeps and no theme may spend).
@@ -461,7 +461,7 @@ fn studio_spends_no_chroma_but_the_red_and_the_team_identity() {
     theme::set_current("broadcast").unwrap();
 }
 
-// v3.2 §7: the GLOBAL ALERTS / TOP PLAYS / RECORDS sidebar is deleted, and
+// The GLOBAL ALERTS / TOP PLAYS / RECORDS sidebar is deleted, and
 // with it `sidebar_top_plays_are_abbr_surname_clock` and
 // `records_rail_shows_the_abbr_instead_of_a_clipped_name`. The scoring feed
 // they rendered still exists (`Derived::scoring`) and is covered by the plays
@@ -482,7 +482,7 @@ fn empty_home_with_no_boards_points_at_config() {
 #[test]
 fn home_with_nothing_live_still_lists_the_day() {
     let mut app = mk();
-    // v3.2 §1: Home is ONE list of the day, so a board with nothing live is
+    // Home is ONE list of the day, so a board with nothing live is
     // not an empty board — it is a LATER section. (The "nothing live · next:"
     // message stays for a board with no games at all; the empty-Home strings
     // themselves are pinned by `empty_home_with_no_boards_points_at_config`.)
@@ -527,7 +527,7 @@ fn nfl_tab_draws_live_score() {
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    // v3.2 §1: the only live game is the hero — its score is digit glyphs and
+    // The only live game is the hero — its score is digit glyphs and
     // the tile's "[NFL] LIVE" chip is gone with the tile.
     assert!(s.contains("KC") && s.contains("TB"), "{s}");
     assert!(
@@ -791,7 +791,7 @@ fn q_in_zoom_pops_instead_of_quitting() {
 
 #[test]
 fn footer_advertises_filter_chord_but_not_cmd_on_the_board() {
-    // v3.2 spec §1: `/ filter` is in the fixed Board legend; `:` earns no
+    // `/ filter` is in the fixed Board legend; `:` earns no
     // footer slot there (CMD is still reachable via `:` and the `?`
     // overlay) — the old bracket-caps "[:] CMD"/"[/] FILTER" style is gone.
     let mut app = mk();
@@ -800,7 +800,7 @@ fn footer_advertises_filter_chord_but_not_cmd_on_the_board() {
     let s = buf_text(&t);
     assert!(s.contains("/ filter"), "{s}");
     assert!(!s.contains("CMD"), "{s}");
-    // spec v3.3 §5: the Zoomed footer keeps the generic list, CMD included —
+    // The Zoomed footer keeps the generic list, CMD included —
     // just lowercase now, same as every other non-board view.
     use gameday::views::{View, ZoomTab};
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
@@ -820,7 +820,7 @@ fn footer_advertises_filter_chord_but_not_cmd_on_the_board() {
 #[test]
 fn narrow_footer_sheds_low_value_chords_but_keeps_help_and_quit() {
     // Narrow enough that the whole legend can't fit; move/pin go first, the
-    // way out and help never get clipped (spec §1's shed order discipline).
+    // way out and help never get clipped (the shed-order discipline).
     let mut app = mk();
     let mut t = Terminal::new(TestBackend::new(45, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -854,8 +854,8 @@ fn config_footer_at_40_cols_keeps_help() {
 
 /// Longest run of consecutive ASCII-uppercase letters in `s`, excluding the
 /// footer's known status readouts (`FOCUS`, `UPD`, `GAME`) — those are
-/// clock-shaped status text, not the "NAV:" chord grammar spec v3.3 §5
-/// deletes. Team abbreviations (`KC`, `TB`) are 2-3 letters and never trip
+/// clock-shaped status text, not the "NAV:" chord grammar the footers no
+/// longer speak. Team abbreviations (`KC`, `TB`) are 2-3 letters and never trip
 /// the ≤3 budget on their own.
 fn max_caps_run_excluding_status(s: &str) -> usize {
     let stripped = s
@@ -877,7 +877,7 @@ fn max_caps_run_excluding_status(s: &str) -> usize {
 
 #[test]
 fn every_view_speaks_the_lowercase_footer() {
-    // spec v3.3 §5: one footer grammar everywhere — plays feed, standings,
+    // One footer grammar everywhere — plays feed, standings,
     // config, zoom, help (over the board) and the theme picker all render
     // their footer from the keymap, lowercase, no "NAV:", no "[TAB]"
     // bracket-caps.
@@ -936,7 +936,7 @@ fn every_view_speaks_the_lowercase_footer() {
         let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
         let s = buf_text(&t);
-        // spec v3.3 §5: the key bar is no longer always the last row — the
+        // The key bar is no longer always the last row — the
         // config editor anchors it under its block — so find the legend
         // rather than assuming the terminal floor.
         let footer = s
@@ -955,7 +955,7 @@ fn every_view_speaks_the_lowercase_footer() {
 
 #[test]
 fn footers_shed_in_order_and_help_quit_survive_at_40_cols() {
-    // spec v3.3 §5: FOOTER_DROP_ORDER's shed discipline carries over to
+    // FOOTER_DROP_ORDER's shed discipline carries over to
     // every view — HELP and the way back (BACK, ESC/Q, since 'q' pops
     // rather than quits off the Board) are never the ones clipped.
     use gameday::views::View;
@@ -966,7 +966,7 @@ fn footers_shed_in_order_and_help_quit_survive_at_40_cols() {
         app.view = view.clone();
         let mut t = Terminal::new(TestBackend::new(40, 24)).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
-        // spec v3.3 §5: a feed that fits its pane pulls the key bar up under
+        // A feed that fits its pane pulls the key bar up under
         // its last row, so find the legend instead of taking the floor row.
         let s = buf_text(&t);
         let footer = s
@@ -1402,7 +1402,7 @@ fn standings_scroll_clamps_to_the_pane_so_k_moves_back_at_once() {
     let mut app = mk();
     app.view = View::Standings(League::Nfl);
     app.merge_standings(tall_standings_table());
-    // spec v3.3 §5: 80 cols, where the table is one column and 41 lines
+    // 80 cols, where the table is one column and 41 lines
     // genuinely overflow a 24-row pane — at 120 the two conferences sit side
     // by side and this table fits without scrolling at all.
     let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -1440,7 +1440,7 @@ fn standings_shows_a_more_marker_when_the_table_is_clipped() {
     let mut app = mk();
     app.view = View::Standings(League::Nfl);
     app.merge_standings(tall_standings_table());
-    // spec v3.3 §5: 80 cols — the one-column width, where a 41-line table is
+    // 80 cols — the one-column width, where a 41-line table is
     // actually clipped by a 24-row pane.
     let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -1492,13 +1492,13 @@ fn feed_and_standings_footers_advertise_only_keys_that_work_there() {
         let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
         let s = buf_text(&t);
-        // spec v3.3 §5: the key bar follows the content when the view fits,
+        // The key bar follows the content when the view fits,
         // so it is not always the floor row.
         let footer = s
             .lines()
             .find(|l| l.contains("? help"))
             .unwrap_or_else(|| panic!("{view:?}: no key bar:\n{s}"));
-        // spec v3.3 §5: lowercase, no "NAV:", no bracket-caps.
+        // Lowercase, no "NAV:", no bracket-caps.
         assert!(!footer.contains("NAV:"), "{view:?}: {footer}");
         assert!(
             !footer.contains("tabs"),
@@ -1613,7 +1613,7 @@ fn brackets_step_the_viewed_date_and_header_marks_it() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("DAL") && s.contains("PHI"), "{s}");
-    // v3.2 §1: no ticker under the board, so a traveled board shows the
+    // No ticker under the board, so a traveled board shows the
     // traveled slate and nothing of today.
     assert!(
         !s.contains("KC"),
@@ -1654,13 +1654,13 @@ fn a_later_row_shows_its_odds() {
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
-    // v3.2 §1: once, on the LATER row (the mosaic tile that repeated it is
+    // Once, on the LATER row (the mosaic tile that repeated it is
     // deleted).
     assert!(s.contains("LATER"), "{s}");
     assert_eq!(s.matches("O/U 47.5").count(), 1, "{s}");
 }
 
-// ---- Task 9: mouse support -------------------------------------------------
+// ---- Mouse support ---------------------------------------------------------
 
 /// Synthetic left click at (x, y), routed through the real mouse handler.
 fn click(app: &mut App, x: u16, y: u16) {
@@ -1716,7 +1716,7 @@ fn clicking_a_row_selects_it() {
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     assert_eq!(app.selected, 0);
-    // v3.2 §7: tiles are gone — every board row is a Hit::Row zone.
+    // Tiles are gone — every board row is a Hit::Row zone.
     let zone = zone_for(&app, Hit::Row(1));
     click(&mut app, zone.x + zone.width / 2, zone.y + zone.height / 2);
     assert_eq!(app.selected, 1, "click on the second row selects it");
@@ -1757,7 +1757,7 @@ fn clicking_a_later_row_selects_it() {
         false,
     );
     app.tab = Tab::League(League::Nfl);
-    // v3.2 §7: the SLATE strip is gone; a LATER row is a board row like any
+    // The SLATE strip is gone; a LATER row is a board row like any
     // other, at its `Derived::selection` index (1 live + this one).
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -1832,7 +1832,7 @@ fn wheel_on_the_board_moves_the_selection() {
     assert_eq!(app.selected, 0);
 }
 
-// ---- Config view (Task 10) ----
+// ---- Config view ----
 
 /// A fresh, empty config dir per test so round-trip assertions can't see
 /// another test's config.toml.
@@ -2035,7 +2035,7 @@ fn config_favorite_miss_names_the_abbr_and_the_league_form() {
     );
 }
 
-// Task 10 (spec §9): the config editor's SCORE/LAYOUT rows are gone; DISPLAY
+// The config editor's SCORE/LAYOUT rows are gone; DISPLAY
 // is THEME + SORT now.
 #[test]
 fn config_h_l_cycle_sort_and_persist() {
@@ -2169,7 +2169,7 @@ fn baseball_play_rows_show_the_inning_not_a_dash_clock() {
     let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
     term.draw(|f| app.draw(f)).unwrap();
     let text = buf_text(&term);
-    // v3.2 §1: the tile's `[B9]` play stamp went with the tile; the hero
+    // The tile's `[B9]` play stamp went with the tile; the hero
     // prints the play itself and the clock column says the inning.
     assert!(text.contains("BOT 9TH"), "{text}");
     assert!(text.contains("Rodríguez singles"), "{text}");
@@ -2262,9 +2262,9 @@ fn zoom_overview_carries_the_linescore_with_hits_and_errors() {
 
 #[test]
 fn the_linescore_wears_team_colors() {
-    // spec v3.3 §5: the linescore's team rows wear `theme::hero_pair`
+    // The linescore's team rows wear `theme::hero_pair`
     // colors instead of the gated `team_text` role, which could fall back
-    // to plain `fg` (white) — the white-digit role miss the v3.2 review
+    // to plain `fg` (white) — the white-digit role miss a design review
     // caught on an NYY row.
     use gameday::views::{View, ZoomTab};
     let th = gameday::theme::current();
@@ -2325,11 +2325,11 @@ fn the_linescore_wears_team_colors() {
 
 #[test]
 fn zoom_logo_flanks_are_symmetric_or_absent() {
-    // spec v3.3 §5: both or neither. A team with no committed mark used to
+    // Both or neither. A team with no committed mark used to
     // leave the OTHER team's flank drawn while its own stayed empty — one
     // lone mark reads as a rendering bug, not as an intentional asymmetry.
     // This exercises `hero::draw_hero` directly (the board and the zoom
-    // share this one function; spec §0 makes the marks hero-only).
+    // share this one function; the marks are hero-only).
     use gameday::board::hero::{draw_hero, HeroPlan};
     use gameday::domain::Team;
 
@@ -2546,8 +2546,8 @@ fn header_shows_sort_key_and_only_leagues_with_games() {
     let zoomed_first = buf_text(&tz).lines().next().unwrap().to_string();
     assert!(!zoomed_first.contains("SORT:"), "{zoomed_first}");
 
-    // Clock survives the sort chip across the same width sweep R12 already
-    // guarantees for the net chip and the tab ladder.
+    // Clock survives the sort chip across the same width sweep that already
+    // guarantees the net chip and the tab ladder.
     for width in 40u16..=180 {
         let mut app = mk();
         app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
@@ -2563,12 +2563,11 @@ fn header_shows_sort_key_and_only_leagues_with_games() {
 }
 
 /// Every one of the 9 leagues carries a live game today, so every enabled
-/// league's chip actually earns its place (spec §1: only a league with a
-/// game today earns a chip). Ten chips total with `ALL` — what
+/// league's chip actually earns its place: only a league with a game today
+/// earns a chip. Ten chips total with `ALL` — what
 /// `header_keeps_the_clock_with_ten_chips_at_120_columns` and the width
 /// sweep below were named for, before the chip-gating change made a
-/// boardless fixture render 0-1 chips regardless of the name (task-9 review
-/// carry-forward #1).
+/// boardless fixture render 0-1 chips regardless of the name.
 fn app_with_every_league_live() -> App {
     let mut app = App::new(
         Config::default_all(),
@@ -2643,12 +2642,12 @@ fn header_keeps_the_clock_and_the_selected_tab_at_eighty_columns() {
 
 #[test]
 fn the_clock_survives_every_width_the_board_will_draw_at() {
-    // R12's rule swept: from the narrowest board the app will render (40)
+    // The header's rule swept: from the narrowest board the app will render (40)
     // up, the clock is always whole and the status chip is never glued to
     // whatever follows it. Caught a clipped "9:37:05" at 40 and an
     // "OFFLINE9:37:05 PM" at 60.
     //
-    // Task-9 review carry-forward #1: a boardless fixture renders 0-1 chips
+    // A boardless fixture renders 0-1 chips
     // under the new chip-gating (a league only earns a chip with a game
     // today), so this sweep was never actually exercising "many chips" — the
     // never-clip guarantee needs every league fighting for space to mean
@@ -2706,7 +2705,7 @@ fn command_completion_shows_the_candidates_in_the_footer() {
 }
 
 // ---------------------------------------------------------------------------
-// v3.2 §1: the ranked board — one list, sections, band, selection, lane.
+// The ranked board — one list, sections, band, selection, lane.
 
 /// `live` live games, then `finals`, then `later`, all NFL, distinct abbrs so
 /// a row can be found by text. Scores differ per game so the ranked order is
@@ -2772,7 +2771,7 @@ fn the_board_is_one_ranked_list_with_sections() {
     assert!(s.contains("FINAL"), "FINAL section:\n{s}");
     assert!(s.contains("LATER"), "LATER section:\n{s}");
     // The hero's digits are drawn as glyph cells, not as "27 - 24" text — and
-    // cell-level (R22): the glyphs sit above the IN PLAY rule, in the away
+    // cell-level: the glyphs sit above the IN PLAY rule, in the away
     // team's hero color, not merely present somewhere on the board.
     let buf = term.backend().buffer();
     let area = *buf.area();
@@ -2789,7 +2788,7 @@ fn the_board_is_one_ranked_list_with_sections() {
         glyph_above_rule,
         "hero digit glyphs must render above IN PLAY, in the away team's hero color:\n{s}"
     );
-    // Spec §7: the tile grammar is gone — no borders, no MOMENTUM rail, no
+    // The tile grammar is gone — no borders, no MOMENTUM rail, no
     // SLATE strip, no GLOBAL ALERTS sidebar.
     for dead in ['┌', '┐', '└', '┘'] {
         assert!(
@@ -2804,7 +2803,7 @@ fn the_board_is_one_ranked_list_with_sections() {
 
 #[test]
 fn a_section_with_no_rows_renders_no_header() {
-    // spec v3.3 §4: an empty section prints no rule at all — no orphan
+    // An empty section prints no rule at all — no orphan
     // "FINAL ───" or "LATER ───" over nothing. Cell-scan every row (not a
     // whole-buffer string search) so a header hiding off the visible window
     // would not falsely pass.
@@ -2849,7 +2848,7 @@ fn row_contains(term: &Terminal<TestBackend>, needle: &str) -> bool {
 
 #[test]
 fn a_truncated_section_renders_no_orphan_rule() {
-    // spec v3.3 §4, fix round 1: the empty-list guard (above) only catches a
+    // The empty-list guard (above) only catches a
     // section with zero games. A *non-empty* section whose row budget the
     // window cuts to zero must not draw its rule either — the reviewer's
     // exact reproductions at 60x13 and 60x16.
@@ -2891,9 +2890,9 @@ fn a_truncated_section_renders_no_orphan_rule() {
         s.contains("SCORES"),
         "the lane still fires for the truncated games:\n{s}"
     );
-    // v3.3 §3: two of this window's 16 rows are the band's reservation, so a
+    // Two of this window's 16 rows are the band's reservation, so a
     // LIVE game is off-screen here too — and the lane names live games before
-    // it counts anything (spec §1), which is the whole point of the lane.
+    // it counts anything, which is the whole point of the lane.
     assert!(
         s.contains("NYJ 15 NE 12"),
         "the lane names the off-screen live game:\n{s}"
@@ -2947,7 +2946,7 @@ fn pinned_games_sit_in_a_band_that_never_resorts() {
             .iter()
             .position(|l| l.contains("MY GAMES"))
             .expect("MY GAMES rule");
-        // v3.3 §3: the MY GAMES rule is hoisted into the band's reserved two
+        // The MY GAMES rule is hoisted into the band's reserved two
         // rows, so the row directly under it is the reservation's air and the
         // band's own rows start one lower.
         assert!(
@@ -3028,7 +3027,7 @@ fn selection_walks_the_whole_list_and_scrolls() {
 
 #[test]
 fn the_window_math_holds_at_odd_heights() {
-    // Task-16 carry (Task 14 review): the size sweep walks even heights and
+    // The size sweep walks even heights and
     // the dynamic window (`board::first_visible` + the lane's row) had no
     // regression test at an ODD height, where `height - lane` and the row
     // costs cannot divide evenly and an off-by-one lands on the footer.
@@ -3110,7 +3109,7 @@ fn the_ticker_is_gone_at_40_rows_and_the_lane_appears_when_truncated() {
     let lane_y = (lines.len() - 2) as u16;
     let lane = lines[lane_y as usize];
     assert!(lane.contains("SCORES"), "one lane above the footer:\n{s}");
-    // Cell-level (R22): the lane's label starts at column 0 of that exact
+    // Cell-level: the lane's label starts at column 0 of that exact
     // row, bold in the section-rule `cool` role — not merely text that
     // happens to say SCORES somewhere on the board.
     let buf = term.backend().buffer();
@@ -3127,10 +3126,10 @@ fn the_ticker_is_gone_at_40_rows_and_the_lane_appears_when_truncated() {
         "SCORES label is bold:\n{s}"
     );
     // The lane accounts for exactly what didn't fit. Here every live game is
-    // on screen and it is LATER that ran out of rows (Task 5's note), so the
+    // on screen and it is LATER that ran out of rows, so the
     // lane degrades to the counts rather than naming a live game twice.
     let drawn = lines[..lines.len() - 2].join("\n");
-    // 16 games; the 22-row body holds the band's two reserved rows (v3.3 §3),
+    // 16 games; the 22-row body holds the band's two reserved rows,
     // the hero (6 rows), the 9 other live rows, the IN PLAY and FINAL rules
     // and both finals — so all four LATER games are off, and LATER's rule
     // goes with them rather than standing over nothing.
@@ -3147,9 +3146,9 @@ fn the_ticker_is_gone_at_40_rows_and_the_lane_appears_when_truncated() {
 
 #[test]
 fn scores_lane_lists_off_screen_games_only() {
-    // Task 9: every other view gets the SAME off-screen SCORES lane the
+    // Every other view gets the SAME off-screen SCORES lane the
     // Board would show at this size — gated by the identical
-    // `layout::plan(...).scores_lane` truncation check (spec §1), never a
+    // `layout::plan(...).scores_lane` truncation check, never a
     // second grammar, and never allocated when the Board itself wouldn't
     // truncate.
     use gameday::views::{View, ZoomTab};
@@ -3165,7 +3164,7 @@ fn scores_lane_lists_off_screen_games_only() {
         small.contains("SCORES"),
         "the board would truncate at 80x24 too, so Zoom gets the lane:\n{small}"
     );
-    // Cell-level (R22): the lane sits on its own row — the bottom of the
+    // Cell-level: the lane sits on its own row — the bottom of the
     // frame's body, not the footer row itself — and its label is styled like
     // every other view's lane the same way the Board's own is.
     let lane_y = small
@@ -3217,7 +3216,7 @@ fn scores_lane_lists_off_screen_games_only() {
     );
 }
 
-// ---- Task 14: the size sweep -----------------------------------------------
+// ---- The size sweep -------------------------------------------------------
 
 /// The brief's 14-game fixture: 8 live (one hot — RED ZONE), 3 final, 3
 /// later, 2 pinned. All NFL, distinct abbrs so a row is identifiable.
@@ -3264,7 +3263,7 @@ fn sweep_app() -> App {
     let mut app = mk();
     let games = sweep_games();
     // Two pins, per the brief — the last two later games (never the hero,
-    // which only ever comes from a live game — R26).
+    // which only ever comes from a live game).
     app.pins = vec![
         gameday::config::Pin {
             game_id: "p1".into(),
@@ -3284,7 +3283,7 @@ fn sweep_app() -> App {
 
 #[test]
 fn the_board_survives_every_size_the_app_will_draw_at() {
-    // The v3.1 clock sweep pattern, board edition (spec §4's sizes ladder,
+    // The clock sweep pattern, board edition (the sizes ladder,
     // `src/board/layout.rs`'s own `the_budget_never_over_allocates` sweep,
     // and `tests/draw.rs`'s `the_clock_survives_every_width_the_board_will_draw_at`).
     let widths = [40u16, 55, 60, 80, 100, 120, 180];
@@ -3518,7 +3517,7 @@ fn land_a_score(app: &mut App, pinned: bool) {
 
 #[test]
 fn the_takeover_and_the_hero_agree_on_every_digit_cell() {
-    // Spec §1's hard rule: there is ONE score formatter. The takeover asks
+    // The hard rule: there is ONE score formatter. The takeover asks
     // `hero::score_block` for its digits, so the same game rendered both ways
     // must be identical cell for cell inside the score's rect — a takeover
     // that re-implemented the glyphs would drift here immediately.
@@ -3630,7 +3629,7 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
         s.contains("MAHOMES"),
         "the detail line comes from the play:\n{s}"
     );
-    // Spec §3's chip, verbatim, on the takeover's one filled element.
+    // The cut's chip, verbatim, on the takeover's one filled element.
     assert!(
         rows[1].contains("▲ SCORING PLAY · KC"),
         "the takeover chip is the spec's:\n{s}"
@@ -3650,13 +3649,13 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     let rows: Vec<&str> = s.lines().collect();
-    // Spec §3 / ruling R33: `▲ HOME RUN · TEX Seager (32) · ATH 0 TEX 5` on a
+    // `▲ HOME RUN · TEX Seager (32) · ATH 0 TEX 5` on a
     // hot ground, two rows, above an intact list.
     assert!(
         rows[1].starts_with("▲ TOUCHDOWN · KC MAHOMES · KC 24 BUF 21"),
         "band headline:\n{s}"
     ); // spec v3.3 §7
-       // spec v3.3 §3: row two stopped repeating the play and became the
+       // Row two stopped repeating the play and became the
        // affordance — what enter does, and how long the band has left.
     assert!(
         rows[2].starts_with("enter jump · clears in"),
@@ -3730,7 +3729,7 @@ fn band_frames(fired: bool) -> Terminal<TestBackend> {
 
 #[test]
 fn the_board_never_jumps_when_a_band_fires() {
-    // Spec §3 / v3.3: the band's two rows are RESERVED whenever anything is
+    // The band's two rows are RESERVED whenever anything is
     // live (`TierPlan::band_rows`), so a band that fires draws into rows the
     // board already gave up — the last layout jump in the app. The IN PLAY
     // rule is the witness: same y, cell for cell, band or no band.
@@ -3803,7 +3802,7 @@ fn the_reserved_rows_earn_their_keep_when_quiet() {
 
 #[test]
 fn enter_during_a_band_zooms_the_bands_game_not_the_selection() {
-    // spec v3.3 §3: while a band is up, enter is the jump to the game that
+    // While a band is up, enter is the jump to the game that
     // just scored — the one interaction the band adds.
     use gameday::input::{handle_key, InputMode};
     use gameday::views::View;
@@ -3956,7 +3955,7 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     let text = buf_text(&term);
 
     // The jumbotron: `PixelSize::Full` digits are 8×8 cells and a band with
-    // 16 rows for them paints every glyph row twice (v3.3 §2), so the away
+    // 16 rows for them paints every glyph row twice, so the away
     // score fills sixteen contiguous rows of the left third in KC's hero
     // color. The quad rung would paint four, the text form one.
     let th = gameday::theme::current();
@@ -3983,10 +3982,10 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     // The shown game is the ranking's top; both its abbrs are on the hero.
     assert!(text.contains("KC") && text.contains("TB"), "{text}");
 
-    // Spec §0: TV stays logo-free, even at the ≥100 columns where the board
+    // TV stays logo-free, even at the ≥100 columns where the board
     // flanks its hero — the margin OUTSIDE the digits is untouched ground.
     // (KC and TB both have committed art, so this would paint otherwise.)
-    // The margin is measured, not assumed: ruling R43 lets a 2-digit score
+    // The margin is measured, not assumed: the axis gate lets a 2-digit score
     // take double-width glyphs, which start further left than the old fixed
     // `x < 20` window did. What must stay empty is whatever the digits did
     // not take.
@@ -4028,7 +4027,7 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
 
 #[test]
 fn tv_fills_its_frame() {
-    // v3.3 Task 13: the design review called TV the weakest frame — digits
+    // The design review called TV the weakest frame — digits
     // half the mockup's height, ~6 dead rows under them, and a one-column
     // strip wasting half the width. All three are pinned here.
     use crossterm::event::{KeyCode, KeyModifiers};
@@ -4165,7 +4164,7 @@ fn tv_fills_its_frame() {
     );
 }
 
-/// The doubled rung is still the ONE formatter (spec §1's hard rule): what
+/// The doubled rung is still the ONE formatter: what
 /// TV paints is cell-for-cell what `hero::score_block` paints into a 16-row
 /// rect. Without this a jumbotron-only tweak drifts from the board's digits.
 #[test]
@@ -4217,10 +4216,10 @@ fn the_jumbotron_digits_are_the_one_formatters_doubled_rung() {
 
 #[test]
 fn tv_keeps_a_three_digit_score_on_the_full_rung() {
-    // Ruling R43's other half: a basketball jumbotron. 3 × 8 = 24 cells of
+    // The axis gate's other half: a basketball jumbotron. 3 × 8 = 24 cells of
     // digits doubled would be 48, past the 40-col third at 120 columns, so
     // the columns must NOT double — and the score must not fall to the 4-row
-    // quad form either. Rows double, columns don't, spec §0's logo-free
+    // quad form either. Rows double, columns don't, and the logo-free
     // margin survives.
     use crossterm::event::{KeyCode, KeyModifiers};
     let mut app = mk();
@@ -4269,7 +4268,7 @@ fn tv_keeps_a_three_digit_score_on_the_full_rung() {
         "the away score stays inside its third, ended at {last}:\n{text}"
     );
 
-    // Spec §0 again: whatever the digits did not take is untouched ground.
+    // Again: whatever the digits did not take is untouched ground.
     for y in digit_rows[0]..=digit_rows[15] {
         for x in 0..first {
             assert_eq!(
@@ -4283,7 +4282,7 @@ fn tv_keeps_a_three_digit_score_on_the_full_rung() {
 
 #[test]
 fn a_locked_game_going_final_never_leaves_tv_saying_nothing_is_live() {
-    // Ruling R36: one slate. The lock and the shown id are both validated
+    // One slate. The lock and the shown id are both validated
     // against the LIVE slate the strip draws from — a game that has gone
     // final can't stay "shown" while five games are live.
     use crossterm::event::{KeyCode, KeyModifiers};
@@ -4322,8 +4321,8 @@ fn a_locked_game_going_final_never_leaves_tv_saying_nothing_is_live() {
 
 #[test]
 fn tv_never_jumps_when_a_band_fires() {
-    // Spec §3 / v3.3: TV reserves the band's two rows exactly as the board
-    // does (Task 4's interim — "the band draws over the strip's top rows" —
+    // TV reserves the band's two rows exactly as the board
+    // does (the earlier interim — "the band draws over the strip's top rows" —
     // closes here). The ALSO LIVE rule is the witness: same y, band or no.
     use crossterm::event::{KeyCode, KeyModifiers};
     let frame = |fired: bool| -> Terminal<TestBackend> {
@@ -4335,7 +4334,7 @@ fn tv_never_jumps_when_a_band_fires() {
         app.on_key(KeyCode::Char('v'), KeyModifiers::NONE);
         let shown = app.tv_shown.clone().expect("TV shows a game");
         // Score on a game that is neither shown nor MY GAMES: a band, not a
-        // takeover (spec v3.3 §9 decision B).
+        // takeover.
         let other = games
             .iter_mut()
             .find(|g| g.id != shown)
@@ -4384,7 +4383,7 @@ fn tv_never_jumps_when_a_band_fires() {
     // Cell level, and the whole screen: the ONLY rows that may differ are the
     // band's own two. The nameplate, the digits, the plays and the strip are
     // all where they were — without the reservation the band painted straight
-    // over TV's nameplate row, which is what Task 4 left open.
+    // over TV's nameplate row, which is what the earlier interim left open.
     let (qb, fb) = (quiet.backend().buffer(), fired.backend().buffer());
     for y in 0..40u16 {
         if (1..=2).contains(&y) {
@@ -4434,7 +4433,7 @@ fn tv_never_panics_and_never_blanks_the_score() {
 
 #[test]
 fn in_tv_only_the_shown_game_and_my_teams_take_the_screen() {
-    // spec v3.3 §9 decision B: TV mode no longer promotes every scoring play
+    // TV mode no longer promotes every scoring play
     // to a takeover. Only the game currently shown and MY GAMES (pinned or
     // favorited) teams earn the whole screen; everything else is the quiet
     // band, drawn over TV the same way it's drawn over the board.
@@ -4527,7 +4526,7 @@ fn in_tv_only_the_shown_game_and_my_teams_take_the_screen() {
 
 #[test]
 fn a_locked_shown_game_keeps_the_takeover_even_when_a_better_game_scores() {
-    // spec v3.3 §9 decision B named edge: TV can be locked (space) onto a
+    // The named edge: TV can be locked (space) onto a
     // game that is NOT the ranking's top. `tv_follow` respects the lock and
     // never re-anchors `tv_shown` while it holds, so the locked/shown game
     // stays the one takeover-eligible id — a score from the ranking's
@@ -4583,9 +4582,9 @@ fn a_locked_shown_game_keeps_the_takeover_even_when_a_better_game_scores() {
     assert_eq!(cut.game_id, "2");
 }
 
-// ---------------------------------------------------------------- zoom (§5)
+// ------------------------------------------------------------------- zoom
 // The Overview tab is hero + linescore + a per-sport matchup line, which is
-// where sub-project 1's mapped-but-never-drawn fields (situation.pitcher /
+// where the mapped-but-never-drawn fields (situation.pitcher /
 // batter / due_up, Game.timeouts, Extras::Soccer.events) finally render.
 
 fn zoom_team(league: &str, abbr: &str, color: [u8; 3]) -> Team {
@@ -4711,7 +4710,7 @@ fn zoom_overview_reuses_the_hero_and_shows_the_matchup_line() {
     zoom.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&zoom);
 
-    // Spec §5: the matchup line, from fields the mapper has filled since v3.1.
+    // The matchup line, from fields the mapper has long filled.
     assert!(s.contains("P: G. Kirby"), "pitcher missing:\n{s}");
     assert!(s.contains("AB: R. Devers"), "batter missing:\n{s}");
     assert!(s.contains("DUE UP"), "due up missing:\n{s}");
@@ -4730,7 +4729,7 @@ fn zoom_overview_reuses_the_hero_and_shows_the_matchup_line() {
         "the feed survived the rebuild:\n{s}"
     );
 
-    // Spec §1's hard rule: one score formatter. The zoom hero IS the board
+    // The hard rule: one score formatter. The zoom hero IS the board
     // hero, so the digits match cell for cell — chars and colors.
     assert_eq!(
         digit_grid(&zoom),
@@ -4865,7 +4864,7 @@ fn soccer_zoom_lists_match_events_with_minute_and_letter() {
     }
 }
 
-/// Spec v3.4 §5: a sending-off is a board-wide state, not a zoom detail —
+/// A sending-off is a board-wide state, not a zoom detail —
 /// the count comes from the scoreboard every game already has, so the chip
 /// rides the tier-1 row for every short-handed match at once.
 #[test]
@@ -4963,7 +4962,7 @@ fn the_ten_men_chip_renders_hot() {
     assert!(!buf_text(&t).contains("MEN"), "no chip at full strength");
 }
 
-// ── spec v3.3 §5: screen layouts — no screen floats a narrow column in a
+// ── Screen layouts — no screen floats a narrow column in a
 // half-empty frame ─────────────────────────────────────────────────────────
 
 /// Live WNBA game with one scoring play — the six-column league chip
@@ -4985,7 +4984,7 @@ fn wnba_game(id: &str, away: &str, home: &str) -> Game {
 
 #[test]
 fn standings_use_two_columns_at_width() {
-    // spec v3.3 §5: at 120 cols the two conference tables sit side by side
+    // At 120 cols the two conference tables sit side by side
     // (both group headers on one row, ≥40 cols apart; receipt: two 48-col
     // tables + a 4-col gutter = 100 is the gate). At 80 they stack.
     use gameday::views::View;
@@ -5027,7 +5026,7 @@ fn standings_use_two_columns_at_width() {
 
 #[test]
 fn the_plays_feed_fills_the_width() {
-    // spec v3.3 §5: the feed is a full-width row, not a 60-col column in a
+    // The feed is a full-width row, not a 60-col column in a
     // 120-col frame — the matchup score rides the right edge — and the stamp
     // column lands at one x for every league, four-letter chips included.
     use gameday::views::View;
@@ -5075,7 +5074,7 @@ fn the_plays_feed_fills_the_width() {
 
 #[test]
 fn the_re_laid_out_screens_survive_every_size() {
-    // spec v3.3 §5 does width arithmetic on three more screens (two-column
+    // Width arithmetic on three more screens (two-column
     // standings, the full-width feed, the two-panel editor), so they take the
     // board's own sweep — and the sweep asserts the layout, not just survival:
     // nothing writes past the frame, the two-column gate flips at exactly 100
@@ -5208,7 +5207,7 @@ fn a_resize_that_shortens_the_standings_does_not_swallow_a_keypress() {
 
 #[test]
 fn no_screen_floats_a_dead_column() {
-    // spec v3.3 §5: at 120x40 the key bar sits with the content it describes
+    // At 120x40 the key bar sits with the content it describes
     // (content_end+1), not stranded on the terminal floor under a gulf of
     // blank rows, and the block is centered rather than pinned left.
     use gameday::views::View;
@@ -5304,7 +5303,7 @@ fn no_screen_floats_a_dead_column() {
     }
 }
 
-/// Spec v3.4 §3: `Situation::drive_desc` is mapped and reaches the render
+/// `Situation::drive_desc` is mapped and reaches the render
 /// path — it is *available* to a fragment line, and deliberately does not
 /// change one yet. Two boards that differ only in that field must draw the
 /// same buffer: a field arriving in the model is not a layout change, and
@@ -5336,7 +5335,7 @@ fn the_drive_description_is_available_without_moving_the_board() {
     );
 }
 
-// ---------------------------------------------------------- NHL zoom (spec v3.4 §4)
+// ---------------------------------------------------------------- NHL zoom
 
 fn nhl_zoom_game() -> Game {
     Game {
@@ -5349,7 +5348,7 @@ fn nhl_zoom_game() -> Game {
         status: Status::Live,
         period: "2ND".into(),
         clock: "15:37".into(),
-        // R49: the penalty meter is derived from these extras at the zoom,
+        // The penalty meter is derived from these extras at the zoom,
         // never stored here — the board and :tv read `meter`.
         meter: None,
         extras: Extras::Hockey {
@@ -5385,7 +5384,7 @@ fn the_zoom_shows_the_penalty_meter_and_pp_chip() {
     let hot = gameday::theme::current().roles().hot;
 
     // The chip, cell-level: the hero's chip is the frame's only hot-filled
-    // run, and it says POWER PLAY (spec v3.4 §4 — strength is structural).
+    // run, and it says POWER PLAY (strength is structural).
     let mut chip = String::new();
     for y in 0..b.area().height {
         for x in 0..b.area().width {
@@ -5420,7 +5419,7 @@ fn the_zoom_shows_the_penalty_meter_and_pp_chip() {
 
 #[test]
 fn the_board_never_wears_the_zoomed_games_power_play() {
-    // R49: strength reaches only the zoomed game, so scoring it would give
+    // Strength reaches only the zoomed game, so scoring it would give
     // that one row a chip, the hot flag and a rank bonus no identical
     // unzoomed power play could earn. Same game, two surfaces.
     let game = nhl_zoom_game();

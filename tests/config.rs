@@ -239,8 +239,8 @@ fn pins_roundtrip() {
     fs::remove_dir_all(&dir).ok();
 }
 
-// Task 10 (spec §9): layout/score_style are deleted from Config; an old
-// config.toml carrying those keys must still load instead of erroring.
+// layout/score_style are deleted from Config; an old config.toml carrying
+// those keys must still load instead of erroring.
 #[test]
 fn sort_key_round_trips_and_old_layout_keys_are_ignored() {
     let dir = tmp("sortkey");

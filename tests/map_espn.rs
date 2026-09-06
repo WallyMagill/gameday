@@ -30,7 +30,7 @@ fn maps_live_nfl_scoreboard() {
     assert_eq!(g.away.color, [0xe3, 0x18, 0x37]);
     assert_eq!(g.broadcast.as_deref(), Some("CBS"));
     assert_eq!(g.last_plays[0].text, "Mahomes pass to Kelce for 3 yards");
-    // spec v3.4 §3: this hand-built v3.0-era fixture predates the structured
+    // This hand-built early fixture predates the structured
     // situation — it carries `possessionText: "TB 3"` and neither `isRedZone`
     // nor `yardLine`. The red zone used to be re-derived by splitting that
     // string; it isn't any more, so a payload that never says "red zone"
@@ -314,7 +314,7 @@ fn cbb_uses_its_own_table() {
             .any(|p| p.kind == PlayKind::ThreePointer),
         "expected a made three (558/scoringPlay/scoreValue 3) to map ThreePointer"
     );
-    // v3.4 T3 review: fixtures/cbb_summary_full.json carries 7 missed
+    // fixtures/cbb_summary_full.json carries 7 missed
     // threes (id 558, scoringPlay: false) that CBB's endpoint still stamps
     // scoreValue: 3 on — the gate must be scoringPlay, not shootingPlay, or
     // every miss maps ThreePointer.
@@ -573,7 +573,7 @@ fn soccer_details_become_match_events() {
         .unwrap();
     assert!(goal.minute.ends_with('\''), "{}", goal.minute);
     assert!(!goal.player.is_empty());
-    // Every event names the athlete ESPN credited (spec v3.4 §5) — the id is
+    // Every event names the athlete ESPN credited — the id is
     // what makes a second yellow countable.
     assert_eq!(
         goal.athlete_id.as_deref().map(str::is_empty),
@@ -582,7 +582,7 @@ fn soccer_details_become_match_events() {
     );
 }
 
-/// Spec v3.4 §5: the men-on-field count is derivable from the scoreboard
+/// The men-on-field count is derivable from the scoreboard
 /// alone — no summary, no extra request. `fixtures/live/epl_scoreboard_redcard.json`
 /// is a real EPL slate; João Gomes (athlete 301524, Aston Villa / team 362,
 /// the AWAY side) takes a straight red at 40'.
@@ -611,7 +611,7 @@ fn a_red_card_yields_ten_men_from_the_scoreboard_alone() {
     }
 }
 
-/// Spec v3.4 §6: a startup final (loaded already-final, no delta ever
+/// A startup final (loaded already-final, no delta ever
 /// captured) tells its own story from the scoreboard's own
 /// `headlines[0].shortLinkText` — never `description` (em-dash wire copy;
 /// event 401772964's description opens "— Myles Garrett wanted..."; the
@@ -637,7 +637,7 @@ fn finals_headline_from_short_link_text() {
     );
 }
 
-/// The defensive half of the rule (spec v3.4 §5): ESPN's second-yellow
+/// The defensive half of the rule: ESPN's second-yellow
 /// encoding is UNOBSERVED, so two yellows on one athlete count as a red
 /// whether or not a 93 ever arrives — and when both arrive, the athlete is
 /// counted once.
@@ -823,7 +823,7 @@ fn a_scoring_non_homer_is_run_scoring_play() {
 
 #[test]
 fn mlb_narrative_play_with_no_joined_pitch_row_stays_other() {
-    // v3.4 T4 review: a narrative row (type 57 Play Result) whose atBatId
+    // A narrative row (type 57 Play Result) whose atBatId
     // has no P row in the feed at all — pass 1's join map has no entry for
     // it, so `mlb_pitch_type_by_at_bat.get` misses. That must fall back to
     // Other, not panic.
@@ -1132,7 +1132,7 @@ fn every_league_maps_its_full_scoreboard_and_summary_with_no_skips() {
     }
 }
 
-/// Spec §1: no committed fixture carried live game state, so no test could
+/// No committed fixture carried live game state, so no test could
 /// catch a live-situation regression. This is that regression net — for
 /// every `fixtures/live/*_scoreboard_live.json`, find the event ESPN itself
 /// marked live (`status.type.state == "in"`) with a `situation` object, map
@@ -1187,7 +1187,7 @@ fn live_fixtures_carry_live_state() {
                     sit.possession.is_some(),
                     "{name}: {live_id} possession missing"
                 );
-                // spec v3.4 §3: the structured fields, not the strings.
+                // The structured fields, not the strings.
                 assert!(sit.down.is_some(), "{name}: {live_id} down missing");
                 assert!(sit.distance.is_some(), "{name}: {live_id} distance missing");
                 assert!(
@@ -1230,7 +1230,7 @@ fn live_fixtures_carry_live_state() {
     assert!(checked > 0, "no fixtures/live/*_scoreboard_live.json found");
 }
 
-/// v3.1-era capture bug (fixed in `scripts/capture-fixtures.sh`, spec §1):
+/// An early capture bug (fixed in `scripts/capture-fixtures.sh`):
 /// summaries were piped through a filter that capped `plays[]` at exactly
 /// 80, silently truncating live games that carry 300-540. This fixture is a
 /// real live-game capture and must stay untruncated.
@@ -1250,7 +1250,7 @@ fn the_mlb_live_summary_is_untruncated() {
     );
 }
 
-/// Spec v3.4 §3: the live scoreboard carries `situation.down`, `.distance`,
+/// The live scoreboard carries `situation.down`, `.distance`,
 /// `.yardLine` and `.isRedZone` as real JSON numbers and booleans — the
 /// mapper reads those, not `downDistanceText`/`possessionText`. Values
 /// pinned from the real capture (`fixtures/live/cfb_scoreboard_live.json`,
@@ -1302,7 +1302,7 @@ fn live_situation_maps_integers_not_strings() {
     assert!(sit.outs.is_some(), "the baseball fields still map");
 }
 
-/// Spec v3.4 §3: the red-zone meter is ESPN's `isRedZone` plus the absolute
+/// The red-zone meter is ESPN's `isRedZone` plus the absolute
 /// `yardLine`, not `possessionText.rsplit_once(' ')`. Yards-to-goal is the
 /// distance to the goal the possessing team is attacking.
 #[test]
@@ -1332,7 +1332,7 @@ fn the_red_zone_meter_reads_the_flag_and_the_yard_line() {
     assert_eq!(g.meter, Some(Meter::RedZone { yards_to_goal: 12 }));
 }
 
-/// Spec v3.4 §3: the scoreboard's `situation.lastPlay` is a real `Play` with
+/// The scoreboard's `situation.lastPlay` is a real `Play` with
 /// a `kind` and a `score_value`, mapped through the same per-league tables
 /// the summary uses.
 #[test]
@@ -1363,7 +1363,7 @@ fn last_play_carries_its_kind_at_scoreboard_cadence() {
     assert_eq!(g.last_plays[0].score_value, Some(0));
 }
 
-// ---------------------------------------------------------------- NHL strength (spec v3.4 §4)
+// ---------------------------------------------------------------- NHL strength
 
 #[test]
 fn nhl_strength_is_structural_and_current() {
@@ -1417,7 +1417,7 @@ fn nhl_strength_is_structural_and_current() {
         }),
         "the special-teams tail builds the penalty meter"
     );
-    // R49: derived on demand, never stored on the shared game — the board
+    // Derived on demand, never stored on the shared game — the board
     // and :tv read `game.meter` and must not see a zoom-only state.
     assert_eq!(s.meter, None, "the summary carries no meter of its own");
 }
@@ -1462,7 +1462,7 @@ fn penalties_carry_their_metadata() {
 
 #[test]
 fn the_pp_string_prefix_is_gone() {
-    // spec v3.4 §4: strength used to be collapsed into a "PP · " text prefix
+    // Strength used to be collapsed into a "PP · " text prefix
     // on power-play goals. No NHL fixture carries a 702 goal, so this flips
     // the real 903 (empty net) goal to 702 — under the old mapper that row's
     // text came back prefixed; strength is structural now, so the text is
@@ -1494,7 +1494,7 @@ fn the_pp_string_prefix_is_gone() {
     assert_ne!(HockeyStrength::PowerPlay, HockeyStrength::Shorthanded);
 }
 
-/// spec v3.4 §7: ESPN's own art is id-keyed for college and soccer
+/// ESPN's own art is id-keyed for college and soccer
 /// (`teamlogos/ncaa/500/2000.png`, `teamlogos/soccer/500/364.png`) and
 /// abbreviation-keyed for the US pro leagues. `logo_key` has to follow the
 /// CDN, not a house convention, or `board::logo` looks up marks nothing was

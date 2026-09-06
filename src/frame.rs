@@ -213,7 +213,7 @@ pub const DEFAULT_SIZE: (u16, u16) = (dump::DUMP_COLS, dump::DUMP_ROWS);
 /// The floor the app's own layout is built to. Below this the views stop
 /// having room for their sections and the frame would be a picture of a
 /// degraded layout rather than of a design; the app's minimum-size message
-/// names the same numbers (`src/app` size ladder, spec §4).
+/// names the same numbers (the `src/app` size ladder).
 pub const MIN_SIZE: (u16, u16) = (40, 12);
 /// The ceiling. 400x200 is far past any real terminal and past the 22-page
 /// gallery's largest capture; it exists so a typo (`--size 8000x2400`) is an

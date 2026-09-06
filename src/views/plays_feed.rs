@@ -13,8 +13,8 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 /// Draws the feed and returns the absolute y of its last row — the END OF FEED
-/// rule when the whole feed fits — so the key bar sits with the list (spec
-/// v3.3 §5). A feed that fills the pane reports `None` and the bar keeps the
+/// rule when the whole feed fits — so the key bar sits with the list. A feed
+/// that fills the pane reports `None` and the bar keeps the
 /// terminal floor.
 pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> Option<u16> {
     let th = theme::current();
@@ -46,7 +46,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> Option<u16> {
         .map(|(i, (game, play))| feed_row(game, play, i == sel, chunks[1].width as usize))
         .collect();
     // A short feed closes with an end marker so the blank pane below reads
-    // as "that's all", not as rows that failed to render. Spec v3.3 §5: the
+    // as "that's all", not as rows that failed to render. The
     // marker is the board's own rule, drawn to the frame's edge, so the list
     // ends on a line rather than trailing off mid-row.
     if lines.len() < visible {
@@ -100,7 +100,7 @@ const CHIP_W: usize = 6;
 
 /// One feed row: marker, league chip, clock, credited team, scoring word,
 /// play text, then the matchup score at the row's right edge for orientation
-/// (spec v3.3 §5: the row is the width of the frame, not of its text).
+/// (the row is the width of the frame, not of its text).
 fn feed_row<'a>(game: &Game, play: &Play, selected: bool, width: usize) -> Line<'a> {
     let th = theme::current();
     let marker = if selected { "▸ " } else { "  " };

@@ -269,7 +269,7 @@ pub const FOOTER_DROP_ORDER: &[&str] = &[
     "MOVE", "PIN", "LEAGUE", "CYCLE", "EDIT", "TOGGLE", "FILTER", "CMD",
 ];
 
-/// The Board footer's legend (spec §1): `↑↓ move  enter zoom  space pin
+/// The Board footer's legend: `↑↓ move  enter zoom  space pin
 /// / filter  s sort  v tv  ? help  q quit`, fixed order, lowercase, no
 /// brackets — the A′ frames' own key-cap style, distinct from every other
 /// view's `NAV:` chord list. `s`/`v` also have real KEYMAP rows (SORT/TV) so
@@ -303,7 +303,7 @@ pub fn tv_legend(locked: bool) -> [(&'static str, &'static str); 4] {
     ]
 }
 
-/// Spec §5: one grammar everywhere. The chord table keeps its caps key names
+/// One grammar everywhere. The chord table keeps its caps key names
 /// (`SPC`, `ENTER`, `TAB`...) because that's what [`FOOTER_DROP_ORDER`] and
 /// the structural help-overlay test match against, but every rendered
 /// surface — footer (Board, TV, and every other view) and now the `?`
@@ -353,7 +353,7 @@ pub fn help_rows(group: Group) -> Vec<(String, &'static str)> {
 
 /// The `?` overlay's actual rendered rows: [`help_rows`] translated through
 /// [`lower_key`] and lowercased labels, so the overlay speaks the same
-/// grammar as every footer (spec v3.3 §5).
+/// grammar as every footer.
 pub fn help_display_rows(group: Group) -> Vec<(String, String)> {
     KEYMAP
         .iter()

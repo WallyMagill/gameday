@@ -32,7 +32,7 @@ fn game(id: &str, abbr: &str, status: Status) -> Game {
 
 #[test]
 fn favorite_pulls_live_team_onto_home() {
-    // v3.2 §1: Home is ONE list of the day, so the pre-game is on it too —
+    // Home is ONE list of the day, so the pre-game is on it too —
     // what the favorite decides is the ORDER (its game leads).
     let boards = vec![game("9", "KC", Status::Live), game("8", "DAL", Status::Pre)];
     let favs = [Favorite {
@@ -76,7 +76,7 @@ fn pin_and_favorite_dedupe() {
 #[test]
 fn pin_order_then_favorites() {
     // The pin leads, then the favorite; "a" is a pre-game and lands after
-    // both — v3.2 §1 keeps the whole day on Home, in band order.
+    // both — the whole day is on Home, in band order.
     let boards = vec![
         game("a", "DAL", Status::Pre),
         game("b", "KC", Status::Live),
@@ -132,7 +132,7 @@ fn home_shows_the_whole_day_live_first() {
     ];
     let out = home_games(&[], &[], &boards, OffsetDateTime::now_utc());
     let ids: Vec<&str> = out.iter().map(|g| g.id.as_str()).collect();
-    // v3.2 §1: the board is one list with FINAL and LATER sections, so Home
+    // The board is one list with FINAL and LATER sections, so Home
     // carries every game today — live first, then the rest in board order.
     assert_eq!(
         ids,

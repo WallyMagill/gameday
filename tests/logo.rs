@@ -45,7 +45,7 @@ fn every_committed_mark_parses_at_hero_size() {
         );
         assert!(m.width >= 10 && m.width <= 16, "{key}: width {}", m.width);
     }
-    // v3.4 §7 completed the pro leagues, so "a team with no art" is no longer
+    // The pro leagues are complete, so "a team with no art" is no longer
     // a pro team — it's an unranked school.
     assert!(
         hero_mark("ncaa/999999").is_none(),
@@ -126,8 +126,8 @@ fn all_thirty_two_nfl_marks_load() {
 
 #[test]
 fn a_covered_pro_team_resolves_a_mark_and_an_uncovered_college_team_falls_back() {
-    // spec v3.4 §7: the pro leagues are complete, so every one of them
-    // resolves — including the teams the v3.3 demo set never covered.
+    // The pro leagues are complete, so every one of them
+    // resolves — including the teams the demo set never covered.
     for key in [
         "nba/bos",
         "nba/mem",
@@ -151,8 +151,8 @@ fn a_covered_pro_team_resolves_a_mark_and_an_uncovered_college_team_falls_back()
     );
 }
 
-/// The pro leagues are complete as of v3.4 §7 — the counts are the research's
-/// receipts off `/teams?limit=1000` (NFL 32, NHL 32, NBA 30, MLB 30, MLS 30,
+/// The pro leagues are complete — the counts are receipts off
+/// `/teams?limit=1000` (NFL 32, NHL 32, NBA 30, MLB 30, MLS 30,
 /// EPL 20, WNBA 15).
 #[test]
 fn every_pro_league_is_complete() {
@@ -184,7 +184,7 @@ fn every_pro_league_is_complete() {
     );
 }
 
-/// v3.4 §7: the light set. Not a filter over the dark art — a second render,
+/// The light set. Not a filter over the dark art — a second render,
 /// composited on daygame's paper, with ESPN's on-white variant where the
 /// standard mark is contrast-hostile there. `hero_mark` picks the set by the
 /// active theme's ground, so a light theme never gets the black-boxed art
@@ -219,8 +219,8 @@ fn the_light_set_covers_every_committed_key() {
     );
 }
 
-/// Ruling R41 again, on the new set: a light mark that draws tofu on
-/// Terminal.app is no better than the black boxes it replaced.
+/// The quadrant-only rule again, on the new set: a light mark that draws
+/// tofu on Terminal.app is no better than the black boxes it replaced.
 #[test]
 fn light_marks_are_quadrant_only_too() {
     gameday::theme::set_current("daygame").unwrap();

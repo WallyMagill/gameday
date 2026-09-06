@@ -1,7 +1,7 @@
 //! The per-period box-score rows every scoreboard owes you: `1 2 3 … R`,
 //! then a row per side, with baseball's `H E`.
 //!
-//! Two views draw it — the zoom's Overview (spec §5) and `:tv` — so it lives
+//! Two views draw it — the zoom's Overview and `:tv` — so it lives
 //! in `board/` beside the hero rather than as a copy in each. The totals are
 //! the game's own score, never a sum of the periods: a feed can hand us a
 //! partial linescore and the score is still the truth.
@@ -15,9 +15,9 @@ use ratatui::text::{Line, Span};
 pub const ROWS: u16 = 3;
 
 /// `None` when the feed carried no linescore. The team rows wear the same
-/// [`theme::hero_pair`] colors the hero's digits use (spec v3.3 §5) — the
-/// gated `team_text` role could fall back to plain `fg` (white) with the
-/// discipline off, which is exactly the white-digit miss the v3.2 review
+/// [`theme::hero_pair`] colors the hero's digits use — the gated `team_text`
+/// role could fall back to plain `fg` (white) with the discipline off, which
+/// is exactly the white-digit miss a design review
 /// caught on an NYY row. `hero_pair` has no such fallback path, and it is
 /// also the one place two lookalike navies are guaranteed to separate.
 pub fn linescore_lines(game: &Game, th: &Theme) -> Option<Vec<Line<'static>>> {

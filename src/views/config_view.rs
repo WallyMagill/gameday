@@ -50,7 +50,7 @@ const GUTTER: usize = 4;
 const TWO_PANEL_MIN: u16 = crate::views::standings::TWO_COL_MIN;
 
 /// Draws the editor and returns the absolute y of its last content row — the
-/// key bar anchors there (spec v3.3 §5), instead of floating on the terminal
+/// key bar anchors there, instead of floating on the terminal
 /// floor under a gulf of blank rows.
 pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> u16 {
     let th = theme::current();
@@ -60,7 +60,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> u16 {
         .split(area);
     draw_header(frame, chunks[0]);
     let pane = chunks[1];
-    // Spec v3.3 §5: two panels side by side once the frame is wide enough —
+    // Two panels side by side once the frame is wide enough —
     // TABS on the left, FAVORITES + DISPLAY on the right — so the editor is a
     // balanced block, not one narrow column down the left edge.
     let two = pane.width >= TWO_PANEL_MIN;

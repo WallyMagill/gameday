@@ -86,7 +86,7 @@ impl EspnProvider {
             .http_status_as_error(true)
             // HTTPS_PROXY / ALL_PROXY / NO_PROXY from the environment. This
             // is what makes `HTTPS_PROXY=http://127.0.0.1:9 gameday` the
-            // offline test (spec §2.2, §9).
+            // offline test.
             .proxy(ureq::Proxy::try_from_env())
             .build();
         Self {

@@ -17,7 +17,7 @@ impl App {
         // (startup, new game) seeds last_scores without flashing.
         for g in &mut games {
             // Carry the accumulated scoring plays across the wholesale
-            // replace — and, since v3.4 §4, the NHL strength only a summary
+            // replace — and the NHL strength only a summary
             // can produce. The scoreboard carries no strength field at all,
             // so without this carry the zoom's power-play chip and penalty
             // meter (both derived from `Extras::Hockey`) would blink out on
@@ -50,14 +50,14 @@ impl App {
             if let Some(prev) = self.last_scores.get(&g.id) {
                 if *prev != score {
                     self.flashes.insert(g.id.clone(), self.tick);
-                    // The scoreboard's lastPlay at the moment the score moved
-                    // IS the scoring play (spec §1); dedupe on text.
+                    // The scoreboard's lastPlay at the moment the score
+                    // moved IS the scoring play; dedupe on text.
                     if let Some(p) = g.last_plays.first() {
                         if !g.scoring_plays.iter().any(|s| s.text == p.text) {
                             let mut p = p.clone();
                             p.scoring = true;
                             g.scoring_plays.push(p.clone());
-                            // The cut (spec §3): a newly captured scoring
+                            // The cut: a newly captured scoring
                             // play IS the firing. Size is decided here, not
                             // in `CutState` — pinned/favorited/TV takes the
                             // screen, everything else is the quiet band.
@@ -105,8 +105,8 @@ impl App {
             // inside the `!stale` guard on purpose — a cached payload is not
             // news and must never move the board.
             self.maybe_reorder();
-            // …and TV lets go of anything that just left the live slate
-            // (R36). After `maybe_reorder`, so the hero it re-anchors to is
+            // …and TV lets go of anything that just left the live slate.
+            // After `maybe_reorder`, so the hero it re-anchors to is
             // this event's, not the last one's.
             self.tv_hygiene();
         }
@@ -173,11 +173,11 @@ impl App {
                     }
                     game.scoring_plays = sp;
                 }
-                // Per-sport facts only the summary carries (spec v3.4 §4:
-                // NHL strength + penalties). `Extras::None` is "this summary
-                // had nothing to say", never an instruction to erase what
-                // the scoreboard mapped. The meter that rides these is NOT
-                // stored on the game (R49) — the zoom derives it.
+                // Per-sport facts only the summary carries (NHL strength +
+                // penalties). `Extras::None` is "this summary had nothing to
+                // say", never an instruction to erase what the scoreboard
+                // mapped. The meter that rides these is NOT stored on the
+                // game — the zoom derives it.
                 if summary.extras != crate::domain::Extras::None {
                     game.extras = summary.extras.clone();
                 }
@@ -217,8 +217,8 @@ impl App {
         // No reorder here, and nothing a summary carries can cause one
         // elsewhere either. The rank fingerprint is (scores, status, hot),
         // all three scoreboard-owned; the one thing a summary now adds that
-        // rank could have read — v3.4 §4's NHL strength — reaches no meter
-        // field and is refused by `watchability`'s NHL arm besides (R49),
+        // rank could have read — the NHL strength — reaches no meter
+        // field and is refused by `watchability`'s NHL arm besides,
         // precisely so zooming a game can never move it. Zoom and unzoom
         // leave the order exactly where the last scoreboard apply put it.
     }

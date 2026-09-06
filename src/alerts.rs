@@ -1,6 +1,6 @@
 //! Favorite-score alerts: after each board apply, a favorited team's score
 //! delta rings the terminal bell and flashes a header banner, any tab, with a
-//! per-game cooldown (spec §3). Deltas are diffed here against this module's
+//! per-game cooldown. Deltas are diffed here against this module's
 //! own score memory — seeded silently on first sighting so startup never
 //! alerts — because `App::apply_boards` has already overwritten its
 //! `last_scores` by the time it can ask.

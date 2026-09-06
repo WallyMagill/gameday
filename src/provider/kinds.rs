@@ -30,9 +30,9 @@ pub fn football_kind(type_id: &str, scoring_type: Option<&str>) -> PlayKind {
 /// rule (three-pointer = scoring play worth 3) is shared. `scoring` must be
 /// the play's own `scoringPlay` flag, not `shootingPlay`: CBB's endpoint
 /// stamps `scoreValue: 3` on a missed three exactly as it does on a made
-/// one (v3.4 T3 review: CBB stamps scoreValue on misses), so `shootingPlay`
-/// alone would tag a miss as a make. NBA/WNBA don't exhibit this, but the
-/// gate is correct for both since a make is always `scoringPlay: true`.
+/// one, so `shootingPlay` alone would tag a miss as a make. NBA/WNBA don't
+/// exhibit this, but the gate is correct for both since a make is always
+/// `scoringPlay: true`.
 pub fn hoops_kind(type_id: &str, scoring: bool, score_value: Option<u8>, cbb: bool) -> PlayKind {
     if scoring && score_value == Some(3) {
         let three = if cbb {
@@ -61,7 +61,7 @@ pub fn mlb_kind(pitch_type_id: &str, score_value: Option<u8>) -> PlayKind {
 /// NHL goal is a single id. Penalties are NOT identified by id here — the
 /// id space for penalties is large and unenumerable, so the mapper detects
 /// a penalty by the presence of `type.penaltyMinutes` in the payload
-/// (Task 3/7) and passes that fact in separately. `has_penalty_minutes`
+/// and passes that fact in separately. `has_penalty_minutes`
 /// lets this stay a pure, honest function instead of a partial id list that
 /// silently misses new penalty ids.
 pub fn nhl_kind(type_id: &str, has_penalty_minutes: bool) -> PlayKind {
@@ -74,7 +74,7 @@ pub fn nhl_kind(type_id: &str, has_penalty_minutes: bool) -> PlayKind {
     }
 }
 
-/// NHL `plays[].strength.id` → [`HockeyStrength`] (research §2): 701 Even,
+/// NHL `plays[].strength.id` → [`HockeyStrength`]: 701 Even,
 /// 702 Power Play, 703 Shorthanded, 903 Empty Net. Every play of a live NHL
 /// summary carries one of the four (verified across all 306 plays of
 /// `fixtures/live/nhl_summary_final_full.json`: 277×701, 19×702, 9×703,
@@ -130,9 +130,9 @@ mod tests {
     #[test]
     fn cbb_missed_three_stays_other() {
         // CBB's endpoint stamps scoreValue: 3 on a missed three exactly as
-        // it does on a make (v3.4 T3 review, proved from
-        // fixtures/cbb_summary_full.json: 7 misses carry scoreValue 3 with
-        // scoringPlay false) — scoring: false must gate it out.
+        // it does on a make (proved from fixtures/cbb_summary_full.json: 7
+        // misses carry scoreValue 3 with scoringPlay false) — scoring: false
+        // must gate it out.
         assert_eq!(hoops_kind("558", false, Some(3), true), PlayKind::Other);
     }
 

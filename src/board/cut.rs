@@ -1,4 +1,4 @@
-//! The cut (spec §3): when a score lands, the app says so.
+//! The cut: when a score lands, the app says so.
 //!
 //! Two sizes, one decision. A game you care about — pinned, favorited, or the
 //! only thing on screen in `:tv` — takes the whole frame for three seconds:
@@ -11,7 +11,7 @@
 //! * **One score formatter.** The takeover draws its digits with
 //!   [`hero::score_block`] — the same function the hero calls. There is no
 //!   second digit renderer anywhere in the app, so a cut and the board behind
-//!   it can never disagree about what 24-21 looks like (spec §1 hard rule).
+//!   it can never disagree about what 24-21 looks like.
 //! * **[`CutState`] is pure.** It knows a game id, a play, a size and a
 //!   deadline. Whether a cut is *allowed* — startup history, an open prompt,
 //!   the help overlay — is the caller's judgment, passed in as `full` and
@@ -29,20 +29,20 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
-/// Takeover lifetime: 3 s (spec §3). The render loop runs at
+/// Takeover lifetime: 3 s. The render loop runs at
 /// [`LIVE_TICKS_PER_SEC`] = 10 ticks/s while anything is live — and a cut
 /// only ever fires off a live score delta, and pins the loop to that cadence
 /// while it is up (`App::any_live`) — so 3 s is 30 ticks.
 pub const CUT_TICKS: u64 = 3 * LIVE_TICKS_PER_SEC;
-/// Band lifetime: 1.5 s (spec §3), same cadence, so 15 ticks.
+/// Band lifetime: 1.5 s, same cadence, so 15 ticks.
 pub const BAND_TICKS: u64 = 3 * LIVE_TICKS_PER_SEC / 2;
 
-/// The cut's mark: the same `▲` the spec's band and takeover chip both wear
-/// (spec §3). One glyph, one meaning — "a score just happened".
+/// The cut's mark: the same `▲` the band and the takeover chip both wear.
+/// One glyph, one meaning — "a score just happened".
 const MARK: &str = "▲";
 
 /// Rows the quiet band occupies above the list: the headline and one detail
-/// line (spec §3).
+/// line.
 pub const BAND_ROWS: u16 = 2;
 
 /// One firing. `full` = the takeover; false = the 2-row band.
@@ -56,7 +56,7 @@ pub struct Cut {
 
 impl Cut {
     /// Whole seconds left before this cut clears, rounded up — what the
-    /// takeover's strip and the band's affordance count down (spec §3).
+    /// takeover's strip and the band's affordance count down.
     ///
     /// Receipt: [`LIVE_TICKS_PER_SEC`] is 10, so a band's 15 remaining ticks
     /// is 1.5 s and reads `2s`. Ceiling, not truncation: a cut that is still
@@ -79,8 +79,7 @@ pub struct CutState {
 impl CutState {
     /// Called with every newly captured scoring play. `full` when the team is
     /// pinned/favorited or TV is on; the caller (`App`) refuses to call at all
-    /// during the first 30 s of a session and while a prompt or help is open
-    /// (spec §3).
+    /// during the first 30 s of a session and while a prompt or help is open.
     pub fn fire(&mut self, game_id: &str, play: &Play, full: bool, tick: u64) {
         // A takeover is never downgraded: while one is up, a second score
         // anywhere is already part of the same moment. A band, on the other
@@ -116,7 +115,7 @@ fn word_for(game: &Game, play: &Play) -> &'static str {
 
 /// Which size the scoring word ended up at, and the rows it costs.
 ///
-/// Ruling R42: there is no sextant rung. It fired at widths 40–71 — every
+/// There is no sextant rung. It fired at widths 40–71 — every
 /// terminal narrower than `TOUCHDOWN` at block size — and `PixelSize::Sextant`
 /// draws from U+1FB00–1FB3B, which Terminal.app's default font does not cover:
 /// the loudest moment the app has rendered as a row of tofu boxes. The ladder
@@ -158,7 +157,7 @@ struct Plan {
     score_full: bool,
     /// The row the team labels hang on, when the middle has a spare row after
     /// the word and the score have taken theirs. `None` is a frame too short
-    /// for them — a label never costs the digits a row (spec §1).
+    /// for them — a label never costs the digits a row.
     labels: Option<Rect>,
 }
 
@@ -173,9 +172,9 @@ fn plan(area: Rect, word: &str) -> Plan {
     //
     // Width receipt: at `PixelSize::Full` one glyph is 8 cells wide
     // (`tiles::glyph_cell`), so the longest word we ship — "TOUCHDOWN", 9
-    // glyphs (spec v3.3 §7 dropped the "!") — needs 72 columns. Anything
-    // narrower goes straight to a plain bold line (ruling R42 deleted the
-    // sextant rung that used to sit between them). Never a clipped letter,
+    // glyphs (the word dropped its "!") — needs 72 columns. Anything
+    // narrower goes straight to a plain bold line; the sextant rung
+    // that used to sit between them was deleted. Never a clipped letter,
     // and never a rung that tofus.
     let (word_form, score_full) = [
         (WordForm::Full, true),
@@ -228,7 +227,7 @@ fn plan(area: Rect, word: &str) -> Plan {
 
 /// The rect the takeover hands [`hero::score_block`], and the `full` flag it
 /// passes with it. Public so a test can prove the cut's digits and the
-/// hero's are literally the same cells (spec §1's hard rule).
+/// hero's are literally the same cells.
 pub fn score_slot(area: Rect, game: &Game, play: &Play) -> (Rect, bool) {
     let p = plan(area, word_for(game, play));
     (p.score, p.score_full)
@@ -245,7 +244,7 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick
     let th = theme::current();
     let r = th.roles();
     // The board behind is not drawn dimmed or blurred — it is gone. A cut
-    // that leaves rows showing through reads as a rendering fault (spec §3).
+    // that leaves rows showing through reads as a rendering fault.
     frame.render_widget(Clear, area);
     frame.render_widget(
         Block::default().style(Style::default().bg(th.bg).fg(th.fg)),
@@ -284,7 +283,7 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick
             crate::tiles::word_glyphs(frame, slot, word, r.hot);
         }
     }
-    // The hard rule (spec §1): the takeover does not know how to draw a
+    // The hard rule: the takeover does not know how to draw a
     // score. It asks the hero's own formatter, so the cut and the board
     // behind it are the same digits, cell for cell.
     hero::score_block(frame, score, game, score_full);
@@ -372,12 +371,12 @@ fn draw_labels(frame: &mut Frame, row: Rect, score: Rect, game: &Game, score_ful
 }
 
 /// `clears in 3s` — the cut's own countdown, in the lowercase legend voice
-/// the footer uses (spec §5).
+/// the footer uses.
 fn timer_text(cut: &Cut, tick: u64) -> String {
     format!("clears in {}s", cut.remaining_secs(tick))
 }
 
-/// Draw the band into the 2 rows above the list (spec §3, ruling R33): both
+/// Draw the band into the 2 rows above the list: both
 /// rows on the `hot` ground, `▲ HOME RUN · TEX Seager (32) · ATH 0 TEX 5` on
 /// the first, the rest of the play on the second. Ink is the theme's ground
 /// throughout — team color on a hot fill is unreadable, and the band's job is
@@ -415,7 +414,7 @@ pub fn draw_band(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick: u6
         Rect { height: 1, ..area },
     );
     if area.height >= 2 {
-        // spec v3.3 §3: the second row is the affordance, not the play again.
+        // The second row is the affordance, not the play again.
         // The headline above already carries the word, the team, the scorer
         // and the score; a second helping of the same sentence told the
         // reader nothing, while what enter does and how long the band lasts
@@ -446,7 +445,7 @@ fn jump_key() -> &'static str {
         .map_or("enter", |(key, _)| key)
 }
 
-/// `▲ SCORING PLAY · KC` (spec §3, ruling R33) — the takeover's one filled
+/// `▲ SCORING PLAY · KC` — the takeover's one filled
 /// element, the same ground-on-hot chip the hero's state chip wears. The
 /// teams' own identities arrive right below it, in the score's colors.
 fn chip_line(play: &Play) -> Line<'static> {
@@ -491,7 +490,7 @@ fn detail_line(game: &Game, play: &Play, width: u16) -> Line<'static> {
         budget = budget.saturating_sub(clock.chars().count() + 3);
     }
     if !rest.is_empty() {
-        // Uppercase like the rest of the cut (spec §3's `4 YD RUSH`): ESPN
+        // Uppercase like the rest of the cut (`4 YD RUSH`): ESPN
         // writes sentence case, and one lowercase clause under block letters
         // reads as a caption from another screen.
         spans.push(Span::styled(
@@ -701,7 +700,7 @@ mod tests {
 
     #[test]
     fn the_word_follows_the_plays_structural_kind() {
-        // spec v3.4 §2: the kind decides, whatever the sentence says.
+        // The kind decides, whatever the sentence says.
         assert_eq!(
             word_for(
                 &game(),
@@ -723,8 +722,8 @@ mod tests {
             ),
             "SAFETY"
         );
-        // Ruling R34, now trivially right: ESPN really writes "Blocked Field
-        // Goal returned 62 yards for a TOUCHDOWN", and the v3.3 text-priority
+        // Now trivially right: ESPN really writes "Blocked Field
+        // Goal returned 62 yards for a TOUCHDOWN", and the text-priority
         // dance this used to require (touchdown must beat field goal in the
         // sentence, or the screen lies) is gone — the kind already says
         // Touchdown.
@@ -813,7 +812,7 @@ mod tests {
     fn the_detail_line_is_built_from_the_play_alone() {
         let line = detail_line(&game(), &play("Mahomes pass to Kelce for 3 yards"), 80);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        // Uppercase throughout, like spec §3's `P. MAHOMES · 4 YD RUSH · Q4 1:52`.
+        // Uppercase throughout, like `P. MAHOMES · 4 YD RUSH · Q4 1:52`.
         assert_eq!(text, "MAHOMES · PASS TO KELCE FOR 3 YARDS · Q4 1:52");
 
         // A text with no leading name invents none.
@@ -915,7 +914,7 @@ mod tests {
         out
     }
 
-    /// Ruling R42: the scoring word's ladder is block letters or a plain bold
+    /// The scoring word's ladder is block letters or a plain bold
     /// line — there is no rung in between. The deleted sextant rung fired at
     /// exactly the widths pinned here (40–71: `TOUCHDOWN` is 9 glyphs × 8 =
     /// 72 cells at block size, and the app's floor is 40 cols), and it drew
@@ -990,9 +989,9 @@ mod tests {
 
     #[test]
     fn the_takeover_names_both_teams_in_their_colors() {
-        // spec v3.3 §3: the takeover names who is playing, and each abbr
+        // The takeover names who is playing, and each abbr
         // wears the same color as its own digits — including the away side,
-        // which v3.2 left neutral.
+        // which an earlier version left neutral.
         let mut g = game();
         g.away.color = [227, 24, 55]; // KC red
         g.home.color = [0, 51, 141]; // BUF blue
@@ -1054,12 +1053,12 @@ mod tests {
                 let area = Rect::new(0, 0, w, h);
                 let b = drawn(w, h, |f| draw_takeover(f, area, &g, &cut, 0));
                 // Ask the plan where the label row IS, rather than assuming
-                // it is the row under the score. Ruling R42 dropped the
-                // word's sextant rung, which changed which sizes can afford
-                // labels at all — at 40×12 the plan now spends the middle on
-                // a bold word plus a full-height score band and has no label
-                // row, so "the row under the score" is the detail line and
-                // the old guess read `MAHOMES · 12 YD PASS…` as a label.
+                // it is the row under the score. Dropping the word's sextant
+                // rung changed which sizes can afford labels at all — at 40×12
+                // the plan now spends the middle on a bold word plus a
+                // full-height score band and has no label row, so "the row
+                // under the score" is the detail line and the old guess read
+                // `MAHOMES · 12 YD PASS…` as a label.
                 let Some(row) = plan(area, word_for(&g, &p)).labels else {
                     continue;
                 };
@@ -1084,7 +1083,7 @@ mod tests {
 
     #[test]
     fn the_takeover_has_a_dimmed_strip_and_timer() {
-        // spec v3.3 §3: the bottom strip is dim, names the matchup, and
+        // The bottom strip is dim, names the matchup, and
         // carries the clear timer right-aligned.
         let g = game();
         let p = play("Mahomes 12 Yd pass to Kelce");
@@ -1117,7 +1116,7 @@ mod tests {
 
     #[test]
     fn the_band_second_row_offers_the_jump_and_counts_down() {
-        // spec v3.3 §3: the band's second row stops repeating the play and
+        // The band's second row stops repeating the play and
         // becomes the affordance — what enter does, and how long it lasts.
         let p = play("Mahomes 12 Yd pass to Kelce");
         let cut = a_cut(false, 0, &p);

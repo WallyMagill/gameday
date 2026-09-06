@@ -6,15 +6,17 @@ use super::App;
 use crate::domain::{Game, Status};
 use std::collections::HashMap;
 
-/// One live game's ordering identity (R24): away score, home score, status,
-/// the hot flag, and soccer's on-field count. Two equal fingerprints mean
-/// nothing the board sorts on has moved, so the order is left alone.
+/// One live game's ordering identity: away score, home score, status, the
+/// hot flag, and soccer's on-field count. Two equal fingerprints mean
+/// nothing the board sorts on has moved, so the order is left alone — a
+/// board that re-sorted on every clock tick would slide out from under the
+/// eye, so only a change in one of these is an event.
 pub(super) type RankFingerprint = (u16, u16, Status, bool, Option<(u8, u8)>);
 
 impl App {
     /// Every live game on an enabled board, minus the viewer's own. Pins AND
-    /// favorites live in the MY GAMES band and never re-sort (spec §1, ruling
-    /// R26), so `OrderState` is never told about either.
+    /// favorites live in the MY GAMES band and never re-sort, so `OrderState`
+    /// is never told about either.
     pub fn live_all(&self) -> Vec<Game> {
         self.config
             .enabled_tabs
@@ -29,8 +31,8 @@ impl App {
 
     /// Re-sort the live band, but only if the data behind the order actually
     /// moved: the id set changed, or some game's score, status or hot flag
-    /// did. A clock that merely advanced is not an event (R24) — spec §2:
-    /// "Between events the order is frozen even though L keeps rising."
+    /// did. A clock that merely advanced is not an event: between events the
+    /// order is frozen even though watchability keeps rising.
     pub(super) fn maybe_reorder(&mut self) {
         let live = self.live_all();
         let now = self.now();

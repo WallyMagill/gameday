@@ -57,7 +57,7 @@ impl App {
     }
 
     /// Zoom a game by id, opening on Overview. The selection is not the only
-    /// way in any more: the band's `enter` jump (spec v3.3 §3) names the game
+    /// way in any more: the band's `enter` jump names the game
     /// that just scored, which is rarely the one under the cursor.
     pub(crate) fn zoom_game_id(&mut self, game_id: &str) {
         self.view = View::Zoom {

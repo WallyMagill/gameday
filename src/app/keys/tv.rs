@@ -8,7 +8,7 @@ use crate::views::View;
 use crossterm::event::KeyCode;
 
 impl App {
-    /// TV mode (spec §3): `space` locks the shown game, `n` walks the slate
+    /// TV mode: `space` locks the shown game, `n` walks the slate
     /// by hand, Esc/`v` pop back to the board. `q` quits — TV is a mode you
     /// leave the app from (the footer says `esc board  q quit`), unlike the
     /// read-only views where `q` only pops.
@@ -53,10 +53,10 @@ impl App {
 
     /// After an event re-derived the order: TV follows the board's hero.
     /// Called only from the two `OrderState::on_event` sites, which is what
-    /// makes "switches on the next event, never on a timer" (spec §3) true by
+    /// makes "switches on the next event, never on a timer" true by
     /// construction — no timer can reach this.
     ///
-    /// Ruling R35: the rule is `Derived::hero_id` — MY GAMES' top while it is
+    /// The rule is `Derived::hero_id` — MY GAMES' top while it is
     /// live, else the ranking's top — and not `OrderState`'s own top, which
     /// excludes MY GAMES by design (that exclusion exists to keep pins out of
     /// the IN PLAY band, not to define a ranking). Following it meant the
@@ -71,7 +71,7 @@ impl App {
         }
     }
 
-    /// Ruling R36, the other half: what TV was holding onto can leave the
+    /// The other half: what TV was holding onto can leave the
     /// slate without any rank event at all — a MY GAMES game going final
     /// never moves the rank fingerprint (`live_all` excludes it), so
     /// `tv_follow` is never called for it. A lock that outlives its game is a
@@ -108,14 +108,14 @@ impl App {
     /// on screen. The ranking is recomputed here rather than read off the
     /// frozen order — between events the order is deliberately stale, and
     /// naming the next cut is the whole point of not switching yet. It is
-    /// the same rule `tv_follow` will apply when the event lands (R35), so
+    /// the same rule `tv_follow` will apply when the event lands, so
     /// the caption can never advertise a cut that then doesn't happen.
     pub(crate) fn tv_next_cut_in(&self, d: &Derived) -> Option<Game> {
         if self.tv_lock.is_some() {
             return None;
         }
         let shown = self.tv_shown_in(d);
-        // Ruling R35, re-ranked: MY GAMES' top wins outright while it is
+        // Re-ranked: MY GAMES' top wins outright while it is
         // live; otherwise whichever IN PLAY game the ranking would lead with
         // right now. `d.in_play` (not `live_all`) is what keeps the caption
         // inside the tab and the `/` filter — a cut TV cannot make is worse
@@ -141,7 +141,7 @@ impl App {
     /// Same answer against a frame's already-derived lists — the draw path
     /// takes this one so a TV frame still derives exactly once.
     ///
-    /// Ruling R36: there is ONE slate. A shown id is kept only while it is
+    /// There is ONE slate. A shown id is kept only while it is
     /// still live and still on this tab; anything else falls back to the
     /// hero rule. Validating against `d.selection` (which carries finals and
     /// later games) let a game that had gone final stay "shown" while the
@@ -177,7 +177,7 @@ impl App {
     /// (the boards arrive with history, and every one of those scores would
     /// otherwise take the screen) and while a prompt or the help overlay is
     /// open — an overlay over a prompt eats the keystroke the user is in the
-    /// middle of (spec §3).
+    /// middle of.
     pub(in crate::app) fn cut_suppressed(&self) -> bool {
         self.tick < 30 * LIVE_TICKS_PER_SEC
             || !matches!(self.mode, InputMode::Normal)
@@ -196,9 +196,8 @@ impl App {
 
     /// Does this game earn the whole screen? Pinned or favorited games always
     /// do. In TV mode, the game currently shown on screen does too — but any
-    /// other game is a band drawn over TV, not a takeover (spec v3.3 §9
-    /// decision B: only the shown game and MY GAMES teams take the full
-    /// screen in TV).
+    /// other game is a band drawn over TV, not a takeover: only the shown game
+    /// and MY GAMES teams take the full screen in TV.
     pub(in crate::app) fn cut_is_full(&self, game: &Game) -> bool {
         self.is_my_game(game)
             || (matches!(self.view, View::Tv)

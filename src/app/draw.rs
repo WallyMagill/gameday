@@ -43,7 +43,7 @@ impl App {
             );
             return;
         }
-        // v3.2 §1: the Board has no separate ticker rows at all — it draws
+        // The Board has no separate ticker rows at all — it draws
         // its own one-row SCORES lane inline, inside the body, only when
         // something didn't fit (one lane, one owner; see `board::mod`'s
         // `draw_lane`). Every other view gets the same off-screen lane at
@@ -84,7 +84,7 @@ impl App {
             ])
             .split(area);
         self.draw_header(frame, chunks[0]);
-        // The cut (spec §3). The takeover owns everything under the header —
+        // The cut. The takeover owns everything under the header —
         // the board is not drawn behind it at all — and the band is two rows
         // inserted above whatever the view was going to draw.
         let cut = self.cuts.active(self.tick).cloned();
@@ -120,11 +120,11 @@ impl App {
                     game,
                 )
             });
-        // Spec §3, v3.3: the Board and TV RESERVE the band's rows up front
+        // The Board and TV RESERVE the band's rows up front
         // (`layout::TierPlan::band_rows`), so the band is painted over rows
         // they already set aside and nothing moves. Every other view is a
         // measured block or a list of its own with no reservation, so there
-        // the band still costs the body two rows — the v3.2 behavior, and the
+        // the band still costs the body two rows — the older behavior, and the
         // only place a fire still shifts anything.
         //
         // The one reserving case with no reservation to land on: a board with
@@ -150,7 +150,7 @@ impl App {
         if ticker_h > 0 {
             self.draw_ticker(frame, chunks[2]);
         }
-        // Spec v3.3 §5: a view that draws a measured block (the config editor)
+        // A view that draws a measured block (the config editor)
         // keeps its key bar with the block — one row under the last content
         // row — instead of stranding it on the terminal floor. A SCORES lane
         // owns the bottom of the frame when it renders, so the footer stays

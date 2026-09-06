@@ -170,7 +170,7 @@ fn yards_to_goal(yard_line: u8, possession_is_home: bool) -> u8 {
 /// Live-game meter per league. `None` when the sport has no meter (soccer),
 /// when the game isn't live, or when the data to build one isn't in the feed.
 /// `red_zone_yards` is football's, precomputed by the caller from
-/// `situation.isRedZone` + `situation.yardLine` (spec v3.4 §3) — there is no
+/// `situation.isRedZone` + `situation.yardLine` — there is no
 /// text fallback: a feed that doesn't say "red zone" doesn't get one.
 fn meter_from(
     league: League,
@@ -236,7 +236,7 @@ pub fn map_scoreboard(
         match map_event(league, ev, offset) {
             Ok(g) => out.push(g),
             Err(e) => {
-                // One placeholder row must not erase the league (spec §2).
+                // One placeholder row must not erase the league.
                 // Once per (league, event): the same bad row is in every
                 // poll, so repeating it would be noise, not news.
                 crate::log::note_once(
@@ -247,7 +247,7 @@ pub fn map_scoreboard(
         }
     }
     // ...but a slate where NOTHING maps is schema drift, not a quiet day. The
-    // provider caches a body only after it maps (spec §3), so returning Ok here
+    // provider caches a body only after it maps, so returning Ok here
     // would let a drifted payload evict the last-good cache. A genuinely empty
     // `events: []` is still Ok — there just are no games.
     if out.is_empty() && !events.is_empty() {
@@ -382,7 +382,7 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
             down_distance: sit_v["downDistanceText"].as_str().unwrap_or("").to_string(),
             possession,
             ball_on: sit_v["possessionText"].as_str().map(|s| s.to_string()),
-            // Spec v3.4 §3: the numbers as ESPN sends them. A league that
+            // The numbers as ESPN sends them. A league that
             // doesn't send them leaves them None — nothing here is derived
             // from a string.
             down: u8_at("down"),
@@ -518,7 +518,7 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         home_score,
         away_score,
     );
-    // A final's own story (spec v3.4 §6): `shortLinkText`, never
+    // A final's own story: `shortLinkText`, never
     // `description` — the latter is em-dash wire copy ("— Myles Garrett
     // wanted..."), not display prose. Empty/whitespace-only reads as no
     // headline at all.
@@ -552,7 +552,7 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
 }
 
 /// The scoreboard's `situation.lastPlay` through the same per-league kind
-/// tables the summary uses (spec v3.4 §3) — the board's last-play line is
+/// tables the summary uses — the board's last-play line is
 /// the same structure at a different cadence, so it gets the same treatment
 /// rather than a hardcoded `Other`. An id the table doesn't know stays
 /// `Other`; nothing here guesses from text.
@@ -687,7 +687,7 @@ fn details_from(
 }
 
 /// Men on the field per side, (away, home), from the mapped match events
-/// alone — spec v3.4 §5. `None` at eleven a side, which is the overwhelming
+/// alone. `None` at eleven a side, which is the overwhelming
 /// majority of matches: the board only says something when there is
 /// something to say.
 ///
@@ -880,7 +880,7 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                     continue;
                 }
                 let scoring = p["scoringPlay"].as_bool().unwrap_or(false);
-                // spec v3.4 §4: play text is the feed's own words. NHL
+                // Play text is the feed's own words. NHL
                 // strength used to be collapsed into a "PP · " prefix here;
                 // it is structural now and rides `Extras::Hockey`.
                 let text = text.to_string();
@@ -949,7 +949,7 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
     // No truncation here: the full list is newest-first and the display cap
     // belongs to the tile that renders it.
     plays.reverse();
-    // NHL, spec v3.4 §4. Strength and penalties are read off the raw play
+    // NHL. Strength and penalties are read off the raw play
     // rows, not the mapped ones: `Play` carries neither, and the raw rows are
     // in feed order (oldest first), which is what "the most recent play's
     // strength" and "penalties oldest first" both need.
@@ -959,7 +959,7 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
     };
     // Meter stays None here on purpose: the scoreboard mapping owns meters,
     // and the one meter this payload could build — NHL's penalty clock — is
-    // deliberately NOT put on the shared `Game` (R49). It is derived at the
+    // deliberately NOT put on the shared `Game`. It is derived at the
     // zoom from `Extras::Hockey` instead, so the board and `:tv`, which read
     // `game.meter`, cannot show a state only the zoomed game has data for.
     // See `Extras::penalty_meter`.
@@ -1253,7 +1253,7 @@ mod tests {
 
     #[test]
     fn yards_to_goal_boundaries_for_both_possession_sides() {
-        // v3.4 T5 review: pin the formula at the yardLine extremes for both
+        // Pin the formula at the yardLine extremes for both
         // sides. yardLine 0 = home goal line, 100 = away goal line; home
         // attacks 100, away attacks 0.
         assert_eq!(

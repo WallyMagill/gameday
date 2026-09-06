@@ -26,7 +26,7 @@ impl App {
             KeyCode::Char('t') => self.toggle_favorite(),
             KeyCode::Char('[') => self.step_viewed_date(-1),
             KeyCode::Char(']') => self.step_viewed_date(1),
-            // v3.2 §7: n/p paging is deleted — the board is one scrolling
+            // n/p paging is deleted — the board is one scrolling
             // list, so PgDn/PgUp have nothing to page and n/p are free again.
             KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('s') => self.cycle_sort(),
@@ -72,8 +72,8 @@ impl App {
         // re-enters `live_all` and `OrderState::ordered`'s append-unseen
         // fallback parks it *last* in IN PLAY until the next fresh apply
         // changes a fingerprint — the board reading as if it punished the
-        // unpin. A user keystroke is an event under spec §2's gate, same as
-        // `s` or `:sort`, so R24 is untouched.
+        // unpin. A user keystroke is an event under the same gate as
+        // `s` or `:sort`, so the frozen-order rule is untouched.
         self.force_reorder();
         self.clamp_selected();
     }
@@ -111,7 +111,7 @@ impl App {
 
     /// 's': cycle WATCH → TIME → LEAGUE → WATCH and re-derive the order right
     /// away — a sort-key change is an event, not something the next score
-    /// tick should gate (spec §9).
+    /// tick should gate.
     fn cycle_sort(&mut self) {
         let next = self.config.sort.cycled();
         self.config.sort = next;

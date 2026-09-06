@@ -61,8 +61,8 @@ pub fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                     app.status_line = None;
                     app.mode = InputMode::Filter { buf: String::new() };
                 }
-                // spec v3.3 §3: while a cut is on screen, enter is the jump
-                // to the game that just scored — the band says so on its
+                // While a cut is on screen, enter is the jump to the game that
+                // just scored — the band says so on its
                 // second row. It lives here rather than in `on_key_board` so
                 // it holds from whatever view the band is drawn over, and so
                 // that a prompt's enter (handled by the arms below) can never
@@ -176,8 +176,8 @@ fn apply(app: &mut App, cmd: Cmd) {
             app.feed_scroll = 0;
         }
         // `:standings` with no league: the current tab's league, or NFL from
-        // Home (the plan's Task 6 contract). The poll loop watches
-        // `app.standings_target()` and fetches when this view opens.
+        // Home. The poll loop watches `app.standings_target()` and fetches
+        // when this view opens.
         Cmd::Standings(league) => {
             let league = league.unwrap_or(match app.tab {
                 Tab::League(l) => l,

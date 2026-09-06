@@ -1,4 +1,4 @@
-//! Themes as identities: a theme is a palette read through *roles* (spec §6).
+//! Themes as identities: a theme is a palette read through *roles*.
 //! `Roles` is the layer the v3.2 board spends — `ground`/`ink`/`dim`/`digits`
 //! /`hot`/`cool` plus a `team` scope saying where team color is allowed — and
 //! the optional `[roles]` table in a theme file decides which palette key
@@ -41,7 +41,7 @@ const BUILTIN_TOML: [&str; 4] = [
     include_str!("../assets/themes/daygame.toml"),
 ];
 
-/// Themes that exist for the gate frames only (v3.3 sitting 2, ruling R38).
+/// Themes that exist for the gate frames only, awaiting the owner's pick.
 /// They are compiled in like the built-ins but are NOT loaded: `entries()`
 /// never lists them, `set_current` cannot reach one, and the picker cannot
 /// show one. `gameday dump` installs a candidate for the length of the one
@@ -59,8 +59,8 @@ pub const CANDIDATE_NAMES: [&str; 1] = ["gruvbox-warm"];
 /// The compiled-in candidate sources, parallel to [`CANDIDATE_NAMES`].
 const CANDIDATE_TOML: [&str; 1] = [include_str!("../assets/candidates/gruvbox-warm.toml")];
 
-/// v3.1's sidebar-header coloring knob. The sidebar itself is deleted (v3.2
-/// §7) and nothing reads this any more — it survives only so that a theme
+/// v3.1's sidebar-header coloring knob. The sidebar itself is deleted and
+/// nothing reads this any more — it survives only so that a theme
 /// file written for v3.1 still *parses* (`[discipline]` is compat-only, and
 /// `deny_unknown_fields` would otherwise reject every one of the eight
 /// retired built-ins now shipped as user themes).
@@ -111,7 +111,7 @@ impl Default for Discipline {
     }
 }
 
-/// Where team color is allowed (spec §6).
+/// Where team color is allowed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TeamColorScope {
@@ -126,14 +126,15 @@ impl TeamColorScope {
     pub const VALID: &'static str = "hero|hero+marks";
 
     /// The spelling a theme file uses (`hero+marks`, not the serde default
-    /// `heromarks` — spec §6 writes the plus).
+    /// `heromarks` — the theme format writes the plus).
     ///
-    /// v3.3 deleted a third scope, `never`. Nothing ever read it — the one
+    /// A third scope, `never`, was deleted. Nothing ever read it — the one
     /// comparison in the codebase is `== HeroMarks` (`board::rows`), so a
     /// theme asking for `never` drew hero team color anyway, and *meaning* it
-    /// would strip the identity floor spec §6 says no theme may spend. The
-    /// retired spelling is not an error, though: [`parse_theme`] maps it to
-    /// [`Self::Hero`] — the value it always behaved as — with a one-time note.
+    /// would strip an identity floor no theme may spend: the hero always shows
+    /// whose game it is. The retired spelling is not an error, though:
+    /// [`parse_theme`] maps it to [`Self::Hero`] — the value it always behaved
+    /// as — with a one-time note.
     fn parse(value: &str) -> Option<Self> {
         match value {
             "hero" => Some(Self::Hero),
@@ -150,7 +151,7 @@ impl TeamColorScope {
     }
 }
 
-/// The six colors and one scope every draw call spends (spec §6). A theme is
+/// The six colors and one scope every draw call spends. A theme is
 /// roles, not tints: the palette holds the hues, `[roles]` decides which hue
 /// plays which part, and the board never names a palette field directly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,14 +188,14 @@ pub struct Theme {
     /// One accent per league, indexed like `League::ALL`; slugs a theme file
     /// leaves out are filled with `star` at parse time.
     league: [Color; 9],
-    /// The role layer this palette is read through (spec §6). Built at parse
+    /// The role layer this palette is read through. Built at parse
     /// from the optional `[roles]` table, so draw code never re-derives it.
     roles: Roles,
     pub discipline: Discipline,
 }
 
 impl Theme {
-    /// The roles this theme assigns (spec §6).
+    /// The roles this theme assigns.
     pub fn roles(&self) -> Roles {
         self.roles
     }
@@ -311,7 +312,7 @@ struct ThemeFile {
     /// Optional: absent means the documented defaults (see [`RolesFile`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     roles: Option<RolesFile>,
-    /// Compat-only (spec §6). `Option` so a file that carries the table can be
+    /// Compat-only. `Option` so a file that carries the table can be
     /// told apart from one that doesn't, and named in the note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     discipline: Option<Discipline>,
@@ -319,7 +320,7 @@ struct ThemeFile {
 
 /// `[roles]`: role → palette key name. Every key is optional; the defaults are
 /// `ground=bg, ink=fg, dim=muted, digits=star, hot=live, cool=border,
-/// team=hero` (spec §6).
+/// team=hero`.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RolesFile {
@@ -489,7 +490,7 @@ fn parse_theme_inner(text: &str, compat_note: bool) -> Result<(String, Theme), S
         team,
     };
     if compat_note && file.discipline.is_some() {
-        // spec §6: `[discipline]` is read for compatibility and will stop
+        // `[discipline]` is read for compatibility and will stop
         // being honored — say so once per theme, not once per parse.
         crate::log::note_once(
             &format!("theme:{name}:discipline"),
@@ -848,13 +849,12 @@ pub fn scoring_word(league: League) -> &'static str {
 /// a score happens, and baseball, where the league word is a specific event
 /// that most runs are not.
 ///
-/// spec v3.4 §2: structure over parsing. Before Task 3 wired `Play.kind` from
-/// ESPN's own type ids, this read the play *sentence* instead — the v3.3 R34
-/// dance where a kick-return score really does read "Blocked Field Goal
-/// returned 62 yards for a TOUCHDOWN", so matching "field goal" first put
-/// FIELD GOAL! on screen for a touchdown, and had to be ordered around it.
-/// A structural kind makes that ordering unnecessary: `Touchdown` just is a
-/// touchdown, whatever the sentence says.
+/// Structure over parsing. Before `Play.kind` was wired from ESPN's own type
+/// ids, this read the play *sentence* instead, and had to order its matches
+/// around sentences like "Blocked Field Goal returned 62 yards for a
+/// TOUCHDOWN" — matching "field goal" first put FIELD GOAL! on screen for a
+/// touchdown. A structural kind makes that ordering unnecessary: `Touchdown`
+/// just is a touchdown, whatever the sentence says.
 pub fn scoring_word_for_play(league: League, play: &Play) -> &'static str {
     match play.kind {
         PlayKind::Touchdown => scoring_word(league),
@@ -865,7 +865,7 @@ pub fn scoring_word_for_play(league: League, play: &Play) -> &'static str {
         // OwnGoal: the scorer's misfortune is the detail line's job, not the
         // scoring word's — it reads GOAL like every other net.
         PlayKind::Goal | PlayKind::OwnGoal | PlayKind::PenaltyGoal => "GOAL",
-        // v3.3 §7's word set has no THREE; BUCKET is the honest hold until a
+        // The word set has no THREE; BUCKET is the honest hold until a
         // sharper word is asked for.
         PlayKind::ThreePointer => "BUCKET",
         // Cards and hockey penalties are never scoring plays; Other is the
@@ -922,10 +922,10 @@ fn hsl(c: [u8; 3]) -> (f32, f32) {
     ((h + 360.0) % 360.0, l)
 }
 
-/// Hue-separation rule (spec §6): when both lifted colors are within 20° of
+/// Hue-separation rule: when both lifted colors are within 20° of
 /// hue AND 15% of luminance, the HOME side falls back to `digits` amber.
 ///
-/// The two numbers are the spec's, not measured here: 20° is about a sixth of
+/// The two numbers are chosen, not measured here: 20° is about a sixth of
 /// the distance between adjacent named hues (navy vs navy, red vs red), and
 /// 15% lightness is the step below which two fills read as one on a terminal
 /// cell. The pair that motivated them is SEA navy (12,44,86) against BOS navy
@@ -1010,13 +1010,13 @@ mod tests {
     fn palettes_carry_their_identity() {
         assert_eq!(builtin("broadcast").bg, Color::Rgb(0, 0, 0));
         assert_eq!(builtin("broadcast").live, Color::Rgb(255, 60, 60));
-        // v3.3 §6: studio is the press box — its own near-black gray ground,
+        // Studio is the press box — its own near-black gray ground,
         // and broadcast's red, which is the identity floor both share.
         assert_eq!(builtin("studio").bg, Color::Rgb(0x0e, 0x0e, 0x0e));
         assert_eq!(builtin("studio").live, builtin("broadcast").live);
         assert_eq!(builtin("gruvbox").bg, Color::Rgb(0x28, 0x28, 0x28));
-        // spec v3.3 §6: gruvbox published palette yellow is #d79921, not the
-        // bright #fabd2f this file used to carry.
+        // Gruvbox's published palette yellow is #d79921, not the bright
+        // #fabd2f this file used to carry.
         assert_eq!(builtin("gruvbox").star, Color::Rgb(0xd7, 0x99, 0x21));
         assert_eq!(
             builtin("gruvbox").league_accent(League::Nhl),
@@ -1033,7 +1033,7 @@ mod tests {
 
     #[test]
     fn no_scoring_word_carries_an_exclamation() {
-        // spec v3.3 §7: scoring words lost their bang at the definition, not
+        // Scoring words lost their bang at the definition, not
         // per call site — cover the league word and every kind
         // scoring_word_for_play can take.
         for league in League::ALL {
@@ -1061,7 +1061,7 @@ mod tests {
 
     #[test]
     fn the_blocked_fg_returned_for_td_is_now_trivially_right() {
-        // v3.3 R34's text-priority dance ("Blocked Field Goal returned ...
+        // The old text-priority dance ("Blocked Field Goal returned ...
         // TOUCHDOWN" had to match "touchdown" before "field goal" or the
         // screen would lie) is gone: the kind says what actually happened,
         // no matter what the sentence says.
@@ -1090,7 +1090,7 @@ mod tests {
 
     #[test]
     fn kind_other_falls_back_to_the_league_word() {
-        // spec v3.4 §2: an unclassified scoring play (fixture predates
+        // An unclassified scoring play (fixture predates
         // mapper coverage, or the feed's id table didn't land in a named
         // variant) keeps the league's honest generic rather than a guess.
         assert_eq!(
@@ -1121,8 +1121,8 @@ mod tests {
 
     #[test]
     fn studio_is_monochrome_plus_one_red() {
-        // v3.3 §6: studio is the press box — one red accent, everything else
-        // grayscale. The v3.2 studio was broadcast's palette with white digits,
+        // Studio is the press box — one red accent, everything else
+        // grayscale. The earlier studio was broadcast's palette with white digits,
         // which is why the design review said it didn't earn its slot.
         // GRAY = 8/255: the ±4 wobble a hand-picked "neutral" gray carries, not
         // a hue anyone can see on a cell.

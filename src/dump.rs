@@ -5,11 +5,11 @@
 //!
 //!   board-broadcast/-studio/-gruvbox/-daygame — the ranked board, one per
 //!       BUILT-IN theme (selected programmatically, not via env). Four
-//!       identities, not eleven palettes (spec §6).
+//!       identities, not eleven palettes.
 //!   board-narrow  — the same board at 80x24
 //!   board-sixty   — and at 60x40: the tall, narrow end of the ladder
 //!   tv            — `:tv`, the jumbotron hero and the ALSO LIVE strip
-//!   cut-full      — the scoring takeover (spec §3)
+//!   cut-full      — the scoring takeover
 //!   cut-band      — the quiet two-row band a score you don't follow gets
 //!   zoom          — the zoomed game: hero, linescore, matchup line, feed
 //!   plays-feed    — the global scoring feed (:plays)
@@ -100,7 +100,7 @@ pub mod setup {
     }
     // The zoomed game is the baseball one on purpose: MLB is the only demo
     // sport whose zoom exercises all three rows under the hero at once — the
-    // linescore with H/E, the `P: … AB: … DUE UP` matchup line (spec §5), and
+    // linescore with H/E, the `P: … AB: … DUE UP` matchup line, and
     // an inning-stamped feed (`[B7]`).
     pub fn zoom(app: &mut App) -> Result<(), String> {
         let mut p = MemoryProvider::new();
@@ -275,9 +275,9 @@ pub fn gallery() -> Vec<Variant> {
 /// Run `f` with `name` as the current theme, restoring the caller's theme
 /// after — variants can't leak palettes into each other (or into tests on
 /// the same thread). Every gallery variant names a built-in, so a miss is a
-/// bug. (v3.3's sitting gates also rendered `theme::CANDIDATE_NAMES` entries
-/// here, installed for one capture and uninstalled after; ruling R38 retired
-/// the gate stems with the sittings, so this only sets a loaded theme now.)
+/// bug. (Render-gate captures once installed `theme::CANDIDATE_NAMES`
+/// entries here for one capture and uninstalled them after; those stems were
+/// retired with the gates they served, so this only sets a loaded theme now.)
 pub fn with_theme<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let prev = theme::current_name();
     theme::set_current(name).unwrap_or_else(|e| panic!("dump theme: {e}"));
@@ -583,9 +583,9 @@ fn color_css(c: Color) -> String {
 
 pub fn buffer_to_html(buf: &Buffer) -> String {
     // A font with full block-element coverage. Nothing the app draws needs
-    // U+1FB00 any more — sitting-1 pick 1A moved the digits to quadrant
-    // blocks, R41 regenerated the logo art the same way, and R42 deleted the
-    // scoring word's sextant rung — so this is now belt-and-braces for the
+    // U+1FB00 any more — the hero digits moved to quadrant blocks, the logo
+    // art was regenerated the same way, and the scoring word's sextant rung
+    // was deleted — so this is now belt-and-braces for the
     // capture rather than the load-bearing requirement it was. Kept because a
     // headless Chrome with a thin default font still substitutes badly on the
     // box-drawing rules and meter tracks.
@@ -730,11 +730,11 @@ mod tests {
                 "nudge-seq-1",
                 "nudge-seq-2",
                 "nudge-seq-3",
-                // Ruling R38: the `gate-*` stems joined this list only while
-                // v3.3's sittings needed them. The sittings are decided (1A,
-                // the band reservation, the rebuilt studio, gruvbox's ground),
-                // so the frames and their dump-only overlay hook are gone and
-                // the public gallery is gate-free again.
+                // The `gate-*` stems joined this list only while the design
+                // gates needed them. Those questions are decided (quadrant digits,
+                // the band reservation, the rebuilt studio, gruvbox's ground), so
+                // the frames and their dump-only overlay hook are gone and the
+                // public gallery is gate-free again.
             ],
             "gallery stems are a stable contract for other tasks"
         );
@@ -747,7 +747,7 @@ mod tests {
         for name in theme::BUILTIN_NAMES {
             assert!(text.contains(name), "picker missing {name}:\n{text}");
         }
-        // v3.2 §1: the board behind the picker is the ranked list, not tiles.
+        // The board behind the picker is the ranked list, not tiles.
         assert!(
             text.contains("IN PLAY"),
             "board must still render behind the picker:\n{text}"
@@ -765,8 +765,8 @@ mod tests {
         }
     }
 
-    /// The zoom capture is the receipt for spec §5's matchup line: three
-    /// fields sub-project 1 mapped and nothing ever drew until Task 13.
+    /// The zoom capture is the receipt for the matchup line: three fields the
+    /// mapper had long filled and nothing drew until the zoom did.
     #[test]
     fn zoom_variant_shows_the_linescore_the_matchup_line_and_an_inning_stamped_feed() {
         let text = text_of(&render_variant(&variant("zoom"), 0).unwrap());
@@ -779,7 +779,7 @@ mod tests {
             text.contains(" H ") || text.contains("H  E"),
             "linescore H/E:\n{text}"
         );
-        // The matchup line: pitcher, batter, due up (spec §5).
+        // The matchup line: pitcher, batter, due up.
         assert!(text.contains("C. Schmidt"), "pitcher missing:\n{text}");
         assert!(text.contains("A. Kirk"), "batter missing:\n{text}");
         assert!(text.contains("DUE UP"), "due-up block missing:\n{text}");
@@ -795,7 +795,7 @@ mod tests {
         );
     }
 
-    /// The two cut sizes, one formatter (spec §3).
+    /// The two cut sizes, one formatter.
     #[test]
     fn cut_variants_are_a_takeover_and_a_two_row_band() {
         let full = text_of(&render_variant(&variant("cut-full"), 0).unwrap());
@@ -875,7 +875,7 @@ mod tests {
     #[test]
     fn state_captures_each_show_the_state_they_are_named_for() {
         let home = text_of(&render_variant(&variant("home-live"), 0).unwrap());
-        // v3.2 §1: Home is the ranked board — a MY GAMES band over IN PLAY,
+        // Home is the ranked board — a MY GAMES band over IN PLAY,
         // not a grid of tiles with [NFL] headers.
         assert!(
             home.contains("MY GAMES") && home.contains("IN PLAY"),
@@ -933,7 +933,7 @@ mod tests {
             text.contains("/kc"),
             "committed filter missing from footer:\n{text}"
         );
-        // v3.2 §1: rows are abbrs, not "CHIEFS" nameplates.
+        // Rows are abbrs, not "CHIEFS" nameplates.
         assert!(text.contains("KC"), "the matching game must stay:\n{text}");
         assert!(
             !text.contains("SEA") && !text.contains("DAL"),
@@ -982,7 +982,7 @@ mod tests {
 
     #[test]
     fn help_variant_renders_the_overlay() {
-        // spec v3.3 §5: the overlay's own panel is lowercase now too.
+        // The overlay's own panel is lowercase now too.
         let text = text_of(&render_variant(&variant("help"), 0).unwrap());
         assert!(
             text.contains(" keys "),
@@ -990,7 +990,7 @@ mod tests {
         );
     }
 
-    /// The two size captures are the ladder's ends (spec §4): the same
+    /// The two size captures are the ladder's ends: the same
     /// ranked board, no sidebar at any width, and a score in some form at both.
     #[test]
     fn the_two_size_captures_are_the_same_board_at_their_own_sizes() {
@@ -1000,7 +1000,7 @@ mod tests {
             let buf = render_variant(&v, 0).unwrap();
             assert_eq!((buf.area().width, buf.area().height), want, "{stem} buffer");
             let text = text_of(&buf);
-            // v3.2 §7: there is no sidebar at any width any more.
+            // There is no sidebar at any width any more.
             assert!(
                 !text.contains("GLOBAL ALERTS"),
                 "{stem}: the sidebar is deleted:\n{text}"
@@ -1081,11 +1081,11 @@ mod tests {
             }
             text.push('\n');
         }
-        // v3.2 §1/§7: the tile grammar (tile headers, text score rows, LAST
-        // PLAYS, MOMENTUM, the sidebar) is deleted; what the demo board must
-        // show now is the sections, the hero's chip and the chrome. Task 9:
-        // the header never shows "FILTER:" and the Board footer is the
-        // lowercase A′ legend, not the old "NAV:" chord list.
+        // The tile grammar (tile headers, text score rows, LAST PLAYS,
+        // MOMENTUM, the sidebar) is deleted; what the demo board must show
+        // now is the sections, the hero's chip and the chrome. The header
+        // never shows "FILTER:" and the Board footer is the lowercase A′
+        // legend, not the old "NAV:" chord list.
         for needle in [
             "GAMEDAY", "MY GAMES", "IN PLAY", "FINAL", "RED ZONE", "s sort", "q quit",
         ] {
@@ -1104,11 +1104,11 @@ mod tests {
         );
     }
 
-    /// v3.2 §1: the four inline meters were a tile feature. Only the hero
-    /// has room for state now, and at the 10-row bracket even its meter row
-    /// yields to the fragment (ruling R30) — so what every size must still
-    /// show is the hero SAYING its state. The zoom's 12-row hero bracket
-    /// (spec §5) is where the meter row itself still fits.
+    /// The four inline meters were a tile feature. Only the hero has room for
+    /// state now, and at the 10-row bracket even its meter row yields to the
+    /// fragment — the fragment is the last thing a shrinking hero gives up — so
+    /// what every size must still show is the hero SAYING its state. The zoom's
+    /// 12-row hero bracket is where the meter row itself still fits.
     #[test]
     fn tick_zero_board_names_the_heros_state_at_every_size() {
         // 2x2 at 120x36, the 80x24 narrow board, and the zoom overview all
@@ -1127,11 +1127,11 @@ mod tests {
             narrow.lines().any(|l| l.contains("RED ZONE")),
             "80x24 board: the hero still names its state:\n{narrow}"
         );
-        // §1b, sitting-1 pick 1A: at the bracket the spec named as the defect
-        // the hero's score is drawn from the quadrant table, not a text row.
-        // (This assertion is the surviving half of the retired `gate-digits-*`
-        // contrast — the winner is the product, so the product frame carries
-        // the receipt.)
+        // At 80×24 — the width where text digits stopped resolving into
+        // readable numbers — the hero's score is drawn from the quadrant
+        // table, not a text row. (This assertion is the surviving half of a
+        // retired `gate-digits-*` contrast — the winner is the product, so
+        // the product frame carries the receipt.)
         assert!(
             narrow.contains("▀▀█") || narrow.contains("█▀█"),
             "80x24 board: the hero must draw quad digits:\n{narrow}"
@@ -1162,7 +1162,7 @@ mod tests {
             !text.contains("27 - 24"),
             "the board never prints a text score row:\n{text}"
         );
-        // v3.2 §1: the hero's nameplates carry the identity the tile header
+        // The hero's nameplates carry the identity the tile header
         // used to; the shot-clock chip was a tile chip and is gone with it.
         // The nameplates are mirrored: `KC 11-6` left, `11-6  TB` right.
         assert!(
@@ -1186,14 +1186,14 @@ mod tests {
             }
             text.push('\n');
         }
-        // v3.2 §1: the hero's score is digit glyphs, so the capture's proof
+        // The hero's score is digit glyphs, so the capture's proof
         // that the TD landed is the play text (the digits themselves are
         // cell-tested in `board::hero`).
         assert!(text.contains("TOUCHDOWN"), "TD play missing:\n{text}");
     }
 
-    // v3.2 §7 deleted the tile's inverted score flash with the tile; the
-    // board's answer to a score is the cut overlay (Task 11), which is where
+    // The tile's inverted score flash was deleted with the tile; the
+    // board's answer to a score is the cut overlay, which is where
     // the "a score is visible in the capture" test belongs. Nothing here can
     // assert it in the meantime without asserting a feature that is gone.
 

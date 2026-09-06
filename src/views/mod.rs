@@ -3,7 +3,7 @@
 //! `app/chrome.rs` — they are shared chrome, identical across views.
 //!
 //! `View::Board` is the one surface that does not live here: the ranked board
-//! is `crate::board`, which owns its layout, rows and hero (v3.2 §1).
+//! is `crate::board`, which owns its layout, rows and hero.
 
 pub mod config_view;
 pub mod plays_feed;
@@ -32,7 +32,7 @@ pub enum View {
     /// `:theme` with no argument: the board stays underneath as the live
     /// preview; the panel lists every loaded theme.
     ThemePicker,
-    /// `:tv`/`v`: the jumbotron (spec §3 TV) — one game fills the screen and
+    /// `:tv`/`v`: the jumbotron — one game fills the screen and
     /// the rest ride a bottom strip. Drawn by [`tv`].
     Tv,
 }
@@ -70,8 +70,8 @@ impl ZoomTab {
 /// here — drawing must never change what is drawn).
 ///
 /// Returns the absolute y of the view's last content row when the view is a
-/// measured block rather than a list that fills the pane; spec v3.3 §5 anchors
-/// the key bar one row under it instead of on the terminal floor. `None` means
+/// measured block rather than a list that fills the pane; the key bar then
+/// sits one row under it instead of on the terminal floor. `None` means
 /// "the view owns the whole pane" — the footer stays at the floor.
 pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) -> Option<u16> {
     // Cloned so the borrow of `app.view` doesn't pin `app` across the call.

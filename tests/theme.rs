@@ -87,7 +87,7 @@ fn broadcast_is_loud_and_studio_is_the_press_box() {
             sidebar_headers: SidebarHeaders::Muted,
         }
     );
-    // v3.3 §6: studio stopped being broadcast's palette. It is the press box —
+    // Studio stopped being broadcast's palette. It is the press box —
     // its own grayscale set, so every one of the eleven colors moves except
     // the red, and every league accent goes gray.
     for (label, a, c) in [
@@ -134,9 +134,9 @@ fn broadcast_is_loud_and_studio_is_the_press_box() {
     assert_eq!(s.roles().team, theme::TeamColorScope::Hero);
 }
 
-/// v3.2 §6 cut the built-ins from eleven to three, and the README promises
+/// The built-ins were cut from eleven to three, and the README promises
 /// the other eight still work — as user files. That promise is only true if
-/// the retired TOMLs still *parse and select* under the v3.2 theme format
+/// the retired TOMLs still *parse and select* under the current theme format
 /// (they carry `[discipline]` tables, which `deny_unknown_fields` would
 /// reject the moment those keys were deleted). One retired name is enough to
 /// pin it: they all ship from the same directory in the same shape.
@@ -516,7 +516,7 @@ fn demo_game() -> Game {
 
 /// The zoom's Overview tab — the surface that still carries all three of the
 /// rendered discipline grants (a section label, a meter label, a play abbr)
-/// now that Task 13 deleted the tile grammar those cells used to live in.
+/// now that the tile grammar those cells used to live in is deleted.
 fn render(game: &Game) -> Buffer {
     let dir = std::env::temp_dir().join(format!("gameday-theme-render-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
@@ -573,8 +573,8 @@ fn discipline_toggles_recolor_section_label_meter_and_play_abbr_cells() {
         },
     );
     let buf = render(&game);
-    // v3.2 §7: the `[NFL]` tile chip and the tile's `27 - 24` score row died
-    // with the tile grammar (Task 13); the three grants that still render are
+    // The `[NFL]` tile chip and the tile's `27 - 24` score row died
+    // with the tile grammar; the three grants that still render are
     // the section label, the meter label and the play abbr.
     assert_eq!(
         fg_of(&buf, "LAST PLAYS"),
@@ -619,7 +619,7 @@ fn discipline_toggles_recolor_section_label_meter_and_play_abbr_cells() {
 
 #[test]
 fn clock_knob_maps_to_a_palette_color() {
-    // v3.2 §7: the sidebar is deleted, and its `sidebar_header`/`league_text`
+    // The sidebar is deleted, and its `sidebar_header`/`league_text`
     // knobs went with it. `clocks` is one of the four discipline knobs the
     // surviving chrome still spends.
     let mut th = theme::builtin("broadcast");

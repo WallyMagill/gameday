@@ -1,4 +1,4 @@
-//! The v3.2 board: one ranked list, cut into sections (spec §1).
+//! The board: one ranked list, cut into sections.
 //!
 //! Everything on screen below the header is a *block* — a section rule, the
 //! hero, or a tier-1/2/3 row — stacked in `Derived::selection` order:
@@ -26,14 +26,14 @@
 //! * **The tier promotion.** [`layout::plan`] says how many live games are
 //!   promoted to 3-row tier-1 blocks and how tall the hero is; which games
 //!   those are is the ranked order's business, so it is simply the top N.
-//! * **The lane.** `plan.scores_lane` decides the *budget* (Task 5); what is
+//! * **The lane.** `plan.scores_lane` decides the *budget*; what is
 //!   actually off-screen is only knowable after the window is built, so the
 //!   lane's presence and content come from the window, and the lane names
 //!   off-screen LIVE games first — a lane fired by LATER truncation alone
-//!   (Task 5's note) says `2 OFF-SCREEN · 2 FINAL · 4 LATER` instead.
+//!   says `2 OFF-SCREEN · 2 FINAL · 4 LATER` instead.
 //!
 //! No borders anywhere: a section is a label, a dim rule, and a right-hand
-//! caption (spec §1, the A′ frames).
+//! caption (the A′ frames).
 
 pub mod cut;
 pub mod hero;
@@ -201,7 +201,7 @@ fn board_walk<'a>(
     }
 
     // ------------------------------------------------------ the reservation
-    // spec §3: the band's two rows belong to the board whether or not a band
+    // The band's two rows belong to the board whether or not a band
     // is firing (`plan.band_rows`) — `App::draw` draws the band straight into
     // them, over whatever is there, so nothing below ever moves.
     //
@@ -263,7 +263,7 @@ fn board_walk<'a>(
         if y + rows > window {
             break;
         }
-        // spec v3.3 §4: a rule that fits is still an orphan if the window
+        // A rule that fits is still an orphan if the window
         // runs out immediately after it — the truncation path, not just the
         // empty-list one (`if games.is_empty() { continue; }` above only
         // catches a section with zero games). Distinguish that from IN
@@ -302,8 +302,8 @@ fn board_walk<'a>(
                         now,
                         pinned: app_pins_hold(app, game),
                         favorite: app.is_my_game(game),
-                        // Under 100 columns the flanks are the first casualty
-                        // (spec §4) — never the digits.
+                        // Under 100 columns the flanks are the first
+                        // casualty — never the digits.
                         show_logos: area.width >= 100,
                         // The hero is a selectable row (task-9 review carry
                         // forward #1): a `▸` on the nameplates, like the
@@ -317,7 +317,7 @@ fn board_walk<'a>(
                 // Only ever populated for the currently-zoomed game — the
                 // board never fetches stats for a row it isn't showing — so
                 // every other final's tier-3 ladder falls through this rung
-                // honestly (spec v3.4 §6 / R47).
+                // honestly.
                 let leaders_line = (game.status == Status::Final)
                     .then(|| app.stats.get(&game.id))
                     .flatten()
@@ -417,7 +417,7 @@ fn first_visible(blocks: &[Block], selected: usize, window: u16) -> usize {
 }
 
 /// `IN PLAY ─────── SORTED BY WATCHABILITY`: a label, dim dashes, a caption.
-/// No box drawing — the rule IS the section's only structure (spec §1).
+/// No box drawing — the rule IS the section's only structure.
 fn draw_rule(frame: &mut Frame, area: Rect, label: &str, caption: &str) {
     let r = theme::current().roles();
     let w = area.width as usize;
@@ -444,7 +444,7 @@ fn draw_rule(frame: &mut Frame, area: Rect, label: &str, caption: &str) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-/// The off-screen lane (spec §1). Live games first, by name and score,
+/// The off-screen lane. Live games first, by name and score,
 /// because a game you can't see but is playing is the only thing the lane is
 /// for; when nothing live is off-screen it degrades to the counts.
 fn draw_lane(frame: &mut Frame, area: Rect, off: &[&Game]) {
@@ -545,12 +545,12 @@ fn draw_empty_state(app: &mut App, frame: &mut Frame, area: Rect) -> bool {
             true
         }
         // Home carries every live game AND every scheduled/final one now
-        // (spec §1: Home is whole-day) — an empty Home means nothing is
+        // (Home is whole-day) — an empty Home means nothing is
         // scheduled at all today, not merely nothing live. The old "nothing
         // live · next: …" message for a still-empty board with an upcoming
         // game was dead: any upcoming game is itself a LATER entry in
-        // `selection`, which makes the board non-empty (task-9 review
-        // carry-forward #2) — so only the true-empty message remains.
+        // `selection`, which makes the board non-empty — so only the
+        // true-empty message remains.
         Tab::Home if empty => {
             frame.render_widget(
                 Paragraph::new("nothing live on the enabled boards · :config to add leagues")

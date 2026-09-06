@@ -1,7 +1,7 @@
 //! The derived game lists — every list a frame renders, and the `Derived`
 //! bundle that evaluates them once per draw instead of once per widget.
 //!
-//! v3.2 §1 made this the single source of truth: the board is ONE ranked list
+//! This is the single source of truth: the board is ONE ranked list
 //! cut into sections, and `derive()` is the only place those sections are
 //! decided. The standalone `live_games`/`slate_games`/`mosaic_games`/
 //! `selection_list` methods are gone with the tile grammar — v3.1 kept both a
@@ -25,12 +25,12 @@ thread_local! {
 }
 
 /// Every game list one frame renders, evaluated together — the board's four
-/// sections (spec §1), the selection they concatenate into, and the feeds the
+/// sections, the selection they concatenate into, and the feeds the
 /// chrome reads.
 pub struct Derived {
     /// The MY GAMES band: pins first (pin order), then favorited-team games
     /// (board order), deduped — a pinned favorite appears once. Never
-    /// re-sorted (spec §1, ruling R26).
+    /// re-sorted.
     pub my_games: Vec<Game>,
     /// Live games that are NOT in the band, in `OrderState`'s frozen order.
     pub in_play: Vec<Game>,
@@ -106,8 +106,8 @@ impl App {
         out
     }
 
-    /// Is this game one of the viewer's? Pins and favorites both (ruling
-    /// R26): the MY GAMES band holds both, and both are kept out of IN PLAY,
+    /// Is this game one of the viewer's? Pins and favorites both: the MY GAMES
+    /// band holds both, and both are kept out of IN PLAY,
     /// which is why `live_all` — what `OrderState` ranks — asks this too.
     pub(crate) fn is_my_game(&self, game: &Game) -> bool {
         self.pins.iter().any(|p| p.game_id == game.id) || self.favorited(game)
@@ -238,10 +238,10 @@ impl App {
             .cloned()
             .collect();
 
-        // Spec §1: the hero is the top of MY GAMES when it is live (a pin
+        // The hero is the top of MY GAMES when it is live (a pin
         // outranks watchability), else the best live game. With nothing live
-        // at all there is no hero (task-9 review carry-forward #3): a third
-        // fallback to `selection.first()` used to reach for a FINAL/LATER
+        // at all there is no hero: a third fallback to `selection.first()`
+        // used to reach for a FINAL/LATER
         // game, but `board/mod.rs` only ever draws a `Hero` block for a game
         // in the band or in `in_play` — that game would render as a plain
         // tier-3 row regardless, so the fallback never actually put a
@@ -316,7 +316,7 @@ mod tests {
     }
 
     /// The sections partition the board and concatenate into the selection —
-    /// spec §1's "one list". v3.1's `derived_lists_agree_with_the_fns` proved
+    /// the "one list" property. An older test proved
     /// the same thing about two implementations of the same lists; there is
     /// only one implementation now, so what is left to prove is the shape:
     /// nothing is in two sections, nothing on the board is in none, and

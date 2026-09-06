@@ -38,10 +38,10 @@ pub fn home_games<'a>(
     }
 
     // Everything else, live first: Home is the room with every TV on; pins
-    // and favorites only decide which TV is in front (spec §4). v3.2 §1 made
-    // the board ONE list with FINAL and LATER sections, so the finals and the
-    // day's remaining kickoffs belong here too — the board cuts them into
-    // sections, this only orders them.
+    // and favorites only decide which TV is in front. The board is ONE list
+    // with FINAL and LATER sections, so the finals and the day's remaining
+    // kickoffs belong here too — the board cuts them into sections, this only
+    // orders them.
     for want_live in [true, false] {
         for g in boards {
             if (g.status == Status::Live) == want_live && !out.iter().any(|x| x.id == g.id) {

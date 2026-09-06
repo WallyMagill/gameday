@@ -2,10 +2,10 @@
 //! of whole `NFL KC 27 TB 24 Q4 1:27` segments — games that don't fit rotate
 //! in, never a mid-game cut.
 //!
-//! v3.1's boxed rule + SCORES + ALERTS ticker is deleted (v3.2 §7, Task 9):
-//! the Board draws its own inline lane (`board::draw_lane`) and scoring plays
-//! are the cut's job (spec §3), so the marquee, the ALERTS lane and the
-//! three-row `draw` had no callers left.
+//! The older boxed rule + SCORES + ALERTS ticker is deleted: the Board draws
+//! its own inline lane (`board::draw_lane`) and scoring plays are the cut's
+//! job, so the marquee, the ALERTS lane and the three-row `draw` had no
+//! callers left.
 
 use crate::domain::Game;
 use crate::theme;
@@ -101,7 +101,7 @@ pub const LANE_HEIGHT: u16 = 1;
 /// The SCORES lane alone, gutter + whole score segments, no rule and no
 /// ALERTS lane. The Board draws its own inline off-screen lane
 /// (`board::mod::draw_lane`) straight into its body and never allocates
-/// these rows (spec §1: one lane, one owner) — this is what `App::draw`
+/// these rows — one lane, one owner — this is what `App::draw`
 /// gives every OTHER view instead, gated on whether the Board's own
 /// `layout::plan(...).scores_lane` says the list would truncate at the
 /// current size, so a viewer parked in Zoom/Standings/the plays feed still
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn lane_is_one_row_gutter_and_scores_no_rule_no_alerts() {
-        // Task 9: what non-Board views get instead of the old rule+2-lane
+        // What non-Board views get instead of the old rule+2-lane
         // ticker — the gutter is bright cyan/muted like `draw`'s, but there
         // is exactly one row, and no ALERTS lane at all.
         let live = vec![game(League::Nfl, "KC", "TB", (27, 24), ("Q4", "1:27"))];

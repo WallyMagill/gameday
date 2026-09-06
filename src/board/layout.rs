@@ -1,25 +1,25 @@
-//! The tier budget: spec §4's sizes ladder as one pure function. Height and
+//! The tier budget: the sizes ladder as one pure function. Height and
 //! counts in, `TierPlan` out — nothing here reads a `Game` or renders a cell.
 //!
 //! Hero height is a pure function of the (width, height) bracket, never of
 //! game counts — a hero that resized as games came and went would violate
-//! the frozen-board principle (ruling R28). §4's "hero shrinks last" governs
+//! the frozen-board principle. "Hero shrinks last" governs
 //! only the runout cascade *below* the bracket (tier1 → tier2 → finals →
 //! later), not the bracket itself.
 //!
-//! The scoring band (spec §3) is reserved, never inserted: `band_rows` is 2
+//! The scoring band is reserved, never inserted: `band_rows` is 2
 //! on any board with a live game, charged before the tiers, so the board a
 //! firing band lands on is the board that was already drawn.
 //!
 //! FINAL/LATER truncation legitimately fires `scores_lane` on its own, with
-//! every live game still fully shown — spec §1's `2 OFF-SCREEN · 2 FINAL ·
+//! every live game still fully shown — the `2 OFF-SCREEN · 2 FINAL ·
 //! 4 LATER` lane example is exactly that case.
 
 /// How many rows each piece of the board gets at a given size. Pure: height
-/// and counts in, plan out — the sizes ladder (spec §4) lives here and only here.
+/// and counts in, plan out — the sizes ladder lives here and only here.
 ///
 /// `tier2`, `finals`, and `later` counts used to live here too, but no
-/// reader anywhere consumed them (task-9 review carry-forward #2, M3):
+/// reader anywhere consumed them:
 /// `board::board_walk` builds its block list from the FULL live/finals/later
 /// counts and works out what actually fits with its own dynamic
 /// `total > area.height` window/scroll math (`board/mod.rs`), never by
@@ -33,7 +33,7 @@ pub struct TierPlan {
     pub hero_rows: u16,         // 0 = no hero fits (only < 12 total rows)
     pub hero_digits_full: bool, // 8-row PixelSize::Full vs the 3x4 quad form
     pub tier1: usize,           // promoted 3-row rows (0..=3)
-    /// The scoring band's rows (spec §3), reserved at the TOP of the body:
+    /// The scoring band's rows, reserved at the TOP of the body:
     /// [`crate::board::cut::BAND_ROWS`] whenever something is live, 0 when
     /// nothing is. Reserved, not inserted on fire — a band that appeared out
     /// of nowhere shoved the whole board down two rows and back up again
@@ -41,7 +41,7 @@ pub struct TierPlan {
     /// rows are charged before the tiers (like the lane's row) so the board
     /// under a firing band is the board that was already there.
     pub band_rows: u16,
-    /// The off-screen SCORES lane (spec §1) — on exactly when tier2, finals,
+    /// The off-screen SCORES lane — on exactly when tier2, finals,
     /// or later got cut short of what the raw counts asked for.
     pub scores_lane: bool,
 }
@@ -72,11 +72,11 @@ fn live_alloc(live: usize, tier1_cap: usize, budget: u16) -> (usize, usize, u16)
         return (0, 0, 0);
     }
     let avail = budget.saturating_sub(RULE_ROWS);
-    // spec §4 tier 1: scaled by what's left, capped by width class.
+    // Tier 1: scaled by what's left, capped by width class.
     let tier1 = ((avail / 4) as usize).min(tier1_cap).min(live);
     let after_tier1 = avail.saturating_sub(3 * tier1 as u16);
     let live_left = live - tier1;
-    // spec §1 tier 2: as many single lines as fit.
+    // Tier 2: as many single lines as fit.
     let tier2 = live_left.min(after_tier1 as usize);
     let content = 3 * tier1 as u16 + tier2 as u16;
     if content == 0 {
@@ -86,7 +86,7 @@ fn live_alloc(live: usize, tier1_cap: usize, budget: u16) -> (usize, usize, u16)
     }
 }
 
-/// The sizes ladder (spec §4) as a top-down subtraction: hero first by the
+/// The sizes ladder as a top-down subtraction: hero first by the
 /// width/height gates (never by `live`/`finals`/`later`/`my_games` — see the
 /// module doc), then MY GAMES, then rows run out bottom-up — later first,
 /// then finals, then tier2 truncates (lane on, paying for its own row),
@@ -97,7 +97,7 @@ fn live_alloc(live: usize, tier1_cap: usize, budget: u16) -> (usize, usize, u16)
 ///
 /// `my_games` is the MY GAMES band's row count, one line per pinned/favorite
 /// game — **excluding** the hero, even when the hero is itself a MY GAMES
-/// game (pins win the hero, spec §1). Layout only counts rows; deciding which
+/// game (pins win the hero). Layout only counts rows; deciding which
 /// game is the hero and whether to fold it out of the band's count is the
 /// caller's job — double-charging a pinned hero here is a caller bug, not a
 /// layout one.
@@ -143,30 +143,30 @@ fn plan_detailed(
     later: usize,
     my_games: usize,
 ) -> FullPlan {
-    // spec §4 last row: `need 40×12, have W×H` — no hero fits below the floor.
+    // The last row of the ladder: `need 40×12, have W×H` — no hero fits below.
     let (hero_rows, hero_digits_full): (u16, bool) = if width < 40 || height < 12 {
         (0, false)
     } else if width < 60 {
-        // spec §4 "< 60 cols": 2-line compact hero, no digits.
+        // Under 60 cols: 2-line compact hero, no digits.
         (2, false)
     } else if width >= 100 && height >= 32 {
-        // spec §4 "≥120×40" / "100-119 cols": 8-row Full digits.
+        // At ≥120×40 and 100-119 cols: 8-row Full digits.
         //
-        // Ruling R32: 12 rows, not 10. The band charges the digits first
-        // (R29), so 10 rows are nameplate 1 + digits 8 + ONE spare, which the
-        // keep order (R30) spends on the fragment — leaving the flagship hero
-        // with neither the meter bar nor the last-play line that the 6-row
-        // 80×24 hero does draw. 12 = 1 nameplate + 8 digits + fragment +
-        // meter + play, which is the A′ frame's hero exactly (11 buys the
-        // meter only). Costs 1–2 tier rows at 40 rows tall.
+        // 12 rows, not 10. The band charges the digits first, so 10 rows are
+        // nameplate 1 + digits 8 + ONE spare, which the keep order spends on
+        // the fragment — leaving the flagship hero with neither the meter bar
+        // nor the last-play line that the 6-row 80×24 hero does draw. 12 = 1
+        // nameplate + 8 digits + fragment + meter + play, which is the A′
+        // frame's hero exactly (11 buys the meter only). Costs 1–2 tier rows
+        // at 40 rows tall.
         (12, true)
     } else {
-        // spec §4 "80×24" / "60-79 cols": quad digits (sitting-1 pick 1A),
-        // 6 rows total — 1 nameplate + 4 digit rows + 1 spare.
+        // At 80×24 and 60-79 cols: quad digits, 6 rows total —
+        // 1 nameplate + 4 digit rows + 1 spare.
         (6, false)
     };
 
-    // spec §4 tier 1 column: up to 3 at the reference frame, up to 2 at
+    // Tier 1's column: up to 3 at the reference frame, up to 2 at
     // 100-119 cols, 0 below 100 cols (all tier 2).
     let tier1_cap = if width >= 120 {
         3
@@ -176,7 +176,7 @@ fn plan_detailed(
         0
     };
 
-    // spec §3: the scoring band's two rows, reserved up front whenever a band
+    // The scoring band's two rows, reserved up front whenever a band
     // could fire at all. Receipt for the 2: `cut::draw_band` draws exactly
     // `BAND_ROWS` rows — a headline and an affordance — and nothing else in
     // the app may decide that number. Charged here, before the tiers, for the
@@ -191,7 +191,7 @@ fn plan_detailed(
         0
     };
 
-    // spec §1 MY GAMES band: 1 line per pinned/favorite row, off the same
+    // The MY GAMES band: 1 line per pinned/favorite row, off the same
     // budget as everything below the hero.
     let budget = height.saturating_sub(hero_rows).saturating_sub(band_rows);
     let (_my_games_rows, my_games_cost) = section_alloc(my_games, budget);
@@ -206,7 +206,7 @@ fn plan_detailed(
     let remaining_1 = remaining_0.saturating_sub(finals_cost_0);
     let (later_0, _) = section_alloc(later, remaining_1);
 
-    // spec §1 Ticker: the lane comes on exactly when the un-laned pass would
+    // The ticker lane comes on exactly when the un-laned pass would
     // have cut something short of what it asked for.
     let would_truncate = tier2_0 < live_left || finals_0 < finals_target || later_0 < later;
 
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn the_sizes_ladder_matches_the_spec_table() {
-        // 120x40: full hero, up to 3 promoted, no lane. Ruling R32: the Full
+        // 120x40: full hero, up to 3 promoted, no lane. The Full
         // bracket is 12 rows — nameplate + 8 digit rows + fragment + meter +
         // play — so the flagship hero is never poorer than the 80×24 one.
         let p = plan(120, 38, 8, 2, 4, 0);
@@ -297,11 +297,11 @@ mod tests {
         assert_eq!(public.scores_lane, short.scores_lane);
     }
 
-    /// spec §3: the scoring band is TWO rows (`cut::BAND_ROWS`, and
-    /// `draw_band` draws exactly that many), and they are *reserved* whenever
-    /// a band could fire — i.e. whenever something is live. A board with no
-    /// live game cannot fire one, so it reserves nothing and its budget is
-    /// exactly the one Task 5 gave it.
+    /// The scoring band is TWO rows (`cut::BAND_ROWS`, and `draw_band` draws
+    /// exactly that many), and they are *reserved* whenever a band could fire —
+    /// i.e. whenever something is live. A board with no live game cannot fire
+    /// one, so it reserves nothing and its budget is exactly the one the layout
+    /// plan gave it.
     #[test]
     fn no_live_games_means_no_reservation() {
         let finals_only = plan(120, 36, 0, 5, 4, 0);
