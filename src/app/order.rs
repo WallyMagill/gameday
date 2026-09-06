@@ -17,7 +17,7 @@ impl App {
     /// Every live game on an enabled board, minus the viewer's own. Pins AND
     /// favorites live in the MY GAMES band and never re-sort, so `OrderState`
     /// is never told about either.
-    pub fn live_all(&self) -> Vec<Game> {
+    pub(in crate::app) fn live_all(&self) -> Vec<Game> {
         self.config
             .enabled_tabs
             .iter()

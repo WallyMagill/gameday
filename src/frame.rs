@@ -300,6 +300,7 @@ pub fn run(spec: &Spec) -> std::io::Result<()> {
                 spec.scenario.name()
             ))
         })?;
+        // TestBackend's Error is Infallible, so this unwrap cannot fire.
         let mut term =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(spec.cols, spec.rows))
                 .unwrap();

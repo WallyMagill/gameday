@@ -37,8 +37,8 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         // ground, ink, dim, digits, hot, cool. Not the raw palette — a theme
         // is a role mapping, not a list of colors. (broadcast and studio once
         // shared a palette outright, so a palette strip drew them as the same
-        // the press-box studio has its own grays now, and the strip still
-        // shows what the board will actually spend.)
+        // theme; the press-box studio has its own grays now, and the strip
+        // still shows what the board will actually spend.)
         let r = p.roles();
         for c in [r.ground, r.ink, r.dim, r.digits, r.hot, r.cool] {
             spans.push(Span::styled("■", Style::default().fg(c)));

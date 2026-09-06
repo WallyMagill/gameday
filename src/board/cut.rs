@@ -422,7 +422,8 @@ pub fn draw_band(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick: u6
         //
         // Still the ground role, not `dim`: `dim` is a ground-relative gray
         // and vanishes on the hot fill — the cell test below pins it. The
-        // quieted by weight instead — the headline is bold, this row is not.
+        // affordance is quieted by weight instead: the headline is bold,
+        // this row is not.
         let tail = format!("{} jump · {}", jump_key(), timer_text(cut, tick));
         frame.render_widget(
             Paragraph::new(Span::styled(truncate(&tail, area.width as usize), on_hot)),

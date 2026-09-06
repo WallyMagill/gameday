@@ -32,7 +32,7 @@ impl App {
     /// which runs on every poll). A broken config skips it in silence: the
     /// startup status line already says saving is off, and re-toasting it
     /// every merge would stomp whatever the user's last key said.
-    pub fn persist_pins_quiet(&mut self) {
+    pub(in crate::app) fn persist_pins_quiet(&mut self) {
         if self.config_error.is_some() {
             return;
         }

@@ -26,7 +26,7 @@ fn tmp(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn the_three_builtins_ship_in_the_decided_order() {
+fn the_four_builtins_ship_in_the_decided_order() {
     // daygame was promoted at the render gate on 2026-09-04: four now, not three.
     assert_eq!(
         theme::BUILTIN_NAMES,

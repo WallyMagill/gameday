@@ -61,11 +61,7 @@ impl EspnProvider {
 
     /// Split out so tests can shrink the bound (real timeouts would make a
     /// stalled-server test take as long as the timeout itself).
-    pub(crate) fn with_timeouts(
-        cache_dir: PathBuf,
-        offset: time::UtcOffset,
-        timeout: Duration,
-    ) -> Self {
+    fn with_timeouts(cache_dir: PathBuf, offset: time::UtcOffset, timeout: Duration) -> Self {
         let config = ureq::Agent::config_builder()
             // Three timeouts stand in for ureq 2's connect+read pair:
             // connect (the TCP handshake), recv_response (headers — a
@@ -100,7 +96,7 @@ impl EspnProvider {
         self.cache_dir.join(format!("{key}.etag"))
     }
 
-    pub(crate) fn http(&self, url: &str, etag: Option<&str>) -> Result<Fetched, ProviderError> {
+    fn http(&self, url: &str, etag: Option<&str>) -> Result<Fetched, ProviderError> {
         let mut req = self.agent.get(url).header("Accept", "application/json");
         if let Some(tag) = etag {
             req = req.header("If-None-Match", tag);
@@ -259,9 +255,10 @@ pub fn summary_url(league: League, event_id: &str) -> String {
     )
 }
 
-/// The unprefixed standings path built below — NOT the `site` prefix
-/// `scoreboard_url`/`summary_url` use — is the one that answers. Verified live
-/// for NFL and NHL on 2026-08-30; the prefixed fallback was never needed.
+/// Standings live under `apis/v2` on the same host, where `scoreboard_url` and
+/// `summary_url` both use `apis/site/v2`. That one path segment is the whole
+/// difference, and it is the one that answers: verified live for NFL and NHL
+/// on 2026-08-30, and the `apis/site/v2` fallback was never needed.
 pub fn standings_url(league: League) -> String {
     let (sport, slug) = league.espn_path();
     let base = format!("https://site.web.api.espn.com/apis/v2/sports/{sport}/{slug}/standings");

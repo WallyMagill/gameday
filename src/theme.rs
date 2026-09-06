@@ -1410,27 +1410,41 @@ mod tests {
     /// fails it. Each case is a real mistake, not fuzz.
     #[test]
     fn malformed_user_themes_are_errors_not_panics() {
-        let cases: [(&str, &str); 9] = [
-            ("empty file", ""),
-            ("not toml", "this is not toml at all ["),
-            ("no name", "[palette]\nbg = \"#000000\"\n"),
-            ("empty name", "name = \"\"\n[palette]\nbg = \"#000000\"\n"),
-            ("missing palette", "name = \"x\"\n"),
-            ("short hex", "name = \"x\"\n[palette]\nbg = \"#12\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n"),
-            ("unknown league", "name = \"x\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n[palette.league]\nxfl = \"#123456\"\n"),
-            ("bad role", "name = \"x\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n[roles]\nground = \"nope\"\n"),
-            ("bad team scope", "name = \"x\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n[roles]\nteam = \"everywhere\"\n"),
+        // Third field: a word the error must contain, so the case proves it
+        // failed on the mistake it was written for and not on something
+        // earlier. `""` means "any non-empty error will do" — the first three
+        // cases are malformed before any one field can be blamed. Every case
+        // past `missing palette` carries the full eleven-key palette for the
+        // same reason: deserialization runs before every check below it, so a
+        // short palette would fail there and never reach the name, league,
+        // role or scope check the case exists to exercise.
+        let cases: [(&str, &str, &str); 9] = [
+            ("empty file", "", ""),
+            ("not toml", "this is not toml at all [", ""),
+            ("no name", "[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n", ""),
+            ("empty name", "name = \"\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n", "name"),
+            ("missing palette", "name = \"x\"\n", ""),
+            ("short hex", "name = \"x\"\n[palette]\nbg = \"#12\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n", ""),
+            ("unknown league", "name = \"x\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n[palette.league]\nxfl = \"#123456\"\n", "xfl"),
+            ("bad role", "name = \"x\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n[roles]\nground = \"nope\"\n", "ground"),
+            ("bad team scope", "name = \"x\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n[roles]\nteam = \"everywhere\"\n", "team"),
         ];
-        for (label, text) in cases {
+        for (label, text, must_say) in cases {
             let err = parse_theme(text).expect_err(label);
             assert!(!err.is_empty(), "{label}: the error must say something");
+            assert!(
+                err.contains(must_say),
+                "{label}: the error must name {must_say:?}, said: {err}"
+            );
         }
         // Through the directory loader too: one broken file beside one good
         // built-in copy must yield one entry and one error line naming the file.
         let dir = std::env::temp_dir().join(format!("gd-theme-nopanic-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("themes")).unwrap();
-        std::fs::write(dir.join("themes/broken.toml"), "name = \"\"\n").unwrap();
+        // Full palette here too, so the file fails on the empty name — the
+        // mistake being tested — rather than on a short palette.
+        std::fs::write(dir.join("themes/broken.toml"), "name = \"\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n").unwrap();
         std::fs::write(
             dir.join("themes/copy.toml"),
             BUILTIN_TOML[0].replace("name = \"broadcast\"", "name = \"copy\""),
