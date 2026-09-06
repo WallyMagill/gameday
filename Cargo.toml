@@ -6,6 +6,23 @@ edition = "2021"
 # workspace, via darling/time, need 1.88); higher than the 1.87 floor from
 # `u64::is_multiple_of`. Verified by the CI `msrv` job.
 rust-version = "1.88"
+description = "Terminal sports board: the game worth watching is at the top. Nine leagues, no account, one binary."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/WallyMagill/gameday"
+readme = "README.md"
+keywords = ["sports", "tui", "terminal", "scores", "espn"]
+categories = ["command-line-utilities"]
+# Everything the binary embeds stays in (assets/, fixtures/nfl_standings.json
+# via src/dump.rs). Docs, research, tooling and captures stay out.
+exclude = [
+    "docs/",
+    "fixtures/replay/",
+    "scripts/",
+    "tools/",
+    ".github/",
+    "*.tape",
+    ".git-blame-ignore-revs",
+]
 
 [dependencies]
 crossterm = "0.29"

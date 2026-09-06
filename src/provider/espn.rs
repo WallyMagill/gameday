@@ -16,7 +16,7 @@ pub const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 pub const USER_AGENT: &str = concat!(
     "gameday/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/WallyMagill/game-day)"
+    " (+https://github.com/WallyMagill/gameday)"
 );
 
 pub struct EspnProvider {
@@ -679,9 +679,12 @@ mod tests {
     }
 
     #[test]
-    fn user_agent_names_the_project_and_a_contact() {
+    fn user_agent_names_the_project_and_the_public_repo() {
         assert!(USER_AGENT.starts_with("gameday/"));
-        assert!(USER_AGENT.contains("+https://"));
+        assert!(
+            USER_AGENT.ends_with("(+https://github.com/WallyMagill/gameday)"),
+            "the contact URL must be the public repo: {USER_AGENT}"
+        );
     }
 
     /// A refused TCP connect never reaches the HTTP layer at all — this
