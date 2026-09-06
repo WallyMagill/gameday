@@ -1,0 +1,389 @@
+# gameday v4 — Ship (sub-project 5)
+
+Date: 2026-09-06. Status: approved design (Walter, 2026-09-06), ready for wave plans.
+Predecessor: v3.4 Data truth (spec `2026-09-03-gameday-v3-4-data-truth-design.md`).
+Evidence: the independent hands-on review of 2026-09-05 (live CFB Saturday slate, 189 games, real binary in tmux and Ghostty, 526-test suite, alternatives research). Its grades and findings are restated in §1; every finding maps to a wave item in §12.
+
+## Directions (Walter, 2026-09-06)
+
+Recorded as directions, not rulings. Each names what won, why, and what reopens it.
+
+1. **Ship target: A** — public GitHub `WallyMagill/gameday`, GitHub Releases with prebuilt binaries via cargo-dist, `cargo install gameday` (name free on crates.io, checked 2026-09-06), Homebrew tap `WallyMagill/homebrew-tap`. Reasoning: the difference between a README that says `brew install` and one that says "see releases" is where terminal users fall off. Reopens if the tap or crates.io publish proves unmaintainable.
+2. **License: MIT OR Apache-2.0.** Reasoning: Rust ecosystem default; what crates.io and Homebrew reviewers expect. The marks and the data are not ours to license; the README carries a notice (§8.4).
+3. **Platforms: A** — build and test macOS arm64/x86_64 and Linux x86_64/arm64; build Windows x86_64 labeled "builds, untested". Reasoning: crossterm and ratatui support Windows; the console font is the unknown. Reopens when a Windows user reports.
+4. **Scope: B** — the review's fix list plus two differentiators: desktop notifications and a one-shot / JSON mode. Reasoning: both are one afternoon because the data is already in the process; both are README bullets golazo has and gh-sportsball lacks. More leagues (C) reopens after 1.0 when the request log shows who is asking.
+5. **1.0 gate: A** — the tag waits for replay fixtures and a clean live session from the first NFL live window (week one). Reasoning: football is the marquee; shipping a football scoreboard with a scoring cut never proven on football is the one risk that could sink the launch. Not a wall-clock date: a dependency on "after the first NFL live window".
+6. **Ranking: B** — matchup, favorites, closeness-scaled situation bonuses, fixed weights in code, plus the football leverage term (ESPN win probability from the scoreboard) switched on for CFB now and for NFL only once the week-one capture shows the field. Configurable weights (C) reopen when the first "why is this game on top" issue arrives.
+7. **Theme key: A** — `c` opens the picker, same as `:theme`. Reasoning: one path; the picker already previews. Reopens never on its own; a `C` fast-cycle can be added if asked.
+8. **Notifications: on by default for favorites and pins.** Reasoning: both lists start empty, so nobody is notified about anything they did not set up. Reopens if launch feedback calls it intrusive.
+9. **Public history: A** — move `docs/research/` out of the repo and rewrite history with `git filter-repo` before the first push, after a full backup and a before/after size report. Reasoning: the tracked research images are third-party screenshots and photos; a public history is public. The rewrite is Walter's trigger (destructive), and the repo has never had a remote so nothing shared breaks.
+
+Execution decisions made alongside (mine, noted so they are visible): rustfmt is adopted in one commit with a `.git-blame-ignore-revs` entry; the app split lands in wave 0 before any feature work; the visual items go to exactly one render sitting; `signal-hook` is the one new dependency (SIGTERM/SIGHUP restore), and `docs/superpowers/` ships public as-is.
+
+## §0 Goal and principles
+
+The app is engineered well (review: architecture A-, tests B+) and is not shippable (onboarding D+, data correctness C+, hygiene C). This sub-project closes every gap the review found, adds the two differentiators, and releases 1.0.0. The bar is the review's own: **A+ means best-in-class, shippable, no excuses.**
+
+Binding principles, carried from v3.1–v3.4 and extended:
+
+- **Structure over parsing.** Every fix here uses a field ESPN publishes (`scoringPlay`, `scoreValue`, `shortDownDistanceText`, `possession`, `probability`). No new text heuristics enter the data path. Presentation-only normalization (dropping a duplicated clock prefix in a list) is allowed and labeled as such.
+- **Budget is a measured number.** The catch-up fetch (§3.2) is the only new request; its cost is logged and stated in §9. The 45 requests/minute claim stays true with it included.
+- **R24 in words: the board reorders only on a real event.** New ranking terms enter the fingerprint set deliberately (§4.4) or not at all.
+- **Every live bug the review found gets a test that would have failed** (§3.5, §5.7). The simulator hides timing bugs by construction, so replay fixtures of consecutive real polls are the new floor.
+- **Nothing is decided in prose that is a look.** Wave 5 is a render sitting with labeled PNGs.
+- **No wall clock.** Waves are gated by definition of done and by the NFL live window, never by dates.
+
+## §1 The review baseline
+
+Grades as given (2026-09-05): concept B+, visual B+, data correctness C+, ranking B-, UX B-, layout B, onboarding/distribution D+, architecture A-, tests B+, reliability B+, hygiene C. Overall B-.
+
+Findings, numbered for §12 traceability:
+
+- **D1** Every CFB row prints field position twice (`BAY 1ST & 10 AT BAY 2 AT BAY 2`): `rows::situation_summary` appends `AT ball_on` after a `downDistanceText` that already ends "at BAY 2" on college feeds.
+- **D2** The scoring cut showed `HOME RUN · MIA FOUL · CHC 1 MIA 0` (wrong team, wrong text) and the zoom PLAYS tab listed one non-scoring snap as Boise's "scoring play": `apply_boards` captures `last_plays[0]` at the poll where the score changed, which at 15s cadence is routinely the next pitch or snap.
+- **D3** A RED ZONE chip lit on URI at TEM with no possession; the probe printed `RedZone { yards_to_goal: 100 }`: a null `possession` is treated as "away has the ball".
+- **D4** MLB last-play labels read `type.alternativeText`, a pitch-type label ("Walk" on a ball, "Strikeout" on a called strike). Already OPEN in the v3.4 verification.
+- **D5** Zoom SCORING lists clocks without periods, so `[14:52]` follows `[9:32]`.
+- **D6** Feed pass-throughs seen: `2ND & -4`, a last play of `(D. Klein KICK)`. Treated as feed truth (§3.3).
+- **D7** Zoom LAST PLAYS rows show the clock twice: `[3:31] NAVY (03:39) #11 J.Carlson punt…` (CFB play text carries its own clock prefix).
+- **D8** Records `0-0` on Texas and Oregon in week two are ESPN's own payload (verified in the cache), not a mapper bug; they still read as wrong on screen.
+- **D9** The unknown-theme warning (`unknown theme "dracula" … using broadcast`) goes to stderr and is swallowed by the alternate screen.
+- **D10** NFL standings labeled `2026` were preseason records with no preseason marker.
+- **R1** The hero was an FCS 0-10 game (2-MIN) over Boise at Oregon; nothing knows Oregon is ranked.
+- **R2** Favorites exist for alerts and do nothing for the board order.
+- **R3** RED ZONE and 2-MIN bonuses fire at full weight in three-score games.
+- **U1** No paging: `G`, `g`, PgDn do nothing across 189 games (a test asserts paging is dead).
+- **U2** `/ORE` matched Baltimore, Vanderbilt, Eastern Shore and a "Forest" headline (substring over every field).
+- **U3** The `?` overlay mixes six modes in one column; `h/l` appears twice with two meanings.
+- **U4** `c` cycles themes silently while `:theme` opens a picker.
+- **U5** `:help` is not a command.
+- **U6** Date travel to a day with no games renders a blank screen with a lone centered "next kickoff" label.
+- **U7** Toasts replace the key hints for several seconds.
+- **U8** The IN PLAY rule drew with no rows under it when the hero absorbed the only live game (filter active).
+- **U9** Unexplained glyphs in the hero record line: `▸ ⚑ ★ KC 11-6`, `0-0 ▌ISU` (the `▌` sat on ISU while SEMO had the ball).
+- **L1** `CLOCK_W = 11` truncates any start more than six days out (`SEP 13 8:…`) at every width including 200 columns.
+- **L2** `BCAST_W = 7` glues `NETFLIXLAR -3.5`.
+- **L3** The nudge gutter collides with four-letter codes (`↑9TNST`).
+- **L4** The stats leaders column collides with four-letter codes (`BOISPASSING YARDS`).
+- **L5** Zoom overview leaves five to eight blank rows under SCORING at 40 rows.
+- **L6** Config view starts at row 15 of 40 with the top half empty.
+- **L7** At 160+ columns tier-2 rows leave the right 60% empty.
+- **V1** A CFB Saturday showed zero team marks (college ships ranked-only).
+- **V2** Live rows are undifferentiated gray text; the hero carries all the color.
+- **V3** 100-character play sentences on tier rows.
+- **V4** No demo GIF exists.
+- **O1** README has no image. **O2** No install path but `cargo run`. **O3** No LICENSE. **O4** Version 0.1.0, no tags, no releases, no remote. **O5** README opens with prose and dev commands. **O6** No repo `AGENTS.md`/`CLAUDE.md` (personal-projects rule).
+- **A1** `src/app/mod.rs` is 3,329 lines holding six views' keymaps plus merge logic. **A2** Comments cite `R49`, `spec v3.4 §3`. **A3** `theme.rs` has 27 unwrap/index sites outside tests. **A4** Code is not rustfmt-formatted (796 hunks).
+- **T1** No test can catch D2 (sim flips score and play in one tick). **T2** No test renders college situation text, four-letter abbreviations with nudges, far-future starts, or `NETFLIX`. **T3** No CI.
+- **Q1** Proxy env vars are ignored, so offline cannot be exercised without root. **Q2** `kill -TERM` skips the Drop guard and leaves raw mode on. **Q3** No multi-hour budget receipt. **Q4** New features need fail-soft paths.
+- **H1** ratatui 0.29 (0.30.2 current), ureq 2 (3.4), crossterm 0.28 (0.29), dirs 5 (7), tui-big-text 0.7 (0.8.9). **H2** No CI, audit, deny, fmt check. **H3** User-Agent points at `github.com/WallyMagill/game-day`, which does not exist.
+- **N1** No notifications (golazo has them). **N2** No one-shot / agent mode (golazo has one).
+
+Alternatives on record: golazo (Go, soccer only, 855 stars, brew, demo GIF, desktop notifications, JSON mode), gh-sportsball (Go, ESPN, 8 leagues, gh extension, 2 stars, no images), mlbt (MLB Statcast only). gameday is the only cross-sport ranked board with a TV mode and committed marks; it is the only one nobody can install.
+
+## §2 Wave 0 — Foundation
+
+Mechanical work first, so every feature wave lands in the final structure with a green pipeline behind it.
+
+### 2.1 rustfmt (A4)
+- One commit `style: rustfmt the tree` with default `rustfmt.toml` (edition 2021, no overrides). Its hash goes in `.git-blame-ignore-revs`; `git config blame.ignoreRevsFile .git-blame-ignore-revs` documented in `docs/dev.md`.
+- CI enforces `cargo fmt --check` from this commit on.
+
+### 2.2 Dependency upgrades (H1, Q1, Q2)
+- `ratatui = "0.30"`, `tui-big-text = "0.8"`, `crossterm = "0.29"`, `ureq = "3"`, `dirs = "7"`, `signal-hook = "0.3"` (new: SIGTERM/SIGHUP → `should_quit`, so the one restore path runs; receipt: `kill -TERM` on the release binary leaves a working terminal).
+- ureq 3 migration: `Agent::config_builder()` with `timeout_connect`/`timeout_recv_body` at `HTTP_TIMEOUT`, `user_agent`, `http_status_as_error(true)`; `Error::StatusCode(304)` is the not-modified arm; proxy from env is on by default, which is what makes `HTTPS_PROXY=http://127.0.0.1:9` the offline test.
+- ratatui 0.30 migration: `Frame::area()`, `Buffer` cell API changes as the compiler names them; `tui-big-text` 0.8 `BigText::builder()` unchanged in shape. The draw tests are the safety net: they must pass unchanged.
+- `rust-version` declared as the minimum that builds (found with `cargo msrv find` during the wave) and tested by a CI job on that toolchain.
+
+### 2.3 CI (T3, H2)
+`.github/workflows/ci.yml`, on push and pull request:
+- `fmt`: `cargo fmt --check`.
+- `clippy`: `cargo clippy --all-targets -- -D warnings`.
+- `test` matrix: `ubuntu-latest`, `macos-latest`; `cargo test --locked`.
+- `msrv`: `cargo check --locked` on the declared toolchain.
+- `audit`: `rustsec/audit-check` action.
+- `deny`: `EmbarkStudios/cargo-deny-action` with `deny.toml` allowing MIT, Apache-2.0, BSD-2/3, ISC, Unicode-3.0, Zlib, MPL-2.0; bans none; advisories deny unmaintained + yanked.
+- `package`: `cargo package --list --allow-dirty` and a size assertion (< 5 MB, see §8.1).
+- `.github/dependabot.yml`: cargo and github-actions, weekly.
+
+### 2.4 License and metadata (O3, H3)
+- `LICENSE-MIT`, `LICENSE-APACHE` (standard texts, copyright Walter Magill 2026).
+- `Cargo.toml`: `description = "Terminal sports board: the game worth watching is at the top. Nine leagues, no account, one binary."`, `license = "MIT OR Apache-2.0"`, `repository = "https://github.com/WallyMagill/gameday"`, `readme = "README.md"`, `keywords = ["sports", "tui", "terminal", "scores", "espn"]`, `categories = ["command-line-utilities"]`, `exclude` per §8.1.
+- `USER_AGENT` contact URL becomes `https://github.com/WallyMagill/gameday`.
+
+### 2.5 Repo files (O6)
+- `AGENTS.md` (repo): what the app is, how to build/test/run, the design loop pointer, the standing rules in words (quad glyphs only; the board reorders only on a real event; one score formatter; logos never move a digit), the `gh auth switch --user WallyMagill` rule for every `gh` command, the release procedure pointer to `docs/dev.md`. `CLAUDE.md` containing `@AGENTS.md`.
+- `CHANGELOG.md` in Keep a Changelog form with an `Unreleased` section that becomes `1.0.0` at the tag.
+
+### 2.6 Architecture split (A1, A2, A3)
+Behavior-preserving. The suite passes unchanged before and after; the commit touches no logic.
+- `src/app/mod.rs` → `mod.rs` (the `App` struct, `new`, `draw` entry, small accessors), `merge.rs` (`apply_boards`, `merge_summary`, `merge_stats`, `merge_standings`, `merge_dated_board`, `note_failure`, `note_aux_failure`), `order.rs` (`maybe_reorder`, `force_reorder`, `RankFingerprint`, `live_all`), `persist.rs` (`persist_config`, `persist_pins*`, `set_config_error`), `keys/{board,zoom,tv,config,standings,feed,theme}.rs` (each view's `on_key_*` and cursor helpers). Tests move with their subject into each file's `#[cfg(test)]`.
+- Comment rewrite: every `R<n>` / `spec v3.x §n` / `T<n>` reference becomes the reason in words (the receipt stays, the pointer goes). Applies to all of `src/`.
+- `theme.rs`: user-file paths (`install_user_themes`, palette parsing, role resolution) return `ThemeError` naming the file, key, and expected form; `expect` remains only on compile-time constants (the built-in TOML), each with a message saying why it cannot fail.
+
+**Definition of done (wave 0):** CI green on both OSes; fmt, clippy, audit, deny, msrv jobs green; deps at the versions above; the split landed with the test count unchanged (526 before, 526 after, plus any the migration added); `kill -TERM` receipt; `HTTPS_PROXY` offline receipt (STALE chip visible, footer shows the backoff, recovery on unset).
+
+## §3 Wave 1 — Data truth and tests
+
+### 3.1 Play identity
+- `Play` gains `id: String` (scoreboard `situation.lastPlay.id`; summary play ids; empty for demo/sim).
+- Every league's summary mapper fills `Play.period` (`period.number` → `Q1`/`1ST`/`TOP 3RD`/minute) using the same per-league label grammar the scoreboard uses, so a scoring row can render `Q2 11:09`.
+- Dedupe of scoring plays: by id when both sides have one, else by text (demo/sim fallback). `merge_summary` keeps this rule when the summary's list replaces the delta-derived one.
+
+### 3.2 Catch-up capture (D2, T1)
+In `apply_boards`, on a fresh (not stale) payload with a score delta for game `g`:
+1. If `g.last_plays[0]` is a scoring play (`scoring == true`, mapped from `lastPlay.scoringPlay == true`, or `score_value > 0`), push it (marked scoring) and fire the cut, as today.
+2. Otherwise: flash still runs; **no cut fires**; the game is queued for catch-up.
+
+Catch-up plumbing:
+- `App.catchup: Vec<CatchupReq { league, game_id, seq: u64 }>` with a monotonic `catchup_seq`. A delta on a game already queued does not add a second entry.
+- `poll::Wants` gains `catchup: Vec<CatchupReq>`. `Scheduler` keeps `last_catchup_seq`; `due` emits `Request::Summary(league, id)` for every entry with `seq > last_catchup_seq`, then advances it. No freshness window applies to these; they are one-shot by construction.
+- When `merge_summary` lands for a queued game, any play in the summary's `scoring_plays` whose id the game has not seen becomes the captured play; the newest such play fires the cut (full or band by the existing rule); the entry is removed. Entries older than `CATCHUP_TTL = 60 s` are dropped without a cut (receipt: a summary that never arrives must not hold a stale request forever; 60 s = four polls, a guess).
+- The `Wants` snapshot only republishes when it changes, so the catch-up list costs nothing between events.
+- Budget: `GAMEDAY_LOG_REQUESTS=1` counts `Summary` requests not attributable to the zoomed game during a live window; §9 records the number. Expected: ≤ 1 per score event; on a full CFB Saturday (~60 live games, ~8 scores each, ~4 h) that is under 2/min.
+
+### 3.3 Text and meter fixes (D1, D3, D4, D5, D6, D7, D8, D9, D10)
+- **D1**: `Situation.down_distance` maps from `shortDownDistanceText` when present (verified on the live CFB cache: it exists beside `downDistanceText`); otherwise from `downDistanceText` with a trailing ` at <ball_on>` (case-insensitive, exact `ball_on`) removed. `rows::situation_summary` unchanged in shape.
+- **D3**: the red zone meter requires `situation.possession` to equal the home or away team id; `None` or any other value → no meter, no chip. `rank::watchability` already gates the chip on `is_red_zone == Some(true)`; it additionally requires `situation.possession.is_some()`.
+- **D4**: `mlb_last_play_text` reads `type.text` (the pitch outcome) plus the batter; `alternativeText` is never read. The committed expectations that encode the misreading (`"Walk — J. Sanoja"` in `board::cut` and `theme` tests) are corrected in the same commit.
+- **D5**: zoom SCORING rows render `<period> <clock>` from the play; `plays_feed` rows likewise.
+- **D6**: `2ND & -4` and `(D. Klein KICK)` are ESPN's text and pass through. Recorded here so the next reviewer does not re-file them.
+- **D7**: presentation rule only: in the zoom LAST PLAYS list, when a play carries a non-empty `clock` and its text begins with `(m:ss) ` or `(mm:ss) `, that prefix is not drawn. The `Play.text` field is untouched.
+- **D8**: a record equal to `0-0` on a game whose status is Live or Final renders as empty (a 0-0 during play is never informative). Pre-game keeps it.
+- **D9**: the unknown-theme note lands in the footer status line (the same channel as the config-parse error) as `theme "dracula" not found · using broadcast · themes/ loads user files`, in addition to stderr.
+- **D10**: probe the standings payload for a season-type field (`seasonType`/`season.type`) during the wave; when the feed says preseason, the header reads `STANDINGS NFL · 2026 PRESEASON`. If the field is absent, the header gains nothing and the probe result is recorded in §9.
+
+### 3.4 Replay capture tooling
+- `scripts/capture-replay.sh <league> <minutes> [event_id]`: polls the scoreboard URL every 15 s for the duration, keeps every payload as `fixtures/replay/<league>-<yyyymmdd-hhmm>/NN.json` (zero-padded), optionally filtered to one event, and writes `PROVENANCE.md` (command, times, what happened in the window). Payloads are full, never trimmed.
+- Wave 1 captures at least two MLB sequences containing a run and one CFB sequence containing a touchdown (CFB Saturday is the next live window after this spec). The NFL sequences land in wave 6 (Direction 5).
+
+### 3.5 Tests (T1, T2)
+- `tests/replay.rs`: for each `fixtures/replay/*` directory, map every payload and feed them to `apply_boards` in order with a `MemoryProvider` standing in for the summary when a catch-up is requested (the summary fixture captured in the same window, or the sequence's own later payload where the scoreboard itself later carries the scoring `lastPlay`). Asserts: the captured scoring play's id, team, and kind; the cut fired exactly once per score; `catchup` was requested exactly when the poll missed the play and never otherwise.
+- `tests/draw.rs` tooth for D1: a CFB situation row renders `BAY 1ST & 10 AT BAY 2` exactly once, asserted with the existing `col_of` helper. The four grid teeth (four-letter codes with nudges, far-future starts, `NETFLIX`, the stats column) belong to wave 3 (§5.7) because they pass only once the constants change.
+- Mapper tests for D1 (both text shapes), D3 (possession null), D4 (pitch rows), 3.1 (period on summary plays), D8 (record hiding at the row).
+- A test that the theme note reaches the footer (D9).
+
+**Definition of done (wave 1):** replay tests pass on ≥ 2 MLB and ≥ 1 CFB sequences; every tooth above passes; the catch-up request count from a live window is recorded in §9; the v3.4 OPEN MLB item is closed.
+
+## §4 Wave 2 — Ranking
+
+### 4.1 Formula
+`watchability(g, favorites)` for a live game:
+
+```
+closeness  = leverage_closeness(g) if the situation carries probability, else margin closeness (existing)
+lateness   = from secondsLeft if present, else the existing label parse
+base       = lateness × closeness / 100
+situation  = existing bonus table (RED ZONE 40, 2-MIN 30, CLUTCH 40, MLB runs 30/40, STOPPAGE 30, red card 40, POWER PLAY 25)
+             × closeness / 100
+matchup    = 20 if both teams ranked, 10 if one, +5 if any rank ≤ 5
+favorite   = 25 if a configured favorite is playing
+score      = base + situation + matchup + favorite
+```
+
+Weights are guesses calibrated by one test (§4.5); the comment on each says so. The `_now` parameter stays.
+
+### 4.2 Leverage (football)
+- `Situation` gains `win_prob: Option<(f32 /*home*/, f32 /*away*/, u32 /*secondsLeft*/)>` mapped from `situation.lastPlay.probability` (verified on the live CFB cache: `homeWinPercentage`, `awayWinPercentage`, `tiePercentage`, `secondsLeft`; NFL unverified until week one; absent on all seven other leagues in the cache).
+- `leverage_closeness = 100 × (1 − |2·home − 1|)` clamped to 0..=100; lateness from `secondsLeft` over the sport's regulation length (`quarter_len × 4`), OT pinned to 100.
+- Gate: `League::Cfb` on now. `League::Nfl` turns on in wave 6 when the week-one replay fixtures show the field on the NFL scoreboard; until then NFL uses the margin path. The switch is one match arm with the receipt beside it.
+
+### 4.3 Chip and why
+`Watch` gains `why: &'static str`: the label of the largest single term (`LEVERAGE`, `CLOSE`, `LATE`, the situation chip name, `RANKED`, `FAVORITE`). The board footer shows it for the selected live game: `GAME 6/189 · LEADS: RED ZONE`. The hero chip is unchanged.
+
+### 4.4 Reorder discipline
+`RankFingerprint` gains `leverage_band: u8` (closeness / 20, so 0..=5). A band crossing is an event; drift inside a band is not. Rank and favorite are static for a game's life and do not enter the fingerprint. The existing "hot flip" and score-delta events stay.
+
+### 4.5 Tests
+- `fixtures/review-slate-2026-09-05.json`: the CFB scoreboard cached at 16:47 on review day (copied from the review machine's cache, `PROVENANCE.md` says so). A test derives the board and asserts Boise at Oregon leads and the FCS game is not in the top three.
+- Unit tests for each term, the closeness scaling of bonuses, leverage math at p ∈ {0.5, 0.75, 0.999}, the NFL gate (field present but league gated → margin path), band-crossing reorders once and freezes.
+- `Watch.why` is asserted for a ranked matchup, a favorite, and a red zone.
+
+**Definition of done (wave 2):** the review-slate test leads with Boise at Oregon; leverage tested on CFB fixtures and dormant for NFL; no reorder in a replay sequence where only the clock advanced.
+
+## §5 Wave 3 — UX and layout
+
+### 5.1 Paging (U1)
+`keymap::Group::Paging`: PgDn/PgUp and ctrl-d/ctrl-u move half the visible list; g/G and Home/End jump to the ends. Bound in board, plays feed, standings. `paging_keys_are_dead_and_not_advertised` becomes `paging_keys_move_half_a_page_and_are_in_the_overlay`.
+
+### 5.2 Filter (U2)
+`src/filter.rs`: `Query::parse(&str)` → tokens (lowercased, whitespace-split). `Query::matches(&Game)`: every token must prefix-match the abbreviation or any word of `location`/`name` of either team, or equal a league slug (which scopes to that league). Footer shows `/ore · 3 games`. Tests: `ore` excludes Baltimore and includes Oregon State; `nfl kc` scopes; empty query matches all.
+
+### 5.3 Help (U3, U5, U9)
+`help_display_rows` renders sections per mode with the current mode first: Board, Zoom, TV, Config, Standings & Feed, Everywhere. A glyph legend closes the overlay: `▸ selected · ⚑ pinned · ★ favorite · ▌ possession · ↑n moved up`. `:help` opens it. The wave first answers what `▌` is (hero record line) with a draw test; if it is a possession mark drawn on the wrong side (U9 saw it on the team without the ball) it is fixed, if it is a swatch it is removed.
+
+### 5.4 Theme key (U4, Direction 7)
+`c` calls `open_theme_picker`. `cycle_theme` remains for `:theme <name>` and tests.
+
+### 5.5 Empty states and toasts (U6, U7, U8)
+- Dated view with no games: one centered line `No <LEAGUE> games <DAY MON D> · next <DAY> <TIME> <AWAY> @ <HOME>` from the existing next-kickoff lookup; when nothing is scheduled: `No <LEAGUE> games <DAY MON D> · nothing scheduled`.
+- Footer: chords stay left; `status_line` renders right-aligned and expires after `TOAST_TICKS = 3 s` of ticks. Error statuses (config parse, theme not found) do not expire.
+- A section rule draws only when the section has at least one row after the hero took its game.
+
+### 5.6 Grid and fills (L1–L6)
+- `rows.rs`: `ABBR_W = 5`, nudge gutter 3 cells, `CLOCK_W = 14`, `BCAST_W = 7` plus a 1-cell gap, `TEXT_X` derived from those constants (no literal). Stats and standings team columns use `ABBR_W`. Every existing column-position test updates to the derived constants.
+- Zoom overview: linescore block fixed height; LAST PLAYS and SCORING share the remaining body proportionally to their row counts with a floor of four rows each; no trailing blank band.
+- Config view top-aligns under its title.
+
+### 5.7 Tests
+Draw tests for every item above: paging moves the caret and scrolls; filter footer count; help sections and legend; picker opens on `c`; dated empty line; toast expiry and right alignment; no orphan rule; the four grid teeth (a tier row with `TNST` and `↑9` keeps a gap; a LATER row eight days out shows `SEP 13 8:20 PM` whole at 80 and 200 columns; `NETFLIX` is followed by a gap; the STATS table with `BOIS` keeps its column, each asserting positions with `col_of`); zoom fill leaves no blank band at 30, 40, 60 rows; config top-aligned.
+
+**Definition of done (wave 3):** every item has a draw test; a 189-game slate is paged end to end in the release binary in tmux (receipt: capture at top, middle, end).
+
+## §6 Wave 4 — Differentiators
+
+### 6.1 Notifications (`src/notify.rs`) (N1, Direction 8)
+- `pub trait Notifier { fn send(&self, title: &str, body: &str) -> Result<(), String>; }`.
+- Backends: `OsaScript` (macOS; runs `osascript` with the script on stdin, `display notification <body> with title "gameday" subtitle <title>`, body and title escaped for AppleScript string literals), `NotifySend` (Linux; `notify-send "gameday · <title>" <body>` when the binary is on PATH), `Noop` (Windows, or a backend that is missing or failed once; logs one line to `gameday.log` and stays silent).
+- `App` owns `notifier: Box<dyn Notifier>` and `notified_at: HashMap<String, u64>`; `NOTIFY_MIN_GAP = 30 s` of ticks per game (a guess: one notification per possession-length is enough).
+- Events, on fresh payloads only: (a) `alerts.check` hit (favorite team scored): title `<AWAY> <a> · <HOME> <h>`, body the scoring play text; (b) a pinned or favorite game reaching `Final`: title `FINAL`, body `<AWAY> <a> · <HOME> <h>`.
+- Config: `notify = ["favorites", "pins"]` (default), `notify = []` disables. `:notify test` sends `gameday · test` and reports the backend's result in the footer.
+- Tests: `App::with_notifier(Box<RecordingNotifier>)`; a favorite score sends once and not again inside the gap; a pin's final sends; a stale payload never sends; `notify = []` sends nothing; the Noop path logs once.
+
+### 6.2 One-shot mode (`src/once.rs`) (N2)
+- CLI: `gameday --once [--json] [--league <slug>]... [--live] [--top N] [--color]`. `--once` is required for the others; `--json` implies no color.
+- Fetch: for each enabled (or `--league`) league, `provider.scoreboard` through the existing cache; a cache entry younger than `SCOREBOARD_LIVE` is served without the network (status bars poll every 30 s; nine requests every 30 s would be the whole budget). Then build an `App` with the loaded config and pins, derive the ordered board, print.
+- Text: the tier rows as plain text in the same grid as the board (`rows.rs` renders into a `Buffer`; `dump::buffer_to_ansi` with colors stripped unless `--color` and stdout is a tty). `--top N` cuts after N rows.
+- JSON schema (stable; a test pins it):
+  ```
+  { "generated_at": RFC3339, "stale": bool,
+    "games": [ { "league": "nfl", "id": "...", "status": "live|pre|final",
+                 "period": "Q4", "clock": "1:27", "start": RFC3339|null,
+                 "away": {"abbr","name","score","record","rank"}, "home": {...},
+                 "watch": {"score": u32, "chip": str|null, "why": str},
+                 "situation": str|null, "last_play": str|null, "pinned": bool } ] }
+  ```
+- Exit codes: 0 with output; 1 with one stderr line (`gameday: <provider short error>`) when no league could be fetched and nothing is cached; 2 for argument errors (existing).
+- Tests: golden text and JSON from the demo slate; `--top 3`; `--league nfl`; error exit with an empty cache and a failing provider.
+
+**Definition of done (wave 4):** a real favorite score notified on this Mac (receipt: screenshot of the notification); `--once` drives a tmux status line for a live window (receipt: the status-line config and a capture); golden tests pass.
+
+## §7 Wave 5 — Visual sitting
+
+One sitting, per `docs/design-loop.md`. Every item is rendered as labeled PNGs through `gameday frame` and `tools/contact-sheet.sh`; Walter answers letters; losers are reverted in the same session; winners become directions appended to this spec's Directions.
+
+1. **College marks** (V1): (a) all 136 FBS + the top eight CBB conferences generated with `tools/gen-logos.sh` (both grounds, ~2 MB binary growth), versus (b) ranked-only as today. Rendered on the review slate.
+2. **Team-tinted abbreviations on tier rows** (V2): (a) tinted inside the theme's `team` scope (studio stays grayscale), versus (b) current.
+3. **Play text clause cap** (V3): (a) first clause (split at the first `, ` or `. ` after 48 cells, `…` closes), versus (b) full sentence truncated.
+4. **Wide tier** (L7): at ≥ 160 columns, (a) tier-2 rows carry the last play on the same line, versus (b) current two-row form.
+5. **Zoom fill** (L5): the §5.6 layout at 40 and 60 rows, one frame each, for confirmation.
+6. **README GIF** (V4): a vhs tape `docs/demo.tape` of `--demo` at 120x36, broadcast, twenty seconds covering the red-zone beat, a cut, and a zoom; two candidate cuts (a) board-then-zoom, (b) board-then-tv.
+
+Rendering needs the sitting's frames to include live-ish data: the review-slate fixture (§4.5) drives the board frames so the marks question is answered on a real Saturday, not the demo.
+
+**Definition of done (wave 5):** letters recorded; losers reverted; the winning GIF checked in with its tape.
+
+## §8 Wave 6 — Ship
+
+### 8.1 Package (O2, O4)
+- `Cargo.toml` `exclude = ["docs/", "fixtures/", "tests/", "scripts/", "tools/", ".github/", "assets/candidates/", "*.tape"]` (tests and fixtures leave together; `cargo package --verify` builds the bins, not the tests). CI's `package` job asserts the list and a size under 5 MB (assets are ~2 MB; `include_str!` requires them in the package).
+- Version `1.0.0` at the tag; `CHANGELOG.md` `1.0.0` entry lists the user-visible changes by wave.
+
+### 8.2 Release pipeline (Direction 1, 3)
+- `dist init` → `dist-workspace.toml` (or `[workspace.metadata.dist]`): targets `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`; installers `shell`, `powershell`, `homebrew`; `tap = "WallyMagill/homebrew-tap"`; `publish-jobs = ["homebrew"]`; changelog from `CHANGELOG.md`.
+- `.github/workflows/release.yml` (generated) plus a `publish-crate` job on `v*` tags: `cargo publish --locked` with `CARGO_REGISTRY_TOKEN`.
+- Secrets Walter creates: `HOMEBREW_TAP_TOKEN` (a fine-grained PAT with contents write on the tap repo), `CARGO_REGISTRY_TOKEN`.
+- Dry run: tag `v1.0.0-rc.1` on the pushed repo; verify on a clean user account on this Mac: `brew install WallyMagill/tap/gameday`, `cargo install gameday --version 1.0.0-rc.1`, the shell installer, and a downloaded archive; each launches the live board. Receipts in §9.
+
+### 8.3 Public history (Direction 9; Walter's trigger)
+Sequence, each step reported before the next runs:
+1. `git clone --mirror` the repo to `~/personal-projects/_data/gameday-backup-2026-09-<dd>/` and confirm the mirror's ref list matches.
+2. Copy `docs/research/` to `~/personal-projects/_data/gameday-research/` (plain filesystem copy, verified by file count), then commit its removal from HEAD (`git rm -r docs/research`), so the working tree is clean of it before the rewrite.
+3. `brew install git-filter-repo` if absent. Run `git filter-repo --path docs/research --invert-paths` in a fresh clone of the backup, never in the original checkout, so nothing is lost if the result is wrong; the original checkout is replaced only after step 4 is accepted.
+4. Report: tracked file count, `git count-objects -vH` pack size, and `du -sh .git` before and after; expected: 21 MB → under 5 MB.
+5. Walter creates `WallyMagill/gameday` (public, no template files) and `WallyMagill/homebrew-tap` (public, empty); `gh auth switch --user WallyMagill` precedes every `gh` command in this wave; `git remote add origin` and the first push are Walter's.
+
+### 8.4 README (O1, O5)
+Order: (1) title, positioning line, GIF; (2) install: `brew install WallyMagill/tap/gameday`, `cargo install gameday`, the shell installer one-liner, a link to Releases; (3) sixty-second tour on an annotated screenshot: the ranked list, the hero, the chip, the cut, pins, favorites, TV; (4) keys table by mode; (5) config with every key and default; (6) notifications; (7) one-shot and JSON with the schema; (8) data and trademark notice: unofficial ESPN endpoints, polling not websockets, last good payload kept on disk, not affiliated with ESPN or any league; team marks are quadrant-block renderings of league-owned logos used only to identify teams and removed on request; (9) terminals (verified on Ghostty, iTerm2, Terminal.app, tmux; Windows builds untested) and troubleshooting (digits look wrong → font fallback; no notifications → OS settings; STALE → network); (10) contributing pointer to `docs/dev.md`; license line.
+`docs/dev.md` takes: dump, frame, the design loop, logo generation, replay capture, the release procedure, `.git-blame-ignore-revs`.
+
+### 8.5 NFL week-one window (Direction 5, T1, §4.2)
+During the first NFL live window: `scripts/capture-replay.sh nfl 60` around at least one score; confirm whether `lastPlay.probability` is on the NFL scoreboard and flip the §4.2 gate if so; run a full live session in tmux with `GAMEDAY_LOG_REQUESTS=1` for the window and record the request rate with catch-ups included; a Ghostty screenshot of the NFL board for the README tour if it beats the CFB one.
+
+### 8.6 Launch kit (not in the repo)
+Ready at the tag, posted when Walter says: the GIF; Terminal Trove submission (name, one-liner, repo, GIF); r/rust and r/commandline posts (title: "gameday: a terminal sports board that ranks live games by watchability, nine leagues, no account"); a Show HN draft with the positioning line and the one-shot mode as the hook for the HN crowd.
+
+**Definition of done (wave 6):** history rewritten and pushed by Walter; `v1.0.0-rc.1` artifacts installed four ways on a clean account; NFL replay fixtures and the leverage check recorded; README reviewed by Walter; multi-hour budget receipt; `v1.0.0` tagged by Walter.
+
+## §9 Verification (filled in as waves close)
+
+Receipts required, one line each when landed: CI run links per wave; test counts before/after each wave; `kill -TERM` and `HTTPS_PROXY` offline captures (wave 0); catch-up request count and rate from a live window (wave 1); review-slate ranking output (wave 2); paging captures at top/middle/end (wave 3); notification screenshot and the status-line capture (wave 4); the sitting's contact sheet and letters (wave 5); rc install receipts, NFL replay provenance, probability-field finding, request-rate log over a live-to-idle transition (wave 6). The standings season-type probe result (§3.3 D10) is recorded here whichever way it goes.
+
+## §10 Non-goals and reopens
+
+- ESPN's fastcast websocket (sub-second pushes): named, not built. Reopens if polling proves too slow for the cut after 1.0.
+- Ranking on win probability alone via summary polling for every game: refused on budget.
+- Configurable ranking weights: reopens on the first "why is this on top" issue.
+- More leagues (NCAAW, UCL, La Liga): reopens after 1.0 on demand.
+- A k9s-style fuzzy command palette: reopens if launch feedback says people cannot find things.
+- Real PNG logos through kitty/iTerm image protocols: reopens if GIF comments ask for real logos.
+- A hosted web mirror of the board: not for 1.0 (hosting cost, ESPN terms).
+- A poll-thread watchdog: refused; it would hide bugs.
+- NHL board-wide power-play chip and shots on goal: still the October probe from v3.4, unchanged.
+
+## §11 Owner actions (Walter)
+
+1. Create `WallyMagill/gameday` (public) and `WallyMagill/homebrew-tap` (public, empty) when wave 6 asks.
+2. Create the crates.io API token and the tap PAT; add both as repo secrets.
+3. Trigger the history rewrite after reading the before/after report.
+4. Push the rewritten repo; push `v1.0.0-rc.1`; push `v1.0.0`.
+5. Pick letters at the wave 5 sitting.
+6. Review the README before the rc tag.
+7. Say when to post the launch kit.
+
+## §12 Traceability: every finding → a wave item
+
+| Finding | Item | Wave |
+|---|---|---|
+| D1 duplicated AT | §3.3 shortDownDistanceText | 1 |
+| D2 wrong scoring play / cut | §3.2 catch-up capture | 1 |
+| D3 red zone without possession | §3.3 | 1 |
+| D4 MLB alternativeText | §3.3 | 1 |
+| D5 scoring rows lack period | §3.1, §3.3 | 1 |
+| D6 feed pass-throughs | §3.3 documented, no change | 1 |
+| D7 doubled clock in LAST PLAYS | §3.3 presentation rule | 1 |
+| D8 0-0 records | §3.3 hide on live/final | 1 |
+| D9 theme note swallowed | §3.3 footer status | 1 |
+| D10 preseason standings | §3.3 probe + label | 1 |
+| R1 FCS hero | §4.1 matchup + scaling, §4.5 test | 2 |
+| R2 favorites inert | §4.1 favorite term | 2 |
+| R3 bonuses in blowouts | §4.1 closeness scaling | 2 |
+| U1 paging | §5.1 | 3 |
+| U2 filter | §5.2 | 3 |
+| U3 help modes | §5.3 | 3 |
+| U4 c vs :theme | §5.4 | 3 |
+| U5 :help | §5.3 | 3 |
+| U6 dated empty | §5.5 | 3 |
+| U7 toasts | §5.5 | 3 |
+| U8 orphan rule | §5.5 | 3 |
+| U9 glyphs | §5.3 legend + ▌ investigation | 3 |
+| L1–L4 columns | §5.6 grid | 3 |
+| L5 zoom dead space | §5.6, confirmed in §7 item 5 | 3, 5 |
+| L6 config top | §5.6 | 3 |
+| L7 wide terminals | §7 item 4 | 5 |
+| V1 college marks | §7 item 1 | 5 |
+| V2 gray rows | §7 item 2 | 5 |
+| V3 play sentences | §7 item 3 | 5 |
+| V4 GIF | §7 item 6, §8.4 | 5, 6 |
+| O1 README image | §8.4 | 6 |
+| O2 install | §8.1, §8.2 | 6 |
+| O3 LICENSE | §2.4 | 0 |
+| O4 version/tags/remote | §8.1, §8.3 | 6 |
+| O5 README order | §8.4 | 6 |
+| O6 AGENTS.md | §2.5 | 0 |
+| A1 app split | §2.6 | 0 |
+| A2 ruling comments | §2.6 | 0 |
+| A3 theme unwraps | §2.6 | 0 |
+| A4 rustfmt | §2.1 | 0 |
+| T1 replay tests | §3.4, §3.5, §8.5 | 1, 6 |
+| T2 rendering teeth | §3.5, §5.7 | 1, 3 |
+| T3 CI | §2.3 | 0 |
+| Q1 proxy env | §2.2 (ureq 3) | 0 |
+| Q2 SIGTERM | §2.2 (signal-hook) | 0 |
+| Q3 budget receipt | §8.5, §9 | 6 |
+| Q4 fail-soft | §6.1 Noop, §6.2 exit codes | 4 |
+| H1 deps | §2.2 | 0 |
+| H2 CI/audit/deny/fmt | §2.3 | 0 |
+| H3 User-Agent URL | §2.4 | 0 |
+| N1 notifications | §6.1 | 4 |
+| N2 one-shot mode | §6.2 | 4 |
