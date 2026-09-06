@@ -1,0 +1,315 @@
+//! The data merge path: what a fetched board, summary, box score or
+//! standings table does to `App`, and the fetch targets and errors that go
+//! with them.
+
+use super::App;
+use crate::config::prune_pins;
+use crate::domain::{Game, GameStats, League, StandingsTable, Status, Summary};
+use crate::views::View;
+use std::time::{Duration, Instant};
+use time::OffsetDateTime;
+
+impl App {
+    pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
+        let now = OffsetDateTime::now_utc();
+        let prev_board = self.boards.get(&league).cloned().unwrap_or_default();
+        // Score-change flash fires ONLY here — from data. A first sighting
+        // (startup, new game) seeds last_scores without flashing.
+        for g in &mut games {
+            // Carry the accumulated scoring plays across the wholesale
+            // replace — and, since v3.4 §4, the NHL strength only a summary
+            // can produce. The scoreboard carries no strength field at all,
+            // so without this carry the zoom's power-play chip and penalty
+            // meter (both derived from `Extras::Hockey`) would blink out on
+            // every scoreboard poll and back in on the next summary — a 15s
+            // flicker for the length of the power play.
+            //
+            // NHL and live only, deliberately: MLB and soccer extras are
+            // scoreboard-owned, and a game that just went Final has no power
+            // play to still be on.
+            if let Some(prev) = prev_board.iter().find(|p| p.id == g.id) {
+                if g.scoring_plays.is_empty() {
+                    g.scoring_plays = prev.scoring_plays.clone();
+                }
+                if g.league == League::Nhl
+                    && g.status == Status::Live
+                    && g.extras == crate::domain::Extras::None
+                {
+                    g.extras = prev.extras.clone();
+                }
+            }
+            // A cached payload is an OLDER snapshot, not news: its diff
+            // against the last fresh scores is backwards and its lastPlay is
+            // whatever was on screen then. Capturing that would write a bogus
+            // scoring play that outlives the outage, so a stale apply is
+            // scores-only — no flash, no capture, no last_scores rewrite.
+            if stale {
+                continue;
+            }
+            let score = (g.away_score, g.home_score);
+            if let Some(prev) = self.last_scores.get(&g.id) {
+                if *prev != score {
+                    self.flashes.insert(g.id.clone(), self.tick);
+                    // The scoreboard's lastPlay at the moment the score moved
+                    // IS the scoring play (spec §1); dedupe on text.
+                    if let Some(p) = g.last_plays.first() {
+                        if !g.scoring_plays.iter().any(|s| s.text == p.text) {
+                            let mut p = p.clone();
+                            p.scoring = true;
+                            g.scoring_plays.push(p.clone());
+                            // The cut (spec §3): a newly captured scoring
+                            // play IS the firing. Size is decided here, not
+                            // in `CutState` — pinned/favorited/TV takes the
+                            // screen, everything else is the quiet band.
+                            if !self.cut_suppressed() {
+                                let full = self.cut_is_full(g);
+                                self.cuts.fire(&g.id, &p, full, self.tick);
+                                if full {
+                                    // Only a takeover rings; the band is
+                                    // quiet by definition.
+                                    self.bell_pending = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            self.last_scores.insert(g.id.clone(), score);
+        }
+        for pin in &mut self.pins {
+            if pin.final_at.is_none()
+                && games
+                    .iter()
+                    .any(|g| g.id == pin.game_id && g.status == Status::Final)
+            {
+                pin.final_at = Some(now);
+            }
+        }
+        self.boards.insert(league, games);
+        // Favorite-score alerts diff the freshly merged boards; a hit starts
+        // the header banner and queues the bell for main to ring. A cached
+        // payload is skipped whole — not checked and discarded: AlertState
+        // diffs on inequality, so an older snapshot reads as a score change
+        // (a banner and a bell for a score going backwards), and consuming
+        // its delta would swallow the real one when the fresh board lands.
+        if !stale {
+            if let Some(alert) = self
+                .alerts
+                .check(&self.config.favorites, &self.boards, self.tick)
+            {
+                self.active_alert = Some(alert);
+                self.bell_pending = true;
+            }
+            // Fresh data landed: the live band may re-sort, if the data that
+            // decides the order actually moved (`maybe_reorder`). This sits
+            // inside the `!stale` guard on purpose — a cached payload is not
+            // news and must never move the board.
+            self.maybe_reorder();
+            // …and TV lets go of anything that just left the live slate
+            // (R36). After `maybe_reorder`, so the hero it re-anchors to is
+            // this event's, not the last one's.
+            self.tv_hygiene();
+        }
+        // Drop score memory for games no board carries any more: unbounded
+        // growth over a days-long session, and a recycled id would flash on
+        // first sighting instead of seeding silently.
+        let mut last_scores = std::mem::take(&mut self.last_scores);
+        last_scores.retain(|id, _| self.boards.values().flatten().any(|g| g.id == *id));
+        self.last_scores = last_scores;
+        let mut stats = std::mem::take(&mut self.stats);
+        stats.retain(|id, _| self.boards.values().flatten().any(|g| g.id == *id));
+        self.stats = stats;
+        self.net.ok(Instant::now(), stale);
+        self.pins = prune_pins(std::mem::take(&mut self.pins), now);
+        self.persist_pins_quiet();
+        self.clamp_selected();
+    }
+
+    /// A fetched non-today slate. Replaces wholesale (a dated board is a
+    /// snapshot) and never touches flash/score state — traveled slates are
+    /// read-only history/preview, not live data.
+    pub fn merge_dated_board(&mut self, league: League, date: time::Date, games: Vec<Game>) {
+        self.clear_aux_error(league, "dated");
+        self.dated_boards.insert((league, date), games);
+        self.clamp_selected();
+    }
+
+    pub fn merge_summary(&mut self, game_id: &str, summary: Summary) {
+        if let Some(league) = self.league_of(game_id) {
+            self.clear_aux_error(league, "summary");
+        }
+        // Non-football summaries carry no "drives", so they can map to zero
+        // plays; keep the scoreboard's lastPlay instead of blanking the tile.
+        if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
+            return;
+        }
+        // A summary lands only for the zoomed game, and it can carry a
+        // scoring play the scoreboard never showed us. That is news exactly
+        // once: the play whose text is new to `game.scoring_plays` fires a
+        // cut, and the rest of the list is history being backfilled.
+        let mut fresh: Option<(String, crate::domain::Play)> = None;
+        for board in self.boards.values_mut() {
+            if let Some(game) = board.iter_mut().find(|g| g.id == game_id) {
+                let known: Vec<String> =
+                    game.scoring_plays.iter().map(|p| p.text.clone()).collect();
+                if !summary.scoring_plays.is_empty() {
+                    // Summary order differs by source: football's
+                    // `scoringPlays` is oldest-first, a list derived from the
+                    // play-by-play is newest-first. Normalize to oldest-first
+                    // by asking `last_plays` (newest-first) where the ends of
+                    // the list sit — a smaller index means newer.
+                    let mut sp = summary.scoring_plays.clone();
+                    let newest_first = sp.len() > 1 && {
+                        let pos = |t: &str| summary.last_plays.iter().position(|p| p.text == t);
+                        match (pos(&sp[0].text), pos(&sp[sp.len() - 1].text)) {
+                            (Some(a), Some(b)) => a < b,
+                            // Nothing to compare against: ESPN's own
+                            // `scoringPlays` is oldest-first already.
+                            _ => false,
+                        }
+                    };
+                    if newest_first {
+                        sp.reverse();
+                    }
+                    game.scoring_plays = sp;
+                }
+                // Per-sport facts only the summary carries (spec v3.4 §4:
+                // NHL strength + penalties). `Extras::None` is "this summary
+                // had nothing to say", never an instruction to erase what
+                // the scoreboard mapped. The meter that rides these is NOT
+                // stored on the game (R49) — the zoom derives it.
+                if summary.extras != crate::domain::Extras::None {
+                    game.extras = summary.extras.clone();
+                }
+                if !summary.last_plays.is_empty() {
+                    let mut last_plays = summary.last_plays;
+                    for play in &mut last_plays {
+                        if summary.scoring_plays.iter().any(|s| s.text == play.text) {
+                            play.scoring = true;
+                        }
+                    }
+                    game.last_plays = last_plays;
+                }
+                // Newest new scoring play, if any. `known` is empty on the
+                // very first summary for a game, and a whole game's scoring
+                // history is not a cut — only an append to a list we already
+                // had is.
+                if !known.is_empty() {
+                    fresh = game
+                        .scoring_plays
+                        .iter()
+                        .rev()
+                        .find(|p| !known.contains(&p.text))
+                        .map(|p| (game.id.clone(), p.clone()));
+                }
+                break;
+            }
+        }
+        if let Some((id, play)) = fresh {
+            if !self.cut_suppressed() {
+                let full = self.game_by_id(&id).is_some_and(|g| self.cut_is_full(&g));
+                self.cuts.fire(&id, &play, full, self.tick);
+                if full {
+                    self.bell_pending = true;
+                }
+            }
+        }
+        // No reorder here, and nothing a summary carries can cause one
+        // elsewhere either. The rank fingerprint is (scores, status, hot),
+        // all three scoreboard-owned; the one thing a summary now adds that
+        // rank could have read — v3.4 §4's NHL strength — reaches no meter
+        // field and is refused by `watchability`'s NHL arm besides (R49),
+        // precisely so zooming a game can never move it. Zoom and unzoom
+        // leave the order exactly where the last scoreboard apply put it.
+    }
+
+    /// The zoomed game's (league, id) — the stats poll's only target. None
+    /// unless the Zoom view is open and its game is still on a board.
+    pub fn stats_target(&self) -> Option<(League, String)> {
+        self.zoomed_game().map(|g| (g.league, g.id))
+    }
+
+    /// Latest box score for `game_id`, from the stats poll (or a fixture in
+    /// tests/dump). Replaces wholesale — rows are a snapshot, not a delta.
+    pub fn merge_stats(&mut self, game_id: &str, stats: GameStats) {
+        if let Some(league) = self.league_of(game_id) {
+            self.clear_aux_error(league, "stats");
+        }
+        self.stats.insert(game_id.to_string(), stats);
+    }
+
+    /// Record a failed scoreboard fetch: which league, the provider's short
+    /// error (`ESPN 403 nfl scoreboard`), and how long until the scheduler
+    /// retries. The chip and the board message read it through `net`.
+    pub fn note_failure(&mut self, league: League, error: String, retry_in: Option<Duration>) {
+        self.net.failed(Instant::now(), error.clone(), retry_in);
+        // A populated board keeps its scores and the header chip says the
+        // rest — a toast on top would nag. With nothing on the board, the
+        // failure IS the news, so it also gets the footer line.
+        if !self.boards.values().any(|b| !b.is_empty()) {
+            self.status_line = Some(match retry_in {
+                Some(d) => format!("{} · {} · retry in {}s", league.slug(), error, d.as_secs()),
+                None => format!("{} · {error}", league.slug()),
+            });
+        }
+    }
+
+    /// The league the Standings view wants a table for — the on-demand
+    /// standings fetch's only target. None unless the view is open.
+    pub fn standings_target(&self) -> Option<League> {
+        match self.view {
+            View::Standings(league) => Some(league),
+            _ => None,
+        }
+    }
+
+    /// Latest standings for one league, from the on-demand fetch (or a
+    /// fixture in tests/dump). Replaces wholesale — a table is a snapshot.
+    /// Stamped with the moment we took it: a table the feed doesn't label
+    /// with a season is labeled with its own age instead, so it never reads
+    /// as live when it isn't.
+    /// How old the last fresh board may get before the header stops claiming
+    /// the numbers are live — derived from the cadence actually in use, so
+    /// the chip can never contradict the scheduler. Live: 3 × the 15 s live
+    /// cadence (one missed poll is noise, three in a row is a problem). Idle:
+    /// one 60 s cadence plus one live window, because at a minute between
+    /// polls a 45 s cutoff would call every healthy board stale.
+    pub fn stale_after(&self) -> Duration {
+        if self.any_live() {
+            3 * crate::poll::SCOREBOARD_LIVE
+        } else {
+            crate::poll::SCOREBOARD_IDLE + crate::poll::SCOREBOARD_LIVE
+        }
+    }
+
+    pub fn merge_standings(&mut self, mut table: StandingsTable) {
+        table.fetched_at = Some(self.now());
+        self.clear_aux_error(table.league, "standings");
+        self.standings.insert(table.league, table);
+    }
+
+    /// An on-demand fetch failed. `what` names the request kind, so the view
+    /// that asked can say which fetch is missing rather than showing an empty
+    /// pane that reads like "no data exists".
+    pub fn note_aux_failure(&mut self, league: League, what: &'static str, error: String) {
+        self.aux_errors.insert((league, what), error);
+    }
+
+    /// The matching success: the error stops being true the moment data lands.
+    pub fn clear_aux_error(&mut self, league: League, what: &'static str) {
+        self.aux_errors.remove(&(league, what));
+    }
+
+    pub fn aux_error(&self, league: League, what: &'static str) -> Option<&str> {
+        self.aux_errors.get(&(league, what)).map(|s| s.as_str())
+    }
+
+    /// Which board carries `game_id` — the zoom-driven fetches (summary,
+    /// stats) are addressed by game id, and `aux_errors` is keyed by league.
+    fn league_of(&self, game_id: &str) -> Option<League> {
+        self.boards
+            .iter()
+            .find(|(_, games)| games.iter().any(|g| g.id == game_id))
+            .map(|(league, _)| *league)
+    }
+}

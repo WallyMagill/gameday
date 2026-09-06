@@ -1,29 +1,30 @@
 //! App state, the key handlers, and the shared chrome. `net` (connection
-//! truth), `chrome` (header/footer/help) and `derive` (the per-frame game
-//! lists) are children of this module — everything they touch lives on `App`.
+//! truth), `chrome` (header/footer/help), `derive` (the per-frame game
+//! lists), `draw` (the frame), `merge` (the data merge path), `order` (the
+//! live band's ordering) and `persist` (config and pin writes) are children
+//! of this module — everything they touch lives on `App`.
 
 mod chrome;
 mod derive;
+mod draw;
+mod merge;
 pub mod net;
+mod order;
+mod persist;
 
 pub use derive::Derived;
 
 use crate::app::net::NetStatus;
-use crate::config::{prune_pins, save_pins, Config, Favorite, Pin};
-use crate::domain::{Game, GameStats, League, StandingsTable, Status, Summary};
+use crate::config::{Config, Favorite, Pin};
+use crate::domain::{Game, GameStats, League, StandingsTable, Status};
 use crate::input::{CompletionState, InputMode};
 use crate::keymap;
 use crate::theme;
-use crate::ticker;
-use crate::views::{self, View, ZoomTab};
+use crate::views::{View, ZoomTab};
 use crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::Style;
-use ratatui::widgets::{Block, Paragraph};
-use ratatui::Frame;
+use ratatui::layout::Rect;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,11 +32,6 @@ pub enum Tab {
     Home,
     League(League),
 }
-
-/// One live game's ordering identity (R24): away score, home score, status,
-/// the hot flag, and soccer's on-field count. Two equal fingerprints mean
-/// nothing the board sorts on has moved, so the order is left alone.
-type RankFingerprint = (u16, u16, Status, bool, Option<(u8, u8)>);
 
 /// Render ticks per second while anything is live (main's `LIVE_TICK` is
 /// 100ms). Every seconds→ticks conversion (score flash, alert cooldown and
@@ -183,7 +179,7 @@ pub struct App {
     /// show the same fingerprint, and the sending-off — the biggest thing to
     /// happen to that match — would never move the board. The count, not a
     /// boolean, so a SECOND red is its own event too.
-    rank_fingerprints: HashMap<String, RankFingerprint>,
+    rank_fingerprints: HashMap<String, order::RankFingerprint>,
     /// game id -> tick when its score last changed; drives the one-shot flash.
     flashes: HashMap<String, u64>,
     /// Favorite-score alert diff state (own score memory + per-game cooldown).
@@ -270,52 +266,6 @@ impl App {
             now_override: None,
             frame_cache: None,
         }
-    }
-
-    /// The only place config.toml is written. A config we could not parse is
-    /// never overwritten: the save is skipped and the footer says why, every
-    /// time, so the user can go fix the file.
-    pub fn persist_config(&mut self) {
-        if let Some(err) = &self.config_error {
-            self.status_line = Some(format!("not saving: {err}"));
-            return;
-        }
-        if let Err(e) = self.config.save_to(&self.config_dir) {
-            self.status_line = Some(format!("config save failed: {e}"));
-        }
-    }
-
-    /// The only place pins.json is written from a key the user pressed; same
-    /// refusal as `persist_config`, and it says so.
-    pub fn persist_pins(&mut self) {
-        if let Some(err) = &self.config_error {
-            self.status_line = Some(format!("not saving: {err}"));
-            return;
-        }
-        self.persist_pins_quiet();
-    }
-
-    /// The same write from a background path (the prune inside `apply_boards`,
-    /// which runs on every poll). A broken config skips it in silence: the
-    /// startup status line already says saving is off, and re-toasting it
-    /// every merge would stomp whatever the user's last key said.
-    pub fn persist_pins_quiet(&mut self) {
-        if self.config_error.is_some() {
-            return;
-        }
-        if let Err(e) = save_pins(&self.config_dir, &self.pins) {
-            self.status_line = Some(format!("pins save failed: {e}"));
-        }
-    }
-
-    /// Record a config/pins parse failure: it blocks every save and takes the
-    /// footer once, at startup, so the reason is on screen and not only on the
-    /// stderr that the alternate screen swallowed.
-    pub fn set_config_error(&mut self, err: Option<String>) {
-        self.status_line = err
-            .as_ref()
-            .map(|e| format!("config error: {e} — not saving until fixed"));
-        self.config_error = err;
     }
 
     /// Now, in the user's local offset — or the frozen clock when one is set.
@@ -489,15 +439,6 @@ impl App {
         };
         let date = self.viewed_date(league)?;
         (!self.dated_boards.contains_key(&(league, date))).then_some((league, date))
-    }
-
-    /// A fetched non-today slate. Replaces wholesale (a dated board is a
-    /// snapshot) and never touches flash/score state — traveled slates are
-    /// read-only history/preview, not live data.
-    pub fn merge_dated_board(&mut self, league: League, date: time::Date, games: Vec<Game>) {
-        self.clear_aux_error(league, "dated");
-        self.dated_boards.insert((league, date), games);
-        self.clamp_selected();
     }
 
     /// The filter the board is narrowed by right now: the open `/` prompt's
@@ -1114,375 +1055,6 @@ impl App {
         self.zoom_scroll = next.clamp(0, len as isize - 1) as usize;
     }
 
-    /// Every live game on an enabled board, minus the viewer's own. Pins AND
-    /// favorites live in the MY GAMES band and never re-sort (spec §1, ruling
-    /// R26), so `OrderState` is never told about either.
-    pub fn live_all(&self) -> Vec<Game> {
-        self.config
-            .enabled_tabs
-            .iter()
-            .filter_map(|l| self.boards.get(l))
-            .flatten()
-            .filter(|g| g.status == Status::Live)
-            .filter(|g| !self.is_my_game(g))
-            .cloned()
-            .collect()
-    }
-
-    /// Re-sort the live band, but only if the data behind the order actually
-    /// moved: the id set changed, or some game's score, status or hot flag
-    /// did. A clock that merely advanced is not an event (R24) — spec §2:
-    /// "Between events the order is frozen even though L keeps rising."
-    fn maybe_reorder(&mut self) {
-        let live = self.live_all();
-        let now = self.now();
-        let fps: HashMap<String, RankFingerprint> = live
-            .iter()
-            .map(|g| {
-                (
-                    g.id.clone(),
-                    (
-                        g.away_score,
-                        g.home_score,
-                        g.status,
-                        crate::rank::watchability(g, now).hot,
-                        match &g.extras {
-                            crate::domain::Extras::Soccer { men, .. } => *men,
-                            _ => None,
-                        },
-                    ),
-                )
-            })
-            .collect();
-        let changed = fps.len() != self.rank_fingerprints.len()
-            || fps
-                .iter()
-                .any(|(id, f)| self.rank_fingerprints.get(id) != Some(f));
-        if changed {
-            self.order.on_event(
-                &live,
-                self.config.sort,
-                &self.config.enabled_tabs,
-                now,
-                self.tick,
-            );
-            self.tv_follow();
-        }
-        self.rank_fingerprints = fps;
-    }
-
-    /// A sort-key change (`s`, `:sort`, the config editor's SORT row) is a
-    /// real event on its own: unlike a clock tick, it must re-derive the
-    /// order right away rather than waiting for `maybe_reorder`'s fingerprint
-    /// gate to see a score/status change.
-    pub fn force_reorder(&mut self) {
-        let live = self.live_all();
-        let now = self.now();
-        self.order.on_event(
-            &live,
-            self.config.sort,
-            &self.config.enabled_tabs,
-            now,
-            self.tick,
-        );
-        // A new sort key is a new ranking, and TV shows the ranking's top.
-        self.tv_follow();
-    }
-
-    pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
-        let now = OffsetDateTime::now_utc();
-        let prev_board = self.boards.get(&league).cloned().unwrap_or_default();
-        // Score-change flash fires ONLY here — from data. A first sighting
-        // (startup, new game) seeds last_scores without flashing.
-        for g in &mut games {
-            // Carry the accumulated scoring plays across the wholesale
-            // replace — and, since v3.4 §4, the NHL strength only a summary
-            // can produce. The scoreboard carries no strength field at all,
-            // so without this carry the zoom's power-play chip and penalty
-            // meter (both derived from `Extras::Hockey`) would blink out on
-            // every scoreboard poll and back in on the next summary — a 15s
-            // flicker for the length of the power play.
-            //
-            // NHL and live only, deliberately: MLB and soccer extras are
-            // scoreboard-owned, and a game that just went Final has no power
-            // play to still be on.
-            if let Some(prev) = prev_board.iter().find(|p| p.id == g.id) {
-                if g.scoring_plays.is_empty() {
-                    g.scoring_plays = prev.scoring_plays.clone();
-                }
-                if g.league == League::Nhl
-                    && g.status == Status::Live
-                    && g.extras == crate::domain::Extras::None
-                {
-                    g.extras = prev.extras.clone();
-                }
-            }
-            // A cached payload is an OLDER snapshot, not news: its diff
-            // against the last fresh scores is backwards and its lastPlay is
-            // whatever was on screen then. Capturing that would write a bogus
-            // scoring play that outlives the outage, so a stale apply is
-            // scores-only — no flash, no capture, no last_scores rewrite.
-            if stale {
-                continue;
-            }
-            let score = (g.away_score, g.home_score);
-            if let Some(prev) = self.last_scores.get(&g.id) {
-                if *prev != score {
-                    self.flashes.insert(g.id.clone(), self.tick);
-                    // The scoreboard's lastPlay at the moment the score moved
-                    // IS the scoring play (spec §1); dedupe on text.
-                    if let Some(p) = g.last_plays.first() {
-                        if !g.scoring_plays.iter().any(|s| s.text == p.text) {
-                            let mut p = p.clone();
-                            p.scoring = true;
-                            g.scoring_plays.push(p.clone());
-                            // The cut (spec §3): a newly captured scoring
-                            // play IS the firing. Size is decided here, not
-                            // in `CutState` — pinned/favorited/TV takes the
-                            // screen, everything else is the quiet band.
-                            if !self.cut_suppressed() {
-                                let full = self.cut_is_full(g);
-                                self.cuts.fire(&g.id, &p, full, self.tick);
-                                if full {
-                                    // Only a takeover rings; the band is
-                                    // quiet by definition.
-                                    self.bell_pending = true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            self.last_scores.insert(g.id.clone(), score);
-        }
-        for pin in &mut self.pins {
-            if pin.final_at.is_none()
-                && games
-                    .iter()
-                    .any(|g| g.id == pin.game_id && g.status == Status::Final)
-            {
-                pin.final_at = Some(now);
-            }
-        }
-        self.boards.insert(league, games);
-        // Favorite-score alerts diff the freshly merged boards; a hit starts
-        // the header banner and queues the bell for main to ring. A cached
-        // payload is skipped whole — not checked and discarded: AlertState
-        // diffs on inequality, so an older snapshot reads as a score change
-        // (a banner and a bell for a score going backwards), and consuming
-        // its delta would swallow the real one when the fresh board lands.
-        if !stale {
-            if let Some(alert) = self
-                .alerts
-                .check(&self.config.favorites, &self.boards, self.tick)
-            {
-                self.active_alert = Some(alert);
-                self.bell_pending = true;
-            }
-            // Fresh data landed: the live band may re-sort, if the data that
-            // decides the order actually moved (`maybe_reorder`). This sits
-            // inside the `!stale` guard on purpose — a cached payload is not
-            // news and must never move the board.
-            self.maybe_reorder();
-            // …and TV lets go of anything that just left the live slate
-            // (R36). After `maybe_reorder`, so the hero it re-anchors to is
-            // this event's, not the last one's.
-            self.tv_hygiene();
-        }
-        // Drop score memory for games no board carries any more: unbounded
-        // growth over a days-long session, and a recycled id would flash on
-        // first sighting instead of seeding silently.
-        let mut last_scores = std::mem::take(&mut self.last_scores);
-        last_scores.retain(|id, _| self.boards.values().flatten().any(|g| g.id == *id));
-        self.last_scores = last_scores;
-        let mut stats = std::mem::take(&mut self.stats);
-        stats.retain(|id, _| self.boards.values().flatten().any(|g| g.id == *id));
-        self.stats = stats;
-        self.net.ok(Instant::now(), stale);
-        self.pins = prune_pins(std::mem::take(&mut self.pins), now);
-        self.persist_pins_quiet();
-        self.clamp_selected();
-    }
-
-    pub fn merge_summary(&mut self, game_id: &str, summary: Summary) {
-        if let Some(league) = self.league_of(game_id) {
-            self.clear_aux_error(league, "summary");
-        }
-        // Non-football summaries carry no "drives", so they can map to zero
-        // plays; keep the scoreboard's lastPlay instead of blanking the tile.
-        if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
-            return;
-        }
-        // A summary lands only for the zoomed game, and it can carry a
-        // scoring play the scoreboard never showed us. That is news exactly
-        // once: the play whose text is new to `game.scoring_plays` fires a
-        // cut, and the rest of the list is history being backfilled.
-        let mut fresh: Option<(String, crate::domain::Play)> = None;
-        for board in self.boards.values_mut() {
-            if let Some(game) = board.iter_mut().find(|g| g.id == game_id) {
-                let known: Vec<String> =
-                    game.scoring_plays.iter().map(|p| p.text.clone()).collect();
-                if !summary.scoring_plays.is_empty() {
-                    // Summary order differs by source: football's
-                    // `scoringPlays` is oldest-first, a list derived from the
-                    // play-by-play is newest-first. Normalize to oldest-first
-                    // by asking `last_plays` (newest-first) where the ends of
-                    // the list sit — a smaller index means newer.
-                    let mut sp = summary.scoring_plays.clone();
-                    let newest_first = sp.len() > 1 && {
-                        let pos = |t: &str| summary.last_plays.iter().position(|p| p.text == t);
-                        match (pos(&sp[0].text), pos(&sp[sp.len() - 1].text)) {
-                            (Some(a), Some(b)) => a < b,
-                            // Nothing to compare against: ESPN's own
-                            // `scoringPlays` is oldest-first already.
-                            _ => false,
-                        }
-                    };
-                    if newest_first {
-                        sp.reverse();
-                    }
-                    game.scoring_plays = sp;
-                }
-                // Per-sport facts only the summary carries (spec v3.4 §4:
-                // NHL strength + penalties). `Extras::None` is "this summary
-                // had nothing to say", never an instruction to erase what
-                // the scoreboard mapped. The meter that rides these is NOT
-                // stored on the game (R49) — the zoom derives it.
-                if summary.extras != crate::domain::Extras::None {
-                    game.extras = summary.extras.clone();
-                }
-                if !summary.last_plays.is_empty() {
-                    let mut last_plays = summary.last_plays;
-                    for play in &mut last_plays {
-                        if summary.scoring_plays.iter().any(|s| s.text == play.text) {
-                            play.scoring = true;
-                        }
-                    }
-                    game.last_plays = last_plays;
-                }
-                // Newest new scoring play, if any. `known` is empty on the
-                // very first summary for a game, and a whole game's scoring
-                // history is not a cut — only an append to a list we already
-                // had is.
-                if !known.is_empty() {
-                    fresh = game
-                        .scoring_plays
-                        .iter()
-                        .rev()
-                        .find(|p| !known.contains(&p.text))
-                        .map(|p| (game.id.clone(), p.clone()));
-                }
-                break;
-            }
-        }
-        if let Some((id, play)) = fresh {
-            if !self.cut_suppressed() {
-                let full = self.game_by_id(&id).is_some_and(|g| self.cut_is_full(&g));
-                self.cuts.fire(&id, &play, full, self.tick);
-                if full {
-                    self.bell_pending = true;
-                }
-            }
-        }
-        // No reorder here, and nothing a summary carries can cause one
-        // elsewhere either. The rank fingerprint is (scores, status, hot),
-        // all three scoreboard-owned; the one thing a summary now adds that
-        // rank could have read — v3.4 §4's NHL strength — reaches no meter
-        // field and is refused by `watchability`'s NHL arm besides (R49),
-        // precisely so zooming a game can never move it. Zoom and unzoom
-        // leave the order exactly where the last scoreboard apply put it.
-    }
-
-    /// The zoomed game's (league, id) — the stats poll's only target. None
-    /// unless the Zoom view is open and its game is still on a board.
-    pub fn stats_target(&self) -> Option<(League, String)> {
-        self.zoomed_game().map(|g| (g.league, g.id))
-    }
-
-    /// Latest box score for `game_id`, from the stats poll (or a fixture in
-    /// tests/dump). Replaces wholesale — rows are a snapshot, not a delta.
-    pub fn merge_stats(&mut self, game_id: &str, stats: GameStats) {
-        if let Some(league) = self.league_of(game_id) {
-            self.clear_aux_error(league, "stats");
-        }
-        self.stats.insert(game_id.to_string(), stats);
-    }
-
-    /// Record a failed scoreboard fetch: which league, the provider's short
-    /// error (`ESPN 403 nfl scoreboard`), and how long until the scheduler
-    /// retries. The chip and the board message read it through `net`.
-    pub fn note_failure(&mut self, league: League, error: String, retry_in: Option<Duration>) {
-        self.net.failed(Instant::now(), error.clone(), retry_in);
-        // A populated board keeps its scores and the header chip says the
-        // rest — a toast on top would nag. With nothing on the board, the
-        // failure IS the news, so it also gets the footer line.
-        if !self.boards.values().any(|b| !b.is_empty()) {
-            self.status_line = Some(match retry_in {
-                Some(d) => format!("{} · {} · retry in {}s", league.slug(), error, d.as_secs()),
-                None => format!("{} · {error}", league.slug()),
-            });
-        }
-    }
-
-    /// The league the Standings view wants a table for — the on-demand
-    /// standings fetch's only target. None unless the view is open.
-    pub fn standings_target(&self) -> Option<League> {
-        match self.view {
-            View::Standings(league) => Some(league),
-            _ => None,
-        }
-    }
-
-    /// Latest standings for one league, from the on-demand fetch (or a
-    /// fixture in tests/dump). Replaces wholesale — a table is a snapshot.
-    /// Stamped with the moment we took it: a table the feed doesn't label
-    /// with a season is labeled with its own age instead, so it never reads
-    /// as live when it isn't.
-    /// How old the last fresh board may get before the header stops claiming
-    /// the numbers are live — derived from the cadence actually in use, so
-    /// the chip can never contradict the scheduler. Live: 3 × the 15 s live
-    /// cadence (one missed poll is noise, three in a row is a problem). Idle:
-    /// one 60 s cadence plus one live window, because at a minute between
-    /// polls a 45 s cutoff would call every healthy board stale.
-    pub fn stale_after(&self) -> Duration {
-        if self.any_live() {
-            3 * crate::poll::SCOREBOARD_LIVE
-        } else {
-            crate::poll::SCOREBOARD_IDLE + crate::poll::SCOREBOARD_LIVE
-        }
-    }
-
-    pub fn merge_standings(&mut self, mut table: StandingsTable) {
-        table.fetched_at = Some(self.now());
-        self.clear_aux_error(table.league, "standings");
-        self.standings.insert(table.league, table);
-    }
-
-    /// An on-demand fetch failed. `what` names the request kind, so the view
-    /// that asked can say which fetch is missing rather than showing an empty
-    /// pane that reads like "no data exists".
-    pub fn note_aux_failure(&mut self, league: League, what: &'static str, error: String) {
-        self.aux_errors.insert((league, what), error);
-    }
-
-    /// The matching success: the error stops being true the moment data lands.
-    pub fn clear_aux_error(&mut self, league: League, what: &'static str) {
-        self.aux_errors.remove(&(league, what));
-    }
-
-    pub fn aux_error(&self, league: League, what: &'static str) -> Option<&str> {
-        self.aux_errors.get(&(league, what)).map(|s| s.as_str())
-    }
-
-    /// Which board carries `game_id` — the zoom-driven fetches (summary,
-    /// stats) are addressed by game id, and `aux_errors` is keyed by league.
-    fn league_of(&self, game_id: &str) -> Option<League> {
-        self.boards
-            .iter()
-            .find(|(_, games)| games.iter().any(|g| g.id == game_id))
-            .map(|(league, _)| *league)
-    }
-
     fn clamp_selected(&mut self) {
         let n = self.selection_len();
         if n == 0 {
@@ -1617,164 +1189,6 @@ impl App {
             (None, Some(err)) => err,
             (None, None) => format!("sort {}", next.label().to_ascii_lowercase()),
         });
-    }
-
-    /// One frame. The game lists are derived ONCE here and parked in
-    /// `frame_cache`; every widget below reads them through `derived()`
-    /// instead of re-walking the boards. The cache is dropped again on the
-    /// way out — a list read outside a draw is a stale list, so `derived()`
-    /// panics there rather than answering.
-    pub fn draw(&mut self, frame: &mut Frame) {
-        self.frame_cache = Some(self.derive());
-        self.draw_frame(frame);
-        self.frame_cache = None;
-    }
-
-    fn draw_frame(&mut self, frame: &mut Frame) {
-        // Mouse zones are rebuilt from scratch every frame: whatever this
-        // draw doesn't register is not clickable.
-        self.hit_zones.clear();
-        let th = theme::current();
-        let area = frame.area();
-        frame.render_widget(
-            Block::default().style(Style::default().bg(th.bg).fg(th.fg)),
-            area,
-        );
-        if area.width < 40 || area.height < 12 {
-            // Walter's rule: a limit someone can hit must name the actual and
-            // expected values — "need more columns" didn't say how many, or
-            // whether it was rows that were short.
-            frame.render_widget(
-                Paragraph::new(format!("need 40×12, have {}×{}", area.width, area.height))
-                    .style(Style::default().fg(th.muted).bg(th.bg)),
-                area,
-            );
-            return;
-        }
-        // v3.2 §1: the Board has no separate ticker rows at all — it draws
-        // its own one-row SCORES lane inline, inside the body, only when
-        // something didn't fit (one lane, one owner; see `board::mod`'s
-        // `draw_lane`). Every other view gets the same off-screen lane at
-        // the bottom of the frame, gated by the SAME truncation the Board
-        // would show at this size: `layout::plan(...).scores_lane`, run
-        // against the current tab's counts.
-        // TV is on the same footing as the Board here for the same reason:
-        // it draws its own bottom strip of everything else that is live, and
-        // a SCORES lane under that would be two lanes saying one thing.
-        let ticker_h = if matches!(self.view, View::Board | View::ThemePicker | View::Tv) {
-            0
-        } else {
-            let d = self.derived();
-            let hero_in_band = d.my_games.iter().any(|g| Some(&g.id) == d.hero_id.as_ref());
-            let band_rows = d.my_games.len() - usize::from(hero_in_band);
-            let body_h = area.height.saturating_sub(2); // header + footer
-            let plan = crate::board::layout::plan(
-                area.width,
-                body_h,
-                d.in_play.len(),
-                d.finals.len(),
-                d.later.len(),
-                band_rows,
-            );
-            if plan.scores_lane {
-                ticker::LANE_HEIGHT
-            } else {
-                0
-            }
-        };
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Min(3),
-                Constraint::Length(ticker_h),
-                Constraint::Length(1),
-            ])
-            .split(area);
-        self.draw_header(frame, chunks[0]);
-        // The cut (spec §3). The takeover owns everything under the header —
-        // the board is not drawn behind it at all — and the band is two rows
-        // inserted above whatever the view was going to draw.
-        let cut = self.cuts.active(self.tick).cloned();
-        if let Some(cut) = cut.filter(|c| c.full) {
-            if let Some(game) = self.game_by_id(&cut.game_id) {
-                let below = Rect {
-                    y: area.y + 1,
-                    height: area.height - 1,
-                    ..area
-                };
-                crate::board::cut::draw_takeover(frame, below, &game, &cut, self.tick);
-                return;
-            }
-        }
-        let mut body = chunks[1];
-        // `!c.full` is explicit rather than implied by the early return above:
-        // a full cut whose game left the board falls through to here, and a
-        // takeover must never degrade into a band.
-        let band = self
-            .cuts
-            .active(self.tick)
-            .filter(|c| !c.full)
-            .cloned()
-            .and_then(|cut| self.game_by_id(&cut.game_id).map(|game| (cut, game)))
-            .filter(|_| body.height > crate::board::cut::BAND_ROWS)
-            .map(|(cut, game)| {
-                (
-                    Rect {
-                        height: crate::board::cut::BAND_ROWS,
-                        ..body
-                    },
-                    cut,
-                    game,
-                )
-            });
-        // Spec §3, v3.3: the Board and TV RESERVE the band's rows up front
-        // (`layout::TierPlan::band_rows`), so the band is painted over rows
-        // they already set aside and nothing moves. Every other view is a
-        // measured block or a list of its own with no reservation, so there
-        // the band still costs the body two rows — the v3.2 behavior, and the
-        // only place a fire still shifts anything.
-        //
-        // The one reserving case with no reservation to land on: a board with
-        // nothing live (`band_rows == 0`) whose last game went final ON the
-        // scoring play that fired the cut. The band then covers a section rule
-        // for its three seconds instead of moving it — still no jump, which is
-        // the property being bought, and not worth a row on every finals-only
-        // board to avoid.
-        let reserves_band = matches!(self.view, View::Board | View::ThemePicker | View::Tv);
-        if let (Some((slot, ..)), false) = (&band, reserves_band) {
-            body = Rect {
-                y: slot.bottom(),
-                height: body.height - slot.height,
-                ..body
-            };
-        }
-        let content_end = views::draw(self, frame, body);
-        // After the view, not before: a reserved band is drawn ON the rows the
-        // view just laid out (and left for it), so it has to land last.
-        if let Some((slot, cut, game)) = band {
-            crate::board::cut::draw_band(frame, slot, &game, &cut, self.tick);
-        }
-        if ticker_h > 0 {
-            self.draw_ticker(frame, chunks[2]);
-        }
-        // Spec v3.3 §5: a view that draws a measured block (the config editor)
-        // keeps its key bar with the block — one row under the last content
-        // row — instead of stranding it on the terminal floor. A SCORES lane
-        // owns the bottom of the frame when it renders, so the footer stays
-        // put underneath it rather than leapfrogging it.
-        let footer = match content_end {
-            Some(end) if ticker_h == 0 && end + 1 < chunks[3].y => Rect {
-                y: end + 1,
-                height: 1,
-                ..chunks[3]
-            },
-            _ => chunks[3],
-        };
-        self.draw_footer(frame, footer);
-        if self.help_open {
-            self.draw_help(frame, area);
-        }
     }
 
     /// Color for a team abbr on a play/event row: the team's color when the
