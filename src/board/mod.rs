@@ -305,8 +305,7 @@ fn board_walk<'a>(
                         // Under 100 columns the flanks are the first
                         // casualty — never the digits.
                         show_logos: area.width >= 100,
-                        // The hero is a selectable row (task-9 review carry
-                        // forward #1): a `▸` on the nameplates, like the
+                        // The hero is a selectable row: a `▸` on the nameplates, like the
                         // caret every other selected row gets in its gutter.
                         selected: *i == selected,
                     },
@@ -495,7 +494,7 @@ fn center_two_lines(area: Rect) -> Rect {
     }
 }
 
-/// The empty-board branches, moved verbatim from v3.1's mosaic (the strings
+/// The empty-board branches, moved verbatim from the old mosaic (the strings
 /// are pinned by tests and must not change). Returns true when it drew one
 /// and the board itself must not.
 fn draw_empty_state(app: &mut App, frame: &mut Frame, area: Rect) -> bool {

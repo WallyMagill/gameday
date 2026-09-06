@@ -114,8 +114,7 @@ pub fn digit_rows(full: bool) -> u16 {
 /// [`digit_rows`] for a band `band` rows tall — the same answer, doubled at
 /// the jumbotron rung. This is THE source for "how many rows does the score
 /// cost here": `score_spots` measures with it and TV budgets its stack with
-/// it, so the gate can move without a caller silently budgeting the old form
-/// (review finding 1).
+/// it, so the gate can move without a caller silently budgeting the old form.
 pub fn digit_rows_in(band: u16, full: bool) -> u16 {
     let rows = digit_rows(full);
     if full && band >= DOUBLE_MIN_ROWS {
@@ -130,7 +129,7 @@ pub fn digit_rows_in(band: u16, full: bool) -> u16 {
 enum ScoreForm {
     /// 8×8 `PixelSize::Full` glyphs.
     Full,
-    /// 3×4 quadrant-block glyphs (sitting-1 pick 1A).
+    /// 3×4 quadrant-block glyphs.
     Quad,
     /// `24 - 21` on one bold row — never a blank score.
     Text,
@@ -147,7 +146,7 @@ struct ScoreSpots {
     /// everywhere but the jumbotron rung, where it is `(2, 2)` when the width
     /// afforded it and `(1, 2)` when only the rows did. Carried rather than
     /// re-derived from the rect: `score_spots` is the one place that decides
-    /// it (review finding 2).
+    /// it.
     scale: (u16, u16),
 }
 
@@ -524,7 +523,7 @@ fn row_plan(area: Rect, have: [bool; 3], digits_full: bool) -> (u16, [bool; 3]) 
 
 /// The digit band inside a hero `area` — the rect [`draw_hero`] hands
 /// [`score_block`] and [`score_columns`]. Public so a caller that needs to
-/// find the score on an already-rendered hero (the v3.3 gate captures) reads
+/// find the score on an already-rendered hero (the gate captures) reads
 /// the geometry instead of guessing at it.
 pub fn band_rect(area: Rect, game: &Game, digits_full: bool) -> Rect {
     let have = [
@@ -1219,7 +1218,7 @@ mod tests {
     }
 
     /// `band_rect` is the public answer to "where are the digits?", and the
-    /// v3.3 gate captures overpaint exactly that rect. If it and `draw_hero`
+    /// gate captures overpaint exactly that rect. If it and `draw_hero`
     /// ever disagree, a capture silently lies about what it is comparing.
     #[test]
     fn band_rect_is_the_band_draw_hero_actually_uses() {
@@ -1229,7 +1228,7 @@ mod tests {
             // Every bracket that draws a glyph form; the text arm has no
             // band to speak of (it lies across the whole width by design).
             //
-            // sitting-1 pick 1A: a 4-row hero is 1 nameplate + 3 rows, under
+            // A 4-row hero is 1 nameplate + 3 rows, under
             // the quad form's floor, so it now takes the text arm — the case
             // moved to the assertion below the loop. `layout::plan` never
             // asks for one (its brackets are 0/2/6/12 rows), so nothing on
@@ -1283,7 +1282,7 @@ mod tests {
                 );
             }
         }
-        // Under the quad floor (sitting-1 pick 1A): a 4-row hero has 3 rows
+        // Under the quad floor: a 4-row hero has 3 rows
         // under its nameplate, one short of the form, so the ladder takes its
         // text arm — a score, never a blank — and `band_rect` still reports a
         // band inside the hero for a caller to find it in.
@@ -1369,7 +1368,7 @@ mod tests {
 
     #[test]
     fn selected_hero_carries_a_bright_caret_on_both_outside_edges() {
-        // Task-9 review carry-forward #1: the hero is a selectable row like
+        // The hero is a selectable row like
         // any tier, and had no way to show it. A `▸` lands on the outer edge
         // of each nameplate — mirrored, like every other mark there — in
         // `th.bright`, the same ink `rows.rs` uses for a selected row.
@@ -1597,7 +1596,7 @@ mod tests {
 
     #[test]
     fn a_band_with_no_room_for_glyphs_still_prints_the_score() {
-        // The v3.1 clamping discipline: every slot is derived from the area,
+        // The clamping discipline: every slot is derived from the area,
         // so no size may panic — and none may blank the score either.
         for (w, h) in [(1u16, 1u16), (4, 3), (40, 2), (20, 12), (60, 4), (119, 39)] {
             let term = render(w, h, &nfl_game(), &plan());

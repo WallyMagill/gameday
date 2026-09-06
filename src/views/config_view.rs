@@ -113,7 +113,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> u16 {
         }
     }
     // `cursor_col` is which rendered column the cursor sits in, so only that
-    // column's scroll follows it — v3.3 review: a single shared skip walked
+    // column's scroll follows it: a single shared skip once walked
     // the *other* panel's rows off-screen too whenever a tall TABS list
     // pushed FAVORITES/DISPLAY into view, even though that panel had room to
     // just show its own top.

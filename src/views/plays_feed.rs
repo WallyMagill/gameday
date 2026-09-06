@@ -120,7 +120,7 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool, width: usize) -> Line<
     // Everything but the play text is fixed-width; the play text gets
     // whatever's left after that budget and the score, minimum a 2-cell gap
     // — long play text is truncated with an ellipsis rather than letting it
-    // push the score off the row's right edge (v3.3 T7 follow-up).
+    // push the score off the row's right edge.
     let fixed = marker.chars().count()
         + CHIP_W
         + 7 // " {stamp:>5} "

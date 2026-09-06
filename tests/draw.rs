@@ -214,7 +214,7 @@ fn help_panel_speaks_the_lowercase_grammar_not_just_the_footer() {
     ] {
         assert!(s.contains(needle), "panel missing {needle:?}:\n{s}");
     }
-    // No leftover v3.1 caps-token grammar (the old NAVIGATION/SPC/ESC-CLOSES
+    // No leftover caps-token grammar (the old NAVIGATION/SPC/ESC-CLOSES
     // style, and the footer's own dead NAV: label).
     for caps in ["NAVIGATION", "SELECTION", " SPC", "ESC/?/Q CLOSES", "NAV:"] {
         assert!(!s.contains(caps), "leftover caps token {caps:?}:\n{s}");
@@ -835,7 +835,7 @@ fn narrow_footer_sheds_low_value_chords_but_keeps_help_and_quit() {
 
 #[test]
 fn config_footer_at_40_cols_keeps_help() {
-    // v3.3 T7 follow-up: FOOTER_DROP_ORDER lacked entries for config's
+    // FOOTER_DROP_ORDER lacked entries for config's
     // toggle/edit/cycle rows, so at 40 cols they never shed and `? help`
     // got clipped off the right edge instead — HELP must never shed.
     use gameday::views::View;
@@ -1129,7 +1129,7 @@ fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
 
 #[test]
 fn plays_feed_truncates_long_play_text_and_keeps_the_score() {
-    // v3.3 T7 follow-up: the row's stamp/abbr columns pad but never
+    // The row's stamp/abbr columns pad but never
     // truncated the play text, so an absurdly long play could push the
     // matchup score off the right edge. It must survive at 80 cols.
     use gameday::views::View;
@@ -1889,7 +1889,7 @@ fn config_view_renders_every_section() {
 
 #[test]
 fn config_scroll_is_per_panel_not_shared() {
-    // v3.3 review, optional item: a single `skip` used to be applied to
+    // A single `skip` used to be applied to
     // BOTH the TABS panel and the FAVORITES/DISPLAY panel. With the cursor
     // scrolled to the bottom of the right panel (SORT) and a pane too short
     // to show everything, the shared skip walked the TABS panel's own
@@ -2609,8 +2609,8 @@ fn header_keeps_the_clock_and_the_selected_tab_at_eighty_columns() {
     // before it touches the right side. The selected tab is the one chip
     // that never sheds, and the clock is never clipped.
     //
-    // Task-16 carry (task-9 review carry-forward #1, finished): this used a
-    // boardless fixture, which under chip-gating renders 0-1 chips — the shed
+    // This used to run on a boardless fixture, which under chip-gating
+    // renders 0-1 chips — the shed
     // ladder was never asked to shed anything. On the nine-league fixture the
     // header genuinely overflows 80 columns, so shedding is what the test
     // exercises: something must go, and it is never ALL, never NFL, never the
@@ -4079,7 +4079,7 @@ fn tv_fills_its_frame() {
             })
         })
         .collect();
-    // The budget, with its receipt. Before this task the same frame left 20
+    // The budget, with its receipt. Before the rebudget the same frame left 20
     // dead rows: 8-row digits floating in a 25-row band. What is left is
     // structural, not slack —
     //   * 2 rows are the glyph cell's own baseline gap, doubled (`24`/`21`
@@ -4401,7 +4401,7 @@ fn tv_never_jumps_when_a_band_fires() {
 
 #[test]
 fn tv_never_panics_and_never_blanks_the_score() {
-    // The v3.1 clamping discipline: every slot in TV is derived from the
+    // The clamping discipline: every slot in TV is derived from the
     // area, so no size may panic (a debug build catches the underflows) —
     // and none may leave the jumbotron without a score.
     use crossterm::event::{KeyCode, KeyModifiers};
@@ -4422,7 +4422,7 @@ fn tv_never_panics_and_never_blanks_the_score() {
         term.draw(|f| app.draw(f)).unwrap();
         let text = buf_text(&term);
         // The three rungs of the ladder: `PixelSize::Full` (`████`), the
-        // quadrant mid form (sitting-1 pick 1A — `█` plus half blocks), or
+        // quadrant mid form (`█` plus half blocks), or
         // the bold text arm. The sextant marker (`🬂`) is gone with the form.
         assert!(
             text.contains("24 - 21") || text.contains('█'),
@@ -4650,7 +4650,7 @@ fn mlb_zoom_game() -> Game {
 /// different y offsets compares equal.
 ///
 /// The glyph set is the four characters the two score forms actually draw:
-/// `PixelSize::Full` paints solid `█`, and the quad table (sitting-1 pick 1A)
+/// `PixelSize::Full` paints solid `█`, and the quad table
 /// adds `▀ ▄ ▝`. Deliberately NOT the whole U+2580–259F run — the tier rows'
 /// hot mark is `▌` and the hero marks are quadrant art, and either would drag
 /// non-score cells into the bounding box.

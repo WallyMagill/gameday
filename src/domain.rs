@@ -236,7 +236,7 @@ pub struct MatchEvent {
     pub athlete_id: Option<String>,
 }
 
-/// NHL `plays[].strength.id`, the ids the v3.4 research probe pinned: 701
+/// NHL `plays[].strength.id`, the ids the research probe pinned: 701
 /// Even Strength, 702 Power Play, 703 Shorthanded, 903 Empty Net. Every play
 /// of a live summary carries one, so the game's current strength is simply
 /// the most recent play's.
@@ -277,7 +277,7 @@ pub enum Extras {
         errors: Option<(u16, u16)>,
     },
     /// Soccer, from `competition.details[]` on the SCOREBOARD — the one
-    /// live-state win in v3.4 that costs no extra request, so it is
+    /// live-state win that costs no extra request, so it is
     /// board-wide by construction. `men` is the derived
     /// (away, home) on-field count, `None` at eleven a side.
     Soccer {

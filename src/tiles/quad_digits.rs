@@ -1,8 +1,8 @@
 //! Mid-size score digits drawn from the quadrant blocks (U+2580–259F).
 //!
-//! Why a second digit renderer exists at all: the v3.3 spike found that
+//! Why a second digit renderer exists at all: a coverage spike found that
 //! Terminal.app has no sextant coverage — `tui-big-text`'s `PixelSize::Sextant`
-//! (the hero's mid rung before sitting-1 pick 1A, 4×3) renders as tofu
+//! (the hero's mid rung before this one, 4×3) renders as tofu
 //! there — and that at 80×24 the sextant digits do not resolve into a readable
 //! number even where the font *does* cover them. The quadrant block set is the
 //! oldest, widest-covered half/quarter-cell run in Unicode; a digit built from
@@ -14,7 +14,7 @@
 //! instead of 8×3 — the same footprint, spent on height, which is where a
 //! digit's identity lives.
 //!
-//! Sitting-1 pick 1A made this the ladder's mid rung: `hero::score_block`
+//! This is the ladder's mid rung: `hero::score_block`
 //! draws it wherever a bracket asked for digits but cannot hold the 8-row
 //! `PixelSize::Full` form, which is every terminal from 60 to 99 columns.
 

@@ -891,8 +891,7 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                 let kind = match league {
                     League::Nba | League::Wnba | League::Cbb => {
                         // scoringPlay, not shootingPlay: CBB's endpoint
-                        // stamps scoreValue:3 on missed threes too (v3.4 T3
-                        // review: CBB stamps scoreValue on misses) —
+                        // stamps scoreValue:3 on missed threes too —
                         // shootingPlay alone would tag a miss as a make.
                         kinds::hoops_kind(type_id, scoring, score_value, league == League::Cbb)
                     }
@@ -1150,9 +1149,9 @@ fn standing_row_from(league: League, entry: &Value) -> Option<StandingRow> {
     })
 }
 
-/// Standings from `…/apis/v2/sports/{sport}/{slug}/standings` — that path
-/// worked directly (NFL + NHL, checked 2026-08-30); the plan's
-/// `apis/site/v2` fallback was never needed. Shape: `children[]` (one per
+/// Standings from the URL `espn::standings_url` builds — that path worked
+/// directly (NFL + NHL, checked 2026-08-30); the prefixed `site` fallback was
+/// never needed. Shape: `children[]` (one per
 /// conference) each carrying `standings.entries[]`; a league that sends no
 /// children gets its root `standings` mapped as a single group. A child that
 /// carries its own `children[]` (divisions under a conference) contributes one

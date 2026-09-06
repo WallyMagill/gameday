@@ -259,9 +259,9 @@ pub fn summary_url(league: League, event_id: &str) -> String {
     )
 }
 
-/// The `apis/v2` path (NOT `apis/site/v2` like scoreboard/summary) is the one
-/// that answers — verified live for NFL and NHL on 2026-08-30; the plan's
-/// site/v2 fallback was never needed.
+/// The unprefixed standings path built below — NOT the `site` prefix
+/// `scoreboard_url`/`summary_url` use — is the one that answers. Verified live
+/// for NFL and NHL on 2026-08-30; the prefixed fallback was never needed.
 pub fn standings_url(league: League) -> String {
     let (sport, slug) = league.espn_path();
     let base = format!("https://site.web.api.espn.com/apis/v2/sports/{sport}/{slug}/standings");

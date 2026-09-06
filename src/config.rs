@@ -93,7 +93,7 @@ pub fn save_pins(dir: &Path, pins: &[Pin]) -> Result<(), ConfigError> {
 }
 
 /// Where gameday reads and writes. `dir` is the only place writes ever land;
-/// `legacy_read_from`, when set, is a pre-v3 directory reads come from until
+/// `legacy_read_from`, when set, is a legacy directory reads come from until
 /// the user moves it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirResolution {
@@ -102,7 +102,7 @@ pub struct DirResolution {
 }
 
 /// `--config-dir` > `$XDG_CONFIG_HOME/gameday` > `~/.config/gameday`. When the
-/// chosen dir has no config.toml but the pre-v3 platform location does, reads
+/// chosen dir has no config.toml but the older platform location does, reads
 /// come from there and `main` prints a note saying where writes now go. An
 /// explicit `--config-dir` never consults the legacy location, and a legacy
 /// path equal to the resolved dir (Linux, where they coincide) is not legacy.

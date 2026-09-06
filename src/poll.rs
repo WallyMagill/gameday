@@ -16,8 +16,8 @@ pub const SUMMARY_EVERY: Duration = Duration::from_secs(15);
 /// scores/plays, and the payload is the full summary (~hundreds of KB).
 pub const STATS_EVERY: Duration = Duration::from_secs(30);
 /// Standings freshness window: a cache younger than this is served without
-/// touching the network. 10 minutes per the v2 spec ("on demand, cache 10
-/// min") — standings move at game granularity, not play granularity.
+/// touching the network. 10 minutes: standings are fetched on demand and
+/// move at game granularity, not play granularity.
 pub const STANDINGS_TTL: Duration = Duration::from_secs(600);
 /// How long a failed dated-slate fetch waits before the same (league, date)
 /// is tried again. A guess, not a measurement: without it a transient error

@@ -185,8 +185,8 @@ fn plan(area: Rect, word: &str) -> Plan {
     .into_iter()
     .find(|(form, score_full)| {
         // The score's rows come from the hero's ladder, not from
-        // `glyph_cell`: the mid rung is the 4-row quad form (sitting-1 pick
-        // 1A), and a cut that reserved 3 would hand `score_block` a band it
+        // `glyph_cell`: the mid rung is the 4-row quad form, and a cut that
+        // reserved 3 would hand `score_block` a band it
         // has to refuse, collapsing the announcement to `27 - 24`.
         let score_rows = hero::digit_rows(*score_full);
         form.cols(word) <= area.width && form.rows() + score_rows <= middle
@@ -329,9 +329,9 @@ pub fn draw_takeover(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick
 fn draw_labels(frame: &mut Frame, row: Rect, score: Rect, game: &Game, score_full: bool) {
     let th = theme::current();
     // The pair straight from `hero_pair` — the same call `score_block` makes.
-    // v3.2 routed these through `App::team_color`, which knows nothing about
-    // the hero's lift or its lookalike rule, and painted the away side
-    // neutral whenever the theme's discipline withheld play-row team color.
+    // An earlier version routed these through `App::team_color`, which knows
+    // nothing about the hero's lift or its lookalike rule, and painted the away
+    // side neutral whenever the theme's discipline withheld play-row team color.
     let (away_color, home_color, _) = theme::hero_pair(&th, game.away.color, game.home.color);
     let (away_col, home_col) = hero::score_columns(score, game, score_full);
     let bold = Modifier::BOLD;
@@ -390,7 +390,7 @@ pub fn draw_band(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick: u6
     let r = th.roles();
     let on_hot = Style::default().fg(r.ground).bg(r.hot);
     let bold = on_hot.add_modifier(Modifier::BOLD);
-    // `Clear` first: since v3.3 the band lands on rows the board RESERVED and
+    // `Clear` first: the band lands on rows the board RESERVED and
     // has already drawn into (the hoisted section rule), and a `Block` style
     // alone only recolors cells — the dashes and caption underneath survived
     // and read straight through the bar. The band is opaque or it is a tint.
@@ -421,7 +421,7 @@ pub fn draw_band(frame: &mut Frame, area: Rect, game: &Game, cut: &Cut, tick: u6
         // are the two things they cannot see anywhere else.
         //
         // Still the ground role, not `dim`: `dim` is a ground-relative gray
-        // and vanishes on the hot fill (the v3.2 receipt). The affordance is
+        // and vanishes on the hot fill — the cell test below pins it. The
         // quieted by weight instead — the headline is bold, this row is not.
         let tail = format!("{} jump · {}", jump_key(), timer_text(cut, tick));
         frame.render_widget(
@@ -1146,7 +1146,7 @@ mod tests {
         );
         let r = theme::current().roles();
         // Ink stays the ground role on the hot fill — `dim` is a
-        // ground-relative gray and vanishes on hot (the v3.2 receipt) — so
+        // ground-relative gray and vanishes on hot — so
         // the affordance is quieted by weight instead: row 0 is bold, this
         // one is not.
         assert_eq!(b[(0, 1)].fg, r.ground);

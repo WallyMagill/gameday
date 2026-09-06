@@ -51,8 +51,8 @@ fn play(clock: &str, team: &str, text: &str, scoring: bool) -> Play {
 }
 
 /// A play in a sport with no play clock: the stamp is the half-inning tag
-/// (`B7`, `T8`) the `Play::period` field exists for. v3.1 left the demo's
-/// baseball plays carrying invented `0:42` clocks, so `[B7]` — the one form
+/// (`B7`, `T8`) the `Play::period` field exists for. The demo used to give its
+/// baseball plays invented `0:42` clocks, so `[B7]` — the one form
 /// the mapper emits for MLB — never appeared in a capture.
 fn inning_play(period: &str, team: &str, text: &str, scoring: bool) -> Play {
     Play {

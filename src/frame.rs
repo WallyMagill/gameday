@@ -438,7 +438,7 @@ mod tests {
     fn a_theme_file_renders_without_joining_the_builtins() {
         let dir = scratch("theme-file");
         let path = dir.join("candidate.toml");
-        // daygame was promoted into BUILTIN_NAMES at the v3.4 render gate;
+        // daygame was promoted into BUILTIN_NAMES at the render gate;
         // gruvbox-warm is the remaining gate candidate, still not a built-in.
         let cand = theme::candidate("gruvbox-warm");
         std::fs::write(&path, theme::to_toml(&cand.name, &cand.theme)).unwrap();

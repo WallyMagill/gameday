@@ -4,9 +4,9 @@
 //! This is the single source of truth: the board is ONE ranked list
 //! cut into sections, and `derive()` is the only place those sections are
 //! decided. The standalone `live_games`/`slate_games`/`mosaic_games`/
-//! `selection_list` methods are gone with the tile grammar — v3.1 kept both a
-//! set of list fns and a `Derived` built out of them, and a test whose whole
-//! job was to prove the two never drift. Key handlers that need a list
+//! `selection_list` methods are gone with the tile grammar — the app once kept
+//! both a set of list fns and a `Derived` built out of them, and a test whose
+//! whole job was to prove the two never drift. Key handlers that need a list
 //! outside a draw call `derive()` (cheap off-frame, once per keypress);
 //! `App::draw` parks one in `frame_cache` for the widgets to read through
 //! `derived()`.

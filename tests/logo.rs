@@ -188,7 +188,7 @@ fn every_pro_league_is_complete() {
 /// composited on daygame's paper, with ESPN's on-white variant where the
 /// standard mark is contrast-hostile there. `hero_mark` picks the set by the
 /// active theme's ground, so a light theme never gets the black-boxed art
-/// that parked daygame in v3.3.
+/// that once kept daygame out of the built-ins.
 #[test]
 fn light_ground_selects_the_light_set() {
     // Default theme is broadcast — black ground, the standard set.
@@ -261,7 +261,7 @@ fn dominant_contrast_on_paper(mark: &HeroMark) -> f64 {
     (lg.max(l) + 0.05) / (lg.min(l) + 0.05)
 }
 
-/// The v3.3 parking reason, measured on the committed art. `mlb/pit` is a
+/// The parking reason, measured on the committed art. `mlb/pit` is a
 /// gold P: over black it is a perfect mark, and on daygame's paper the
 /// dark-set art is a pale smudge — that gold reads 1.56:1 there, half the
 /// WCAG graphics floor, where the light set's darkened gold reads 2.89:1.

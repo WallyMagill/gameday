@@ -300,8 +300,8 @@ mod tests {
     /// The scoring band is TWO rows (`cut::BAND_ROWS`, and `draw_band` draws
     /// exactly that many), and they are *reserved* whenever a band could fire —
     /// i.e. whenever something is live. A board with no live game cannot fire
-    /// one, so it reserves nothing and its budget is exactly the one the layout
-    /// plan gave it.
+    /// one, so it reserves nothing and keeps the whole body under the hero for
+    /// content.
     #[test]
     fn no_live_games_means_no_reservation() {
         let finals_only = plan(120, 36, 0, 5, 4, 0);

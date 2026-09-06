@@ -27,7 +27,7 @@ fn tmp(name: &str) -> std::path::PathBuf {
 
 #[test]
 fn the_three_builtins_ship_in_the_decided_order() {
-    // daygame promoted at the v3.4 render gate 2026-09-04: four now, not three.
+    // daygame was promoted at the render gate on 2026-09-04: four now, not three.
     assert_eq!(
         theme::BUILTIN_NAMES,
         ["broadcast", "studio", "gruvbox", "daygame"]
@@ -112,7 +112,7 @@ fn broadcast_is_loud_and_studio_is_the_press_box() {
         );
     }
     // Different at the ROLE layer too: studio's scores are white where
-    // broadcast's are amber. (Before v3.2 the two themes had identical
+    // broadcast's are amber. (The two themes once had identical
     // `[roles]`, which made "studio" a discipline flag rather than a look.)
     assert_ne!(b.roles(), s.roles(), "studio must differ as a role mapping");
     assert_eq!(b.roles().digits, b.star, "broadcast scores are amber");
@@ -325,7 +325,7 @@ fn user_theme_overrides_builtin_and_bad_files_are_skipped_with_a_note() {
 
 #[test]
 fn the_eight_retired_palettes_still_load_as_user_files() {
-    // v3.2 decision A cut the built-in list to three, but the files stayed in
+    // The built-in list was cut to three, but the files stayed in
     // assets/themes/ — dropping them out of `include_str!` must not make them
     // unloadable, and every one of them gets the documented default roles.
     let dir = tmp("retired-eight");
@@ -406,7 +406,7 @@ fn a_theme_file_can_reassign_roles_and_scope_team_color() {
     );
 }
 
-/// v3.3 deleted `TeamColorScope::Never`: nothing read it, so `never` and
+/// `TeamColorScope::Never` is deleted: nothing read it, so `never` and
 /// `hero` drew the same pixels and the config value was a lie. A user theme
 /// on disk that still says it must keep loading — as the value it always
 /// behaved as, not as an error and not as a different board.

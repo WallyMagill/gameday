@@ -1,9 +1,8 @@
 //! Pure lookup tables mapping ESPN's per-league play `type.id` (a string in
 //! the feed) to the structural [`PlayKind`](crate::domain::PlayKind). Every
 //! function here is a `match` — no allocation, no I/O — because these run
-//! once per play per poll. Ids are receipts from the v3.4 research probe
-//! (`.superpowers/sdd/2026-09-03-gameday-v3-4-data-truth/`); an id not in a
-//! table maps to `Other` rather than guessing.
+//! once per play per poll. Ids are receipts from a live-feed research probe;
+//! an id not in a table maps to `Other` rather than guessing.
 
 use crate::domain::{HockeyStrength, PlayKind};
 

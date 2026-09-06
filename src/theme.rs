@@ -1,13 +1,13 @@
 //! Themes as identities: a theme is a palette read through *roles*.
-//! `Roles` is the layer the v3.2 board spends — `ground`/`ink`/`dim`/`digits`
+//! `Roles` is the layer the board spends — `ground`/`ink`/`dim`/`digits`
 //! /`hot`/`cool` plus a `team` scope saying where team color is allowed — and
 //! the optional `[roles]` table in a theme file decides which palette key
 //! plays which part.
 //!
-//! Four pre-v3.2 `discipline` knobs are still spent by surfaces the role layer
+//! Four older `discipline` knobs are still spent by surfaces the role layer
 //! has not reached — `chip` (the `[NFL]` tag on the plays feed and the ticker
 //! lane), `section_label`, `team_text` and `clock` — so the built-ins keep
-//! their `[discipline]` tables. The knobs the v3.1 sidebar owned are gone with
+//! their `[discipline]` tables. The knobs the deleted sidebar owned went with
 //! it (`league_text`, `sidebar_header`); `[discipline]` in a *user* file
 //! parses, is compat-only, and says so once in the log.
 //!
@@ -25,9 +25,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
-/// Built-in theme names in picker/cycle order (v3.2 decision A: three
-/// identities, not eleven palettes — plus `daygame`, promoted at the v3.4
-/// render gate 2026-09-04, the fourth). `broadcast` is the default; `studio`
+/// Built-in theme names in picker/cycle order: three identities, not eleven
+/// palettes, plus `daygame`, promoted at the render gate on 2026-09-04.
+/// `broadcast` is the default; `studio`
 /// is its calm twin; `gruvbox` is the one warm-ground community palette;
 /// `daygame` is the one light theme. The other seven files stay in
 /// `assets/themes/` and still load as user files.
@@ -49,9 +49,9 @@ const BUILTIN_TOML: [&str; 4] = [
 /// spent by `dump::with_theme`).
 ///
 /// `gruvbox-warm` is the shipping gruvbox with its ground on morhetz's
-/// `dark0_soft` — the owner's other sitting-2 question, still sitting.
+/// `dark0_soft` — the owner's other open question, still open.
 /// `daygame`, the light-theme candidate this list used to also carry, was
-/// promoted into [`BUILTIN_NAMES`] at the v3.4 render gate. If the owner
+/// promoted into [`BUILTIN_NAMES`] at the render gate. If the owner
 /// promotes `gruvbox-warm` too, it moves into `BUILTIN_NAMES` and out of
 /// here; if not, the file and its gate stem are deleted together.
 pub const CANDIDATE_NAMES: [&str; 1] = ["gruvbox-warm"];
@@ -59,9 +59,9 @@ pub const CANDIDATE_NAMES: [&str; 1] = ["gruvbox-warm"];
 /// The compiled-in candidate sources, parallel to [`CANDIDATE_NAMES`].
 const CANDIDATE_TOML: [&str; 1] = [include_str!("../assets/candidates/gruvbox-warm.toml")];
 
-/// v3.1's sidebar-header coloring knob. The sidebar itself is deleted and
-/// nothing reads this any more — it survives only so that a theme
-/// file written for v3.1 still *parses* (`[discipline]` is compat-only, and
+/// The old sidebar-header coloring knob. The sidebar itself is deleted and
+/// nothing reads this any more — it survives only so that a theme file
+/// written before the deletion still *parses* (`[discipline]` is compat-only, and
 /// `deny_unknown_fields` would otherwise reject every one of the eight
 /// retired built-ins now shipped as user themes).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -131,10 +131,10 @@ impl TeamColorScope {
     /// A third scope, `never`, was deleted. Nothing ever read it — the one
     /// comparison in the codebase is `== HeroMarks` (`board::rows`), so a
     /// theme asking for `never` drew hero team color anyway, and *meaning* it
-    /// would strip an identity floor no theme may spend: the hero always shows
-    /// whose game it is. The retired spelling is not an error, though:
-    /// [`parse_theme`] maps it to [`Self::Hero`] — the value it always behaved
-    /// as — with a one-time note.
+    /// would strip an identity floor no theme may spend: the hero's digit pair
+    /// is the only place team color is guaranteed. The retired spelling is not an
+    /// error, though: [`parse_theme`] maps it to [`Self::Hero`] — the value it
+    /// always behaved as — with a one-time note.
     fn parse(value: &str) -> Option<Self> {
         match value {
             "hero" => Some(Self::Hero),
@@ -455,7 +455,7 @@ fn parse_theme_inner(text: &str, compat_note: bool) -> Result<(String, Theme), S
     };
     let team = match r.team.as_deref() {
         None => TeamColorScope::default(),
-        // v3.3 retired `never` (see `TeamColorScope::parse`). A user theme on
+        // `never` is retired (see `TeamColorScope::parse`). A user theme on
         // disk still saying it must keep loading, and the honest landing spot
         // is the value it has always drawn as — `hero` — not a parse error
         // and not a silently different board.
@@ -1190,7 +1190,7 @@ mod tests {
     }
 
     #[test]
-    // promoted at v3.4 render gate 2026-09-04 — light-bg marks landed
+    // promoted at the render gate on 2026-09-04 — light-bg marks landed
     fn daygame_ink_contrast_clears_4_5_to_1() {
         // The light theme's whole risk is legibility on paper: ink on
         // ground must clear the WCAG body-text floor of 4.5:1, and `dim`
@@ -1229,7 +1229,7 @@ mod tests {
 
     #[test]
     fn gruvbox_warm_lifts_the_ground_and_nothing_else() {
-        // The owner's other sitting-2 question: gruvbox on dark0_soft
+        // The owner's other open question: gruvbox on dark0_soft
         // (#32302f, morhetz's own next step up) instead of the true #282828.
         let warm = candidate("gruvbox-warm").theme;
         let base = builtin("gruvbox");

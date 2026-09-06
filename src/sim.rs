@@ -503,7 +503,7 @@ mod tests {
         );
     }
 
-    /// v3.1 deferred item: a sport with no play clock stamps its plays with
+    /// A sport with no play clock stamps its plays with
     /// the half-inning, which is the form `[B7]` the feed rows print.
     #[test]
     fn a_clockless_sport_stamps_plays_with_a_period_tag_not_an_invented_clock() {

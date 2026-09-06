@@ -783,7 +783,7 @@ mod tests {
         assert!(text.contains("C. Schmidt"), "pitcher missing:\n{text}");
         assert!(text.contains("A. Kirk"), "batter missing:\n{text}");
         assert!(text.contains("DUE UP"), "due-up block missing:\n{text}");
-        // v3.1 deferred item: a baseball play stamps its half-inning, not an
+        // A baseball play stamps its half-inning, not an
         // invented game clock.
         assert!(
             text.contains("[B7]"),
@@ -1127,8 +1127,8 @@ mod tests {
             narrow.lines().any(|l| l.contains("RED ZONE")),
             "80x24 board: the hero still names its state:\n{narrow}"
         );
-        // At 80×24 — the width where text digits stopped resolving into
-        // readable numbers — the hero's score is drawn from the quadrant
+        // At 80×24 — the width where the old sextant digits stopped resolving
+        // into readable numbers — the hero's score is drawn from the quadrant
         // table, not a text row. (This assertion is the surviving half of a
         // retired `gate-digits-*` contrast — the winner is the product, so
         // the product frame carries the receipt.)

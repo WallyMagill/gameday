@@ -844,7 +844,7 @@ fn mlb_narrative_play_with_no_joined_pitch_row_stays_other() {
 #[test]
 fn summary_is_not_truncated_to_eight() {
     // 20 flat plays with the scoring play at index 3 — the old split_off(len-8)
-    // dropped it and every scoring surface went blank (review finding #2).
+    // dropped it and every scoring surface went blank.
     let mut plays = String::new();
     for i in 0..20 {
         if i > 0 {
@@ -888,8 +888,8 @@ fn a_competitor_with_an_unknown_home_away_skips_the_event() {
 
 #[test]
 fn sports_with_no_extra_source_map_to_extras_none() {
-    // Football drive text and NHL shots have no scoreboard source; they carry
-    // no half-built variant until sub-project 3 gives them one.
+    // Football drive text and NHL shots have no scoreboard source; the mapper
+    // leaves `Extras::None` rather than a half-built variant.
     let json = include_str!("../fixtures/nfl_scoreboard.json");
     let g = &map_scoreboard(League::Nfl, json, et()).unwrap()[0];
     assert_eq!(g.extras, gameday::domain::Extras::None);

@@ -168,8 +168,8 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     } else {
         0
     };
-    // What the hero can have, and what it actually wants. Before v3.3 these
-    // were the same number: every leftover row went into the digit band, so a
+    // What the hero can have, and what it actually wants. These used to be
+    // the same number: every leftover row went into the digit band, so a
     // 40-row terminal centered 8 rows of digits inside a 25-row band and left
     // fifteen dead rows around them (the design review's "TV is the weakest
     // frame"). The band now takes the doubled form plus `BAND_AIR` and stops;
@@ -306,7 +306,7 @@ fn draw_strip(
     let label = "ALSO LIVE";
     // Count what the strip SHOWS, not what the slate holds: past two full
     // columns the rest never render, and a caption that says "14 GAMES" over
-    // ten rows is the frame lying about itself (review finding 3).
+    // ten rows is the frame lying about itself.
     let columns = strip_columns(area.width);
     let per_column = (area.height as usize).saturating_sub(1).min(STRIP_MAX_ROWS);
     let shown = others.len().min(per_column * columns as usize);

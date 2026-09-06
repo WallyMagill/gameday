@@ -35,8 +35,8 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         ];
         // The ROLES in six cells, in the order the board spends them:
         // ground, ink, dim, digits, hot, cool. Not the raw palette — a theme
-        // is a role mapping, not a list of colors. (Two themes once shared a
-        // palette outright, so a palette strip drew them as the same theme;
+        // is a role mapping, not a list of colors. (broadcast and studio once
+        // shared a palette outright, so a palette strip drew them as the same
         // the press-box studio has its own grays now, and the strip still
         // shows what the board will actually spend.)
         let r = p.roles();
@@ -92,11 +92,11 @@ mod tests {
     use ratatui::style::Color;
     use ratatui::Terminal;
 
-    /// The strip draws ROLES, not the palette. In v3.2 broadcast and studio
+    /// The strip draws ROLES, not the palette. broadcast and studio once
     /// shipped the same eleven colors, so a palette strip rendered their two
     /// rows identically and the picker claimed they were the same theme. This
-    /// is the cell-level assertion that they are not — and since v3.3 rebuilt
-    /// studio as press-box monochrome, the delta is every swatch, not one.
+    /// is the cell-level assertion that they are not — and now that studio is
+    /// press-box monochrome, the delta is every swatch, not one.
     #[test]
     fn broadcast_and_studio_draw_different_swatch_rows() {
         theme::set_current("broadcast").unwrap();
@@ -143,10 +143,10 @@ mod tests {
         assert_eq!(b[3], bt.star, "broadcast's digits swatch is amber");
         assert_eq!(s[3], st.bright, "studio's digits swatch is white");
         assert_eq!(d[3], dt.star, "daygame's digits swatch is deep amber");
-        // v3.3: even the ground swatch differs now — studio's press-box ground
+        // Even the ground swatch differs now — studio's press-box ground
         // is a near-black gray, not broadcast's true black.
         assert_ne!(b[0], s[0], "studio's ground swatch is its own");
-        // v3.4: daygame is the one theme with the ground/ink relationship
+        // daygame is the one theme with the ground/ink relationship
         // reversed — its ground swatch is the lightest of the three, not the
         // darkest.
         assert_ne!(d[0], b[0], "daygame's ground swatch is its own");
