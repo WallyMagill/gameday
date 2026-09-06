@@ -101,8 +101,7 @@ Mechanical work first, so every feature wave lands in the final structure with a
 - `clippy`: `cargo clippy --all-targets -- -D warnings`.
 - `test` matrix: `ubuntu-latest`, `macos-latest`; `cargo test --locked`.
 - `msrv`: `cargo check --locked` on the declared toolchain.
-- `audit`: `rustsec/audit-check` action.
-- `deny`: `EmbarkStudios/cargo-deny-action` with `deny.toml` allowing MIT, Apache-2.0, BSD-2/3, ISC, Unicode-3.0, Zlib, MPL-2.0; bans none; advisories deny unmaintained + yanked.
+- `deny`: `EmbarkStudios/cargo-deny-action` with `deny.toml` allowing MIT, Apache-2.0, BSD-2/3, ISC, Unicode-3.0, Zlib, MPL-2.0; bans none; advisories deny unmaintained + yanked. This job is where the RustSec database is checked: a separate `rustsec/audit-check` job was designed here and dropped in the final fix wave, because it needs `checks: write` and `issues: write` to file its findings and GitHub hands a read-only token to `pull_request` runs from Dependabot and forks — which no `permissions:` block can elevate, so it would have gone red on every weekly Dependabot PR. `cargo deny check advisories` reads the same database and needs nothing but `contents: read`.
 - `package`: `cargo package --list --allow-dirty` and a size assertion (< 5 MB, see §8.1).
 - `.github/dependabot.yml`: cargo and github-actions, weekly.
 
@@ -121,7 +120,7 @@ Behavior-preserving. The suite passes unchanged before and after; the commit tou
 - Comment rewrite: every `R<n>` / `spec v3.x §n` / `T<n>` reference becomes the reason in words (the receipt stays, the pointer goes). Applies to all of `src/`.
 - `theme.rs`: user-file paths (`install_user_themes`, palette parsing, role resolution) return `ThemeError` naming the file, key, and expected form; `expect` remains only on compile-time constants (the built-in TOML), each with a message saying why it cannot fail.
 
-**Definition of done (wave 0):** CI green on both OSes; fmt, clippy, audit, deny, msrv jobs green; deps at the versions above; the split landed with the test count unchanged (526 before, 526 after, plus any the migration added); `kill -TERM` receipt; `HTTPS_PROXY` offline receipt (STALE chip visible, footer shows the backoff, recovery on unset).
+**Definition of done (wave 0):** CI green on both OSes; fmt, clippy, deny, msrv jobs green; deps at the versions above; the split landed with the test count unchanged (526 before, 526 after, plus any the migration added); `kill -TERM` receipt; `HTTPS_PROXY` offline receipt (STALE chip visible, footer shows the backoff, recovery on unset).
 
 ## §3 Wave 1 — Data truth and tests
 

@@ -635,7 +635,9 @@ mod tests {
         assert_eq!(
             w.chip,
             Some("TYING RUN 3RD"),
-            "spec §2: the chip names the base, not a dangling phrase"
+            "the chip must name the base the tying run stands on — a bare \
+             \"TYING RUN\" is a dangling phrase that leaves the reader asking \
+             which base, and the base is the whole reason the situation is hot"
         );
     }
 
