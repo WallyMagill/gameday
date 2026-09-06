@@ -29,6 +29,7 @@ pub struct EspnProvider {
 
 /// What one HTTP attempt produced: a body (with the ETag to store beside it),
 /// or ESPN saying the cache is already current.
+#[derive(Debug)]
 pub(crate) enum Fetched {
     Body { body: String, etag: Option<String> },
     NotModified,
@@ -55,15 +56,22 @@ fn stamp(err: ProviderError, key: &str) -> ProviderError {
 
 impl EspnProvider {
     pub fn new(cache_dir: PathBuf, offset: time::UtcOffset) -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(HTTP_TIMEOUT)
-            .timeout_read(HTTP_TIMEOUT)
+        let config = ureq::Agent::config_builder()
+            .timeout_connect(Some(HTTP_TIMEOUT))
+            .timeout_recv_body(Some(HTTP_TIMEOUT))
             .user_agent(USER_AGENT)
+            // Non-2xx surfaces as `Error::StatusCode(code)` so the 304 and
+            // the error arms below stay distinct from a body read.
+            .http_status_as_error(true)
+            // HTTPS_PROXY / ALL_PROXY / NO_PROXY from the environment. This
+            // is what makes `HTTPS_PROXY=http://127.0.0.1:9 gameday` the
+            // offline test (spec §2.2, §9).
+            .proxy(ureq::Proxy::try_from_env())
             .build();
         Self {
             cache_dir,
             offset,
-            agent,
+            agent: ureq::Agent::new_with_config(config),
         }
     }
 
@@ -71,26 +79,33 @@ impl EspnProvider {
         self.cache_dir.join(format!("{key}.etag"))
     }
 
-    fn http(&self, url: &str, etag: Option<&str>) -> Result<Fetched, ProviderError> {
-        let mut req = self.agent.get(url).set("Accept", "application/json");
+    pub(crate) fn http(&self, url: &str, etag: Option<&str>) -> Result<Fetched, ProviderError> {
+        let mut req = self.agent.get(url).header("Accept", "application/json");
         if let Some(tag) = etag {
-            req = req.set("If-None-Match", tag);
+            req = req.header("If-None-Match", tag);
         }
         match req.call() {
             // `key` is left empty here and filled in by `stamp`: this layer
             // only knows the URL it asked for.
-            Ok(r) => {
-                let etag = r.header("etag").map(str::to_string);
-                let body = r.into_string().map_err(|e| ProviderError::Http {
-                    status: 0,
-                    key: String::new(),
-                    url: url.into(),
-                    detail: format!("body read: {e}"),
-                })?;
+            Ok(mut r) => {
+                let etag = r
+                    .headers()
+                    .get("etag")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_string);
+                let body = r
+                    .body_mut()
+                    .read_to_string()
+                    .map_err(|e| ProviderError::Http {
+                        status: 0,
+                        key: String::new(),
+                        url: url.into(),
+                        detail: format!("body read: {e}"),
+                    })?;
                 Ok(Fetched::Body { body, etag })
             }
-            Err(ureq::Error::Status(304, _)) => Ok(Fetched::NotModified),
-            Err(ureq::Error::Status(code, _)) => Err(ProviderError::Http {
+            Err(ureq::Error::StatusCode(304)) => Ok(Fetched::NotModified),
+            Err(ureq::Error::StatusCode(code)) => Err(ProviderError::Http {
                 status: code,
                 key: String::new(),
                 url: url.into(),
@@ -642,5 +657,34 @@ mod tests {
     fn user_agent_names_the_project_and_a_contact() {
         assert!(USER_AGENT.starts_with("gameday/"));
         assert!(USER_AGENT.contains("+https://"));
+    }
+
+    /// ureq 3 reports non-2xx as `Error::StatusCode(u16)`; the 304 arm must
+    /// keep mapping to `Fetched::NotModified`, and a transport error must
+    /// keep `status: 0` with the detail text (which `short()` reads for the
+    /// word "timeout").
+    #[test]
+    fn transport_errors_keep_status_zero_and_the_detail_text() {
+        let dir = tmp("transport");
+        let p = provider(&dir);
+        // Port 9 on localhost refuses at once (nothing listens there), so
+        // this doesn't wait out the 10s connect timeout on every run.
+        let err = p.http("http://127.0.0.1:9/never", None).unwrap_err();
+        match err {
+            ProviderError::Http {
+                status,
+                detail,
+                url,
+                ..
+            } => {
+                assert_eq!(status, 0, "transport failures carry status 0");
+                assert!(
+                    !detail.is_empty(),
+                    "detail must carry the transport error text"
+                );
+                assert_eq!(url, "http://127.0.0.1:9/never");
+            }
+            other => panic!("expected Http, got {other:?}"),
+        }
     }
 }
