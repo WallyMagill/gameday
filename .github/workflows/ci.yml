@@ -56,18 +56,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --locked --all-targets
 
-  audit:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      checks: write
-      issues: write
-    steps:
-      - uses: actions/checkout@v5
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
   deny:
     runs-on: ubuntu-latest
     steps:
