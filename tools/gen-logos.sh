@@ -178,6 +178,14 @@ readable_share() {
   awk -v b="$both" -v a="$alpha" 'BEGIN { if (a <= 0) print "0.000"; else printf "%.3f", b / a }'
 }
 
+# The lookup key is the team abbreviation; the file name is not always allowed
+# to be. CON (the WNBA Sun) is a reserved DOS device name, so `con.ans` cannot
+# exist in a Windows checkout whatever the extension — that mark is stored as
+# `con_.ans`. These two map between the key and its file stem, in both
+# directions, so the embed table keeps saying "wnba/con".
+file_stem() { case "$1" in */con) echo "${1}_" ;; *) echo "$1" ;; esac; }
+stem_key() { case "$1" in */con_) echo "${1%_}" ;; *) echo "$1" ;; esac; }
+
 # The same mark, composited for daygame's paper instead of the dark themes'
 # black: ESPN's on-white variant where the standard one is contrast-hostile,
 # then the v3.3 brightness lift run in reverse.
@@ -229,10 +237,12 @@ render_light() {
       fi
     fi
   fi
+  local stem
+  stem=$(file_stem "$key")
   mkdir -p "assets/logos-light/${key%/*}"
   if ! chafa --size="$SIZE" --symbols="$SYMBOLS" -c full -w 9 -f symbols --bg "$PAPER" "$png" \
-    > "assets/logos-light/$key.ans"; then
-    rm -f "assets/logos-light/$key.ans"
+    > "assets/logos-light/$stem.ans"; then
+    rm -f "assets/logos-light/$stem.ans"
     skipped+=("$key light (chafa failed)")
     return 0
   fi
@@ -262,15 +272,17 @@ render() {
       magick "$png" -modulate 145,115 "$png"
     fi
   fi
+  local stem
+  stem=$(file_stem "$key")
   mkdir -p "assets/logos/${key%/*}"
   if ! chafa --size="$SIZE" --symbols="$SYMBOLS" -c full -w 9 -f symbols --bg black "$png" \
-       > "assets/logos/$key.ans"; then
-    rm -f "assets/logos/$key.ans"
+       > "assets/logos/$stem.ans"; then
+    rm -f "assets/logos/$stem.ans"
     skipped+=("$key (chafa failed)")
     return 0
   fi
   written=$((written + 1))
-  echo "wrote assets/logos/$key.ans ($(wc -l < "assets/logos/$key.ans" | tr -d ' ') rows)"
+  echo "wrote assets/logos/$stem.ans ($(wc -l < "assets/logos/$stem.ans" | tr -d ' ') rows)"
   render_light "$key" "$cached" "$white"
 }
 
@@ -307,7 +319,7 @@ out=src/board/logo_sources.rs
   echo "pub(super) const LOGO_SOURCES: &[(&str, &str)] = &["
   find assets/logos -name '*.ans' | sort | while read -r f; do
     key=${f#assets/logos/}
-    key=${key%.ans}
+    key=$(stem_key "${key%.ans}")
     echo "    (\"$key\", include_str!(\"../../$f\")),"
   done
   echo "];"
@@ -318,7 +330,7 @@ out=src/board/logo_sources.rs
   echo "pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &["
   find assets/logos-light -name '*.ans' | sort | while read -r f; do
     key=${f#assets/logos-light/}
-    key=${key%.ans}
+    key=$(stem_key "${key%.ans}")
     echo "    (\"$key\", include_str!(\"../../$f\")),"
   done
   echo "];"

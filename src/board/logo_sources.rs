@@ -402,7 +402,7 @@ pub(super) const LOGO_SOURCES: &[(&str, &str)] = &[
     ),
     ("wnba/atl", include_str!("../../assets/logos/wnba/atl.ans")),
     ("wnba/chi", include_str!("../../assets/logos/wnba/chi.ans")),
-    ("wnba/con", include_str!("../../assets/logos/wnba/con.ans")),
+    ("wnba/con", include_str!("../../assets/logos/wnba/con_.ans")),
     ("wnba/dal", include_str!("../../assets/logos/wnba/dal.ans")),
     ("wnba/gs", include_str!("../../assets/logos/wnba/gs.ans")),
     ("wnba/ind", include_str!("../../assets/logos/wnba/ind.ans")),
@@ -1291,7 +1291,7 @@ pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[
     ),
     (
         "wnba/con",
-        include_str!("../../assets/logos-light/wnba/con.ans"),
+        include_str!("../../assets/logos-light/wnba/con_.ans"),
     ),
     (
         "wnba/dal",
