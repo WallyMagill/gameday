@@ -1,4 +1,4 @@
-# cargo-deny policy. `cargo deny check licenses advisories sources` runs in CI.
+# cargo-deny policy. `cargo deny check bans licenses advisories sources` runs in CI.
 
 [graph]
 all-features = true
