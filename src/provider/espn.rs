@@ -29,7 +29,7 @@ pub struct EspnProvider {
 
 /// What one HTTP attempt produced: a body (with the ETag to store beside it),
 /// or ESPN saying the cache is already current.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum Fetched {
     Body { body: String, etag: Option<String> },
     NotModified,
@@ -60,8 +60,11 @@ impl EspnProvider {
             .timeout_connect(Some(HTTP_TIMEOUT))
             .timeout_recv_body(Some(HTTP_TIMEOUT))
             .user_agent(USER_AGENT)
-            // Non-2xx surfaces as `Error::StatusCode(code)` so the 304 and
-            // the error arms below stay distinct from a body read.
+            // 4xx/5xx surface as `Error::StatusCode(code)`. 304 is neither —
+            // ureq 3's `is_client_error() || is_server_error()` check never
+            // classifies a 3xx as an error regardless of this flag — so it
+            // always arrives as an `Ok` response, and the `Ok` arm below
+            // checks the status itself before reading the body.
             .http_status_as_error(true)
             // HTTPS_PROXY / ALL_PROXY / NO_PROXY from the environment. This
             // is what makes `HTTPS_PROXY=http://127.0.0.1:9 gameday` the
@@ -85,6 +88,11 @@ impl EspnProvider {
             req = req.header("If-None-Match", tag);
         }
         match req.call() {
+            // ureq 3 only classifies 4xx/5xx as `Error::StatusCode`; a 304
+            // is a plain `Ok` response, so it must be caught here — before
+            // the body read below, since a 304 body is empty and would
+            // otherwise map to a bogus `Fetched::Body`.
+            Ok(r) if r.status().as_u16() == 304 => Ok(Fetched::NotModified),
             // `key` is left empty here and filled in by `stamp`: this layer
             // only knows the URL it asked for.
             Ok(mut r) => {
@@ -104,7 +112,6 @@ impl EspnProvider {
                     })?;
                 Ok(Fetched::Body { body, etag })
             }
-            Err(ureq::Error::StatusCode(304)) => Ok(Fetched::NotModified),
             Err(ureq::Error::StatusCode(code)) => Err(ProviderError::Http {
                 status: code,
                 key: String::new(),
@@ -659,10 +666,12 @@ mod tests {
         assert!(USER_AGENT.contains("+https://"));
     }
 
-    /// ureq 3 reports non-2xx as `Error::StatusCode(u16)`; the 304 arm must
-    /// keep mapping to `Fetched::NotModified`, and a transport error must
-    /// keep `status: 0` with the detail text (which `short()` reads for the
-    /// word "timeout").
+    /// A refused TCP connect never reaches the HTTP layer at all — this
+    /// exercises ureq's transport-error catch-all (`Err(e) => ...`), not the
+    /// status-code arms. It holds under both ureq 2 and 3: a transport
+    /// failure must keep `status: 0` with the detail text (which `short()`
+    /// reads for the word "timeout"). The real-server tests below exercise
+    /// the status-code arms (304 / 200 / 4xx) that this one can't reach.
     #[test]
     fn transport_errors_keep_status_zero_and_the_detail_text() {
         let dir = tmp("transport");
@@ -684,6 +693,99 @@ mod tests {
                 );
                 assert_eq!(url, "http://127.0.0.1:9/never");
             }
+            other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    /// A one-shot raw HTTP/1.1 server: accepts a single connection, reads
+    /// the request through the blank line that ends the headers (and hands
+    /// that request text back over the channel for the caller to inspect),
+    /// then writes `response` verbatim and lets the stream drop.
+    fn one_shot_server(
+        response: &'static str,
+    ) -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut request = String::new();
+                loop {
+                    let mut line = String::new();
+                    match reader.read_line(&mut line) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            if line == "\r\n" || line == "\n" {
+                                break;
+                            }
+                            request.push_str(&line);
+                        }
+                    }
+                }
+                let _ = tx.send(request);
+                let mut stream = stream;
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+        (addr, rx)
+    }
+
+    /// ureq 3 only classifies 4xx/5xx as `Error::StatusCode`; a real 304 —
+    /// even with an ETag on it — arrives as a plain `Ok` response with an
+    /// empty body. Regression for the bug where that empty body was mapped
+    /// as `Fetched::Body`, failed to parse, and silently served the cache
+    /// marked stale even though the 304 said it was current.
+    #[test]
+    fn a_304_from_a_real_server_is_not_modified_even_with_an_etag() {
+        let (addr, rx) = one_shot_server(
+            "HTTP/1.1 304 Not Modified\r\nETag: \"abc\"\r\nContent-Length: 0\r\n\r\n",
+        );
+        let dir = tmp("real-304");
+        let p = provider(&dir);
+        let got = p
+            .http(&format!("http://{addr}/x"), Some("\"abc\""))
+            .unwrap();
+        assert_eq!(got, Fetched::NotModified);
+        let req = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(
+            req.lines().any(|l| {
+                let mut parts = l.splitn(2, ':');
+                let name = parts.next().unwrap_or("").trim();
+                let value = parts.next().unwrap_or("").trim();
+                name.eq_ignore_ascii_case("if-none-match") && value == "\"abc\""
+            }),
+            "expected an If-None-Match: \"abc\" header in the request, got: {req:?}"
+        );
+    }
+
+    #[test]
+    fn a_200_from_a_real_server_reads_the_body_and_the_etag() {
+        let (addr, _rx) = one_shot_server(
+            "HTTP/1.1 200 OK\r\nETag: \"def\"\r\nContent-Length: 7\r\n\r\n{\"v\":1}",
+        );
+        let dir = tmp("real-200");
+        let p = provider(&dir);
+        let got = p.http(&format!("http://{addr}/x"), None).unwrap();
+        assert_eq!(
+            got,
+            Fetched::Body {
+                body: "{\"v\":1}".to_string(),
+                etag: Some("\"def\"".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn a_403_from_a_real_server_is_the_error_with_status() {
+        let (addr, _rx) = one_shot_server("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+        let dir = tmp("real-403");
+        let p = provider(&dir);
+        let err = p.http(&format!("http://{addr}/x"), None).unwrap_err();
+        match err {
+            ProviderError::Http { status, .. } => assert_eq!(status, 403),
             other => panic!("expected Http, got {other:?}"),
         }
     }
