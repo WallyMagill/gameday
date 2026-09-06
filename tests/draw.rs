@@ -1284,11 +1284,12 @@ fn standings_view_without_data_says_so_and_esc_pops() {
     assert!(!app.should_quit);
 }
 
-/// With no CFB table in hand the view points at the per-conference command
-/// rather than saying "no standings yet", which reads as a fetch still in
-/// flight — and never claims ESPN has no FBS table, because it does.
+/// With no CFB table in hand the view says the fetch came back empty rather
+/// than "no standings yet", which reads as a fetch still in flight — and it
+/// never claims ESPN has no FBS table, because it does. It also names no
+/// command: there is no per-conference form to point at.
 #[test]
-fn standings_view_for_cfb_names_the_per_conference_workaround() {
+fn standings_view_for_cfb_says_the_table_is_missing_not_pending() {
     use gameday::views::View;
     let mut app = mk();
     app.view = View::Standings(League::Cfb);
@@ -1297,8 +1298,8 @@ fn standings_view_for_cfb_names_the_per_conference_workaround() {
     let s = buf_text(&t);
     assert!(s.contains("no FBS standings right now"), "{s}");
     assert!(
-        s.contains(":standings <conf>"),
-        "the workaround must be named:\n{s}"
+        !s.contains(":standings <conf>"),
+        "the parser has no per-conference form; do not offer one:\n{s}"
     );
     assert!(!s.contains("no standings yet"), "{s}");
 }

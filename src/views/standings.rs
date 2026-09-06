@@ -26,7 +26,7 @@ const VAL_W: usize = 4;
 /// back with nothing. `standings_url` pins `?group=80`, which answered with
 /// 138 FBS teams on 2026-08-31 — so this is the failure path, and the copy
 /// says only that (no table right now), never that ESPN has none to give.
-const CFB_NO_TABLE: &str = "no FBS standings right now · try :standings <conf> (coming in v3.3)";
+const CFB_NO_TABLE: &str = "no FBS standings right now";
 
 /// Total composed body lines for `table` — the key handler's scroll clamp.
 /// Per group: name + column header + rows, with one blank line between groups.

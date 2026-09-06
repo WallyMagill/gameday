@@ -464,7 +464,7 @@ fn parse_theme_inner(text: &str, compat_note: bool) -> Result<(String, Theme), S
                 crate::log::note_once(
                     &format!("theme:{name}:team-never"),
                     &format!(
-                        "theme {name}: roles.team = \"never\" was retired in v3.3 — it never \
+                        "theme {name}: roles.team = \"never\" was retired — it never \
                          differed from \"hero\" (the hero's colors are the identity floor), \
                          so it loads as \"hero\"; valid: {}",
                         TeamColorScope::VALID
@@ -495,7 +495,7 @@ fn parse_theme_inner(text: &str, compat_note: bool) -> Result<(String, Theme), S
         crate::log::note_once(
             &format!("theme:{name}:discipline"),
             &format!(
-                "theme {name}: [discipline] is compatibility-only in v3.2 and will be removed; \
+                "theme {name}: [discipline] is compatibility-only and will be removed; \
                  use [roles] instead"
             ),
         );
