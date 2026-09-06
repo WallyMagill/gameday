@@ -1404,4 +1404,46 @@ mod tests {
             "{err}"
         );
     }
+
+    /// Every malformed shape a user could write must come back as an error
+    /// line, never a panic. The test passing IS the proof: a panic here
+    /// fails it. Each case is a real mistake, not fuzz.
+    #[test]
+    fn malformed_user_themes_are_errors_not_panics() {
+        let cases: [(&str, &str); 9] = [
+            ("empty file", ""),
+            ("not toml", "this is not toml at all ["),
+            ("no name", "[palette]\nbg = \"#000000\"\n"),
+            ("empty name", "name = \"\"\n[palette]\nbg = \"#000000\"\n"),
+            ("missing palette", "name = \"x\"\n"),
+            ("short hex", "name = \"x\"\n[palette]\nbg = \"#12\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n"),
+            ("unknown league", "name = \"x\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n[palette.league]\nxfl = \"#123456\"\n"),
+            ("bad role", "name = \"x\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n[roles]\nground = \"nope\"\n"),
+            ("bad team scope", "name = \"x\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\nbright = \"#ffffff\"\nmuted = \"#888888\"\ndim = \"#444444\"\nborder = \"#333333\"\nlive = \"#ff0000\"\ngreen = \"#00ff00\"\ncyan = \"#00ffff\"\nmagenta = \"#ff00ff\"\nstar = \"#ffaa00\"\n[roles]\nteam = \"everywhere\"\n"),
+        ];
+        for (label, text) in cases {
+            let err = parse_theme(text).expect_err(label);
+            assert!(!err.is_empty(), "{label}: the error must say something");
+        }
+        // Through the directory loader too: one broken file beside one good
+        // built-in copy must yield one entry and one error line naming the file.
+        let dir = std::env::temp_dir().join(format!("gd-theme-nopanic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("themes")).unwrap();
+        std::fs::write(dir.join("themes/broken.toml"), "name = \"\"\n").unwrap();
+        std::fs::write(
+            dir.join("themes/copy.toml"),
+            BUILTIN_TOML[0].replace("name = \"broadcast\"", "name = \"copy\""),
+        )
+        .unwrap();
+        let (entries, errors) = load_user_themes(&dir);
+        assert_eq!(entries.len(), 1, "the good file loads");
+        assert_eq!(errors.len(), 1, "the broken file is one error line");
+        assert!(
+            errors[0].contains("broken.toml"),
+            "the error names the file: {}",
+            errors[0]
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
