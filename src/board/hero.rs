@@ -1005,7 +1005,7 @@ mod tests {
         );
         let term = render(120, 12, &game, &{
             let mut p = plan();
-            p.chip = Some("TYING RUN 3RD"); // spec v3.3 §7
+            p.chip = Some("TYING RUN 3RD"); // a real MLB chip, so the hero draws its live shape
             p
         });
         let text = text_of(term.backend().buffer());

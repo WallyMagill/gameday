@@ -1098,7 +1098,9 @@ fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
     let s = buf_text(&t);
     let lines: Vec<&str> = s.lines().collect();
     // Both boards' scoring plays are rows, each tagged with its league chip
-    // and scoring word, and carrying the matchup score for orientation.
+    // and scoring word, and carrying the matchup score for orientation. The
+    // word is the league's own and carries no "!" — the block letters on the
+    // cut are the exclamation, so the feed's copy is the bare noun.
     let nfl_row = lines
         .iter()
         .find(|l| l.contains("Mahomes to Kelce"))
@@ -1106,7 +1108,7 @@ fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
     assert!(
         nfl_row.contains("NFL") && nfl_row.contains("TOUCHDOWN"),
         "{nfl_row}"
-    ); // spec v3.3 §7
+    );
     assert!(
         nfl_row.contains("KC@TB") && nfl_row.contains("27-24"),
         "{nfl_row}"
@@ -1118,8 +1120,8 @@ fn plays_feed_lists_scoring_plays_across_leagues_with_a_marker() {
     assert!(
         nba_row.contains("NBA") && nba_row.contains("BUCKET"),
         "{nba_row}"
-    ); // spec v3.3 §7
-       // Row 0 (the NFL play — enabled-tab order) carries the ▸ marker.
+    );
+    // Row 0 (the NFL play — enabled-tab order) carries the ▸ marker.
     assert!(
         nfl_row.contains("▸"),
         "marker must start on row 0: {nfl_row}"
@@ -3621,7 +3623,7 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     assert!(
         hot >= 40,
         "TOUCHDOWN must be painted in block letters: {hot} hot cells\n{s}"
-    ); // spec v3.3 §7
+    );
     assert!(
         s.contains("CHIEFS AT BILLS"),
         "the dim strip names the game:\n{s}"
@@ -3655,9 +3657,9 @@ fn a_pinned_score_takes_the_screen_and_an_unpinned_one_is_a_band() {
     assert!(
         rows[1].starts_with("▲ TOUCHDOWN · KC MAHOMES · KC 24 BUF 21"),
         "band headline:\n{s}"
-    ); // spec v3.3 §7
-       // Row two stopped repeating the play and became the
-       // affordance — what enter does, and how long the band has left.
+    );
+    // Row two stopped repeating the play and became the
+    // affordance — what enter does, and how long the band has left.
     assert!(
         rows[2].starts_with("enter jump · clears in"),
         "the band's second row is the jump affordance:\n{s}"

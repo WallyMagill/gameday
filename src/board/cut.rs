@@ -762,7 +762,7 @@ mod tests {
                 &kinded("Jokic makes 3-pt field goal", PlayKind::ThreePointer)
             ),
             "BUCKET"
-        ); // spec v3.3 §7
+        ); // the league's own word, and no "!": the block letters are the exclamation
     }
 
     #[test]
@@ -884,11 +884,11 @@ mod tests {
         p.team = "CHC".into();
         p.period = "T9".into();
         p.clock = String::new();
-        p.kind = PlayKind::RunScoringPlay; // spec v3.4 §2: the kind, not the sentence
+        p.kind = PlayKind::RunScoringPlay; // the kind picks the word, never the sentence
         let (name, rest) = split_surname(&p.text);
         assert_eq!(name, Some("J. Ortiz"));
         assert_eq!(rest, "Strikeout");
-        assert_eq!(word_for(&mlb, &p), "RUN SCORES"); // spec v3.3 §7
+        assert_eq!(word_for(&mlb, &p), "RUN SCORES"); // the noun form, no "!"
         let line = detail_line(&mlb, &p, 80);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text, "J. ORTIZ · STRIKEOUT · T9");

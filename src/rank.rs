@@ -634,7 +634,7 @@ mod tests {
         assert!(w.hot);
         assert_eq!(
             w.chip,
-            Some("TYING RUN 3RD"), // spec v3.3 §7
+            Some("TYING RUN 3RD"),
             "spec §2: the chip names the base, not a dangling phrase"
         );
     }
@@ -684,7 +684,7 @@ mod tests {
         });
         assert_eq!(
             watchability(&down_one, now()).chip,
-            Some("TYING RUN 1ST") // spec v3.3 §7
+            Some("TYING RUN 1ST") // and the chip names the base he stands on
         );
     }
 
@@ -703,7 +703,8 @@ mod tests {
         });
         let w = watchability(&end_away_down, now());
         assert!(w.hot, "away is the batting/tying side on END, must be hot");
-        assert_eq!(w.chip, Some("TYING RUN 2ND")); // spec v3.3 §7
+        // The chip is named for the runner's base, so END and BOT read alike.
+        assert_eq!(w.chip, Some("TYING RUN 2ND"));
 
         // Same shape relabeled BOT 8TH: bottom in progress, HOME bats. Home
         // trails by 1 with a runner on 2nd -> tying run on, hot.
@@ -717,7 +718,8 @@ mod tests {
         });
         let w = watchability(&bot_home_down, now());
         assert!(w.hot, "home is the batting/tying side on BOT, must be hot");
-        assert_eq!(w.chip, Some("TYING RUN 2ND")); // spec v3.3 §7
+        // Same chip: the half changed, the base the runner stands on did not.
+        assert_eq!(w.chip, Some("TYING RUN 2ND"));
 
         // END 8TH again, but HOME trails (so AWAY, the batting side, is
         // actually ahead) — the old `starts_with("TOP")`-vs-else code
