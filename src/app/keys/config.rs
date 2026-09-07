@@ -97,6 +97,7 @@ impl App {
     fn config_remove_favorite(&mut self, i: usize) {
         if i < self.config.favorites.len() {
             self.config.favorites.remove(i);
+            self.mark_favorites();
             self.persist_config();
             self.force_reorder(); // membership change — see `toggle_pin`
         }
@@ -168,6 +169,7 @@ impl App {
             league,
             team_abbr: abbr,
         });
+        self.mark_favorites();
         self.persist_config();
         self.force_reorder(); // membership change — see `toggle_pin`
     }

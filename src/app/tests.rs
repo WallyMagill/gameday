@@ -2348,3 +2348,32 @@ fn scoring_plays_dedupe_by_id_then_by_text() {
         "one side without an id: text decides"
     );
 }
+
+#[test]
+fn favorites_are_stamped_on_apply_and_after_an_edit() {
+    let mut app = app_with(vec![], vec![]);
+    app.config.favorites = vec![crate::config::Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    }];
+    let kc = g("1", "KC", "TB", true);
+    let other = g("2", "GB", "CHI", true);
+    app.apply_boards(League::Nfl, vec![kc, other], false);
+    assert!(app.game_by_id("1").unwrap().favorite);
+    assert!(!app.game_by_id("2").unwrap().favorite);
+    // A favorites edit re-stamps every board without waiting for a poll.
+    app.config.favorites.clear();
+    app.mark_favorites();
+    assert!(!app.game_by_id("1").unwrap().favorite);
+    // The board key path (t on the selected game) stamps too.
+    app.selected = 0;
+    app.on_key(
+        crossterm::event::KeyCode::Char('t'),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    let stamped = app.game_by_id("1").unwrap().favorite || app.game_by_id("2").unwrap().favorite;
+    assert!(
+        stamped,
+        "t favorites the selected game's home team and re-stamps"
+    );
+}

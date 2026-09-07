@@ -204,6 +204,22 @@ pub struct Situation {
     /// on real data this stays None and the chip simply doesn't render;
     /// `--demo` supplies it. Never synthesized for live games.
     pub shot_clock: Option<u8>,
+    /// ESPN's `situation.lastPlay.probability` on football scoreboards. See
+    /// `WinProb`.
+    pub win_prob: Option<WinProb>,
+}
+
+/// ESPN's `situation.lastPlay.probability` on football scoreboards (verified on
+/// the 2026-09-05 CFB slate: 16 of 18 live games carried it; absent on every
+/// other league's scoreboard in the review caches). Permille so `Situation`
+/// stays `Eq`; `seconds_left` is regulation seconds remaining as ESPN counts
+/// them. The ranking reads it for closeness and lateness where
+/// `rank::leverage_enabled` says so.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WinProb {
+    pub home_permille: u16,
+    pub away_permille: u16,
+    pub seconds_left: u32,
 }
 
 impl Situation {
@@ -396,6 +412,10 @@ pub struct Game {
     /// which is em-dash wire copy, not display prose. `None`
     /// when the event carries no headlines object, or the field is empty.
     pub headline: Option<String>,
+    /// One of the two teams is in `config.favorites`. Stamped by
+    /// `App::mark_favorites` after every apply and every favorites edit; the
+    /// mapper never sets it. Read by `rank::watchability` for the favorite term.
+    pub favorite: bool,
 }
 
 impl Default for Game {
@@ -421,6 +441,7 @@ impl Default for Game {
             linescore: vec![],
             timeouts: None,
             extras: Extras::None,
+            favorite: false,
         }
     }
 }

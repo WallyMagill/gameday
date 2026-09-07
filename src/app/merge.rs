@@ -202,6 +202,7 @@ impl App {
             }
         }
         self.boards.insert(league, games);
+        self.mark_favorites();
         // Favorite-score alerts diff the freshly merged boards; a hit starts
         // the header banner and queues the bell for main to ring. A cached
         // payload is skipped whole — not checked and discarded: AlertState
@@ -239,6 +240,22 @@ impl App {
         self.pins = prune_pins(std::mem::take(&mut self.pins), now);
         self.persist_pins_quiet();
         self.clamp_selected();
+    }
+
+    /// Stamp `Game.favorite` from `config.favorites` on every board. Called
+    /// at the end of `apply_boards` (before the reorder check) and after every
+    /// favorites edit, so the flag never waits for a poll.
+    pub(crate) fn mark_favorites(&mut self) {
+        let favs = self.config.favorites.clone();
+        for board in self.boards.values_mut() {
+            for g in board.iter_mut() {
+                g.favorite = favs.iter().any(|f| {
+                    f.league == g.league
+                        && (f.team_abbr.eq_ignore_ascii_case(&g.home.abbr)
+                            || f.team_abbr.eq_ignore_ascii_case(&g.away.abbr))
+                });
+            }
+        }
     }
 
     /// Fire a cut unless the view suppresses them; a takeover rings the bell.

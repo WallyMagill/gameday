@@ -1838,3 +1838,40 @@ fn mlb_play_result_rows_print_the_feed_sentence_not_the_type_label() {
         "scoreValue 1 is ESPN saying a run scored, whatever scoringPlay says"
     );
 }
+
+#[test]
+fn win_probability_maps_from_the_football_scoreboard() {
+    let games = map_scoreboard(
+        League::Cfb,
+        include_str!("../fixtures/review-slate-2026-09-05.json"),
+        et(),
+    )
+    .unwrap();
+    let bois = games
+        .iter()
+        .find(|g| g.away.abbr == "BOIS" && g.home.abbr == "ORE")
+        .expect("Boise at Oregon is on the slate");
+    let wp = bois
+        .situation
+        .as_ref()
+        .and_then(|s| s.win_prob)
+        .expect("a live football game carries probability");
+    assert_eq!(wp.home_permille, 285, "0.2847 → 285 permille");
+    assert_eq!(wp.away_permille, 715);
+    assert_eq!(wp.seconds_left, 2116);
+    let pre = games
+        .iter()
+        .find(|g| g.status == Status::Pre)
+        .expect("a pre-game event");
+    assert!(pre.situation.as_ref().is_none_or(|s| s.win_prob.is_none()));
+    // No other league's scoreboard carries the field (checked on the review caches).
+    let mlb = map_scoreboard(
+        League::Mlb,
+        include_str!("../fixtures/live/mlb_scoreboard_live.json"),
+        et(),
+    )
+    .unwrap();
+    assert!(mlb
+        .iter()
+        .all(|g| g.situation.as_ref().is_none_or(|s| s.win_prob.is_none())));
+}

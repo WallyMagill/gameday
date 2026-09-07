@@ -104,6 +104,7 @@ impl App {
                 team_abbr: abbr,
             });
         }
+        self.mark_favorites();
         self.persist_config();
         self.force_reorder(); // membership change — see `toggle_pin`
         self.clamp_selected();

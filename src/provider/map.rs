@@ -155,6 +155,19 @@ fn record_from(competitor: &Value) -> String {
         .to_string()
 }
 
+/// `lastPlay.probability` → permille. All three fields required, else None.
+fn win_prob_from(p: &Value) -> Option<WinProb> {
+    let home = p["homeWinPercentage"].as_f64()?;
+    let away = p["awayWinPercentage"].as_f64()?;
+    let seconds_left = p["secondsLeft"].as_u64()?;
+    let permille = |x: f64| (x.clamp(0.0, 1.0) * 1000.0).round() as u16;
+    Some(WinProb {
+        home_permille: permille(home),
+        away_permille: permille(away),
+        seconds_left: seconds_left.min(u32::MAX as u64) as u32,
+    })
+}
+
 /// Down and distance without the ball position: ESPN's `shortDownDistanceText`
 /// ("1st & 10") when it is there (college feeds carry it, verified in
 /// fixtures/live/cfb_scoreboard_live.json), else `downDistanceText` with its
@@ -424,6 +437,7 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
                 .as_str()
                 .filter(|s| !s.is_empty())
                 .map(str::to_string),
+            win_prob: win_prob_from(&sit_v["lastPlay"]["probability"]),
             ..Default::default()
         };
         if league == League::Mlb {
@@ -601,6 +615,7 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         linescore,
         timeouts,
         extras,
+        favorite: false,
     })
 }
 
