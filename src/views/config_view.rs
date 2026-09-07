@@ -141,7 +141,9 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> u16 {
     let skip = (cursor_line + 1).saturating_sub(visible);
     let block_w = if two { panel_w * 2 + GUTTER } else { panel_w };
     let x = pane.x + (pane.width as usize).saturating_sub(block_w) as u16 / 2;
-    let y = pane.y + (pane_h - visible) as u16 / 2;
+    // One row of air under the CONFIG header; L6 centered a short editor at
+    // row 15 of 40.
+    let y = pane.y + 1;
     for (i, col) in columns.into_iter().enumerate() {
         // Only the cursor's own column scrolls; every other column renders
         // from its own top.

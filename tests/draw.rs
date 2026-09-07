@@ -2022,6 +2022,24 @@ fn config_view_renders_every_section() {
     }
 }
 
+/// L6: the config editor started at row 15 of 40. It sits under its header.
+#[test]
+fn config_view_top_aligns_under_its_header() {
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::ConfigView;
+    let term = render(&mut app, 120, 40);
+    let s = buf_text(&term);
+    let tabs_y = s
+        .lines()
+        .position(|l| l.contains("TABS"))
+        .expect("TABS section");
+    assert_eq!(
+        tabs_y, 3,
+        "header, CONFIG chip, one row of air, then TABS:\n{s}"
+    );
+}
+
 #[test]
 fn config_scroll_is_per_panel_not_shared() {
     // A single `skip` used to be applied to
@@ -2486,6 +2504,59 @@ fn zoom_scoring_list_does_not_print_the_clock_twice_either() {
         !s.contains("(11:09)"),
         "the feed's own clock prefix is not drawn beside ours:\n{s}"
     );
+}
+
+/// L5: five to eight blank rows under SCORING at 40 rows. The two feeds
+/// share the body in proportion, each floored at four, so a game with the
+/// plays to fill the pane fills it.
+#[test]
+fn zoom_overview_fills_the_pane_at_30_40_and_60_rows() {
+    use gameday::views::{View, ZoomTab};
+    let mut game = g("1", "KC", "TB", true);
+    game.last_plays = (0..40u16)
+        .map(|i| Play {
+            clock: format!("{}:{:02}", 14 - i / 4, 59 - i),
+            period: "Q1".into(),
+            team: "KC".into(),
+            text: format!("play {i}"),
+            scoring: i % 4 == 0,
+            ..Default::default()
+        })
+        .collect();
+    let game = with_scoring(game);
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![game], false);
+    app.tab = Tab::League(League::Nfl);
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
+    for h in [30u16, 40, 60] {
+        let term = render(&mut app, 120, h);
+        let s = buf_text(&term);
+        let lines: Vec<&str> = s.lines().collect();
+        let plays_y = lines
+            .iter()
+            .position(|l| l.contains("LAST PLAYS"))
+            .expect("caption");
+        let scoring_y = lines
+            .iter()
+            .position(|l| l.contains("SCORING"))
+            .expect("caption");
+        let last_body = h as usize - 2; // row h-1 is the footer
+        assert!(
+            !lines[last_body].trim().is_empty(),
+            "blank band at {h} rows:\n{s}"
+        );
+        assert!(
+            scoring_y - plays_y > 4,
+            "LAST PLAYS keeps four rows at {h}:\n{s}"
+        );
+        assert!(
+            last_body - scoring_y >= 4,
+            "SCORING keeps four rows at {h}:\n{s}"
+        );
+    }
 }
 
 #[test]

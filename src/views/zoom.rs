@@ -386,12 +386,62 @@ fn pips(left: u8) -> String {
         .collect()
 }
 
+/// Rows a feed section keeps even when the other is long: a caption over
+/// fewer than four rows is a header over a void (the old `FEED_MIN` said
+/// the same about the whole feed).
+const FEED_FLOOR: usize = 4;
+
+/// Split `avail` body rows (the two rules and two captions already taken)
+/// between LAST PLAYS and SCORING: in proportion to what each has, each
+/// floored at [`FEED_FLOOR`] when it has that many, and rows one section
+/// cannot use go to the other — the pane fills whenever the game has the
+/// plays to fill it (L5 was five to eight blank rows under SCORING). Under
+/// two floors (`avail` too small to grant both), neither floor can hold, so
+/// this falls back to a plain proportional split rounded to the nearest
+/// row, with SCORING taking whatever LAST PLAYS doesn't.
+pub(crate) fn feed_split(avail: usize, plays: usize, scoring: usize) -> (usize, usize) {
+    if plays + scoring <= avail {
+        return (plays, scoring);
+    }
+    let floor_p = FEED_FLOOR.min(plays);
+    let floor_s = FEED_FLOOR.min(scoring);
+    if avail < floor_p + floor_s {
+        let total = plays + scoring;
+        let p = (2 * avail * plays + total) / (2 * total);
+        let p = p.min(avail).min(plays);
+        let s = avail.saturating_sub(p).min(scoring);
+        return (p, s);
+    }
+    let mut p = (avail * plays / (plays + scoring)).max(floor_p).min(plays);
+    let mut s = avail.saturating_sub(p).min(scoring);
+    if s < floor_s {
+        s = floor_s.min(avail);
+        p = avail.saturating_sub(s).min(plays);
+    }
+    if p + s < avail {
+        p = avail.saturating_sub(s).min(plays);
+    }
+    if p + s < avail {
+        s = avail.saturating_sub(p).min(scoring);
+    }
+    (p, s)
+}
+
 /// LAST PLAYS over the game's feed, then SCORING over `game.scoring_plays` —
 /// the two sections the old focus tile ended with, unchanged in content.
 fn draw_feed(frame: &mut Frame, area: Rect, game: &Game) {
     let th = theme::current();
     let r = th.roles();
     let width = area.width as usize;
+    // Two rules and two captions are fixed; what's left splits between the
+    // sections in proportion to what each has (an empty section still
+    // prints its one-line message, so it counts one).
+    let avail = (area.height as usize).saturating_sub(4);
+    let (p_rows, s_rows) = feed_split(
+        avail,
+        game.last_plays.len().max(1),
+        game.scoring_plays.len().max(1),
+    );
     let rule = || {
         Line::from(Span::styled(
             "─".repeat(width.saturating_sub(2)),
@@ -416,14 +466,10 @@ fn draw_feed(frame: &mut Frame, area: Rect, game: &Game) {
         };
         lines.push(Line::from(Span::styled(empty, Style::default().fg(r.dim))));
     } else {
-        // Half of what is left after the two headers and the SCORING rule
-        // goes to the live feed, so a long drive can never push SCORING off
-        // the pane.
-        let room = ((area.height as usize).saturating_sub(4) / 2).max(1);
         lines.extend(
             game.last_plays
                 .iter()
-                .take(room)
+                .take(p_rows)
                 .map(|p| tiles::play_line(game, p, width)),
         );
     }
@@ -433,7 +479,7 @@ fn draw_feed(frame: &mut Frame, area: Rect, game: &Game) {
         Style::default().fg(r.hot).add_modifier(Modifier::BOLD),
     )));
     let word = theme::scoring_word(game.league);
-    for p in game.scoring_plays.iter().rev() {
+    for p in game.scoring_plays.iter().rev().take(s_rows) {
         let color = if p.team.eq_ignore_ascii_case(&game.away.abbr) {
             th.team_text(game.away.color)
         } else {
@@ -663,6 +709,37 @@ fn draw_stats(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
         frame.render_widget(
             Paragraph::new(lines).style(Style::default().bg(th.bg)),
             chunks[1],
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::feed_split;
+
+    #[test]
+    fn feed_split_shares_the_pane_proportionally_with_a_floor_of_four() {
+        assert_eq!(feed_split(20, 6, 6), (6, 6), "fits: nothing to share");
+        assert_eq!(
+            feed_split(20, 40, 10),
+            (16, 4),
+            "proportional, scoring at its floor"
+        );
+        assert_eq!(
+            feed_split(20, 40, 2),
+            (18, 2),
+            "a section never gets more than it has"
+        );
+        assert_eq!(
+            feed_split(20, 3, 40),
+            (3, 17),
+            "the other section takes the leftover"
+        );
+        assert_eq!(feed_split(8, 40, 40), (4, 4), "both at the floor");
+        assert_eq!(
+            feed_split(3, 40, 40),
+            (2, 1),
+            "under two floors: proportional, scoring last"
         );
     }
 }
