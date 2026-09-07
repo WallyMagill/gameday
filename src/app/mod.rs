@@ -46,6 +46,16 @@ pub const FLASH_TICKS: u64 = LIVE_TICKS_PER_SEC;
 /// score older than a minute is no longer a cut.
 pub const CATCHUP_TTL_TICKS: u64 = 60 * LIVE_TICKS_PER_SEC;
 
+/// How many summaries one queued catch-up may ask for before it gives up.
+/// A guess, named as one: ESPN publishes the score before the play-by-play,
+/// so the summary fetched the instant a score moves can legitimately not name
+/// the run yet — the 2026-09-07 replay capture caught exactly that
+/// (`mlb-20260907-0334` poll 19 reports 4-2 while the feed's newest play is
+/// still the pitch before the double, and poll 20 has it). Three asks is
+/// three polls, ~45 s of lag, well past anything those captures show; the
+/// TTL bounds the wait regardless.
+pub const CATCHUP_MAX_ATTEMPTS: u8 = 3;
+
 /// LIVE chip pulse phase, pure in the tick: ~1s bright then ~1s dim at the
 /// 10 ticks/s live cadence. A luminance step, never a hue change.
 pub fn live_pulse_bright(tick: u64) -> bool {

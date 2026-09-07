@@ -17,6 +17,9 @@ pub(crate) struct CatchupEntry {
     pub game_id: String,
     pub seq: u64,
     pub queued_tick: u64,
+    /// Summaries this entry has already asked for and been answered by
+    /// without learning the run. Bounded by `CATCHUP_MAX_ATTEMPTS`.
+    pub attempts: u8,
 }
 
 /// Play identity: ESPN ids when both sides carry one, else the text (demo
@@ -92,6 +95,7 @@ impl App {
                                     game_id: g.id.clone(),
                                     seq: self.catchup_seq,
                                     queued_tick: self.tick,
+                                    attempts: 0,
                                 });
                             }
                         }
@@ -183,19 +187,18 @@ impl App {
         // news exactly once: the play that is new to `game.scoring_plays`
         // fires a cut, and the rest of the list is history being backfilled.
         //
-        // The catch-up entry is consumed by the ASK, not by the answer: the
-        // request is one-shot by sequence number, so an entry left behind by
-        // a summary that said nothing would never be retried — it would just
-        // sit out its TTL blocking the next catch-up for that game. Both
-        // exits below drop it, and the index is taken before the boards loop
-        // borrows `self` mutably.
+        // The catch-up entry is consumed by the ANSWER, not by the ask: a
+        // summary that did not name the run is asked again (`retry_catchup`),
+        // because ESPN publishes the score before the play-by-play and the
+        // fetch a score delta triggers can land in that gap. The index is
+        // taken before the boards loop borrows `self` mutably; nothing
+        // between here and the exits touches `self.catchup`, so it stays
+        // valid.
         let queued = self.catchup.iter().position(|c| c.game_id == game_id);
-        if let Some(i) = queued {
-            self.catchup.remove(i);
-        }
         // Non-football summaries carry no "drives", so they can map to zero
         // plays; keep the scoreboard's lastPlay instead of blanking the tile.
         if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
+            self.retry_catchup(queued);
             return;
         }
         let mut fresh: Option<(String, Play)> = None;
@@ -257,9 +260,16 @@ impl App {
                 break;
             }
         }
-        if let Some((id, play)) = fresh {
-            let full = self.game_by_id(&id).is_some_and(|g| self.cut_is_full(&g));
-            self.fire_cut(&id, &play, full);
+        match fresh {
+            Some((id, play)) => {
+                // The ask is answered: retire the entry, then cut.
+                if let Some(i) = queued {
+                    self.catchup.remove(i);
+                }
+                let full = self.game_by_id(&id).is_some_and(|g| self.cut_is_full(&g));
+                self.fire_cut(&id, &play, full);
+            }
+            None => self.retry_catchup(queued),
         }
         // No reorder here, and nothing a summary carries can cause one
         // elsewhere either. The rank fingerprint is (scores, status, hot),
@@ -268,6 +278,36 @@ impl App {
         // field and is refused by `watchability`'s NHL arm besides,
         // precisely so zooming a game can never move it. Zoom and unzoom
         // leave the order exactly where the last scoreboard apply put it.
+    }
+
+    /// A catch-up whose summary did not name the run: ask again, up to
+    /// [`CATCHUP_MAX_ATTEMPTS`] times, then let it go.
+    ///
+    /// ESPN moves the score before it moves the play-by-play. The 2026-09-07
+    /// replay capture is the receipt: `mlb-20260907-0334` poll 19 already
+    /// reports 4-2 while `situation.lastPlay` is still the pitch before
+    /// "Edman doubled to left, Muncy scored." A summary fetched in that gap
+    /// carries nothing the app has not already seen, and consuming the entry
+    /// there — what this did before — meant that run never got a cut at all.
+    ///
+    /// Bumping `seq` is what re-arms the ask: the scheduler emits one
+    /// `Summary` per sequence number it has not seen (`poll::Scheduler::due`),
+    /// so a new number is a new request and the old one is not retried
+    /// forever by accident. Bounded three ways — the attempt count, the TTL,
+    /// and the one-entry-per-game rule that was already here.
+    ///
+    /// `None` (no entry for this game) is the zoom's own summary cadence
+    /// landing: nothing was asked, so nothing is retried.
+    fn retry_catchup(&mut self, queued: Option<usize>) {
+        let Some(i) = queued else { return };
+        let attempts = self.catchup[i].attempts + 1;
+        if attempts >= crate::app::CATCHUP_MAX_ATTEMPTS {
+            self.catchup.remove(i);
+            return;
+        }
+        self.catchup_seq += 1;
+        self.catchup[i].attempts = attempts;
+        self.catchup[i].seq = self.catchup_seq;
     }
 
     /// The zoomed game's (league, id) — the stats poll's only target. None

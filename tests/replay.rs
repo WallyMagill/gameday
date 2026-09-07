@@ -172,6 +172,173 @@ fn as_of(
     summary_as_of(raw, score, ctx)
 }
 
+/// The first poll of a sequence whose delta takes the catch-up path: the
+/// score moved while the scoreboard's own last play was not marked scoring,
+/// so `App` has to ask the summary. That is the poll the lag drill below
+/// runs on.
+struct Lag {
+    at: usize,
+    game: String,
+    /// The score the poll before — the innings the app has already seen.
+    before: (u16, u16),
+    /// The score at the delta — the run the cut owes the viewer.
+    after: (u16, u16),
+}
+
+fn first_catchup_delta(league: League, polls: &[(String, String)]) -> Option<Lag> {
+    let mut prev: HashMap<String, (u16, u16)> = HashMap::new();
+    for (at, (_, body)) in polls.iter().enumerate() {
+        let games = map_scoreboard(league, body, time::UtcOffset::UTC).ok()?;
+        for g in &games {
+            let score = (g.away_score, g.home_score);
+            if let Some(before) = prev.get(&g.id).copied() {
+                if before != score && !g.last_plays.first().is_some_and(|p| p.scoring) {
+                    return Some(Lag {
+                        at,
+                        game: g.id.clone(),
+                        before,
+                        after: score,
+                    });
+                }
+            }
+            prev.insert(g.id.clone(), score);
+        }
+    }
+    None
+}
+
+/// The case `CATCHUP_MAX_ATTEMPTS` exists for, replayed on real polls: ESPN
+/// publishes the score before the play-by-play, so the summary a delta
+/// triggers can arrive without the run in it. Served that lagging summary on
+/// purpose, the app must fire nothing, keep the ask alive with a new sequence
+/// number, and land the right cut on the next summary — one poll late.
+///
+/// The drill starts from the steady state, because that is what the rule
+/// keys on: "the summary carries nothing new" only means "the feed has not
+/// caught up" once the app has already seen the earlier innings. A session
+/// that has been open for a while is there by definition, and so is any
+/// zoomed game (the zoom's own summary poll runs every 15 s), so the harness
+/// puts the app there with one plain merge that fires nothing.
+#[test]
+fn a_summary_that_has_not_caught_up_is_asked_again_and_the_cut_still_names_the_run() {
+    let mut drilled = 0;
+    for dir in sequences() {
+        let league = league_of(&dir);
+        let label = dir.file_name().unwrap().to_string_lossy().into_owned();
+        let all = polls(&dir);
+        let Some(lag) = first_catchup_delta(league, &all) else {
+            continue;
+        };
+        assert!(
+            all.len() > lag.at + 1,
+            "{label}: the catch-up delta is the last poll of the window, so there is no poll left for the retry to land in"
+        );
+        let mut app = app(&format!("{label}-lag"));
+        let mut summaries: HashMap<String, String> = Default::default();
+        for (i, (name, body)) in all.iter().enumerate().take(lag.at + 2) {
+            let games = map_scoreboard(league, body, time::UtcOffset::UTC)
+                .unwrap_or_else(|e| panic!("{}: poll {name}: {e}", dir.display()));
+            let ctx = format!("{}: poll {name}: {}", dir.display(), lag.game);
+            let score_now = games
+                .iter()
+                .find(|g| g.id == lag.game)
+                .map(|g| (g.away_score, g.home_score));
+            if i == lag.at {
+                let fired = app.cuts_fired();
+                let seen = as_of(
+                    &dir,
+                    &mut summaries,
+                    &lag.game,
+                    lag.before,
+                    &format!("{ctx}: priming the innings before the delta"),
+                );
+                let s = map_summary(league, &seen.body).unwrap_or_else(|e| panic!("{ctx}: {e}"));
+                app.merge_summary(&lag.game, s);
+                assert_eq!(
+                    app.cuts_fired(),
+                    fired,
+                    "{ctx}: backfilling history fired a cut"
+                );
+            }
+            let before = app.cuts_fired();
+            app.apply_boards(league, games, false);
+            for _ in 0..10 {
+                app.advance_tick();
+            }
+            let wants = app.catchup_wants();
+            if i == lag.at {
+                assert_eq!(wants.len(), 1, "{ctx}: the delta must queue a catch-up");
+                // ESPN has the score but not the play yet: the feed at this
+                // instant still stops at the previous score.
+                let lagging = as_of(&dir, &mut summaries, &lag.game, lag.before, &ctx);
+                let s = map_summary(league, &lagging.body).unwrap_or_else(|e| panic!("{ctx}: {e}"));
+                app.merge_summary(&lag.game, s);
+                assert_eq!(
+                    app.cuts_fired(),
+                    before,
+                    "{ctx}: a summary that names no new run must not fire a cut"
+                );
+                let again = app.catchup_wants();
+                assert_eq!(
+                    again.len(),
+                    1,
+                    "{ctx}: the ask was consumed by a summary that did not answer it, so the run at {}-{} never gets a cut",
+                    lag.after.0,
+                    lag.after.1
+                );
+                assert!(
+                    again[0].seq > wants[0].seq,
+                    "{ctx}: a retry needs a sequence number the scheduler has not seen (was {}, is {})",
+                    wants[0].seq,
+                    again[0].seq
+                );
+            } else if i == lag.at + 1 {
+                assert_eq!(
+                    score_now,
+                    Some(lag.after),
+                    "{ctx}: the score moved again inside the drill window; this sequence needs a different lag poll"
+                );
+                assert_eq!(
+                    wants.len(),
+                    1,
+                    "{ctx}: the ask must still be pending one poll later"
+                );
+                let landed = as_of(&dir, &mut summaries, &lag.game, lag.after, &ctx);
+                let s = map_summary(league, &landed.body).unwrap_or_else(|e| panic!("{ctx}: {e}"));
+                app.merge_summary(&lag.game, s);
+                let cut = app
+                    .cuts
+                    .active(app.tick)
+                    .unwrap_or_else(|| panic!("{ctx}: the retry landed and no cut is on screen"));
+                assert_eq!(
+                    cut.play.id, landed.id,
+                    "{ctx}: the late cut names {:?}, not {:?}",
+                    cut.play.text, landed.text
+                );
+                assert_eq!(app.cuts_fired(), before + 1, "{ctx}: exactly one cut");
+                assert!(
+                    app.catchup_wants().is_empty(),
+                    "{ctx}: answered, so consumed"
+                );
+                println!(
+                    "{label} poll {name}: {}-{} · retried after a lagging summary · {:?}",
+                    lag.after.0, lag.after.1, cut.play.text
+                );
+            } else {
+                assert!(
+                    wants.is_empty(),
+                    "{ctx}: a catch-up earlier than the drill's, which `first_catchup_delta` said was the first"
+                );
+            }
+        }
+        drilled += 1;
+    }
+    assert!(
+        drilled > 0,
+        "no sequence has a delta that takes the catch-up path: the retry is untested"
+    );
+}
+
 #[test]
 fn every_score_delta_in_every_sequence_yields_exactly_one_cut_naming_a_scoring_play() {
     for dir in sequences() {

@@ -1804,11 +1804,83 @@ fn a_catchup_that_never_lands_expires_after_the_ttl_without_a_cut() {
     assert_eq!(app.cuts_fired(), 0);
 }
 
+/// A queued catch-up whose summary lands before the play-by-play does. ESPN
+/// publishes the score first, so the summary the delta triggered can carry
+/// nothing new; the entry has to survive that and ask again, or the run never
+/// gets a cut at all (the 2026-09-07 replay capture, poll 19 of
+/// mlb-20260907-0334).
 #[test]
-fn an_empty_summary_consumes_the_catchup_without_a_cut() {
-    // The request is one-shot by sequence number, so a summary that says
-    // nothing still has to retire the entry — otherwise it sits out the TTL
-    // blocking the next catch-up for that game.
+fn a_summary_that_names_no_new_run_re_asks_and_the_next_one_fires_the_cut() {
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400; // past the 30 s startup suppression, so a zero is a real zero
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    // The inning before this one is already on the game, the way the zoom's
+    // own summary cadence leaves it: `s1` is history, not news.
+    let s1 = snap("s1", "Happ homered to right (12)", "CHC", true);
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![s1.clone()],
+            scoring_plays: vec![s1.clone()],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(app.cuts_fired(), 0, "a first summary is history, not a cut");
+    let mut g2 = g1.clone();
+    g2.away_score = 8; // `g` seeds 7
+    g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g2], false);
+    assert_eq!(app.catchup_wants()[0].seq, 1, "the ask");
+    // The feed has not caught up: same scoring play, nothing new.
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![s1.clone()],
+            scoring_plays: vec![s1.clone()],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(app.cuts_fired(), 0, "nothing new is not a cut");
+    let again = app.catchup_wants();
+    assert_eq!(
+        again.len(),
+        1,
+        "an unanswered ask is not consumed: the run would never get its cut"
+    );
+    assert_eq!(
+        again[0].seq, 2,
+        "a new sequence number is what makes the scheduler ask again"
+    );
+    // The next summary has it.
+    let s2 = snap("s2", "Suzuki homered to center (9)", "CHC", true);
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![s2.clone(), s1.clone()],
+            scoring_plays: vec![s2, s1],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(app.cuts_fired(), 1, "one cut, one poll late");
+    assert_eq!(
+        app.cuts.active(app.tick).map(|c| c.play.id.as_str()),
+        Some("s2"),
+        "and it names the run that moved the score"
+    );
+    assert!(app.catchup_wants().is_empty(), "answered, so consumed");
+}
+
+#[test]
+fn three_empty_summaries_retire_the_catchup_without_a_cut() {
+    // Re-asking is bounded: past CATCHUP_MAX_ATTEMPTS the entry goes quietly,
+    // so a game whose summary never names the run cannot hold a request slot
+    // for the whole TTL.
     let mut app = app_with(vec![], vec![]);
     app.tick = 400;
     let mut g1 = g("1", "CHC", "MIA", true);
@@ -1820,19 +1892,33 @@ fn an_empty_summary_consumes_the_catchup_without_a_cut() {
     g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
     app.apply_boards(League::Mlb, vec![g2], false);
     assert_eq!(app.catchup_wants().len(), 1);
-    app.merge_summary(
-        "1",
-        Summary {
-            last_plays: vec![],
-            scoring_plays: vec![],
-            meter: None,
-            extras: Extras::None,
-        },
-    );
-    assert!(
-        app.catchup_wants().is_empty(),
-        "we asked and got nothing: the entry is retired, not left to rot"
-    );
+    for attempt in 1..=u64::from(crate::app::CATCHUP_MAX_ATTEMPTS) {
+        app.merge_summary(
+            "1",
+            Summary {
+                last_plays: vec![],
+                scoring_plays: vec![],
+                meter: None,
+                extras: Extras::None,
+            },
+        );
+        let want = app.catchup_wants();
+        if attempt < u64::from(crate::app::CATCHUP_MAX_ATTEMPTS) {
+            assert_eq!(
+                want.len(),
+                1,
+                "attempt {attempt} of {}: still asking",
+                crate::app::CATCHUP_MAX_ATTEMPTS
+            );
+            assert_eq!(want[0].seq, attempt + 1, "attempt {attempt}: a new ask");
+        } else {
+            assert!(
+                want.is_empty(),
+                "attempt {attempt}: the bound is {}, the entry must go",
+                crate::app::CATCHUP_MAX_ATTEMPTS
+            );
+        }
+    }
     assert_eq!(app.cuts_fired(), 0, "nothing to cut on");
 }
 
