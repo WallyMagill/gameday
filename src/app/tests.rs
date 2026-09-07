@@ -2477,10 +2477,10 @@ fn favorites_are_stamped_on_apply_and_after_an_edit() {
     app.config.favorites.clear();
     app.mark_favorites();
     assert!(!app.game_by_id("1").unwrap().favorite);
-    // The board key path (t on the selected game) stamps too. Both games
-    // tie on watchability (same score, period, clock), so insertion order
-    // holds: index 0 is game "2" (GB @ CHI), and `t` favorites its home
-    // team, CHI.
+    // The board key path (t on the selected game) stamps too. Index 0 is
+    // game "2" (GB @ CHI): game "1" was a favorite at apply time, so the
+    // ranked order never held it, and `OrderState::ordered` appends games
+    // the last event never saw at the end. `t` favorites its home team, CHI.
     app.selected = 0;
     app.on_key(
         crossterm::event::KeyCode::Char('t'),
