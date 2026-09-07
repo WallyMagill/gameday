@@ -1732,3 +1732,37 @@ fn down_distance_never_repeats_the_ball_position() {
     assert_eq!(sit.down_distance, "1st & 10");
     assert_eq!(sit.ball_on.as_deref(), Some("CHI 41"));
 }
+
+#[test]
+fn a_red_zone_flag_without_possession_makes_no_meter() {
+    let base = one_event_with_last_play(
+        r#"{"id":"1","text":"x","scoringPlay":null,"scoreValue":0,"team":{"id":"1"},"type":{"id":"5","text":"Rush"}}"#,
+    );
+    // Add the flag and a yard line; the base fixture's possession is team 1 (away).
+    let with = base.replace(
+        r#""possession":"1","#,
+        r#""possession":"1","isRedZone":true,"yardLine":15,"#,
+    );
+    let g = &map_scoreboard(League::Nfl, &with, et()).unwrap()[0];
+    assert_eq!(
+        g.meter,
+        Some(Meter::RedZone { yards_to_goal: 15 }),
+        "away attacks 0: 15 to go"
+    );
+    let none = base.replace(
+        r#""possession":"1","#,
+        r#""possession":null,"isRedZone":true,"yardLine":15,"#,
+    );
+    let g = &map_scoreboard(League::Nfl, &none, et()).unwrap()[0];
+    assert_eq!(
+        g.meter, None,
+        "no possessing team, no meter (the review saw 100 TO GOAL)"
+    );
+    assert!(g.situation.as_ref().unwrap().possession.is_none());
+    let stranger = base.replace(
+        r#""possession":"1","#,
+        r#""possession":"999","isRedZone":true,"yardLine":15,"#,
+    );
+    let g = &map_scoreboard(League::Nfl, &stranger, et()).unwrap()[0];
+    assert_eq!(g.meter, None, "an id that is neither team is not a side");
+}

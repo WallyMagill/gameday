@@ -181,7 +181,13 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             // `situation.isRedZone`, not a yard number re-derived from
             // `possessionText`. An absent flag is not a "no" but it is not
             // a chip either — the board stays quiet rather than guessing.
-            if g.situation.as_ref().and_then(|s| s.is_red_zone) == Some(true) {
+            // Also requires a possessing team: the flag alone doesn't say
+            // which goal is threatened (the mapper already withholds the
+            // meter for the same reason), so no possession earns no chip.
+            if g.situation
+                .as_ref()
+                .is_some_and(|s| s.is_red_zone == Some(true) && s.possession.is_some())
+            {
                 bonus!(40, Some("RED ZONE"));
             }
             // 120s = the two-minute warning window, Q2/Q4 only. An
@@ -553,6 +559,7 @@ mod tests {
         let mut rz = g(League::Nfl, "Q3", "9:05", 31, 3);
         rz.situation = Some(Situation {
             is_red_zone: Some(true),
+            possession: Some("KC".into()),
             ..Default::default()
         });
         rz.meter = Some(Meter::RedZone { yards_to_goal: 4 });
@@ -563,6 +570,19 @@ mod tests {
         let w2 = watchability(&g(League::Nfl, "Q4", "0:48", 17, 17), now());
         assert!(w2.hot);
         assert_eq!(w2.chip, Some("2-MIN"));
+    }
+
+    #[test]
+    fn a_red_zone_flag_without_possession_earns_no_chip() {
+        let mut g = g(League::Nfl, "Q3", "9:05", 21, 17);
+        g.situation = Some(Situation {
+            is_red_zone: Some(true),
+            possession: None,
+            ..Default::default()
+        });
+        let w = watchability(&g, OffsetDateTime::now_utc());
+        assert_eq!(w.chip, None);
+        assert!(!w.hot);
     }
 
     /// The RED ZONE chip is ESPN's `situation.isRedZone`, not a
@@ -576,6 +596,7 @@ mod tests {
         // "weird &format" was never a team abbreviation) — the flag decides.
         let mut fires = g(League::Nfl, "Q3", "9:05", 31, 3);
         fires.situation = Some(Situation {
+            possession: Some("KC".into()),
             ball_on: Some("weird &format 3".into()),
             is_red_zone: Some(true),
             ..Default::default()

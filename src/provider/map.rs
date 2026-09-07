@@ -546,7 +546,14 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         if s.is_red_zone != Some(true) {
             return None;
         }
-        let possession_is_home = sit_v["possession"].as_str() == Some(home.id.as_str());
+        // Which goal is attacked comes from who has the ball. A missing or
+        // foreign possession id is not a side: no meter, rather than the
+        // "100 TO GOAL" the review saw when null read as away.
+        let possession_is_home = match sit_v["possession"].as_str() {
+            Some(id) if id == home.id => true,
+            Some(id) if id == away.id => false,
+            _ => return None,
+        };
         s.yard_line.map(|yl| yards_to_goal(yl, possession_is_home))
     });
     let meter = meter_from(

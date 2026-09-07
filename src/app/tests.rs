@@ -815,6 +815,7 @@ fn a_hot_flip_reorders_the_board_with_no_score_change() {
     // meter the gauge draws from it.
     a.situation = Some(crate::domain::Situation {
         is_red_zone: Some(true),
+        possession: Some("KC".into()),
         ..Default::default()
     });
     a.meter = Some(crate::domain::Meter::RedZone { yards_to_goal: 6 });
