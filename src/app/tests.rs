@@ -2516,3 +2516,110 @@ fn favorites_are_stamped_on_apply_and_after_an_edit() {
     );
     assert!(!app.game_by_id("1").unwrap().favorite);
 }
+
+/// A: a board that has never been ordered must still rank on its very
+/// first sighting, even when that first sighting arrives stale — the old
+/// `if !stale { ...; self.maybe_reorder(); }` skipped it whole. Receipt:
+/// the wave 3 paging capture caught exactly this — a cached review-day
+/// slate with SEMO 10 @ ISU 38 (2-MIN, closeness 0) as the hero because the
+/// band was left in raw ESPN array order, never ordered at all.
+#[test]
+fn a_never_ordered_board_ranks_on_first_sighting_even_while_stale() {
+    let lo = ranked("lo", "Q1", "15:00", 30, 0); // blowout, just started: score 0
+    let mid = ranked("mid", "Q2", "7:30", 14, 10); // moderate
+    let hi = ranked("hi", "Q4", "1:30", 21, 21); // tied, deep in the 2-min window
+    let mut app = app_with(vec![], vec![]);
+    app.tab = Tab::League(League::Nfl);
+    let ids =
+        |app: &App| -> Vec<String> { app.derive().in_play.iter().map(|x| x.id.clone()).collect() };
+
+    // Array order is the reverse of watchability order, and this is the
+    // very first apply the board has ever seen — while stale.
+    app.apply_boards(League::Nfl, vec![lo.clone(), mid.clone(), hi.clone()], true);
+    assert_eq!(
+        ids(&app),
+        vec!["hi", "mid", "lo"],
+        "a never-ordered board must rank on the first sighting even though it's stale"
+    );
+
+    // The same stale board again, "mid" now the most watchable of the
+    // three by a wide margin: a re-sort would put it first.
+    let mid2 = ranked("mid", "Q4", "0:20", 24, 24);
+    app.apply_boards(
+        League::Nfl,
+        vec![lo.clone(), mid2.clone(), hi.clone()],
+        true,
+    );
+    assert_eq!(
+        ids(&app),
+        vec!["hi", "mid", "lo"],
+        "a stale reapply must not re-sort, even when the data changed"
+    );
+
+    // A fresh apply with that same change does re-sort.
+    app.apply_boards(League::Nfl, vec![lo, mid2, hi], false);
+    assert_eq!(
+        ids(&app),
+        vec!["mid", "hi", "lo"],
+        "a fresh apply re-sorts once real data has moved"
+    );
+}
+
+/// E: `G` on Zoom's OVERVIEW has no list to pre-position — only PLAYS/STATS
+/// scroll. Before the fix `G` there quietly set `zoom_scroll` to the last
+/// play, so switching to PLAYS afterward opened already jumped to the end.
+#[test]
+fn g_only_pre_positions_zoom_on_a_list_tab_not_overview() {
+    let mut game = g("1", "KC", "TB", true);
+    game.last_plays = vec![
+        Play {
+            clock: "2:00".into(),
+            team: "TB".into(),
+            text: "a".into(),
+            ..Default::default()
+        },
+        Play {
+            clock: "1:00".into(),
+            team: "KC".into(),
+            text: "b".into(),
+            ..Default::default()
+        },
+    ];
+    let mut app = app_with(vec![game], vec![]);
+    app.tab = Tab::League(League::Nfl);
+    app.on_key(KeyCode::Char('z'), KeyModifiers::NONE);
+    assert_eq!(
+        app.view,
+        View::Zoom {
+            game_id: "1".into(),
+            tab: ZoomTab::Overview
+        }
+    );
+    app.on_key(KeyCode::Char('G'), KeyModifiers::NONE);
+    assert_eq!(app.zoom_scroll, 0, "G on OVERVIEW is not pageable");
+    app.on_key(KeyCode::Char('l'), KeyModifiers::NONE);
+    assert_eq!(
+        app.view,
+        View::Zoom {
+            game_id: "1".into(),
+            tab: ZoomTab::Plays
+        }
+    );
+    app.on_key(KeyCode::Char('G'), KeyModifiers::NONE);
+    assert_eq!(app.zoom_scroll, 1, "G on PLAYS jumps to the last play");
+}
+
+/// M4: a live, not-yet-expired toast sitting in `status_line` from
+/// something else entirely must never be mistaken for a `persist_*`
+/// refusal — only a sticky (untoasted) leftover is one.
+#[test]
+fn report_save_never_mistakes_a_live_toast_for_a_save_refusal() {
+    let mut app = app_with(vec![], vec![]);
+    app.toast("pinned KC@TB");
+    app.report_save("sort watch".into());
+    assert_eq!(
+        app.status_line.as_deref(),
+        Some("sort watch"),
+        "the live toast must not be replayed back as a save refusal"
+    );
+}

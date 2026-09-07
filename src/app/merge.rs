@@ -217,11 +217,16 @@ impl App {
                 self.active_alert = Some(alert);
                 self.bell_pending = true;
             }
-            // Fresh data landed: the live band may re-sort, if the data that
-            // decides the order actually moved (`maybe_reorder`). This sits
-            // inside the `!stale` guard on purpose — a cached payload is not
-            // news and must never move the board.
+        }
+        // A cached payload never re-sorts a board, but a board that has
+        // never been ordered is not being moved: `rank_fingerprints` is
+        // empty only before the first `maybe_reorder` has ever run, so a
+        // stale first sighting still gets ranked instead of reading in raw
+        // ESPN array order forever.
+        if !stale || self.rank_fingerprints.is_empty() {
             self.maybe_reorder();
+        }
+        if !stale {
             // …and TV lets go of anything that just left the live slate.
             // After `maybe_reorder`, so the hero it re-anchors to is
             // this event's, not the last one's.

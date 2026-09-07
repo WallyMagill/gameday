@@ -580,9 +580,25 @@ impl App {
         // seven sections plus the legend already fill a 40-row terminal, and
         // a spacer per section would clip the legend and the close line off
         // the bottom.
-        let mut lines: Vec<Line> = Vec::new();
-        for group in keymap::help_order(&self.view) {
-            lines.push(Line::from(Span::styled(
+        // Groups + their rows, separate from the tail (legend, close) that
+        // must always survive: a long group list is what clips on a short
+        // terminal, never the glyph legend or `esc/?/q closes`.
+        let groups = keymap::help_order(&self.view);
+        // One key column wide enough for the widest chord list over EVERY
+        // group, not just the one being rendered right now — the paging
+        // row's `ctrl-d/ctrl-u` (13 cells) is wider than the fixed 22 the
+        // column used to assume, so the label glued onto it
+        // (`ctrl-d/ctrl-uhalf page`) with no space between them.
+        let key_w = groups
+            .iter()
+            .flat_map(|g| keymap::help_display_rows(*g))
+            .map(|(keys, _)| keys.chars().count())
+            .max()
+            .unwrap_or(0)
+            + 2;
+        let mut body: Vec<Line> = Vec::new();
+        for group in groups {
+            body.push(Line::from(Span::styled(
                 group.title().to_lowercase(),
                 Style::default().fg(th.star).add_modifier(Modifier::BOLD),
             )));
@@ -591,34 +607,48 @@ impl App {
                 // Feed (standings, plays feed) owns no binding of its own —
                 // its keys are the everywhere set plus paging — but still
                 // gets a section instead of a silently missing mode.
-                lines.push(Line::from(Span::styled(
+                body.push(Line::from(Span::styled(
                     "  (the everywhere keys, plus paging)",
                     Style::default().fg(th.dim),
                 )));
             } else {
                 for (keys, label) in rows {
-                    lines.push(Line::from(vec![
-                        Span::styled(format!("  {keys:<22}"), Style::default().fg(th.fg)),
+                    body.push(Line::from(vec![
+                        Span::styled(format!("  {keys:<key_w$}"), Style::default().fg(th.fg)),
                         Span::styled(label, Style::default().fg(th.muted)),
                     ]));
                 }
             }
         }
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "▸ selected · ⚑ pinned · ★ favorite · ▌ hot · ↑n moved up",
-            Style::default().fg(th.muted),
-        )));
-        lines.push(Line::from(""));
-        // The overlay's own close keys, spelled the way the source table
-        // writes them (Esc, '?', 'q' — see `App::on_key`'s help_open arm).
-        lines.push(Line::from(Span::styled(
-            "esc/?/q closes",
-            Style::default().fg(th.dim),
-        )));
-        let w = (lines.iter().map(|l| l.width()).max().unwrap_or(0) as u16 + 4)
-            .min(area.width.saturating_sub(4));
-        let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
+        let tail: Vec<Line> = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "▸ selected · ⚑ pinned · ★ favorite · ▌ bright = hot · ↑n moved up",
+                Style::default().fg(th.muted),
+            )),
+            Line::from(""),
+            // The overlay's own close keys, spelled the way the source table
+            // writes them (Esc, '?', 'q' — see `App::on_key`'s help_open arm).
+            Line::from(Span::styled("esc/?/q closes", Style::default().fg(th.dim))),
+        ];
+        let w = (body
+            .iter()
+            .chain(tail.iter())
+            .map(|l| l.width())
+            .max()
+            .unwrap_or(0) as u16
+            + 4)
+        .min(area.width.saturating_sub(4));
+        let h = ((body.len() + tail.len()) as u16 + 2).min(area.height.saturating_sub(2));
+        // The panel's own inner height (borders take the top and bottom
+        // row): when the full body + tail can't fit it, the body — the
+        // group list — is what gives, never the tail.
+        let inner = h.saturating_sub(2) as usize;
+        if body.len() + tail.len() > inner {
+            body.truncate(inner.saturating_sub(tail.len()));
+        }
+        let mut lines = body;
+        lines.extend(tail);
         let panel = Rect {
             x: area.x + (area.width - w) / 2,
             y: area.y + (area.height - h) / 2,

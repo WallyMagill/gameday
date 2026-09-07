@@ -182,7 +182,12 @@ fn help_overlay_lists_every_group_and_the_hidden_chords() {
     // no hand-written caps.
     let mut app = mk();
     app.help_open = true;
-    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    // Tall enough that the full seven-group table (31 body rows + the
+    // 4-row tail) fits with none of it clipped — this test's job is
+    // "every group and chord is discoverable somewhere", not the
+    // clip-the-body-first behavior a short terminal now exercises (see
+    // `the_help_overlay_tail_survives_at_120x36_and_100x30` for that).
+    let mut t = Terminal::new(TestBackend::new(120, 45)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     for needle in [
@@ -251,15 +256,7 @@ fn help_leads_with_the_current_mode_and_closes_with_the_legend() {
     };
     app.help_open = true;
     let s = buf_text(&render(&mut app, 120, 50));
-    let at = |needle: &str| {
-        s.lines()
-            .position(|l| {
-                l.split('│')
-                    .nth(1)
-                    .is_some_and(|inner| panel_text(inner).starts_with(needle))
-            })
-            .unwrap_or_else(|| panic!("{needle:?} missing:\n{s}"))
-    };
+    let at = |needle: &str| at_in(&s, needle);
     assert!(at("zoom") < at("board"), "the current mode leads:\n{s}");
     assert!(
         at("board") < at("everywhere") && at("paging") < at("everywhere"),
@@ -277,7 +274,7 @@ fn help_leads_with_the_current_mode_and_closes_with_the_legend() {
         "{s}"
     );
     assert!(
-        s.contains("▸ selected · ⚑ pinned · ★ favorite · ▌ hot · ↑n moved up"),
+        s.contains("▸ selected · ⚑ pinned · ★ favorite · ▌ bright = hot · ↑n moved up"),
         "legend:\n{s}"
     );
     // The board leads from the board.
@@ -286,25 +283,79 @@ fn help_leads_with_the_current_mode_and_closes_with_the_legend() {
     assert!(at_in(&s, "board") < at_in(&s, "zoom"), "{s}");
 }
 
+/// The panel's left/right border columns (char index), located by the row
+/// carrying its title (" keys ") — `┌`/`┐` are its corners. Every content
+/// row's interior is read from these same fixed columns instead of
+/// splitting each row on its own first `│`: a dimmed board segment ahead of
+/// a narrower-than-screen panel can still draw a `│` of its own (a score
+/// box, say) before the panel's real left border, which would misalign a
+/// split-and-take-the-second-half read.
+fn panel_cols(s: &str) -> (usize, usize) {
+    let row = s
+        .lines()
+        .find(|l| l.contains(" keys "))
+        .unwrap_or_else(|| panic!("panel top border (\" keys \") missing:\n{s}"));
+    let chars: Vec<char> = row.chars().collect();
+    let left = chars
+        .iter()
+        .position(|&c| c == '┌')
+        .unwrap_or_else(|| panic!("┌ missing on the \" keys \" row:\n{row}"));
+    let right = chars
+        .iter()
+        .position(|&c| c == '┐')
+        .unwrap_or_else(|| panic!("┐ missing on the \" keys \" row:\n{row}"));
+    (left, right)
+}
+
+/// One row's panel interior — the chars strictly between the border
+/// columns, trimmed of leading air.
+fn panel_interior(line: &str, cols: (usize, usize)) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    let (left, right) = cols;
+    let right = right.min(chars.len());
+    if right <= left + 1 {
+        return String::new();
+    }
+    chars[left + 1..right]
+        .iter()
+        .collect::<String>()
+        .trim_start()
+        .to_string()
+}
+
 fn at_in(s: &str, needle: &str) -> usize {
+    let cols = panel_cols(s);
     s.lines()
-        .position(|l| {
-            l.split('│')
-                .nth(1)
-                .is_some_and(|inner| panel_text(inner).starts_with(needle))
-        })
+        .position(|l| panel_interior(l, cols).starts_with(needle))
         .unwrap_or_else(|| panic!("{needle:?} missing:\n{s}"))
 }
 
-/// The overlay line's own text: past the panel's left border and its air.
-/// Called on the segment between the panel's two `│` bars (found by
-/// splitting the whole screen row on `│` first) rather than on the raw row:
-/// a bare title is the first thing *inside* the panel, but at 120x50 over a
-/// live Zoom view the dimmed board behind a narrower-than-screen panel can
-/// still draw non-whitespace (hero art) ahead of that left bar, which
-/// `trim_start_matches` alone wouldn't clear.
-fn panel_text(l: &str) -> &str {
-    l.trim_start_matches(|c: char| c == '│' || c.is_whitespace())
+/// I2: the tail (legend, close) must survive at both sizes even though the
+/// panel itself is capped by the terminal — a long group list is what
+/// clips, never the two lines under it.
+#[test]
+fn the_help_overlay_tail_survives_at_120x36_and_100x30() {
+    let legend = "▸ selected · ⚑ pinned · ★ favorite · ▌ bright = hot · ↑n moved up";
+    for (w, h) in [(120u16, 36u16), (100u16, 30u16)] {
+        let mut app = mk();
+        app.help_open = true;
+        let s = buf_text(&render(&mut app, w, h));
+        assert!(s.contains(legend), "legend missing at {w}x{h}:\n{s}");
+        assert!(
+            s.contains("esc/?/q closes"),
+            "close hint missing at {w}x{h}:\n{s}"
+        );
+    }
+    // At 100x30 the panel is short enough that the fix actually has
+    // something to prove: the everywhere group's own QUIT row (ctrl-c) no
+    // longer fits, and it — not the tail above — is what gives.
+    let mut app = mk();
+    app.help_open = true;
+    let s = buf_text(&render(&mut app, 100, 30));
+    assert!(
+        !s.contains("ctrl-c"),
+        "at 100x30 the everywhere group's ctrl-c row must be the one clipped, not the tail:\n{s}"
+    );
 }
 
 /// U5: `:help` is a command.
@@ -851,6 +902,47 @@ fn status_line_renders_verbatim_in_the_footer_row() {
     assert!(
         footer.contains("unknown command \"foo\", valid: nfl|standings"),
         "status line missing: {footer:?}"
+    );
+}
+
+/// D: the narrow-width fallback (the whole footer row becomes the status
+/// alone once even the fully-shed chords can't sit beside it) still holds
+/// after the toast/chords rework. `command::parse`'s real refusal for an
+/// unrecognized name joins all twenty-one registered commands — 128
+/// columns on its own — which cannot share even a 120-column row with the
+/// three chords the Board legend refuses to shed (`enter zoom`, `? help`,
+/// `q quit` floor at 28 columns; 28+128+2 needs 158, not 120). So the
+/// "sits beside the chords" half of this test uses the shorter, equally
+/// real refusal `status_line_renders_verbatim_in_the_footer_row` already
+/// carries (naming two commands, not twenty-one) — the fallback is about
+/// width, not about which status triggered it.
+#[test]
+fn a_long_status_forces_the_solo_fallback_only_when_truly_narrow() {
+    let long = "unknown command \"foo\", valid: nfl|cfb|cbb|nba|wnba|nhl|mlb|epl|mls|home|all|plays|standings|config|theme|sort|tv|pin|help|q|quit";
+    let mut app = mk();
+    app.sticky_status(long);
+    let footer = buf_text(&render(&mut app, 45, 24))
+        .lines()
+        .nth(23)
+        .unwrap()
+        .to_string();
+    assert!(footer.contains("unknown command"), "{footer:?}");
+    assert!(
+        !footer.contains("q quit"),
+        "the chords must yield to a status this long at 45 cols: {footer:?}"
+    );
+
+    let mut app = mk();
+    app.sticky_status("unknown command \"foo\", valid: nfl|standings");
+    let footer = buf_text(&render(&mut app, 120, 24))
+        .lines()
+        .nth(23)
+        .unwrap()
+        .to_string();
+    assert!(footer.contains("unknown command"), "{footer:?}");
+    assert!(
+        footer.contains("q quit"),
+        "at 120 cols a reasonably short status sits right of the chords: {footer:?}"
     );
 }
 
@@ -1783,6 +1875,63 @@ fn standings_scroll_clamps_to_the_pane_so_k_moves_back_at_once() {
     t.draw(|f| app.draw(f)).unwrap();
     let s2 = buf_text(&t);
     assert_ne!(s, s2, "a single k after the bottom must move the table");
+}
+
+/// A single 58-row group: `line_count` is 60 (>= the brief's floor) and, at
+/// 120 columns, splits into two halved columns of ~30 lines each — still
+/// taller than a 24-row pane, so PgDn/G have real ground to cover even in
+/// the wide two-column layout (unlike `tall_standings_table`, which fits
+/// at 120 without scrolling at all).
+fn sixty_line_standings_table() -> gameday::domain::StandingsTable {
+    use gameday::domain::{StandingRow, StandingsGroup, StandingsTable};
+    StandingsTable {
+        league: League::Nfl,
+        season: None,
+        season_type: None,
+        groups: vec![StandingsGroup {
+            name: "American Football Conference".into(),
+            rows: (0..58)
+                .map(|i| StandingRow {
+                    abbr: format!("A{i:02}"),
+                    name: format!("Ateam{i:02}"),
+                    wins: 10,
+                    losses: i % 16,
+                    third: None,
+                    third_label: "",
+                })
+                .collect(),
+        }],
+        fetched_at: None,
+    }
+}
+
+/// G: PgDn moves `standings_scroll` by half the pane the last frame
+/// recorded, and `G` reaches the recorded `standings_max_scroll` — the same
+/// gesture the board and the feeds already have, now pinned for standings.
+#[test]
+fn standings_paging_moves_half_the_recorded_body_and_g_reaches_the_end() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::View;
+    let mut app = mk();
+    app.view = View::Standings(League::Nfl);
+    app.merge_standings(sixty_line_standings_table());
+    assert!(
+        gameday::views::standings::line_count(&app.standings[&League::Nfl]) >= 60,
+        "the fixture must clear the brief's 60-line floor"
+    );
+    let _ = render(&mut app, 120, 24);
+    let body = app.page_rows.expect("standings records the pane it drew");
+    let max_scroll = app
+        .standings_max_scroll
+        .expect("a clipped table records how far it can scroll");
+    assert!(max_scroll > 0, "this fixture must actually be scrollable");
+    gameday::input::handle_key(&mut app, KeyCode::PageDown, KeyModifiers::NONE);
+    assert_eq!(app.standings_scroll, body / 2, "PgDn is half the pane");
+    gameday::input::handle_key(&mut app, KeyCode::Char('G'), KeyModifiers::NONE);
+    assert_eq!(
+        app.standings_scroll, max_scroll,
+        "G reaches the recorded max"
+    );
 }
 
 #[test]
@@ -2774,6 +2923,48 @@ fn zoom_overview_fills_the_pane_at_30_40_and_60_rows() {
             "SCORING keeps four rows at {h}:\n{s}"
         );
     }
+}
+
+/// G: zoom PLAYS pages the same way the board and standings do — PgDn moves
+/// `zoom_scroll` by half the pane the last frame recorded, `G` reaches the
+/// last play, `g` the first.
+#[test]
+fn zoom_plays_pages_by_half_the_recorded_visible_rows_and_g_reaches_the_ends() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use gameday::views::{View, ZoomTab};
+    let mut game = g("1", "KC", "TB", true);
+    game.last_plays = (0..40u16)
+        .map(|i| Play {
+            clock: format!("{}:{:02}", 14 - i / 4, 59 - i),
+            period: "Q1".into(),
+            team: "KC".into(),
+            text: format!("play {i}"),
+            scoring: i % 4 == 0,
+            ..Default::default()
+        })
+        .collect();
+    let game = with_scoring(game);
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![game], false);
+    app.tab = Tab::League(League::Nfl);
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Plays,
+    };
+    let _ = render(&mut app, 120, 24);
+    let visible = app
+        .page_rows
+        .expect("the plays pane records what it showed");
+    gameday::input::handle_key(&mut app, KeyCode::PageDown, KeyModifiers::NONE);
+    assert_eq!(
+        app.zoom_scroll,
+        visible / 2,
+        "PgDn is half the visible rows"
+    );
+    gameday::input::handle_key(&mut app, KeyCode::Char('G'), KeyModifiers::NONE);
+    assert_eq!(app.zoom_scroll, 39, "G reaches the last of 40 plays");
+    gameday::input::handle_key(&mut app, KeyCode::Char('g'), KeyModifiers::NONE);
+    assert_eq!(app.zoom_scroll, 0, "g reaches the first play");
 }
 
 #[test]
@@ -4065,6 +4256,19 @@ fn paging_keys_move_half_a_page_and_are_in_the_overlay() {
     ] {
         assert!(s.contains(needle), "help overlay missing {needle:?}:\n{s}");
     }
+    // I1: the paging row's own keys (`pgdn/pgup  ctrl-d/ctrl-u`, 24 cells)
+    // are wider than the old fixed 22-cell key column, so the label used to
+    // glue onto them with no gap at all (`ctrl-d/ctrl-uhalf page`). The key
+    // column is derived from the widest row now, so there is always at
+    // least one space before the label.
+    assert!(
+        s.contains("ctrl-d/ctrl-u ") && !s.contains("ctrl-uhalf"),
+        "ctrl-d/ctrl-u must not glue onto its label:\n{s}"
+    );
+    assert!(
+        s.contains("home/end ") && !s.contains("endtop"),
+        "home/end must not glue onto its label:\n{s}"
+    );
 }
 
 // ---------------------------------------------------------------- the cut

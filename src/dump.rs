@@ -990,6 +990,17 @@ mod tests {
             text.contains(" keys "),
             "help overlay panel missing:\n{text}"
         );
+        // The gallery's help capture renders at DUMP_COLS x DUMP_ROWS
+        // (120x36) — the tail (legend, close) must survive here regardless
+        // of how much of the group list a narrower terminal would clip.
+        assert!(
+            text.contains("▸ selected · ⚑ pinned · ★ favorite · ▌ bright = hot · ↑n moved up"),
+            "help overlay legend missing:\n{text}"
+        );
+        assert!(
+            text.contains("esc/?/q closes"),
+            "help overlay close hint missing:\n{text}"
+        );
     }
 
     /// The two size captures are the ladder's ends: the same

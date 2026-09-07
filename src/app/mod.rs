@@ -76,6 +76,10 @@ pub const PAGE_ROWS_FALLBACK: usize = 20;
 /// side before the position readout has it back. Wall clock, not ticks:
 /// the idle loop ticks once a second, so thirty ticks would be thirty
 /// seconds on a quiet evening, which is exactly when pins happen.
+///
+/// Why 3 — a guess: long enough to read `pinned KC@TB` at a glance, short
+/// enough that the position readout is back before the next keypress.
+/// Reopens on the first "I missed the toast" report.
 pub const TOAST_SECS: i64 = 3;
 
 /// Header label for a traveled date: "FRI AUG 29" (weekday + month + day, no
@@ -360,11 +364,19 @@ impl App {
         self.status_toasted_at = None;
     }
 
-    /// The one line a persisting keypress leaves. `persist_*` writes its own
-    /// refusal into `status_line` when it cannot save; that refusal wins
-    /// (sticky — it names a broken config), else `ok_text` is a toast.
+    /// The one line a persisting keypress leaves. Callers clear
+    /// `status_line` before calling `persist_*`, so a refusal it writes
+    /// there arrives sticky (`status_toasted_at` `None`) — that refusal wins
+    /// over `ok_text` (it names a broken config). A live, not-yet-expired
+    /// toast left over from something else entirely is not a save failure,
+    /// so it is only read as one when there is no live toast in the way;
+    /// otherwise `ok_text`'s own toast simply replaces it.
     pub(crate) fn report_save(&mut self, ok_text: String) {
-        let save_error = self.status_line.take();
+        let save_error = self
+            .status_toasted_at
+            .is_none()
+            .then(|| self.status_line.take())
+            .flatten();
         match (&self.config_error, save_error) {
             (Some(_), _) => self.sticky_status(format!("{ok_text} · not saving (config error)")),
             (None, Some(err)) => self.sticky_status(err),

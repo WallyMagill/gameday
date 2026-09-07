@@ -44,13 +44,21 @@ impl Query {
     }
 }
 
+/// A word "starts with" a token either as written or with its punctuation
+/// stripped — `/hawaii` has to reach `Hawai'i` and `/oh` has to reach `Miami
+/// (OH)`'s `(OH)`. The raw word is tried too so a token that IS punctuation
+/// (`/a&m`) still lands.
 fn starts_a_word(team: &Team, token: &str) -> bool {
+    let bare = |w: &str| -> String { w.chars().filter(|c| c.is_alphanumeric()).collect() };
     team.abbr.to_lowercase().starts_with(token)
         || team
             .location
             .split_whitespace()
             .chain(team.name.split_whitespace())
-            .any(|w| w.to_lowercase().starts_with(token))
+            .any(|w| {
+                let w = w.to_lowercase();
+                w.starts_with(token) || bare(&w).starts_with(token)
+            })
 }
 
 #[cfg(test)]
@@ -140,6 +148,57 @@ mod tests {
             League::Mlb,
             ("NYY", "New York", "Yankees"),
             ("BOS", "Boston", "Red Sox")
+        )));
+    }
+
+    #[test]
+    fn a_word_matches_past_its_own_punctuation() {
+        // `/hawaii` has to reach `Hawai'i`; the apostrophe is not a letter
+        // the typed query can spell.
+        let q = Query::parse("hawaii");
+        assert!(q.matches(&game(
+            League::Cbb,
+            ("HAW", "Hawai'i", "Rainbow Warriors"),
+            ("BOIS", "Boise State", "Broncos")
+        )));
+        // `/oh` has to reach `Miami (OH)` — the parenthesized disambiguator
+        // is its own word, and the punctuation around it is not a letter
+        // either. The abbr itself (`M-OH`) does not start with "oh", so this
+        // only passes through the location word.
+        let q = Query::parse("oh");
+        assert!(q.matches(&game(
+            League::Cbb,
+            ("M-OH", "Miami (OH)", "RedHawks"),
+            ("BOIS", "Boise State", "Broncos")
+        )));
+    }
+
+    #[test]
+    fn a_bare_league_slug_scopes_every_game_in_it_and_only_it() {
+        let q = Query::parse("nfl");
+        assert!(!q.is_empty());
+        assert!(q.matches(&game(
+            League::Nfl,
+            ("KC", "Kansas City", "Chiefs"),
+            ("TB", "Tampa Bay", "Buccaneers")
+        )));
+        assert!(
+            !q.matches(&game(
+                League::Cfb,
+                ("KC", "Kansas City", "Chiefs"),
+                ("TB", "Tampa Bay", "Buccaneers")
+            )),
+            "the slug scopes to its own league even with identical team words"
+        );
+    }
+
+    #[test]
+    fn a_league_slug_reads_case_insensitively_like_every_other_token() {
+        let q = Query::parse("NFL kc");
+        assert!(q.matches(&game(
+            League::Nfl,
+            ("KC", "Kansas City", "Chiefs"),
+            ("TB", "Tampa Bay", "Buccaneers")
         )));
     }
 }

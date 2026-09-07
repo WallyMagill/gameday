@@ -10,7 +10,7 @@ mod tv;
 mod zoom;
 
 use super::{App, PAGE_ROWS_FALLBACK};
-use crate::views::View;
+use crate::views::{View, ZoomTab};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 /// Far enough that every mover clamps to its end, small enough that
@@ -38,13 +38,20 @@ impl App {
         // Paging is one gesture in every scrolling view: half of what the
         // last frame showed, never a wrap; the ends are the ends. Ctrl-d/u
         // are the vim spellings. The config editor is not a list (and its
-        // favorite prompt types g's), TV and the picker have nothing to page.
-        let pageable = matches!(
-            self.view,
-            View::Board | View::Zoom { .. } | View::PlaysFeed | View::Standings(_)
-        );
+        // favorite prompt types g's), TV and the picker have nothing to
+        // page. Zoom's OVERVIEW is a fixed layout, not a list either — only
+        // its PLAYS/STATS tabs scroll, so OVERVIEW is excluded even though
+        // the view itself is `View::Zoom`.
+        let pageable = match self.view {
+            View::Board | View::PlaysFeed | View::Standings(_) => true,
+            View::Zoom { tab, .. } => tab != ZoomTab::Overview,
+            View::ConfigView | View::ThemePicker | View::Tv => false,
+        };
         if pageable {
             let ctrl = mods.contains(KeyModifiers::CONTROL);
+            // `.max(2)`: `page_rows` can be `Some(0)` for an empty pane (zoom
+            // PLAYS/STATS with nothing to list yet) — half of nothing must
+            // still be one row, not zero.
             let half = (self.page_rows.unwrap_or(PAGE_ROWS_FALLBACK).max(2) / 2) as isize;
             let delta = match (code, ctrl) {
                 (KeyCode::PageDown, _) | (KeyCode::Char('d'), true) => Some(half),

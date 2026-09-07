@@ -1285,7 +1285,12 @@ mod tests {
         }
     }
 
-    /// The grid is a derivation, and this is the receipt for its numbers.
+    /// This guards the DERIVATION rule, not the numbers themselves: every
+    /// `_X` offset must be computed from the widths before it, so a future
+    /// edit that re-literalizes one (types a number where a sum belongs)
+    /// fails here even if that number happens to still be right. The two
+    /// width pins below (`CLOCK_W`, `BCAST_W`) are the numbers' own
+    /// receipts; this test is not.
     #[test]
     fn the_grid_derives_from_its_widths() {
         assert_eq!(GUTTER, MARK_W + NUDGE_W);
