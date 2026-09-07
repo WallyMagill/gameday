@@ -191,11 +191,16 @@ fn more_marker<'a>(above: usize, below: usize) -> Line<'a> {
 /// know neither, and then the header says nothing rather than something
 /// reassuring.
 fn label(table: &StandingsTable) -> Option<String> {
+    let phase = match table.season_type {
+        Some(1) => " PRESEASON",
+        Some(3) => " POSTSEASON",
+        _ => "",
+    };
     match &table.season {
-        Some(season) => Some(season.clone()),
+        Some(season) => Some(format!("{season}{phase}")),
         None => table
             .fetched_at
-            .map(|t| format!("updated {}", crate::text::fmt_hm12(t))),
+            .map(|t| format!("updated {}{phase}", crate::text::fmt_hm12(t))),
     }
 }
 

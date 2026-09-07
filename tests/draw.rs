@@ -1233,6 +1233,7 @@ fn standings_table() -> gameday::domain::StandingsTable {
     StandingsTable {
         league: League::Nfl,
         season: None,
+        season_type: None,
         groups: vec![
             StandingsGroup {
                 name: "American Football Conference".into(),
@@ -1352,6 +1353,24 @@ fn standings_header_carries_the_season_else_when_it_was_fetched() {
 }
 
 #[test]
+fn a_preseason_table_says_so_in_the_header() {
+    let mut app = mk();
+    let mut table = standings_table();
+    table.season = Some("2026".into());
+    table.season_type = Some(1);
+    app.merge_standings(table);
+    key(&mut app, crossterm::event::KeyCode::Char(':'));
+    for c in "standings".chars() {
+        key(&mut app, crossterm::event::KeyCode::Char(c));
+    }
+    key(&mut app, crossterm::event::KeyCode::Enter);
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("2026 PRESEASON"), "{s}");
+}
+
+#[test]
 fn standings_view_scrolls_with_j_and_clamps() {
     use crossterm::event::{KeyCode, KeyModifiers};
     use gameday::views::View;
@@ -1401,6 +1420,7 @@ fn tall_standings_table() -> gameday::domain::StandingsTable {
     StandingsTable {
         league: League::Nfl,
         season: None,
+        season_type: None,
         groups: vec![
             group("American Football Conference", "A"),
             group("National Football Conference", "N"),

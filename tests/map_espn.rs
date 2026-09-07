@@ -941,6 +941,31 @@ fn standings_label_is_the_season_when_present_else_none() {
 }
 
 #[test]
+fn standings_carry_the_feeds_season_type() {
+    // The committed NFL fixture is a preseason capture: every
+    // children[].standings carries seasonType 1.
+    let pre = include_str!("../fixtures/nfl_standings.json");
+    let t = map_standings(League::Nfl, pre).unwrap();
+    assert_eq!(t.season_type, Some(1));
+    // The same payload stamped regular-season reads 2. (The fixture is
+    // pretty-printed with a space after the colon: `"seasonType": 1`.)
+    let regular = pre.replace(r#""seasonType": 1"#, r#""seasonType": 2"#);
+    assert_ne!(regular, pre, "the fixture carries seasonType to replace");
+    let t = map_standings(League::Nfl, &regular).unwrap();
+    assert_eq!(t.season_type, Some(2));
+    // A payload without the field maps to None.
+    let none = pre
+        .replace(r#""seasonType": 1,"#, "")
+        .replace(r#","seasonType": 1"#, "");
+    assert_ne!(none, pre, "the fixture carries seasonType to remove");
+    let t = map_standings(League::Nfl, &none).unwrap();
+    assert_eq!(
+        t.season_type, None,
+        "field absent → None (check the replace actually removed it; if the key order differs, adjust the pattern, not the assertion)"
+    );
+}
+
+#[test]
 fn ties_column_only_when_the_sport_has_one() {
     let json = r#"{"name":"MLB","children":[{"name":"AL","standings":{"entries":[{"team":{"abbreviation":"TB","name":"Rays"},"stats":[{"type":"wins","value":82},{"type":"losses","value":55},{"type":"ties","value":0}]}]}}]}"#;
     let t = map_standings(League::Mlb, json).unwrap();

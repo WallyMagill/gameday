@@ -169,6 +169,7 @@ fn a_failed_standings_fetch_shows_the_error_where_the_table_would_be() {
     app.merge_standings(crate::domain::StandingsTable {
         league: League::Cfb,
         season: None,
+        season_type: None,
         groups: vec![],
         fetched_at: None,
     });

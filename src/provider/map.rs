@@ -1291,9 +1291,13 @@ pub fn map_standings(league: League, json: &str) -> Result<StandingsTable, MapEr
         .as_str()
         .or_else(|| v["seasonDisplayName"].as_str())
         .map(str::to_string);
+    let season_type = v["children"][0]["standings"]["seasonType"]
+        .as_u64()
+        .map(|n| n.min(255) as u8);
     Ok(StandingsTable {
         league,
         season,
+        season_type,
         groups,
         fetched_at: None,
     })

@@ -485,6 +485,11 @@ pub struct StandingsGroup {
 pub struct StandingsTable {
     pub league: League,
     pub season: Option<String>,
+    /// ESPN's `children[].standings.seasonType`: 1 preseason, 2 regular
+    /// season, 3 postseason (probed live 2026-09-06: 2). None when the feed
+    /// carries none. The header prints PRESEASON/POSTSEASON from it so an
+    /// August table never reads as this season's.
+    pub season_type: Option<u8>,
     pub groups: Vec<StandingsGroup>,
     pub fetched_at: Option<time::OffsetDateTime>,
 }
