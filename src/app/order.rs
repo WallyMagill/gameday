@@ -7,11 +7,11 @@ use crate::domain::{Game, Status};
 use std::collections::HashMap;
 
 /// One live game's ordering identity: away score, home score, status, the
-/// hot flag, and soccer's on-field count. Two equal fingerprints mean
-/// nothing the board sorts on has moved, so the order is left alone — a
-/// board that re-sorted on every clock tick would slide out from under the
-/// eye, so only a change in one of these is an event.
-pub(super) type RankFingerprint = (u16, u16, Status, bool, Option<(u8, u8)>);
+/// hot flag, soccer's on-field count, and the leverage band. Two equal
+/// fingerprints mean nothing the board sorts on has moved, so the order is
+/// left alone — a board that re-sorted on every clock tick would slide out
+/// from under the eye, so only a change in one of these is an event.
+pub(super) type RankFingerprint = (u16, u16, Status, bool, Option<(u8, u8)>, u8);
 
 impl App {
     /// Every live game on an enabled board, minus the viewer's own. Pins AND
@@ -50,6 +50,10 @@ impl App {
                             crate::domain::Extras::Soccer { men, .. } => *men,
                             _ => None,
                         },
+                        // leverage band: a crossing is an event, drift inside one is
+                        // not; rank and favorite are static per game and stay out on
+                        // purpose.
+                        crate::rank::leverage_band(g),
                     ),
                 )
             })

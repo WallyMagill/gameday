@@ -912,6 +912,102 @@ fn a_summary_never_reorders_the_board() {
     );
 }
 
+fn cfb_with_prob(id: &str, away: u16, home: u16, home_permille: u16) -> Game {
+    let mut game = g(id, "AAA", "HHH", true);
+    game.league = League::Cfb;
+    game.away_score = away;
+    game.home_score = home;
+    game.period = "Q2".into();
+    game.clock = "7:00".into();
+    game.situation = Some(Situation {
+        win_prob: Some(WinProb {
+            home_permille,
+            away_permille: 1000 - home_permille,
+            seconds_left: 2100,
+        }),
+        ..Default::default()
+    });
+    game
+}
+
+#[test]
+fn a_leverage_band_crossing_reorders_once_and_freezes() {
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400;
+    // A is the coin flip (closeness 100, band 5), B is lopsided (950 → closeness 10, band 0).
+    let a = cfb_with_prob("a", 10, 10, 500);
+    let b = cfb_with_prob("b", 21, 3, 950);
+    app.apply_boards(League::Cfb, vec![a.clone(), b.clone()], false);
+    let first = ord(&app);
+    assert_eq!(first[0], "a");
+    // Drift inside B's band: 950 → 930 (closeness 10 → 14, both band 0). No reorder.
+    let mut b2 = b.clone();
+    b2.situation
+        .as_mut()
+        .unwrap()
+        .win_prob
+        .as_mut()
+        .unwrap()
+        .home_permille = 930;
+    app.apply_boards(League::Cfb, vec![a.clone(), b2], false);
+    assert_eq!(ord(&app), first);
+    // A collapses to certain (990 → band 0) while B tightens (520 → closeness 96, band 4): one reorder.
+    let mut a3 = a.clone();
+    a3.situation
+        .as_mut()
+        .unwrap()
+        .win_prob
+        .as_mut()
+        .unwrap()
+        .home_permille = 990;
+    let mut b3 = b.clone();
+    b3.situation
+        .as_mut()
+        .unwrap()
+        .win_prob
+        .as_mut()
+        .unwrap()
+        .home_permille = 520;
+    app.apply_boards(League::Cfb, vec![a3.clone(), b3.clone()], false);
+    assert_eq!(ord(&app)[0], "b");
+    // Drift again inside both bands: frozen.
+    let mut b4 = b3.clone();
+    b4.situation
+        .as_mut()
+        .unwrap()
+        .win_prob
+        .as_mut()
+        .unwrap()
+        .home_permille = 540;
+    app.apply_boards(League::Cfb, vec![a3, b4], false);
+    assert_eq!(ord(&app)[0], "b");
+}
+
+#[test]
+fn rank_and_favorite_never_enter_the_fingerprint() {
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400;
+    let a = cfb_with_prob("a", 10, 10, 500);
+    let mut b = cfb_with_prob("b", 10, 10, 500);
+    b.id = "b".into();
+    app.apply_boards(League::Cfb, vec![a.clone(), b.clone()], false);
+    let first = ord(&app);
+    // B gets ranked between polls: same scores, same bands → no reorder.
+    // `favorite` can't be exercised the same way here — `mark_favorites` and
+    // `live_all`'s MY-GAMES filter both read `config.favorites`, so a
+    // favorited game always leaves `live_all` before a fingerprint is ever
+    // built for it (see `a_pinned_game_is_not_in_the_ordered_live_band`);
+    // `RankFingerprint` never reads `Game.favorite` at all.
+    let mut b2 = b.clone();
+    b2.home.rank = Some(1);
+    app.apply_boards(League::Cfb, vec![a, b2], false);
+    assert_eq!(
+        ord(&app),
+        first,
+        "static terms wait for the next real event"
+    );
+}
+
 #[test]
 fn apply_boards_stamps_final_at() {
     let mut app = app_with(
