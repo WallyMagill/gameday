@@ -17,6 +17,8 @@ All notable changes to gameday are recorded here. The format follows
 - `:help` opens the help overlay.
 - The `/` filter matches whole words by prefix (team name or abbreviation), a league slug at the start scopes the search, and the footer shows a match count.
 - A day with no games for a league names the next scheduled game, or says none is scheduled in the loaded window.
+- Desktop notifications for a favorite's own score and for a pinned or favorite game going final (`notify = […]` in config, on by default; `:notify test` sends a check).
+- `gameday --once` fetches once and prints the ranked board, as text or `--json`, with `--league`, `--live`, `--top` and `--color`.
 
 ### Changed
 - ratatui 0.30, crossterm 0.29, ureq 3 (proxy env vars are now honored), dirs 7, tui-big-text 0.8.
@@ -45,3 +47,4 @@ All notable changes to gameday are recorded here. The format follows
 - A feed section rule no longer draws over an empty section.
 - The stray block beside the hero's win-loss record is gone.
 - A cached slate shown at launch is ranked from the very first frame, instead of jumping into order on the first fresh poll.
+- A second cached league is ranked from its first frame instead of appended in the feed's own order (wave 3 residual).
