@@ -47,6 +47,29 @@ SYMBOLS="${SYMBOLS:-space+solid+half+quad}"
 API="https://site.api.espn.com/apis/site/v2/sports"
 LEAGUES="${LEAGUES:-nfl nba wnba nhl mlb epl mls cfb cbb}"
 
+# COLLEGE=poll (default): today's behaviour, byte-identical — cfb/cbb rows
+# come from the AP/coaches rankings endpoint, top 25 only (`resolve_league`
+# below). COLLEGE=all is the sitting's "every school" option: every FBS
+# team (cfb) plus the top eight D-I men's basketball conferences (cbb) —
+# ACC, Big East, Big Ten, Big 12, SEC, Atlantic 10, Mountain West, American
+# — off the standings payloads `provider::espn::standings_url` and
+# `provider::map::map_standings` already read, not the teams list (the
+# addendum: `.../teams?groups=80` returns all 761 college teams, not FBS).
+# Verified 2026-09-07 against `.../college-football/standings?group=80`
+# (138 FBS teams, 11 conferences) and `.../mens-college-basketball/
+# standings?group=50` (all D-I, 31 conferences, filtered to the eight
+# named above: 118 teams). ESPN keys a school by one id across both
+# sports, so the existing `seen` dedupe collapses the overlap (measured:
+# 92 of the 118 hoops ids already appear in the FBS 138) down to ~164
+# unique `ncaa/<id>` marks — see `resolve_college_all`. Binary cost is
+# `include_str!`, so it is paid once at compile time: the poll set's ~35
+# ncaa marks average ~1KB dark + ~1KB light each; ~130 more marks is
+# roughly another 250-300KiB in `target/release/gameday` (measured in the
+# task report). One-time dev fetch (`COLLEGE=all LEAGUES="cfb cbb"
+# tools/gen-logos.sh`); the shipped binary embeds whatever is committed
+# under `assets/logos*`, poll or all, with no runtime cost either way.
+COLLEGE="${COLLEGE:-poll}"
+
 # ---------------------------------------------------------- the light set
 # v3.4 §7. Every mark is rendered twice: once over black (the dark themes)
 # and once over daygame's paper ground (`assets/candidates/daygame.toml`,
@@ -119,8 +142,54 @@ stubborn=()
 # published for every US league and for MLS, and for nobody in the EPL
 # (checked 2026-09-03: 0 of 20 clubs), so it is a column that is often empty
 # and the light path has to survive that.
+# COLLEGE=all's source: the standings payloads, not the rankings poll.
+# `site.web.api.espn.com` (not `site.api.espn.com` — the two hosts serve
+# different shapes for this endpoint; the app's own `standings_url` is
+# the receipt) `/apis/v2/sports/$sport/$comp/standings?group=$group`.
+STANDINGS_API="https://site.web.api.espn.com/apis/v2/sports"
+# The brief's eight, matched against ESPN's own `abbreviation` field on
+# each conference node (case as ESPN returns it — checked, not guessed).
+CBB_CONFS="acc bige big10 big12 sec atl10 mwest American"
+
+resolve_college_all() {
+  local sport="$1" comp="$2" ns="$3" group url json
+  case "$comp" in
+    college-football) group=80 ;;
+    mens-college-basketball) group=50 ;;
+    *) echo "COLLEGE=all has no group mapping for $comp" >&2; return 1 ;;
+  esac
+  url="$STANDINGS_API/$sport/$comp/standings?group=$group"
+  json=$(curl -fsSL --max-time 30 "$url") || { echo "SKIP league $comp: standings fetch failed" >&2; return 0; }
+  if [ "$comp" = college-football ]; then
+    local n
+    n=$(jq '[.. | objects | select(has("team"))] | length' <<<"$json")
+    echo "  college(all) $comp: FBS group $group, $n teams" >&2
+  else
+    jq -r --arg confs "$CBB_CONFS" '
+      ($confs | split(" ")) as $want
+      | .children[] | select(.abbreviation as $a | $want | index($a))
+      | "  \(.name) (\(.abbreviation)): \(.standings.entries | length) teams"
+    ' <<<"$json" >&2
+  fi
+  jq -r --arg ns "$ns" --arg confs "$CBB_CONFS" --arg comp "$comp" '
+    (if $comp == "college-football"
+     then [.. | objects | select(has("team")) | .team]
+     else ($confs | split(" ")) as $want
+        | [.children[] | select(.abbreviation as $a | $want | index($a)) | .standings.entries[].team]
+     end)
+    | .[]
+    | [ "\($ns)/\(.id)",
+        ([.logos[]? | select((.rel|index("full")) and (.rel|index("default"))) | .href] | first // ""),
+        ([.logos[]? | select(.rel|index("primary_logo_on_white_color")) | .href] | first // "")
+      ] | @tsv' <<<"$json"
+}
+
 resolve_league() {
   local sport="$1" comp="$2" ns="$3" keyby="$4" url json
+  if [ "$keyby" = poll ] && [ "$COLLEGE" = all ]; then
+    resolve_college_all "$sport" "$comp" "$ns"
+    return
+  fi
   if [ "$keyby" = poll ]; then
     # `curatedRank <= 25` rides scoreboard competitors, not the teams
     # endpoint — and only for teams that happen to be playing that day. The

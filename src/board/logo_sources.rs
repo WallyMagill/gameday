@@ -65,38 +65,214 @@ pub(super) const LOGO_SOURCES: &[(&str, &str)] = &[
     ("nba/tor", include_str!("../../assets/logos/nba/tor.ans")),
     ("nba/utah", include_str!("../../assets/logos/nba/utah.ans")),
     ("nba/wsh", include_str!("../../assets/logos/nba/wsh.ans")),
+    ("ncaa/103", include_str!("../../assets/logos/ncaa/103.ans")),
+    ("ncaa/113", include_str!("../../assets/logos/ncaa/113.ans")),
     ("ncaa/12", include_str!("../../assets/logos/ncaa/12.ans")),
+    ("ncaa/120", include_str!("../../assets/logos/ncaa/120.ans")),
     ("ncaa/127", include_str!("../../assets/logos/ncaa/127.ans")),
     ("ncaa/130", include_str!("../../assets/logos/ncaa/130.ans")),
+    ("ncaa/135", include_str!("../../assets/logos/ncaa/135.ans")),
+    ("ncaa/139", include_str!("../../assets/logos/ncaa/139.ans")),
     ("ncaa/142", include_str!("../../assets/logos/ncaa/142.ans")),
     ("ncaa/145", include_str!("../../assets/logos/ncaa/145.ans")),
     ("ncaa/150", include_str!("../../assets/logos/ncaa/150.ans")),
+    ("ncaa/151", include_str!("../../assets/logos/ncaa/151.ans")),
+    ("ncaa/152", include_str!("../../assets/logos/ncaa/152.ans")),
+    ("ncaa/153", include_str!("../../assets/logos/ncaa/153.ans")),
+    ("ncaa/154", include_str!("../../assets/logos/ncaa/154.ans")),
+    ("ncaa/156", include_str!("../../assets/logos/ncaa/156.ans")),
     ("ncaa/158", include_str!("../../assets/logos/ncaa/158.ans")),
+    ("ncaa/16", include_str!("../../assets/logos/ncaa/16.ans")),
+    ("ncaa/164", include_str!("../../assets/logos/ncaa/164.ans")),
+    ("ncaa/166", include_str!("../../assets/logos/ncaa/166.ans")),
+    ("ncaa/167", include_str!("../../assets/logos/ncaa/167.ans")),
+    ("ncaa/179", include_str!("../../assets/logos/ncaa/179.ans")),
+    ("ncaa/183", include_str!("../../assets/logos/ncaa/183.ans")),
+    ("ncaa/189", include_str!("../../assets/logos/ncaa/189.ans")),
+    ("ncaa/193", include_str!("../../assets/logos/ncaa/193.ans")),
     ("ncaa/194", include_str!("../../assets/logos/ncaa/194.ans")),
+    ("ncaa/195", include_str!("../../assets/logos/ncaa/195.ans")),
+    ("ncaa/197", include_str!("../../assets/logos/ncaa/197.ans")),
+    ("ncaa/2", include_str!("../../assets/logos/ncaa/2.ans")),
+    (
+        "ncaa/2005",
+        include_str!("../../assets/logos/ncaa/2005.ans"),
+    ),
+    (
+        "ncaa/2006",
+        include_str!("../../assets/logos/ncaa/2006.ans"),
+    ),
     ("ncaa/201", include_str!("../../assets/logos/ncaa/201.ans")),
+    ("ncaa/202", include_str!("../../assets/logos/ncaa/202.ans")),
+    (
+        "ncaa/2026",
+        include_str!("../../assets/logos/ncaa/2026.ans"),
+    ),
+    (
+        "ncaa/2032",
+        include_str!("../../assets/logos/ncaa/2032.ans"),
+    ),
+    ("ncaa/204", include_str!("../../assets/logos/ncaa/204.ans")),
+    (
+        "ncaa/2050",
+        include_str!("../../assets/logos/ncaa/2050.ans"),
+    ),
+    (
+        "ncaa/2084",
+        include_str!("../../assets/logos/ncaa/2084.ans"),
+    ),
+    (
+        "ncaa/2086",
+        include_str!("../../assets/logos/ncaa/2086.ans"),
+    ),
+    ("ncaa/21", include_str!("../../assets/logos/ncaa/21.ans")),
+    (
+        "ncaa/2116",
+        include_str!("../../assets/logos/ncaa/2116.ans"),
+    ),
+    (
+        "ncaa/2117",
+        include_str!("../../assets/logos/ncaa/2117.ans"),
+    ),
     ("ncaa/213", include_str!("../../assets/logos/ncaa/213.ans")),
+    (
+        "ncaa/2132",
+        include_str!("../../assets/logos/ncaa/2132.ans"),
+    ),
+    (
+        "ncaa/2166",
+        include_str!("../../assets/logos/ncaa/2166.ans"),
+    ),
+    (
+        "ncaa/2168",
+        include_str!("../../assets/logos/ncaa/2168.ans"),
+    ),
+    ("ncaa/218", include_str!("../../assets/logos/ncaa/218.ans")),
+    (
+        "ncaa/2184",
+        include_str!("../../assets/logos/ncaa/2184.ans"),
+    ),
+    (
+        "ncaa/2199",
+        include_str!("../../assets/logos/ncaa/2199.ans"),
+    ),
+    ("ncaa/221", include_str!("../../assets/logos/ncaa/221.ans")),
+    ("ncaa/222", include_str!("../../assets/logos/ncaa/222.ans")),
+    (
+        "ncaa/2226",
+        include_str!("../../assets/logos/ncaa/2226.ans"),
+    ),
+    (
+        "ncaa/2229",
+        include_str!("../../assets/logos/ncaa/2229.ans"),
+    ),
+    (
+        "ncaa/2230",
+        include_str!("../../assets/logos/ncaa/2230.ans"),
+    ),
+    (
+        "ncaa/2244",
+        include_str!("../../assets/logos/ncaa/2244.ans"),
+    ),
+    (
+        "ncaa/2247",
+        include_str!("../../assets/logos/ncaa/2247.ans"),
+    ),
     (
         "ncaa/2250",
         include_str!("../../assets/logos/ncaa/2250.ans"),
     ),
     (
+        "ncaa/2253",
+        include_str!("../../assets/logos/ncaa/2253.ans"),
+    ),
+    ("ncaa/227", include_str!("../../assets/logos/ncaa/227.ans")),
+    ("ncaa/228", include_str!("../../assets/logos/ncaa/228.ans")),
+    (
         "ncaa/2294",
         include_str!("../../assets/logos/ncaa/2294.ans"),
     ),
+    ("ncaa/23", include_str!("../../assets/logos/ncaa/23.ans")),
     (
         "ncaa/2305",
         include_str!("../../assets/logos/ncaa/2305.ans"),
     ),
+    (
+        "ncaa/2306",
+        include_str!("../../assets/logos/ncaa/2306.ans"),
+    ),
+    (
+        "ncaa/2309",
+        include_str!("../../assets/logos/ncaa/2309.ans"),
+    ),
+    (
+        "ncaa/2325",
+        include_str!("../../assets/logos/ncaa/2325.ans"),
+    ),
+    (
+        "ncaa/2335",
+        include_str!("../../assets/logos/ncaa/2335.ans"),
+    ),
+    (
+        "ncaa/2348",
+        include_str!("../../assets/logos/ncaa/2348.ans"),
+    ),
+    ("ncaa/235", include_str!("../../assets/logos/ncaa/235.ans")),
+    (
+        "ncaa/2350",
+        include_str!("../../assets/logos/ncaa/2350.ans"),
+    ),
     ("ncaa/238", include_str!("../../assets/logos/ncaa/238.ans")),
+    ("ncaa/239", include_str!("../../assets/logos/ncaa/239.ans")),
     (
         "ncaa/2390",
         include_str!("../../assets/logos/ncaa/2390.ans"),
     ),
+    (
+        "ncaa/2393",
+        include_str!("../../assets/logos/ncaa/2393.ans"),
+    ),
+    ("ncaa/24", include_str!("../../assets/logos/ncaa/24.ans")),
+    ("ncaa/242", include_str!("../../assets/logos/ncaa/242.ans")),
+    (
+        "ncaa/2426",
+        include_str!("../../assets/logos/ncaa/2426.ans"),
+    ),
+    (
+        "ncaa/2429",
+        include_str!("../../assets/logos/ncaa/2429.ans"),
+    ),
+    (
+        "ncaa/2433",
+        include_str!("../../assets/logos/ncaa/2433.ans"),
+    ),
+    (
+        "ncaa/2439",
+        include_str!("../../assets/logos/ncaa/2439.ans"),
+    ),
+    (
+        "ncaa/2440",
+        include_str!("../../assets/logos/ncaa/2440.ans"),
+    ),
+    (
+        "ncaa/2449",
+        include_str!("../../assets/logos/ncaa/2449.ans"),
+    ),
     ("ncaa/245", include_str!("../../assets/logos/ncaa/245.ans")),
+    (
+        "ncaa/2459",
+        include_str!("../../assets/logos/ncaa/2459.ans"),
+    ),
     ("ncaa/248", include_str!("../../assets/logos/ncaa/248.ans")),
     (
         "ncaa/2483",
         include_str!("../../assets/logos/ncaa/2483.ans"),
+    ),
+    ("ncaa/249", include_str!("../../assets/logos/ncaa/249.ans")),
+    ("ncaa/25", include_str!("../../assets/logos/ncaa/25.ans")),
+    (
+        "ncaa/2507",
+        include_str!("../../assets/logos/ncaa/2507.ans"),
     ),
     (
         "ncaa/2509",
@@ -104,37 +280,141 @@ pub(super) const LOGO_SOURCES: &[(&str, &str)] = &[
     ),
     ("ncaa/251", include_str!("../../assets/logos/ncaa/251.ans")),
     ("ncaa/252", include_str!("../../assets/logos/ncaa/252.ans")),
+    (
+        "ncaa/2534",
+        include_str!("../../assets/logos/ncaa/2534.ans"),
+    ),
     ("ncaa/254", include_str!("../../assets/logos/ncaa/254.ans")),
+    (
+        "ncaa/2550",
+        include_str!("../../assets/logos/ncaa/2550.ans"),
+    ),
+    ("ncaa/256", include_str!("../../assets/logos/ncaa/256.ans")),
     (
         "ncaa/2567",
         include_str!("../../assets/logos/ncaa/2567.ans"),
     ),
+    ("ncaa/257", include_str!("../../assets/logos/ncaa/257.ans")),
+    (
+        "ncaa/2572",
+        include_str!("../../assets/logos/ncaa/2572.ans"),
+    ),
+    (
+        "ncaa/2579",
+        include_str!("../../assets/logos/ncaa/2579.ans"),
+    ),
     ("ncaa/258", include_str!("../../assets/logos/ncaa/258.ans")),
+    ("ncaa/259", include_str!("../../assets/logos/ncaa/259.ans")),
     (
         "ncaa/2599",
         include_str!("../../assets/logos/ncaa/2599.ans"),
     ),
+    ("ncaa/26", include_str!("../../assets/logos/ncaa/26.ans")),
+    (
+        "ncaa/2603",
+        include_str!("../../assets/logos/ncaa/2603.ans"),
+    ),
+    (
+        "ncaa/2623",
+        include_str!("../../assets/logos/ncaa/2623.ans"),
+    ),
+    (
+        "ncaa/2628",
+        include_str!("../../assets/logos/ncaa/2628.ans"),
+    ),
     (
         "ncaa/2633",
         include_str!("../../assets/logos/ncaa/2633.ans"),
+    ),
+    (
+        "ncaa/2636",
+        include_str!("../../assets/logos/ncaa/2636.ans"),
+    ),
+    (
+        "ncaa/2638",
+        include_str!("../../assets/logos/ncaa/2638.ans"),
     ),
     ("ncaa/264", include_str!("../../assets/logos/ncaa/264.ans")),
     (
         "ncaa/2641",
         include_str!("../../assets/logos/ncaa/2641.ans"),
     ),
+    (
+        "ncaa/2649",
+        include_str!("../../assets/logos/ncaa/2649.ans"),
+    ),
+    ("ncaa/265", include_str!("../../assets/logos/ncaa/265.ans")),
+    (
+        "ncaa/2653",
+        include_str!("../../assets/logos/ncaa/2653.ans"),
+    ),
+    (
+        "ncaa/2655",
+        include_str!("../../assets/logos/ncaa/2655.ans"),
+    ),
+    (
+        "ncaa/2670",
+        include_str!("../../assets/logos/ncaa/2670.ans"),
+    ),
+    ("ncaa/269", include_str!("../../assets/logos/ncaa/269.ans")),
+    (
+        "ncaa/2711",
+        include_str!("../../assets/logos/ncaa/2711.ans"),
+    ),
+    (
+        "ncaa/2724",
+        include_str!("../../assets/logos/ncaa/2724.ans"),
+    ),
     ("ncaa/275", include_str!("../../assets/logos/ncaa/275.ans")),
+    (
+        "ncaa/2751",
+        include_str!("../../assets/logos/ncaa/2751.ans"),
+    ),
+    (
+        "ncaa/2752",
+        include_str!("../../assets/logos/ncaa/2752.ans"),
+    ),
+    ("ncaa/276", include_str!("../../assets/logos/ncaa/276.ans")),
+    ("ncaa/277", include_str!("../../assets/logos/ncaa/277.ans")),
+    ("ncaa/278", include_str!("../../assets/logos/ncaa/278.ans")),
+    ("ncaa/290", include_str!("../../assets/logos/ncaa/290.ans")),
+    ("ncaa/295", include_str!("../../assets/logos/ncaa/295.ans")),
     ("ncaa/30", include_str!("../../assets/logos/ncaa/30.ans")),
+    ("ncaa/305", include_str!("../../assets/logos/ncaa/305.ans")),
+    ("ncaa/309", include_str!("../../assets/logos/ncaa/309.ans")),
+    ("ncaa/324", include_str!("../../assets/logos/ncaa/324.ans")),
+    ("ncaa/326", include_str!("../../assets/logos/ncaa/326.ans")),
+    ("ncaa/328", include_str!("../../assets/logos/ncaa/328.ans")),
     ("ncaa/333", include_str!("../../assets/logos/ncaa/333.ans")),
+    ("ncaa/338", include_str!("../../assets/logos/ncaa/338.ans")),
+    ("ncaa/344", include_str!("../../assets/logos/ncaa/344.ans")),
+    ("ncaa/349", include_str!("../../assets/logos/ncaa/349.ans")),
     ("ncaa/356", include_str!("../../assets/logos/ncaa/356.ans")),
+    ("ncaa/36", include_str!("../../assets/logos/ncaa/36.ans")),
+    ("ncaa/38", include_str!("../../assets/logos/ncaa/38.ans")),
     ("ncaa/41", include_str!("../../assets/logos/ncaa/41.ans")),
+    ("ncaa/45", include_str!("../../assets/logos/ncaa/45.ans")),
+    ("ncaa/46", include_str!("../../assets/logos/ncaa/46.ans")),
+    ("ncaa/48", include_str!("../../assets/logos/ncaa/48.ans")),
+    ("ncaa/5", include_str!("../../assets/logos/ncaa/5.ans")),
+    ("ncaa/52", include_str!("../../assets/logos/ncaa/52.ans")),
+    ("ncaa/55", include_str!("../../assets/logos/ncaa/55.ans")),
     ("ncaa/57", include_str!("../../assets/logos/ncaa/57.ans")),
+    ("ncaa/58", include_str!("../../assets/logos/ncaa/58.ans")),
+    ("ncaa/59", include_str!("../../assets/logos/ncaa/59.ans")),
+    ("ncaa/6", include_str!("../../assets/logos/ncaa/6.ans")),
     ("ncaa/61", include_str!("../../assets/logos/ncaa/61.ans")),
+    ("ncaa/62", include_str!("../../assets/logos/ncaa/62.ans")),
     ("ncaa/66", include_str!("../../assets/logos/ncaa/66.ans")),
+    ("ncaa/68", include_str!("../../assets/logos/ncaa/68.ans")),
+    ("ncaa/77", include_str!("../../assets/logos/ncaa/77.ans")),
     ("ncaa/8", include_str!("../../assets/logos/ncaa/8.ans")),
     ("ncaa/84", include_str!("../../assets/logos/ncaa/84.ans")),
     ("ncaa/87", include_str!("../../assets/logos/ncaa/87.ans")),
+    ("ncaa/9", include_str!("../../assets/logos/ncaa/9.ans")),
+    ("ncaa/96", include_str!("../../assets/logos/ncaa/96.ans")),
     ("ncaa/97", include_str!("../../assets/logos/ncaa/97.ans")),
+    ("ncaa/98", include_str!("../../assets/logos/ncaa/98.ans")),
     ("ncaa/99", include_str!("../../assets/logos/ncaa/99.ans")),
     ("nfl/ari", include_str!("../../assets/logos/nfl/ari.ans")),
     ("nfl/atl", include_str!("../../assets/logos/nfl/atl.ans")),
@@ -417,7 +697,7 @@ pub(super) const LOGO_SOURCES: &[(&str, &str)] = &[
     ("wnba/wsh", include_str!("../../assets/logos/wnba/wsh.ans")),
 ];
 
-/// The same marks composited for a light ground: keyed
+/// The same marks composited for a light ground (v3.4 §7): keyed
 /// identically, selected by [`super::hero_mark`] when the active
 /// theme's ground is a light one.
 pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[
@@ -662,8 +942,20 @@ pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[
         include_str!("../../assets/logos-light/nba/wsh.ans"),
     ),
     (
+        "ncaa/103",
+        include_str!("../../assets/logos-light/ncaa/103.ans"),
+    ),
+    (
+        "ncaa/113",
+        include_str!("../../assets/logos-light/ncaa/113.ans"),
+    ),
+    (
         "ncaa/12",
         include_str!("../../assets/logos-light/ncaa/12.ans"),
+    ),
+    (
+        "ncaa/120",
+        include_str!("../../assets/logos-light/ncaa/120.ans"),
     ),
     (
         "ncaa/127",
@@ -672,6 +964,14 @@ pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[
     (
         "ncaa/130",
         include_str!("../../assets/logos-light/ncaa/130.ans"),
+    ),
+    (
+        "ncaa/135",
+        include_str!("../../assets/logos-light/ncaa/135.ans"),
+    ),
+    (
+        "ncaa/139",
+        include_str!("../../assets/logos-light/ncaa/139.ans"),
     ),
     (
         "ncaa/142",
@@ -686,44 +986,296 @@ pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[
         include_str!("../../assets/logos-light/ncaa/150.ans"),
     ),
     (
+        "ncaa/151",
+        include_str!("../../assets/logos-light/ncaa/151.ans"),
+    ),
+    (
+        "ncaa/152",
+        include_str!("../../assets/logos-light/ncaa/152.ans"),
+    ),
+    (
+        "ncaa/153",
+        include_str!("../../assets/logos-light/ncaa/153.ans"),
+    ),
+    (
+        "ncaa/154",
+        include_str!("../../assets/logos-light/ncaa/154.ans"),
+    ),
+    (
+        "ncaa/156",
+        include_str!("../../assets/logos-light/ncaa/156.ans"),
+    ),
+    (
         "ncaa/158",
         include_str!("../../assets/logos-light/ncaa/158.ans"),
+    ),
+    (
+        "ncaa/16",
+        include_str!("../../assets/logos-light/ncaa/16.ans"),
+    ),
+    (
+        "ncaa/164",
+        include_str!("../../assets/logos-light/ncaa/164.ans"),
+    ),
+    (
+        "ncaa/166",
+        include_str!("../../assets/logos-light/ncaa/166.ans"),
+    ),
+    (
+        "ncaa/167",
+        include_str!("../../assets/logos-light/ncaa/167.ans"),
+    ),
+    (
+        "ncaa/179",
+        include_str!("../../assets/logos-light/ncaa/179.ans"),
+    ),
+    (
+        "ncaa/183",
+        include_str!("../../assets/logos-light/ncaa/183.ans"),
+    ),
+    (
+        "ncaa/189",
+        include_str!("../../assets/logos-light/ncaa/189.ans"),
+    ),
+    (
+        "ncaa/193",
+        include_str!("../../assets/logos-light/ncaa/193.ans"),
     ),
     (
         "ncaa/194",
         include_str!("../../assets/logos-light/ncaa/194.ans"),
     ),
     (
+        "ncaa/195",
+        include_str!("../../assets/logos-light/ncaa/195.ans"),
+    ),
+    (
+        "ncaa/197",
+        include_str!("../../assets/logos-light/ncaa/197.ans"),
+    ),
+    (
+        "ncaa/2",
+        include_str!("../../assets/logos-light/ncaa/2.ans"),
+    ),
+    (
+        "ncaa/2005",
+        include_str!("../../assets/logos-light/ncaa/2005.ans"),
+    ),
+    (
+        "ncaa/2006",
+        include_str!("../../assets/logos-light/ncaa/2006.ans"),
+    ),
+    (
         "ncaa/201",
         include_str!("../../assets/logos-light/ncaa/201.ans"),
+    ),
+    (
+        "ncaa/202",
+        include_str!("../../assets/logos-light/ncaa/202.ans"),
+    ),
+    (
+        "ncaa/2026",
+        include_str!("../../assets/logos-light/ncaa/2026.ans"),
+    ),
+    (
+        "ncaa/2032",
+        include_str!("../../assets/logos-light/ncaa/2032.ans"),
+    ),
+    (
+        "ncaa/204",
+        include_str!("../../assets/logos-light/ncaa/204.ans"),
+    ),
+    (
+        "ncaa/2050",
+        include_str!("../../assets/logos-light/ncaa/2050.ans"),
+    ),
+    (
+        "ncaa/2084",
+        include_str!("../../assets/logos-light/ncaa/2084.ans"),
+    ),
+    (
+        "ncaa/2086",
+        include_str!("../../assets/logos-light/ncaa/2086.ans"),
+    ),
+    (
+        "ncaa/21",
+        include_str!("../../assets/logos-light/ncaa/21.ans"),
+    ),
+    (
+        "ncaa/2116",
+        include_str!("../../assets/logos-light/ncaa/2116.ans"),
+    ),
+    (
+        "ncaa/2117",
+        include_str!("../../assets/logos-light/ncaa/2117.ans"),
     ),
     (
         "ncaa/213",
         include_str!("../../assets/logos-light/ncaa/213.ans"),
     ),
     (
+        "ncaa/2132",
+        include_str!("../../assets/logos-light/ncaa/2132.ans"),
+    ),
+    (
+        "ncaa/2166",
+        include_str!("../../assets/logos-light/ncaa/2166.ans"),
+    ),
+    (
+        "ncaa/2168",
+        include_str!("../../assets/logos-light/ncaa/2168.ans"),
+    ),
+    (
+        "ncaa/218",
+        include_str!("../../assets/logos-light/ncaa/218.ans"),
+    ),
+    (
+        "ncaa/2184",
+        include_str!("../../assets/logos-light/ncaa/2184.ans"),
+    ),
+    (
+        "ncaa/2199",
+        include_str!("../../assets/logos-light/ncaa/2199.ans"),
+    ),
+    (
+        "ncaa/221",
+        include_str!("../../assets/logos-light/ncaa/221.ans"),
+    ),
+    (
+        "ncaa/222",
+        include_str!("../../assets/logos-light/ncaa/222.ans"),
+    ),
+    (
+        "ncaa/2226",
+        include_str!("../../assets/logos-light/ncaa/2226.ans"),
+    ),
+    (
+        "ncaa/2229",
+        include_str!("../../assets/logos-light/ncaa/2229.ans"),
+    ),
+    (
+        "ncaa/2230",
+        include_str!("../../assets/logos-light/ncaa/2230.ans"),
+    ),
+    (
+        "ncaa/2244",
+        include_str!("../../assets/logos-light/ncaa/2244.ans"),
+    ),
+    (
+        "ncaa/2247",
+        include_str!("../../assets/logos-light/ncaa/2247.ans"),
+    ),
+    (
         "ncaa/2250",
         include_str!("../../assets/logos-light/ncaa/2250.ans"),
+    ),
+    (
+        "ncaa/2253",
+        include_str!("../../assets/logos-light/ncaa/2253.ans"),
+    ),
+    (
+        "ncaa/227",
+        include_str!("../../assets/logos-light/ncaa/227.ans"),
+    ),
+    (
+        "ncaa/228",
+        include_str!("../../assets/logos-light/ncaa/228.ans"),
     ),
     (
         "ncaa/2294",
         include_str!("../../assets/logos-light/ncaa/2294.ans"),
     ),
     (
+        "ncaa/23",
+        include_str!("../../assets/logos-light/ncaa/23.ans"),
+    ),
+    (
         "ncaa/2305",
         include_str!("../../assets/logos-light/ncaa/2305.ans"),
+    ),
+    (
+        "ncaa/2306",
+        include_str!("../../assets/logos-light/ncaa/2306.ans"),
+    ),
+    (
+        "ncaa/2309",
+        include_str!("../../assets/logos-light/ncaa/2309.ans"),
+    ),
+    (
+        "ncaa/2325",
+        include_str!("../../assets/logos-light/ncaa/2325.ans"),
+    ),
+    (
+        "ncaa/2335",
+        include_str!("../../assets/logos-light/ncaa/2335.ans"),
+    ),
+    (
+        "ncaa/2348",
+        include_str!("../../assets/logos-light/ncaa/2348.ans"),
+    ),
+    (
+        "ncaa/235",
+        include_str!("../../assets/logos-light/ncaa/235.ans"),
+    ),
+    (
+        "ncaa/2350",
+        include_str!("../../assets/logos-light/ncaa/2350.ans"),
     ),
     (
         "ncaa/238",
         include_str!("../../assets/logos-light/ncaa/238.ans"),
     ),
     (
+        "ncaa/239",
+        include_str!("../../assets/logos-light/ncaa/239.ans"),
+    ),
+    (
         "ncaa/2390",
         include_str!("../../assets/logos-light/ncaa/2390.ans"),
     ),
     (
+        "ncaa/2393",
+        include_str!("../../assets/logos-light/ncaa/2393.ans"),
+    ),
+    (
+        "ncaa/24",
+        include_str!("../../assets/logos-light/ncaa/24.ans"),
+    ),
+    (
+        "ncaa/242",
+        include_str!("../../assets/logos-light/ncaa/242.ans"),
+    ),
+    (
+        "ncaa/2426",
+        include_str!("../../assets/logos-light/ncaa/2426.ans"),
+    ),
+    (
+        "ncaa/2429",
+        include_str!("../../assets/logos-light/ncaa/2429.ans"),
+    ),
+    (
+        "ncaa/2433",
+        include_str!("../../assets/logos-light/ncaa/2433.ans"),
+    ),
+    (
+        "ncaa/2439",
+        include_str!("../../assets/logos-light/ncaa/2439.ans"),
+    ),
+    (
+        "ncaa/2440",
+        include_str!("../../assets/logos-light/ncaa/2440.ans"),
+    ),
+    (
+        "ncaa/2449",
+        include_str!("../../assets/logos-light/ncaa/2449.ans"),
+    ),
+    (
         "ncaa/245",
         include_str!("../../assets/logos-light/ncaa/245.ans"),
+    ),
+    (
+        "ncaa/2459",
+        include_str!("../../assets/logos-light/ncaa/2459.ans"),
     ),
     (
         "ncaa/248",
@@ -732,6 +1284,18 @@ pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[
     (
         "ncaa/2483",
         include_str!("../../assets/logos-light/ncaa/2483.ans"),
+    ),
+    (
+        "ncaa/249",
+        include_str!("../../assets/logos-light/ncaa/249.ans"),
+    ),
+    (
+        "ncaa/25",
+        include_str!("../../assets/logos-light/ncaa/25.ans"),
+    ),
+    (
+        "ncaa/2507",
+        include_str!("../../assets/logos-light/ncaa/2507.ans"),
     ),
     (
         "ncaa/2509",
@@ -746,24 +1310,76 @@ pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[
         include_str!("../../assets/logos-light/ncaa/252.ans"),
     ),
     (
+        "ncaa/2534",
+        include_str!("../../assets/logos-light/ncaa/2534.ans"),
+    ),
+    (
         "ncaa/254",
         include_str!("../../assets/logos-light/ncaa/254.ans"),
+    ),
+    (
+        "ncaa/2550",
+        include_str!("../../assets/logos-light/ncaa/2550.ans"),
+    ),
+    (
+        "ncaa/256",
+        include_str!("../../assets/logos-light/ncaa/256.ans"),
     ),
     (
         "ncaa/2567",
         include_str!("../../assets/logos-light/ncaa/2567.ans"),
     ),
     (
+        "ncaa/257",
+        include_str!("../../assets/logos-light/ncaa/257.ans"),
+    ),
+    (
+        "ncaa/2572",
+        include_str!("../../assets/logos-light/ncaa/2572.ans"),
+    ),
+    (
+        "ncaa/2579",
+        include_str!("../../assets/logos-light/ncaa/2579.ans"),
+    ),
+    (
         "ncaa/258",
         include_str!("../../assets/logos-light/ncaa/258.ans"),
+    ),
+    (
+        "ncaa/259",
+        include_str!("../../assets/logos-light/ncaa/259.ans"),
     ),
     (
         "ncaa/2599",
         include_str!("../../assets/logos-light/ncaa/2599.ans"),
     ),
     (
+        "ncaa/26",
+        include_str!("../../assets/logos-light/ncaa/26.ans"),
+    ),
+    (
+        "ncaa/2603",
+        include_str!("../../assets/logos-light/ncaa/2603.ans"),
+    ),
+    (
+        "ncaa/2623",
+        include_str!("../../assets/logos-light/ncaa/2623.ans"),
+    ),
+    (
+        "ncaa/2628",
+        include_str!("../../assets/logos-light/ncaa/2628.ans"),
+    ),
+    (
         "ncaa/2633",
         include_str!("../../assets/logos-light/ncaa/2633.ans"),
+    ),
+    (
+        "ncaa/2636",
+        include_str!("../../assets/logos-light/ncaa/2636.ans"),
+    ),
+    (
+        "ncaa/2638",
+        include_str!("../../assets/logos-light/ncaa/2638.ans"),
     ),
     (
         "ncaa/264",
@@ -774,36 +1390,184 @@ pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[
         include_str!("../../assets/logos-light/ncaa/2641.ans"),
     ),
     (
+        "ncaa/2649",
+        include_str!("../../assets/logos-light/ncaa/2649.ans"),
+    ),
+    (
+        "ncaa/265",
+        include_str!("../../assets/logos-light/ncaa/265.ans"),
+    ),
+    (
+        "ncaa/2653",
+        include_str!("../../assets/logos-light/ncaa/2653.ans"),
+    ),
+    (
+        "ncaa/2655",
+        include_str!("../../assets/logos-light/ncaa/2655.ans"),
+    ),
+    (
+        "ncaa/2670",
+        include_str!("../../assets/logos-light/ncaa/2670.ans"),
+    ),
+    (
+        "ncaa/269",
+        include_str!("../../assets/logos-light/ncaa/269.ans"),
+    ),
+    (
+        "ncaa/2711",
+        include_str!("../../assets/logos-light/ncaa/2711.ans"),
+    ),
+    (
+        "ncaa/2724",
+        include_str!("../../assets/logos-light/ncaa/2724.ans"),
+    ),
+    (
         "ncaa/275",
         include_str!("../../assets/logos-light/ncaa/275.ans"),
+    ),
+    (
+        "ncaa/2751",
+        include_str!("../../assets/logos-light/ncaa/2751.ans"),
+    ),
+    (
+        "ncaa/2752",
+        include_str!("../../assets/logos-light/ncaa/2752.ans"),
+    ),
+    (
+        "ncaa/276",
+        include_str!("../../assets/logos-light/ncaa/276.ans"),
+    ),
+    (
+        "ncaa/277",
+        include_str!("../../assets/logos-light/ncaa/277.ans"),
+    ),
+    (
+        "ncaa/278",
+        include_str!("../../assets/logos-light/ncaa/278.ans"),
+    ),
+    (
+        "ncaa/290",
+        include_str!("../../assets/logos-light/ncaa/290.ans"),
+    ),
+    (
+        "ncaa/295",
+        include_str!("../../assets/logos-light/ncaa/295.ans"),
     ),
     (
         "ncaa/30",
         include_str!("../../assets/logos-light/ncaa/30.ans"),
     ),
     (
+        "ncaa/305",
+        include_str!("../../assets/logos-light/ncaa/305.ans"),
+    ),
+    (
+        "ncaa/309",
+        include_str!("../../assets/logos-light/ncaa/309.ans"),
+    ),
+    (
+        "ncaa/324",
+        include_str!("../../assets/logos-light/ncaa/324.ans"),
+    ),
+    (
+        "ncaa/326",
+        include_str!("../../assets/logos-light/ncaa/326.ans"),
+    ),
+    (
+        "ncaa/328",
+        include_str!("../../assets/logos-light/ncaa/328.ans"),
+    ),
+    (
         "ncaa/333",
         include_str!("../../assets/logos-light/ncaa/333.ans"),
+    ),
+    (
+        "ncaa/338",
+        include_str!("../../assets/logos-light/ncaa/338.ans"),
+    ),
+    (
+        "ncaa/344",
+        include_str!("../../assets/logos-light/ncaa/344.ans"),
+    ),
+    (
+        "ncaa/349",
+        include_str!("../../assets/logos-light/ncaa/349.ans"),
     ),
     (
         "ncaa/356",
         include_str!("../../assets/logos-light/ncaa/356.ans"),
     ),
     (
+        "ncaa/36",
+        include_str!("../../assets/logos-light/ncaa/36.ans"),
+    ),
+    (
+        "ncaa/38",
+        include_str!("../../assets/logos-light/ncaa/38.ans"),
+    ),
+    (
         "ncaa/41",
         include_str!("../../assets/logos-light/ncaa/41.ans"),
+    ),
+    (
+        "ncaa/45",
+        include_str!("../../assets/logos-light/ncaa/45.ans"),
+    ),
+    (
+        "ncaa/46",
+        include_str!("../../assets/logos-light/ncaa/46.ans"),
+    ),
+    (
+        "ncaa/48",
+        include_str!("../../assets/logos-light/ncaa/48.ans"),
+    ),
+    (
+        "ncaa/5",
+        include_str!("../../assets/logos-light/ncaa/5.ans"),
+    ),
+    (
+        "ncaa/52",
+        include_str!("../../assets/logos-light/ncaa/52.ans"),
+    ),
+    (
+        "ncaa/55",
+        include_str!("../../assets/logos-light/ncaa/55.ans"),
     ),
     (
         "ncaa/57",
         include_str!("../../assets/logos-light/ncaa/57.ans"),
     ),
     (
+        "ncaa/58",
+        include_str!("../../assets/logos-light/ncaa/58.ans"),
+    ),
+    (
+        "ncaa/59",
+        include_str!("../../assets/logos-light/ncaa/59.ans"),
+    ),
+    (
+        "ncaa/6",
+        include_str!("../../assets/logos-light/ncaa/6.ans"),
+    ),
+    (
         "ncaa/61",
         include_str!("../../assets/logos-light/ncaa/61.ans"),
     ),
     (
+        "ncaa/62",
+        include_str!("../../assets/logos-light/ncaa/62.ans"),
+    ),
+    (
         "ncaa/66",
         include_str!("../../assets/logos-light/ncaa/66.ans"),
+    ),
+    (
+        "ncaa/68",
+        include_str!("../../assets/logos-light/ncaa/68.ans"),
+    ),
+    (
+        "ncaa/77",
+        include_str!("../../assets/logos-light/ncaa/77.ans"),
     ),
     (
         "ncaa/8",
@@ -818,8 +1582,20 @@ pub(super) const LIGHT_LOGO_SOURCES: &[(&str, &str)] = &[
         include_str!("../../assets/logos-light/ncaa/87.ans"),
     ),
     (
+        "ncaa/9",
+        include_str!("../../assets/logos-light/ncaa/9.ans"),
+    ),
+    (
+        "ncaa/96",
+        include_str!("../../assets/logos-light/ncaa/96.ans"),
+    ),
+    (
         "ncaa/97",
         include_str!("../../assets/logos-light/ncaa/97.ans"),
+    ),
+    (
+        "ncaa/98",
+        include_str!("../../assets/logos-light/ncaa/98.ans"),
     ),
     (
         "ncaa/99",

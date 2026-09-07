@@ -175,12 +175,18 @@ fn every_pro_league_is_complete() {
         50,
         "soccer marks"
     );
-    // College is the ranked top 25 of each poll, deduped where a school is
-    // ranked in both — so somewhere in 25..=50.
+    // v4-wave5-marks (the sitting's `marks` option): `tools/gen-logos.sh
+    // COLLEGE=all` committed every FBS school plus the top eight D-I men's
+    // basketball conferences (ACC, Big East, Big Ten, Big 12, SEC,
+    // Atlantic 10, Mountain West, American) — 138 FBS + 118 hoops, deduped
+    // by ESPN's shared school id to 164 unique, plus one leftover mark from
+    // an AP-poll school outside those eight hoops conferences: 165 measured
+    // 2026-09-07. `25..=50` was the old poll-only range; ±20% air around
+    // the measured count is (130..=200).
     let ncaa = per_ns.get("ncaa").copied().unwrap_or(0);
     assert!(
-        (25..=50).contains(&ncaa),
-        "college marks: {ncaa} outside 25..=50"
+        (130..=200).contains(&ncaa),
+        "college marks: {ncaa} outside 130..=200"
     );
 }
 
