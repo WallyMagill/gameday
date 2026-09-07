@@ -64,10 +64,33 @@ while [ "$i" -lt "$polls" ]; do
   i=$(( i + 1 ))
   [ "$i" -lt "$polls" ] && sleep 15
 done
-last="$dir/$(printf '%02d' $(( polls - 1 ))).json"
-if [ -n "$event" ]; then ids="$event"; else ids=$(jq -r '.events[] | select(.status.type.state=="in") | .id' "$last"); fi
+# The newest poll that actually landed, not the one the counter reached: the
+# last fetch of the window is as skippable as any other. A glob walk, not
+# `ls | tail`: with `pipefail` a no-match `ls` would take the whole script
+# down on the one path where every poll failed.
+last=""
+for f in "$dir"/[0-9][0-9].json; do
+  if [ -e "$f" ]; then last="$f"; fi
+done
+if [ -n "$event" ]; then
+  ids="$event"
+elif [ -n "$last" ]; then
+  ids=$(jq -r '.events[] | select(.status.type.state=="in") | .id' "$last")
+else
+  ids=""
+  echo "no poll survived; no summary to fetch" >&2
+fi
 for id in $ids; do
-  curl -sf -A "$UA" "$B/$path/summary?event=$id" | jq '.' > "$dir/summary-$id.json"
+  # Same temp-then-rename as the polls: a summary that fails must leave no
+  # file at all. A zero-byte summary-<id>.json is worse than a missing one —
+  # the replay harness would meet it as a JSON parse error instead of "no
+  # summary was captured".
+  if ! curl -sf -A "$UA" "$B/$path/summary?event=$id" | jq '.' > "$dir/summary-$id.json.tmp"; then
+    echo "summary $id failed; no file written" >&2
+    rm -f "$dir/summary-$id.json.tmp"
+  else
+    mv "$dir/summary-$id.json.tmp" "$dir/summary-$id.json"
+  fi
   sleep 1
 done
 # Which consecutive pairs carry a score delta, per event.
