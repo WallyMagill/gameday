@@ -1535,8 +1535,9 @@ mod tests {
         let bare = text_of(render(120, 3, &game, &ctx(), draw_tier1).backend().buffer());
         assert!(!bare.contains("2-MIN"), "no chip, no row\n{bare}");
 
-        // The longest chip the ranker emits fits whole — the clock column's
-        // 11 cells clipped "BASES LOADED" to "BASES LOADE".
+        // The longest chip the ranker emits fits whole — before the chip had
+        // `T1_CHIP_W`, the clock column's own width clipped "BASES LOADED"
+        // to "BASES LOADE".
         // "10 MEN" is the shortest of the family and the
         // reason the men chip could not name the side: "AVL 10 MEN" is 10
         // cells but the chip is a `&'static str`, not a format.
