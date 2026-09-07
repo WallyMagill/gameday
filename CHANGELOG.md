@@ -16,6 +16,7 @@ All notable changes to gameday are recorded here. The format follows
 
 ### Fixed
 - The scoring cut names the actual scoring play instead of whatever the poll happened to catch, via a one-shot summary catch-up when the scoreboard's own last play isn't the scoring one.
+- MLB play-result rows show the feed's sentence instead of `Play Result — <batter>`.
 - College rows no longer print the field position twice.
 - A red zone chip is shown only when a team is possessing.
 - Zoom rows show period and clock together, and never print the clock twice.
