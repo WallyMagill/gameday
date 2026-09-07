@@ -386,15 +386,19 @@ impl App {
             View::Tv => keymap::FooterCtx::Tv,
             View::PlaysFeed | View::Standings(_) | View::ThemePicker => keymap::FooterCtx::Feed,
         };
-        // " /kc" steals footer columns, so it counts toward every shed budget
-        // below regardless of which legend renders.
-        let filter_width = self.filter.as_ref().map_or(0, |f| f.chars().count() + 2);
+        // " /kc · 2 games" steals footer columns, so it counts toward every
+        // shed budget below regardless of which legend renders.
+        let filter_suffix = self.filter.as_ref().map(|f| {
+            let n = self.derived().selection.len();
+            format!(" /{f} · {n} game{}", if n == 1 { "" } else { "s" })
+        });
+        let filter_width = filter_suffix.as_ref().map_or(0, |s| s.chars().count());
         let mut spans = Vec::new();
         // An active committed filter stays visible so a narrowed board is
-        // never mistaken for a quiet one.
-        if let Some(f) = &self.filter {
+        // never mistaken for a quiet one, and names how many games it kept.
+        if let Some(s) = &filter_suffix {
             spans.push(Span::styled(
-                format!(" /{f}"),
+                s.clone(),
                 Style::default().fg(th.star).add_modifier(Modifier::BOLD),
             ));
         }

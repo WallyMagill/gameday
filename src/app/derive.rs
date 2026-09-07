@@ -50,17 +50,6 @@ pub struct Derived {
     pub ticker_events: Vec<(Game, Play)>,
 }
 
-/// Does either team match the `/` filter? Case-insensitive substring on
-/// abbr ("KC"), location ("KANSAS CITY"), and name ("Chiefs").
-fn game_matches(game: &Game, needle: &str) -> bool {
-    let needle = needle.to_lowercase();
-    [&game.away, &game.home].into_iter().any(|t| {
-        t.abbr.to_lowercase().contains(&needle)
-            || t.location.to_lowercase().contains(&needle)
-            || t.name.to_lowercase().contains(&needle)
-    })
-}
-
 impl App {
     pub fn visible_games(&self) -> Vec<Game> {
         let games = match self.tab {
@@ -73,13 +62,11 @@ impl App {
             }
             Tab::League(league) => self.league_games(league),
         };
-        match self.active_filter() {
-            Some(needle) => games
-                .into_iter()
-                .filter(|g| game_matches(g, needle))
-                .collect(),
-            None => games,
-        }
+        let q = self.active_filter().map(crate::filter::Query::parse);
+        games
+            .into_iter()
+            .filter(|g| q.as_ref().is_none_or(|q| q.matches(g)))
+            .collect()
     }
 
     /// One league's board as the tab shows it: today's live board, or — while
@@ -177,11 +164,11 @@ impl App {
     /// covers what the visible tab (or a traveled date) does not. A typed
     /// filter is explicit intent, so it narrows the ticker too.
     pub(crate) fn ticker_live(&self) -> Vec<Game> {
-        let needle = self.active_filter();
+        let q = self.active_filter().map(crate::filter::Query::parse);
         self.concat_boards()
             .into_iter()
             .filter(|g| g.status == Status::Live)
-            .filter(|g| needle.is_none_or(|n| game_matches(g, n)))
+            .filter(|g| q.as_ref().is_none_or(|q| q.matches(g)))
             .collect()
     }
 

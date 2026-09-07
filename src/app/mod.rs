@@ -146,9 +146,10 @@ pub struct App {
     /// One-line footer message (command errors, pin results). Cleared by the
     /// next Normal-mode key or by opening a prompt.
     pub status_line: Option<String>,
-    /// Committed `/` filter: case-insensitive substring matched against the
-    /// abbr/location/name of either team. Applied inside `visible_games`, so
-    /// every derived list (mosaic, slate, selection) narrows together.
+    /// Committed `/` filter: parsed as a [`crate::filter::Query`] — prefix
+    /// tokens over team words, optionally scoped by a league slug. Applied
+    /// inside `visible_games`, so every derived list (mosaic, slate,
+    /// selection) narrows together.
     pub filter: Option<String>,
     /// Slate time-travel: days from today each league tab is viewing
     /// (`[`/`]` on the board, clamped to ±[`DATE_TRAVEL_MAX_DAYS`]). Missing

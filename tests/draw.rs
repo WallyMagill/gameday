@@ -735,6 +735,33 @@ fn filter_matching_nothing_names_the_pattern() {
     );
 }
 
+/// The footer says how many games the filter left: `/tb · 2 games`.
+#[test]
+fn the_filter_footer_counts_what_it_kept() {
+    let mut app = mk();
+    app.apply_boards(
+        League::Nfl,
+        vec![
+            g("1", "KC", "TB", true),
+            g("2", "DAL", "TB", true),
+            g("3", "GB", "CHI", true),
+        ],
+        false,
+    );
+    app.tab = Tab::League(League::Nfl);
+    app.filter = Some("tb".into());
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("/tb · 2 games"), "{s}");
+    app.filter = Some("kc".into());
+    let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("/kc · 1 game"), "{s}");
+    assert!(!s.contains("1 games"), "{s}");
+}
+
 #[test]
 fn z_zooms_the_selected_game_and_shows_the_tab_bar() {
     use gameday::views::{View, ZoomTab};
