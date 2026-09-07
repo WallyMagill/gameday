@@ -328,6 +328,26 @@ Receipts required, one line each when landed: CI run links per wave; test counts
 - D1–D10: closed by tasks 5–11 (D6 recorded as feed pass-through; D4 pinned by test; D10 probe: `children[].standings.seasonType` present, live value 2 on 2026-09-06 — the committed NFL fixture is a preseason capture with 1).
 - Pending for this wave's DoD: one CFB replay sequence containing a touchdown (next window: Saturday 2026-09-12); captured with `scripts/capture-replay.sh cfb 30` and an event id, added to `fixtures/replay/` under the same harness. NFL sequences land in wave 6 (spec §8.5).
 
+### Wave 2 — landed 2026-09-07
+
+- Suite: 574 → 587 tests (`cargo test --release`, all green); clippy `-D warnings` and `cargo fmt --check` both clean at 715d1ad. `tests/ranking_slate.rs` top five on the 2026-09-05 slate, verbatim:
+  ```
+   38 LEVERAGE  BOIS 17 @ ORE 7
+   31 LEVERAGE  OKST 0 @ TLSA 3
+   30 LEVERAGE  BC 0 @ CIN 10
+   23 LEVERAGE  BAY 0 @ AUB 3
+   17 RANKED    TXST 7 @ TEX 28
+  ```
+  Matchups: BOIS (unranked) at No. 2 ORE; OKST (unranked) at TLSA (unranked); BC (unranked) at CIN (unranked); BAY (unranked) at AUB (unranked); TXST (unranked) at No. 5 TEX (`competitors[].curatedRank.current` from `fixtures/review-slate-2026-09-05.json`; ESPN uses 99 for unranked).
+- Weights: matchup 20/10 (+5 top five), favorite 25, situation × closeness/100, leverage closeness `(1000 − |2·home_permille − 1000|) / 10`, lateness from `secondsLeft` over regulation (OT pins to 100); all guesses calibrated by the slate test.
+- The slate test asserts: BOIS at ORE leads and `top_id` agrees; FOR at NDSU (the review day's wrongly-chosen hero, 0-17 with a two-minute chip) is not in the top three; every top-three game carries a win probability with `rank::leverage_closeness` ≥ 40 (measured 57 / 76 / 77; the blowouts read 0–12: SEMO at ISU 0 with 1:52 left, FOR at NDSU 9). Floor 40 is a guess with margin.
+- Two calibrations the slate forced: the two-minute-warning bonus is 30 in Q4 and 15 in Q2 (a 10-0 first-half game had outranked Boise at No. 2 Oregon); the chip is the largest scaled situation term, and `why` is the largest single term overall (so an MLB late-inning game can read `why = LATE` while the chip names the runner — accepted per spec §4.3).
+- Leverage: CFB on; NFL gated off until the week-one capture (spec §8.5) — `rank::leverage_enabled`.
+- Favorites: `Game.favorite` is stamped by `App::mark_favorites` after every apply and favorites edit; favorites are excluded from the live band (they live in the pinned/favorites tier), so the favorite weight (25) only steers cross-game choices such as the TV pick and `top_id`.
+- Fingerprint: `RankFingerprint` is now a 6-tuple ending in the leverage band (closeness/20); rank and favorite never enter it; tests `a_leverage_band_crossing_reorders_once_and_freezes` and the favorite-flip test live in `src/app/tests.rs`.
+- Footer: `LEADS: <why>` for the selected live game, pushed before `GAME x/y` so the narrow-footer shedding drops it first; test in `tests/draw.rs`.
+- Deferred, recorded in the wave's ledger for a later wave: EPL/NHL one-goal closeness scaling; a tie-rule pin; hot flips on zero-value bonuses.
+
 ## §10 Non-goals and reopens
 
 - ESPN's fastcast websocket (sub-second pushes): named, not built. Reopens if polling proves too slow for the cut after 1.0.
