@@ -378,6 +378,58 @@ fn footer_status_takes_the_clocks_discipline() {
     theme::set_current("broadcast").unwrap();
 }
 
+/// U7: a toast replaced the chords for as long as it lived. Now the chords
+/// stay left, the toast sits right, and it is gone three seconds later.
+#[test]
+fn a_toast_sits_right_of_the_chords_and_expires() {
+    let mut app = mk();
+    app.now_override = Some(time::macros::datetime!(2026-09-07 20:00 UTC));
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    key(&mut app, crossterm::event::KeyCode::Char(' '));
+    let footer = buf_text(&render(&mut app, 120, 24))
+        .lines()
+        .last()
+        .unwrap()
+        .to_string();
+    assert!(footer.contains("q quit"), "chords stay: {footer:?}");
+    assert!(
+        footer.trim_end().ends_with("pinned KC@TB"),
+        "toast right-aligned: {footer:?}"
+    );
+    assert!(
+        !footer.contains("UPD"),
+        "the toast takes the right side while it lives: {footer:?}"
+    );
+    app.now_override = Some(time::macros::datetime!(2026-09-07 20:00:02 UTC));
+    app.advance_tick();
+    assert!(app.status_line.is_some(), "two seconds: still up");
+    app.now_override = Some(time::macros::datetime!(2026-09-07 20:00:03 UTC));
+    app.advance_tick();
+    assert!(app.status_line.is_none(), "TOAST_SECS reached");
+    let footer = buf_text(&render(&mut app, 120, 24))
+        .lines()
+        .last()
+        .unwrap()
+        .to_string();
+    assert!(footer.contains("UPD"), "the right side is back: {footer:?}");
+}
+
+#[test]
+fn an_error_status_never_expires_on_its_own() {
+    let mut app = mk();
+    app.now_override = Some(time::macros::datetime!(2026-09-07 20:00 UTC));
+    app.sticky_status("not saving: config.toml line 3: expected `=`");
+    app.now_override = Some(time::macros::datetime!(2026-09-07 20:05 UTC));
+    app.advance_tick();
+    assert!(app.status_line.is_some(), "sticky");
+    // A toast after it expires as usual.
+    app.toast("pinned KC@TB");
+    app.now_override = Some(time::macros::datetime!(2026-09-07 20:05:03 UTC));
+    app.advance_tick();
+    assert!(app.status_line.is_none());
+}
+
 #[test]
 fn theme_picker_renders_every_loaded_name_over_the_board() {
     use gameday::theme;

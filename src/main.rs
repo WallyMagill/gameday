@@ -318,7 +318,9 @@ fn main() -> std::io::Result<()> {
     // landed in the footer above, and a broken config is the more urgent
     // thing to fix.
     if app.status_line.is_none() {
-        app.status_line = theme_note;
+        if let Some(note) = theme_note {
+            app.sticky_status(note);
+        }
     }
 
     // Last stderr note before the alternate screen: from here on, the mapper's

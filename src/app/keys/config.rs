@@ -122,7 +122,7 @@ impl App {
                 match found {
                     Some(hit) => hit,
                     None => {
-                        self.status_line = Some(format!(
+                        self.sticky_status(format!(
                             "no team {abbr:?} on enabled boards; use \"<league> <abbr>\" like \"nfl kc\""
                         ));
                         return;
@@ -132,7 +132,7 @@ impl App {
             [slug, abbr] => match League::from_slug(&slug.to_lowercase()) {
                 Some(league) => (league, abbr.to_string()),
                 None => {
-                    self.status_line = Some(format!(
+                    self.sticky_status(format!(
                         "unknown league {slug:?}, valid: {}",
                         League::ALL.map(League::slug).join("|")
                     ));
@@ -140,7 +140,7 @@ impl App {
                 }
             },
             _ => {
-                self.status_line = Some(format!(
+                self.sticky_status(format!(
                     "expected \"<abbr>\" or \"<league> <abbr>\", got {text:?}"
                 ));
                 return;
@@ -153,14 +153,14 @@ impl App {
             .iter()
             .any(|f| f.league == league && f.team_abbr.eq_ignore_ascii_case(&abbr))
         {
-            self.status_line = Some(format!(
+            self.sticky_status(format!(
                 "{} {} is already a favorite",
                 league.slug().to_uppercase(),
                 abbr
             ));
             return;
         }
-        self.status_line = Some(format!(
+        self.toast(format!(
             "favorited {} {}",
             league.slug().to_uppercase(),
             abbr

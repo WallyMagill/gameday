@@ -363,17 +363,6 @@ impl App {
             frame.render_widget(Paragraph::new(line).style(Style::default().bg(th.bg)), area);
             return;
         }
-        if let Some(status) = &self.status_line {
-            frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    format!(" {status}"),
-                    Style::default().fg(th.star),
-                )))
-                .style(Style::default().bg(th.bg)),
-                area,
-            );
-            return;
-        }
         // Footer chords follow the view: the board advertises zoom + quit,
         // every other view advertises the way back (zoom its tab cycle, the
         // config editor its toggle/edit/cycle verbs, the feeds just the
@@ -393,6 +382,13 @@ impl App {
             format!(" /{f} · {n} game{}", if n == 1 { "" } else { "s" })
         });
         let filter_width = filter_suffix.as_ref().map_or(0, |s| s.chars().count());
+        // A live status (a pin toast, a config error) sits right-aligned and
+        // replaces LEADS/GAME/UPD while it lives, so it steals footer columns
+        // the same way the filter suffix does.
+        let status_width = self
+            .status_line
+            .as_ref()
+            .map_or(0, |s| s.chars().count() + 2);
         let mut spans = Vec::new();
         // An active committed filter stays visible so a narrowed board is
         // never mistaken for a quiet one, and names how many games it kept.
@@ -420,6 +416,7 @@ impl App {
             let mut pairs: Vec<(&str, &str)> = keymap::BOARD_LEGEND.to_vec();
             let legend_width = |ps: &[(&str, &str)]| -> usize {
                 filter_width
+                    + status_width
                     + 1
                     + ps.iter()
                         .map(|(k, l)| k.chars().count() + l.chars().count() + 3)
@@ -446,6 +443,7 @@ impl App {
             let mut chords = keymap::footer_chords(ctx);
             let chords_width = |cs: &[(&'static str, &'static str)]| -> usize {
                 filter_width
+                    + status_width
                     + 1
                     + cs.iter()
                         .map(|(k, a)| keymap::lower_key(k).chars().count() + a.chars().count() + 3)
@@ -470,9 +468,14 @@ impl App {
         }
 
         // Right side, dropped piecewise if the row runs out of columns:
-        // GAME 3/8 goes first, UPD stays.
+        // GAME 3/8 goes first, UPD stays. A live status (pin toast, config
+        // error) takes the whole right side instead — it replaces
+        // LEADS/GAME/UPD while it lives, the way the prompt owns the whole
+        // row above.
         let mut right: Vec<String> = Vec::new();
-        if zoomed {
+        if let Some(status) = &self.status_line {
+            right.push(status.clone());
+        } else if zoomed {
             if let Some(g) = self.zoomed_game() {
                 right.push(format!("FOCUS {}@{}", g.away.abbr, g.home.abbr));
             }
@@ -496,14 +499,35 @@ impl App {
         // is the whole position report.
         // The UPD age freezes and dims the moment the data stops arriving —
         // `net` marks the frozen label with a trailing "·" so a stale number
-        // can't pass for a live one.
-        if let Some(upd) = self.net.upd_label(Instant::now(), self.stale_after()) {
-            right.push(upd);
+        // can't pass for a live one. Only relevant when the status isn't
+        // already occupying the right side.
+        if self.status_line.is_none() {
+            if let Some(upd) = self.net.upd_label(Instant::now(), self.stale_after()) {
+                right.push(upd);
+            }
         }
         let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
         let width = area.width as usize;
-        while !right.is_empty() && left_len + right.join("  ").chars().count() + 2 > width {
-            right.remove(0);
+        if self.status_line.is_some() {
+            // The status is atomic — never partially shed like LEADS/GAME/UPD.
+            // If it doesn't fit even alone beside the (already-shed) chords,
+            // it takes the entire row solo, same as a long error always could.
+            if left_len + right.join("  ").chars().count() + 2 > width {
+                let status = right.remove(0);
+                frame.render_widget(
+                    Paragraph::new(Line::from(Span::styled(
+                        format!(" {status}"),
+                        Style::default().fg(th.star),
+                    )))
+                    .style(Style::default().bg(th.bg)),
+                    area,
+                );
+                return;
+            }
+        } else {
+            while !right.is_empty() && left_len + right.join("  ").chars().count() + 2 > width {
+                right.remove(0);
+            }
         }
         if !right.is_empty() {
             let text_len = right.join("  ").chars().count();
@@ -515,8 +539,11 @@ impl App {
                 }
                 // GAME/UPD is status, clock-shaped: it takes the clocks
                 // discipline (cyan on broadcast, muted on studio), never raw
-                // cyan — except a frozen UPD, which drops to dim.
-                let color = if part.ends_with('·') {
+                // cyan — except a frozen UPD, which drops to dim. The footer
+                // status keeps its own star color throughout.
+                let color = if self.status_line.is_some() {
+                    th.star
+                } else if part.ends_with('·') {
                     th.dim
                 } else {
                     th.clock()

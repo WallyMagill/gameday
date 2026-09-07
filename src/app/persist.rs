@@ -10,11 +10,11 @@ impl App {
     /// time, so the user can go fix the file.
     pub fn persist_config(&mut self) {
         if let Some(err) = &self.config_error {
-            self.status_line = Some(format!("not saving: {err}"));
+            self.sticky_status(format!("not saving: {err}"));
             return;
         }
         if let Err(e) = self.config.save_to(&self.config_dir) {
-            self.status_line = Some(format!("config save failed: {e}"));
+            self.sticky_status(format!("config save failed: {e}"));
         }
     }
 
@@ -22,7 +22,7 @@ impl App {
     /// refusal as `persist_config`, and it says so.
     pub fn persist_pins(&mut self) {
         if let Some(err) = &self.config_error {
-            self.status_line = Some(format!("not saving: {err}"));
+            self.sticky_status(format!("not saving: {err}"));
             return;
         }
         self.persist_pins_quiet();
@@ -37,7 +37,7 @@ impl App {
             return;
         }
         if let Err(e) = save_pins(&self.config_dir, &self.pins) {
-            self.status_line = Some(format!("pins save failed: {e}"));
+            self.sticky_status(format!("pins save failed: {e}"));
         }
     }
 
@@ -45,9 +45,14 @@ impl App {
     /// footer once, at startup, so the reason is on screen and not only on the
     /// stderr that the alternate screen swallowed.
     pub fn set_config_error(&mut self, err: Option<String>) {
-        self.status_line = err
+        let text = err
             .as_ref()
             .map(|e| format!("config error: {e} — not saving until fixed"));
+        if let Some(text) = text {
+            self.sticky_status(text);
+        } else {
+            self.status_line = None;
+        }
         self.config_error = err;
     }
 }

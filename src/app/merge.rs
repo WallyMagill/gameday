@@ -501,7 +501,7 @@ impl App {
         // rest — a toast on top would nag. With nothing on the board, the
         // failure IS the news, so it also gets the footer line.
         if !self.boards.values().any(|b| !b.is_empty()) {
-            self.status_line = Some(match retry_in {
+            self.sticky_status(match retry_in {
                 Some(d) => format!("{} · {} · retry in {}s", league.slug(), error, d.as_secs()),
                 None => format!("{} · {error}", league.slug()),
             });

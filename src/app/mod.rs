@@ -68,6 +68,12 @@ pub fn live_pulse_bright(tick: u64) -> bool {
 /// "yesterday ↔ today ↔ tomorrow, ±7 max").
 pub const DATE_TRAVEL_MAX_DAYS: i8 = 7;
 
+/// How long a footer toast (`pinned KC@TB`, `sort time`) keeps the right
+/// side before the position readout has it back. Wall clock, not ticks:
+/// the idle loop ticks once a second, so thirty ticks would be thirty
+/// seconds on a quiet evening, which is exactly when pins happen.
+pub const TOAST_SECS: i64 = 3;
+
 /// Header label for a traveled date: "FRI AUG 29" (weekday + month + day, no
 /// year — the ±7-day window never crosses far enough to need one).
 pub fn date_label(d: time::Date) -> String {
@@ -146,6 +152,9 @@ pub struct App {
     /// One-line footer message (command errors, pin results). Cleared by the
     /// next Normal-mode key or by opening a prompt.
     pub status_line: Option<String>,
+    /// When `status_line` was last set by `toast`; `None` while it is sticky
+    /// or empty.
+    status_toasted_at: Option<OffsetDateTime>,
     /// Committed `/` filter: parsed as a [`crate::filter::Query`] — prefix
     /// tokens over team words, optionally scoped by a league slug. Applied
     /// inside `visible_games`, so every derived list (mosaic, slate,
@@ -273,6 +282,7 @@ impl App {
             theme_prior: String::new(),
             mode: InputMode::Normal,
             status_line: None,
+            status_toasted_at: None,
             filter: None,
             viewed_date_offset: HashMap::new(),
             dated_boards: HashMap::new(),
@@ -326,6 +336,31 @@ impl App {
     pub fn now(&self) -> OffsetDateTime {
         self.now_override
             .unwrap_or_else(|| OffsetDateTime::now_utc().to_offset(self.offset))
+    }
+
+    /// A confirmation that expires after [`TOAST_SECS`].
+    pub fn toast(&mut self, text: impl Into<String>) {
+        self.status_line = Some(text.into());
+        self.status_toasted_at = Some(self.now());
+    }
+
+    /// A status that stays until the next keypress clears it: config parse
+    /// errors, save refusals, a theme that was not found, a prompt error.
+    pub fn sticky_status(&mut self, text: impl Into<String>) {
+        self.status_line = Some(text.into());
+        self.status_toasted_at = None;
+    }
+
+    /// The one line a persisting keypress leaves. `persist_*` writes its own
+    /// refusal into `status_line` when it cannot save; that refusal wins
+    /// (sticky — it names a broken config), else `ok_text` is a toast.
+    pub(crate) fn report_save(&mut self, ok_text: String) {
+        let save_error = self.status_line.take();
+        match (&self.config_error, save_error) {
+            (Some(_), _) => self.sticky_status(format!("{ok_text} · not saving (config error)")),
+            (None, Some(err)) => self.sticky_status(err),
+            (None, None) => self.toast(ok_text),
+        }
     }
 
     /// The registered hit under `pos`, last-drawn zone winning (later
@@ -382,6 +417,12 @@ impl App {
     pub fn advance_tick(&mut self) {
         self.tick += 1;
         let tick = self.tick;
+        if let Some(at) = self.status_toasted_at {
+            if self.now() - at >= time::Duration::seconds(TOAST_SECS) {
+                self.status_line = None;
+                self.status_toasted_at = None;
+            }
+        }
         self.flashes
             .retain(|_, start| tick.saturating_sub(*start) < FLASH_TICKS);
         // The alert banner is one-shot too: past its lifetime it vanishes

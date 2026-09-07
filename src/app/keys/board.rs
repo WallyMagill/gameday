@@ -57,14 +57,14 @@ impl App {
         let matchup = format!("{}@{}", game.away.abbr, game.home.abbr);
         if let Some(idx) = self.pins.iter().position(|p| p.game_id == game.id) {
             self.pins.remove(idx);
-            self.status_line = Some(format!("unpinned {matchup}"));
+            self.toast(format!("unpinned {matchup}"));
         } else {
             self.pins.push(Pin {
                 game_id: game.id,
                 league: game.league,
                 final_at: None,
             });
-            self.status_line = Some(format!("pinned {matchup}"));
+            self.toast(format!("pinned {matchup}"));
         }
         self.persist_pins();
         // Membership in MY GAMES changed, so the game just entered or left
@@ -90,12 +90,12 @@ impl App {
             .position(|f| f.league == game.league && f.team_abbr.eq_ignore_ascii_case(&abbr))
         {
             self.config.favorites.remove(idx);
-            self.status_line = Some(format!(
+            self.toast(format!(
                 "unfavorited {} {abbr}",
                 game.league.slug().to_uppercase()
             ));
         } else {
-            self.status_line = Some(format!(
+            self.toast(format!(
                 "favorited {} {abbr}",
                 game.league.slug().to_uppercase()
             ));
@@ -119,15 +119,7 @@ impl App {
         self.force_reorder();
         self.status_line = None;
         self.persist_config();
-        let save_error = self.status_line.take();
-        self.status_line = Some(match (&self.config_error, save_error) {
-            (Some(_), _) => format!(
-                "sort {} · not saving (config error)",
-                next.label().to_ascii_lowercase()
-            ),
-            (None, Some(err)) => err,
-            (None, None) => format!("sort {}", next.label().to_ascii_lowercase()),
-        });
+        self.report_save(format!("sort {}", next.label().to_ascii_lowercase()));
     }
 
     pub(super) fn cycle_tab(&mut self, delta: isize) {

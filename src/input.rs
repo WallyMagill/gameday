@@ -91,7 +91,7 @@ pub fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 app.mode = InputMode::Normal;
                 match command::parse(&line) {
                     Ok(cmd) => apply(app, cmd),
-                    Err(err) => app.status_line = Some(err),
+                    Err(err) => app.sticky_status(err),
                 }
             }
             KeyCode::Tab => cycle_completion(app),
@@ -203,7 +203,7 @@ fn apply(app: &mut App, cmd: Cmd) {
                 app.config.theme = canonical;
                 app.persist_config();
             }
-            Err(err) => app.status_line = Some(err),
+            Err(err) => app.sticky_status(err),
         },
         // `:sort` alone cycles; `:sort <key>` sets directly. Either way the
         // board must re-derive its order immediately (a sort-key change is
@@ -216,15 +216,7 @@ fn apply(app: &mut App, cmd: Cmd) {
             // blocking the save must not be clobbered by a claimed success.
             app.status_line = None;
             app.persist_config();
-            let save_error = app.status_line.take();
-            app.status_line = Some(match (&app.config_error, save_error) {
-                (Some(_), _) => format!(
-                    "sort {} · not saving (config error)",
-                    next.label().to_ascii_lowercase()
-                ),
-                (None, Some(err)) => err,
-                (None, None) => format!("sort {}", next.label().to_ascii_lowercase()),
-            });
+            app.report_save(format!("sort {}", next.label().to_ascii_lowercase()));
         }
         // Both entry paths seed the shown game and clear any lock: a `:tv`
         // that only set the view reopened still locked on a game from the
@@ -244,7 +236,7 @@ fn go_league(app: &mut App, league: League) {
             .map(|l| l.slug())
             .collect::<Vec<_>>()
             .join("|");
-        app.status_line = Some(format!(
+        app.sticky_status(format!(
             "league \"{}\" not enabled, enabled: {enabled}",
             league.slug()
         ));
@@ -261,7 +253,7 @@ fn pin_team(app: &mut App, abbr: &str) {
         })
     });
     let Some(game) = found else {
-        app.status_line = Some(format!(
+        app.sticky_status(format!(
             "no game found for {abbr:?} on enabled boards, try a team abbr like kc"
         ));
         return;
@@ -276,7 +268,7 @@ fn pin_team(app: &mut App, abbr: &str) {
         });
         app.persist_pins();
     }
-    app.status_line = Some(label);
+    app.toast(label);
 }
 
 #[cfg(test)]

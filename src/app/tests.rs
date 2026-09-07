@@ -118,7 +118,7 @@ fn a_broken_config_silences_the_prune_but_still_answers_a_keypress() {
     let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
     app.tab = Tab::League(League::Nfl);
     app.set_config_error(Some("config.toml:1: unknown variant `NFLL`".into()));
-    app.status_line = Some("filter cleared".into());
+    app.toast("filter cleared");
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
     assert_eq!(
