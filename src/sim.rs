@@ -166,7 +166,7 @@ fn step_nfl(g: &mut Game, t: u64) {
         }
         17 => {
             g.away_score += 1; // 33 -> 34
-            push_play(g, "KC", "Harrison Butker extra point is GOOD", false);
+            push_play(g, "KC", "Harrison Butker extra point is GOOD", true);
         }
         22 => {
             push_play(g, "KC", "Butker kicks off, touchback", false);
@@ -210,7 +210,7 @@ fn step_nba(g: &mut Game, t: u64) {
         }
         12 => {
             g.away_score += 2;
-            push_play(g, "DEN", "Nikola Jokic makes layup (30 PTS)", false);
+            push_play(g, "DEN", "Nikola Jokic makes layup (30 PTS)", true);
             true
         }
         18 => {
@@ -220,7 +220,7 @@ fn step_nba(g: &mut Game, t: u64) {
         }
         24 => {
             g.home_score += 2;
-            push_play(g, "BOS", "Jaylen Brown driving dunk", false);
+            push_play(g, "BOS", "Jaylen Brown driving dunk", true);
             true
         }
         30 => {

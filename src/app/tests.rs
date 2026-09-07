@@ -1644,6 +1644,9 @@ fn snap(id: &str, text: &str, team: &str, scoring: bool) -> Play {
 #[test]
 fn a_delta_with_a_non_scoring_last_play_queues_a_catchup_and_fires_no_cut() {
     let mut app = app_with(vec![], vec![]);
+    // Past the 30 s startup suppression: inside it `cuts_fired()` is 0 for
+    // any implementation, so the zero below would prove nothing.
+    app.tick = 400;
     let mut g1 = g("1", "CHC", "MIA", true);
     g1.league = League::Mlb;
     g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
@@ -1676,10 +1679,19 @@ fn a_delta_with_a_scoring_last_play_fires_at_once_and_queues_nothing() {
     let mut g2 = g1.clone();
     g2.away_score = 7;
     g2.last_plays = vec![snap("p2", "Love pass to Reed, TOUCHDOWN", "GB", true)];
-    app.apply_boards(League::Nfl, vec![g2], false);
+    app.apply_boards(League::Nfl, vec![g2.clone()], false);
     assert_eq!(app.cuts_fired(), 1);
     assert_eq!(app.scoring_events()[0].1.id, "p2");
     assert!(app.catchup_wants().is_empty());
+    // The extra point moves the score again while the scoreboard still shows
+    // the touchdown. `same_play` recognizes p2 by id, so it is not captured
+    // twice and fires no second cut — and, being marked, it queues nothing.
+    let mut g3 = g2.clone();
+    g3.away_score = 8;
+    app.apply_boards(League::Nfl, vec![g3], false);
+    assert_eq!(app.cuts_fired(), 1, "the id guard refuses the repeat");
+    assert_eq!(app.scoring_events().len(), 1);
+    assert!(app.catchup_wants().is_empty(), "a marked row never queues");
 }
 
 #[test]
@@ -1695,12 +1707,19 @@ fn the_catchup_summary_fires_exactly_one_cut_on_the_newest_scoring_play_and_clea
     g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
     app.apply_boards(League::Mlb, vec![g2], false);
     assert_eq!(app.catchup_wants().len(), 1);
+    // Two scoring plays, newest-first (an MLB list derived from the
+    // play-by-play). Both ends appear in `last_plays` so the ordering probe
+    // can see that s2 is the newer one and normalize before the cut is
+    // picked — otherwise the cut would name the wrong homer.
+    let s1 = snap("s1", "Happ homered to right (12)", "CHC", true);
+    let s2 = snap("s2", "Suzuki homered to center (9)", "CHC", true);
     let summary = Summary {
         last_plays: vec![
+            s2.clone(),
+            s1.clone(),
             snap("p2", "Pitch 2 : Foul", "MIA", false),
-            snap("s1", "Happ homered to right (12)", "CHC", true),
         ],
-        scoring_plays: vec![snap("s1", "Happ homered to right (12)", "CHC", true)],
+        scoring_plays: vec![s2.clone(), s1.clone()],
         meter: None,
         extras: Extras::None,
     };
@@ -1710,16 +1729,25 @@ fn the_catchup_summary_fires_exactly_one_cut_on_the_newest_scoring_play_and_clea
         1,
         "the summary's newest scoring play is the cut"
     );
+    assert_eq!(
+        app.cuts.active(app.tick).map(|c| c.play.id.as_str()),
+        Some("s2"),
+        "the cut names the newest scoring play, not the oldest"
+    );
     let ev = app.scoring_events();
-    assert_eq!(ev.len(), 1);
-    assert_eq!((ev[0].1.id.as_str(), ev[0].1.team.as_str()), ("s1", "CHC"));
+    assert_eq!(ev.len(), 2, "both are on the ticker");
+    assert_eq!(
+        (ev[0].1.id.as_str(), ev[0].1.team.as_str()),
+        ("s2", "CHC"),
+        "newest first"
+    );
     assert!(app.catchup_wants().is_empty(), "the entry is consumed");
     // The same summary again (the zoomed cadence) is history, not news.
     app.merge_summary(
         "1",
         Summary {
             last_plays: vec![],
-            scoring_plays: vec![snap("s1", "Happ homered to right (12)", "CHC", true)],
+            scoring_plays: vec![s2, s1],
             meter: None,
             extras: Extras::None,
         },
@@ -1751,6 +1779,8 @@ fn a_second_delta_on_a_queued_game_does_not_add_a_second_entry() {
 #[test]
 fn a_catchup_that_never_lands_expires_after_the_ttl_without_a_cut() {
     let mut app = app_with(vec![], vec![]);
+    // Past the 30 s startup suppression, so the final zero is a real zero.
+    app.tick = 400;
     let mut g1 = g("1", "CHC", "MIA", true);
     g1.league = League::Mlb;
     g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
@@ -1759,11 +1789,49 @@ fn a_catchup_that_never_lands_expires_after_the_ttl_without_a_cut() {
     g2.away_score = 1;
     g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
     app.apply_boards(League::Mlb, vec![g2], false);
+    app.advance_tick();
+    assert_eq!(
+        app.catchup_wants().len(),
+        1,
+        "one tick in, the request is still waiting for its summary"
+    );
     for _ in 0..=gameday_ttl() {
         app.advance_tick();
     }
     assert!(app.catchup_wants().is_empty(), "expired");
     assert_eq!(app.cuts_fired(), 0);
+}
+
+#[test]
+fn an_empty_summary_consumes_the_catchup_without_a_cut() {
+    // The request is one-shot by sequence number, so a summary that says
+    // nothing still has to retire the entry — otherwise it sits out the TTL
+    // blocking the next catch-up for that game.
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400;
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 1;
+    g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g2], false);
+    assert_eq!(app.catchup_wants().len(), 1);
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: vec![],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert!(
+        app.catchup_wants().is_empty(),
+        "we asked and got nothing: the entry is retired, not left to rot"
+    );
+    assert_eq!(app.cuts_fired(), 0, "nothing to cut on");
 }
 
 fn gameday_ttl() -> u64 {

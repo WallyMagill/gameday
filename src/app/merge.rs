@@ -178,20 +178,26 @@ impl App {
         if let Some(league) = self.league_of(game_id) {
             self.clear_aux_error(league, "summary");
         }
-        // Non-football summaries carry no "drives", so they can map to zero
-        // plays; keep the scoreboard's lastPlay instead of blanking the tile.
-        if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
-            return;
-        }
         // A summary lands only for the zoomed game or a queued catch-up, and
         // it can carry a scoring play the scoreboard never showed us. That is
         // news exactly once: the play that is new to `game.scoring_plays`
         // fires a cut, and the rest of the list is history being backfilled.
         //
-        // `self.catchup` is read here and written after the loop: the loop
-        // holds `self.boards` mutably, so the index is taken first and the
-        // entry removed once the borrow ends.
+        // The catch-up entry is consumed by the ASK, not by the answer: the
+        // request is one-shot by sequence number, so an entry left behind by
+        // a summary that said nothing would never be retried — it would just
+        // sit out its TTL blocking the next catch-up for that game. Both
+        // exits below drop it, and the index is taken before the boards loop
+        // borrows `self` mutably.
         let queued = self.catchup.iter().position(|c| c.game_id == game_id);
+        if let Some(i) = queued {
+            self.catchup.remove(i);
+        }
+        // Non-football summaries carry no "drives", so they can map to zero
+        // plays; keep the scoreboard's lastPlay instead of blanking the tile.
+        if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
+            return;
+        }
         let mut fresh: Option<(String, Play)> = None;
         for board in self.boards.values_mut() {
             if let Some(game) = board.iter_mut().find(|g| g.id == game_id) {
@@ -250,9 +256,6 @@ impl App {
                 }
                 break;
             }
-        }
-        if let Some(i) = queued {
-            self.catchup.remove(i);
         }
         if let Some((id, play)) = fresh {
             let full = self.game_by_id(&id).is_some_and(|g| self.cut_is_full(&g));

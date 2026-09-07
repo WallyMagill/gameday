@@ -193,12 +193,16 @@ pub struct App {
     pub cuts: crate::board::cut::CutState,
     /// Score deltas waiting for the summary that names their scoring play
     /// (spec §3.2). One entry per game; `seq` is `catchup_seq` at queue time.
-    pub(crate) catchup: Vec<merge::CatchupEntry>,
-    pub(crate) catchup_seq: u64,
-    /// Every scoring play captured for a cut since start, both paths — the
-    /// capture, not the pixels: `CutState::fire` may decline to display a
-    /// second cut while one is still up, and this still counts it. The
-    /// replay harness and the budget receipt read it; nothing on screen does.
+    catchup: Vec<merge::CatchupEntry>,
+    catchup_seq: u64,
+    /// Cuts handed to `CutState` since start, from both firing paths: the
+    /// ones that got past `cut_suppressed`. A scoring play captured during
+    /// the 30 s startup grace, or under help/a prompt/the theme picker, is
+    /// still pushed onto the game but is NOT counted — no cut was asked for.
+    /// Past suppression the count is the ask, not the pixels: `CutState::fire`
+    /// may decline to display a second cut while one is still up, and this
+    /// counts it anyway. The replay harness and the budget receipt read it;
+    /// nothing on screen does.
     cuts_fired_count: u32,
     /// Set when a banner starts; main consumes it to write the terminal
     /// bell (`\x07`) — App never touches stdout itself.
