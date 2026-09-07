@@ -666,9 +666,11 @@ mod tests {
             s.contains("SAT SEP 5") || s.contains("SEP 5"),
             "the clock is the capture's afternoon:\n{s}"
         );
-        assert!(
-            !s.contains("KC") || s.contains("KC "),
-            "no demo game leaks in"
-        );
+        for tag in ["NFL", "NBA", "MLB", "NHL", "EPL", "MLS", "WNBA", "CBB"] {
+            assert!(
+                !s.contains(&format!(" {tag} ")),
+                "no non-CFB league tag on the review slate board: {tag}\n{s}"
+            );
+        }
     }
 }

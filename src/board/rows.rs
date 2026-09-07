@@ -123,9 +123,11 @@ const ODDS_X: u16 = TEXT_X + BCAST_W + GAP;
 /// `clause_cap` counts `chars`, not display cells — the two agree for
 /// ESPN's play text, which is plain ASCII prose with no wide glyphs.
 const CLAUSE_MIN: usize = 48;
-/// L7's fragment field on a wide tier-2 row: the longest situation fragment
-/// this board prints (`PHI 3RD & 6 AT DAL 38`, 21 cells) fits with room to
-/// spare before the play text starts at [`PLAY_X`].
+/// L7's fragment field on a wide tier-2 row: the review slate's longest
+/// situation fragment is 24 cells (`OKST 1ST & 10 AT OKST 46` shape,
+/// measured 2026-09-05), so 40 holds every fragment with air. At ≥
+/// [`WIDE_TIER_MIN`] the fragment's own room shrinks from `width − TEXT_X`
+/// to `FRAGMENT_W - 1` = 39, which no measured fragment reaches.
 const FRAGMENT_W: u16 = 40;
 /// Where a wide tier-2 row's last play starts: right after the fragment
 /// field, so the two can never collide regardless of either one's content.
@@ -187,7 +189,7 @@ fn ink(ctx: &RowCtx) -> Color {
     }
 }
 
-/// A team abbr. Team color for a pinned game, and only where the theme
+/// A team abbr. Team color only for a pinned game, and only where the theme
 /// allows marks to carry it; everything else is ink.
 ///
 /// Padded to a 3-cell minimum (`format!("{:<3}", abbr)`) so a
@@ -196,8 +198,7 @@ fn ink(ctx: &RowCtx) -> Color {
 /// field's blank background.
 fn abbr_span(game_pinned: bool, team: &crate::domain::Team, ctx: &RowCtx) -> Line<'static> {
     let th = theme::current();
-    let tinted = game_pinned && th.roles().team == TeamColorScope::HeroMarks;
-    let color = if tinted {
+    let color = if game_pinned && th.roles().team == TeamColorScope::HeroMarks {
         th.art_color(team.color)
     } else {
         ink(ctx)
@@ -1283,6 +1284,23 @@ mod tests {
         assert!(
             !narrow.contains("▸ Hurts"),
             "under WIDE_TIER_MIN: the two-row form\n{narrow}"
+        );
+        let at_min = render(WIDE_TIER_MIN, 1, &game, &c, draw_tier2);
+        let at_min_buf = at_min.backend().buffer();
+        assert_eq!(
+            col_of(at_min_buf, 0, "▸ Hurts hit"),
+            Some(PLAY_X),
+            "at exactly WIDE_TIER_MIN columns: play at PLAY_X\n{}",
+            text_of(at_min_buf)
+        );
+        let below_min = text_of(
+            render(WIDE_TIER_MIN - 1, 1, &game, &c, draw_tier2)
+                .backend()
+                .buffer(),
+        );
+        assert!(
+            !below_min.contains("▸ Hurts"),
+            "one column under WIDE_TIER_MIN: the two-row form\n{below_min}"
         );
     }
 

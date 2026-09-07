@@ -1,9 +1,14 @@
 # gameday README GIF: board → the red-zone beat → the cut → zoom (the
 # sitting's winning cut over board → the cut → tv).
-# Renders with vhs (https://github.com/charmbracelet/vhs): `vhs docs/demo.tape`.
-# 120x36 cells, the broadcast theme, ~20 s: the demo slate seeds at tick 0 and
-# the scripted KC touchdown lands at sim tick 15 (one tick per second in --demo),
-# so the sleeps below sit the viewer on the red zone, then the cut, then the view.
+# Renders with vhs (https://github.com/charmbracelet/vhs). Run
+# `cargo build --release` first, then `vhs docs/demo.tape` from the repo
+# root.
+# 120x36 cells, the broadcast theme, ~24 s (23.5 s of sleeps plus typing):
+# the demo slate seeds at tick 0 and the scripted KC touchdown lands at sim
+# tick 15 (one tick per second in --demo), so the three consecutive sleeps
+# below sit the viewer on the red zone, then the cut, then the view — they
+# are the beat this header narrates, and the checked-in GIF was recorded
+# from them. Do not re-record.
 Output docs/demo.gif
 Set Shell "bash"
 Set FontSize 14
