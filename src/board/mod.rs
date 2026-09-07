@@ -492,6 +492,17 @@ fn center_two_lines(area: Rect) -> Rect {
     }
 }
 
+/// A one-line block sitting on the vertical middle of `area` — same
+/// centering as [`center_two_lines`] for a message that fits on one line.
+fn center_one_line(area: Rect) -> Rect {
+    let h = 1u16.min(area.height);
+    Rect {
+        y: area.y + (area.height.saturating_sub(h)) / 2,
+        height: h,
+        ..area
+    }
+}
+
 /// The empty-board branches, moved verbatim from the old mosaic (the strings
 /// are pinned by tests and must not change). Returns true when it drew one
 /// and the board itself must not.
@@ -557,12 +568,12 @@ fn draw_empty_state(app: &mut App, frame: &mut Frame, area: Rect) -> bool {
             );
             true
         }
-        Tab::League(_) if empty => {
+        Tab::League(league) if empty => {
             frame.render_widget(
-                Paragraph::new("next kickoff")
+                Paragraph::new(app.empty_league_line(league))
                     .style(Style::default().fg(th.muted).bg(th.bg))
                     .alignment(Alignment::Center),
-                area,
+                center_one_line(area),
             );
             true
         }

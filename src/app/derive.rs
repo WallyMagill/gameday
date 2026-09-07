@@ -160,6 +160,45 @@ impl App {
         format!("no games match \"{needle}\" on {scope}{elsewhere} · esc clears")
     }
 
+    /// The empty board's one line for a league tab: the day it is showing
+    /// and the first game after that day the app knows about — today's
+    /// board plus every slate `[`/`]` fetched — or `nothing scheduled`
+    /// when none is loaded (the claim covers the loaded window; `]` fetches
+    /// the next day on demand).
+    pub(crate) fn empty_league_line(&self, league: League) -> String {
+        let now = self.now();
+        let date = self.viewed_date(league).unwrap_or(now.date());
+        let next = self
+            .boards
+            .get(&league)
+            .into_iter()
+            .flatten()
+            .chain(
+                self.dated_boards
+                    .iter()
+                    .filter(|((l, _), _)| *l == league)
+                    .flat_map(|(_, games)| games.iter()),
+            )
+            .filter(|g| g.status == Status::Pre)
+            .filter_map(|g| g.start.map(|s| (s.to_offset(now.offset()), g)))
+            .filter(|(s, _)| s.date() > date)
+            .min_by_key(|(s, _)| *s);
+        let head = format!(
+            "No {} games {}",
+            league.slug().to_uppercase(),
+            super::date_label(date)
+        );
+        match next {
+            Some((start, g)) => format!(
+                "{head} · next {} {} @ {}",
+                crate::text::fmt_start(start, now),
+                g.away.abbr,
+                g.home.abbr
+            ),
+            None => format!("{head} · nothing scheduled"),
+        }
+    }
+
     /// Every live game across the enabled boards, league order — the ticker
     /// covers what the visible tab (or a traveled date) does not. A typed
     /// filter is explicit intent, so it narrows the ticker too.

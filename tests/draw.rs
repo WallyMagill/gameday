@@ -598,6 +598,46 @@ fn empty_home_with_no_boards_points_at_config() {
     assert!(s.contains("nothing live on the enabled boards"), "{s}");
 }
 
+/// U6: a traveled day with no games was a blank screen and a lone "next
+/// kickoff". It names the day and the next game the app knows about.
+#[test]
+fn an_empty_day_names_the_next_game_or_says_nothing_is_scheduled() {
+    use crossterm::event::KeyCode;
+    let mut app = mk();
+    let now = time::macros::datetime!(2026-09-07 12:00 UTC); // a Monday
+    app.now_override = Some(now);
+    let mut next = g("n1", "NYY", "BOS", false);
+    next.league = League::Mlb;
+    next.start = Some(time::macros::datetime!(2026-09-08 19:10 UTC));
+    app.apply_boards(League::Mlb, vec![next], false);
+    app.tab = Tab::League(League::Mlb);
+    key(&mut app, KeyCode::Char('['));
+    let date = app.viewed_date(League::Mlb).expect("traveled");
+    app.merge_dated_board(League::Mlb, date, vec![]);
+    let s = buf_text(&render(&mut app, 120, 24));
+    assert!(
+        s.contains("No MLB games SUN SEP 6 · next TUE 7:10 PM NYY @ BOS"),
+        "{s}"
+    );
+    // Centered: the line sits in the body's vertical middle, not at the top.
+    let y = s.lines().position(|l| l.contains("No MLB games")).unwrap();
+    assert!(
+        (8..=14).contains(&y),
+        "centered in a 24-row frame, got row {y}:\n{s}"
+    );
+
+    let mut app = mk();
+    app.now_override = Some(now);
+    app.apply_boards(League::Mlb, vec![], false);
+    app.tab = Tab::League(League::Mlb);
+    let s = buf_text(&render(&mut app, 120, 24));
+    assert!(
+        s.contains("No MLB games MON SEP 7 · nothing scheduled"),
+        "{s}"
+    );
+    assert!(!s.contains("next kickoff"), "{s}");
+}
+
 #[test]
 fn home_with_nothing_live_still_lists_the_day() {
     let mut app = mk();
