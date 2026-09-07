@@ -473,7 +473,14 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
             },
             team,
             text,
-            scoring: false,
+            // ESPN's own verdict. The observed scoreboard rows carry
+            // `scoringPlay: null` (every live capture in fixtures/live, and
+            // every pitch and snap seen in the review's caches), so on real
+            // data this is usually false even for the play that scored — which
+            // is exactly why a score delta with a non-scoring last play asks
+            // the summary instead (`app::merge`).
+            scoring: sit_v["lastPlay"]["scoringPlay"].as_bool() == Some(true)
+                || score_value.is_some_and(|v| v > 0),
             kind: last_play_kind(league, &sit_v["lastPlay"], score_value),
             score_value,
         });

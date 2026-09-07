@@ -1639,3 +1639,50 @@ fn scoreboard_last_play_carries_its_id() {
         "situation.lastPlay.id is mapped"
     );
 }
+
+fn one_event_with_last_play(last_play: &str) -> String {
+    format!(
+        r#"{{"events":[{{"id":"9","competitions":[{{"status":{{"displayClock":"4:20","period":3,"type":{{"state":"in","completed":false}}}},"competitors":[
+      {{"homeAway":"away","score":"13","team":{{"id":"1","abbreviation":"GB","displayName":"Packers","color":"203731","alternateColor":"ffb612"}}}},
+      {{"homeAway":"home","score":"10","team":{{"id":"2","abbreviation":"CHI","displayName":"Bears","color":"0b162a","alternateColor":"c83803"}}}}
+    ],"situation":{{"possession":"1","downDistanceText":"1st & 10 at CHI 41","shortDownDistanceText":"1st & 10","possessionText":"CHI 41","lastPlay":{last_play}}}}}]}}]}}"#
+    )
+}
+
+#[test]
+fn a_scoreboard_last_play_is_scoring_only_when_the_feed_marks_it() {
+    let td = one_event_with_last_play(
+        r#"{"id":"77","text":"Love pass to Reed for 41 yards, TOUCHDOWN","scoringPlay":true,"scoreValue":6,"team":{"id":"1"},"type":{"id":"67","text":"Passing Touchdown"}}"#,
+    );
+    let g = &map_scoreboard(League::Nfl, &td, et()).unwrap()[0];
+    assert!(g.last_plays[0].scoring, "scoringPlay:true marks it");
+    assert_eq!(g.last_plays[0].id, "77");
+
+    let by_value = one_event_with_last_play(
+        r#"{"id":"78","text":"Rodgers 2 yard run","scoringPlay":null,"scoreValue":6,"team":{"id":"1"},"type":{"id":"68","text":"Rushing Touchdown"}}"#,
+    );
+    let g = &map_scoreboard(League::Nfl, &by_value, et()).unwrap()[0];
+    assert!(
+        g.last_plays[0].scoring,
+        "scoreValue > 0 marks it even with scoringPlay null"
+    );
+
+    let plain = one_event_with_last_play(
+        r#"{"id":"79","text":"Love scrambles for 6","scoringPlay":null,"scoreValue":0,"team":{"id":"1"},"type":{"id":"5","text":"Rush"}}"#,
+    );
+    let g = &map_scoreboard(League::Nfl, &plain, et()).unwrap()[0];
+    assert!(
+        !g.last_plays[0].scoring,
+        "a plain snap is not a scoring play"
+    );
+
+    // The live captures never mark one (ESPN sends scoringPlay: null on
+    // every observed scoreboard row): every last play maps as not scoring.
+    let games = map_scoreboard(
+        League::Cfb,
+        include_str!("../fixtures/live/cfb_scoreboard_live.json"),
+        et(),
+    )
+    .unwrap();
+    assert!(games.iter().flat_map(|g| &g.last_plays).all(|p| !p.scoring));
+}
