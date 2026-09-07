@@ -27,6 +27,9 @@ pub enum Cmd {
     /// `:help` opens the `?` overlay — U5: the overlay and the `:` grammar
     /// name the same feature, so both should open it.
     Help,
+    /// `:notify test` sends one notification through whatever backend is
+    /// installed, past the config switch and the per-kind gap.
+    NotifyTest,
 }
 
 /// Argument shape a registry entry accepts; drives both parse and complete.
@@ -37,6 +40,7 @@ enum ArgSpec {
     Theme,
     Sort,
     Abbr,
+    NotifyTest,
 }
 
 const SORT_VALUES: &[&str] = &["watch", "time", "league"];
@@ -63,6 +67,7 @@ const REGISTRY: &[(&str, ArgSpec)] = &[
     ("sort", ArgSpec::Sort),
     ("tv", ArgSpec::None),
     ("pin", ArgSpec::Abbr),
+    ("notify", ArgSpec::NotifyTest),
     ("help", ArgSpec::None),
     ("q", ArgSpec::None),
     ("quit", ArgSpec::None),
@@ -93,6 +98,7 @@ fn arg_values(spec: ArgSpec) -> Vec<String> {
         ArgSpec::OptLeague => League::ALL.iter().map(|l| l.slug().to_string()).collect(),
         ArgSpec::Theme => theme::names(),
         ArgSpec::Sort => SORT_VALUES.iter().map(|s| s.to_string()).collect(),
+        ArgSpec::NotifyTest => vec!["test".to_string()],
     }
 }
 
@@ -157,6 +163,10 @@ pub fn parse(input: &str) -> Result<Cmd, String> {
         ArgSpec::Abbr => match arg {
             None => Err(format!("{name:?} needs a team abbr, e.g. :pin kc")),
             Some(a) => Ok(Cmd::Pin(a.to_string())),
+        },
+        ArgSpec::NotifyTest => match arg {
+            Some("test") => Ok(Cmd::NotifyTest),
+            None | Some(_) => Err(format!("{name:?} takes \"test\", got {arg:?}")),
         },
     }
 }
@@ -356,5 +366,15 @@ mod tests {
             REGISTRY.len(),
             "empty prompt offers everything"
         );
+    }
+
+    #[test]
+    fn notify_test_parses_and_completes() {
+        assert_eq!(parse("notify test").unwrap(), Cmd::NotifyTest);
+        let err = parse("notify").unwrap_err();
+        assert!(err.contains("test"), "{err}");
+        let err = parse("notify foo").unwrap_err();
+        assert!(err.contains("test"), "{err}");
+        assert_eq!(complete("notify "), vec!["notify test"]);
     }
 }

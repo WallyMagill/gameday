@@ -100,7 +100,7 @@ impl App {
         self.pins.iter().any(|p| p.game_id == game.id) || self.favorited(game)
     }
 
-    fn favorited(&self, game: &Game) -> bool {
+    pub(crate) fn favorited(&self, game: &Game) -> bool {
         self.config.favorites.iter().any(|fav| {
             fav.league == game.league
                 && (game.away.abbr.eq_ignore_ascii_case(&fav.team_abbr)

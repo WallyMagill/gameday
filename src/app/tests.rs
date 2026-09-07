@@ -22,11 +22,11 @@ pub(crate) fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
         league: League::Nfl,
         away: team(away),
         home: team(home),
-        away_score: 7,
-        home_score: 3,
+        away_score: 27,
+        home_score: 24,
         status: if live { Status::Live } else { Status::Pre },
-        period: "Q2".into(),
-        clock: "5:00".into(),
+        period: "Q4".into(),
+        clock: "1:27".into(),
         situation: None,
         last_plays: vec![],
         meter: None,
@@ -2659,4 +2659,128 @@ fn app_notify_honors_the_gap_and_demotes_a_failing_backend_to_noop() {
         "noop",
         "demoted after the first failure"
     );
+}
+
+fn recording(app: &mut App) -> std::rc::Rc<std::cell::RefCell<Vec<(String, String)>>> {
+    let rec = crate::notify::Recording::default();
+    let log = rec.sent.clone();
+    app.set_notifier(Box::new(rec));
+    log
+}
+
+#[test]
+fn a_favorite_score_notifies_once_inside_the_gap_with_the_scoring_play_as_body() {
+    let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+    app.config.favorites.push(Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    });
+    let log = recording(&mut app);
+    app.tick = 1_000;
+    let mut scored = g("1", "KC", "TB", true);
+    scored.away_score = 34; // was 27
+    scored.scoring_plays.push(Play {
+        text: "Mahomes 12 Yd pass to Kelce".into(),
+        team: "KC".into(),
+        scoring: true,
+        ..Default::default()
+    });
+    app.apply_boards(League::Nfl, vec![scored.clone()], false);
+    assert_eq!(
+        log.borrow().as_slice(),
+        &[(
+            "KC 34 · TB 24".to_string(),
+            "Mahomes 12 Yd pass to Kelce".to_string()
+        )]
+    );
+    // A second delta ten seconds later is inside the gap: banner yes, notification no.
+    app.tick += 10 * LIVE_TICKS_PER_SEC;
+    scored.away_score = 41;
+    app.apply_boards(League::Nfl, vec![scored.clone()], false);
+    assert_eq!(log.borrow().len(), 1, "inside NOTIFY_MIN_GAP");
+    // The opponent scoring is not the favorite's notification.
+    app.tick += crate::notify::NOTIFY_MIN_GAP;
+    scored.home_score = 31;
+    app.apply_boards(League::Nfl, vec![scored], false);
+    assert_eq!(log.borrow().len(), 1, "TB scored, KC is the favorite");
+}
+
+#[test]
+fn a_pinned_or_favorite_game_reaching_final_notifies_and_a_stale_or_first_sighting_never_does() {
+    let pin = Pin {
+        game_id: "1".into(),
+        league: League::Nfl,
+        final_at: None,
+    };
+    let mut app = app_with(
+        vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
+        vec![pin],
+    );
+    app.config.favorites.push(Favorite {
+        league: League::Nfl,
+        team_abbr: "PHI".into(),
+    });
+    let log = recording(&mut app);
+    app.tick = 1_000;
+    let mut over = g("1", "KC", "TB", true);
+    over.status = Status::Final;
+    let mut over2 = g("2", "DAL", "PHI", true);
+    over2.status = Status::Final;
+    app.apply_boards(League::Nfl, vec![over.clone(), over2.clone()], false);
+    let sent = log.borrow().clone();
+    assert_eq!(sent.len(), 2, "the pin and the favorite: {sent:?}");
+    assert!(sent.iter().all(|(t, _)| t == "FINAL"), "{sent:?}");
+    assert!(
+        sent.iter().any(|(_, b)| b == "KC 27 · TB 24")
+            && sent.iter().any(|(_, b)| b == "DAL 27 · PHI 24"),
+        "{sent:?}"
+    );
+    // Still final on the next poll: nothing new.
+    app.tick += 1;
+    app.apply_boards(League::Nfl, vec![over.clone(), over2.clone()], false);
+    assert_eq!(log.borrow().len(), 2);
+    // A stale payload never notifies, and a game first seen as final is not an event.
+    let mut app = app_with(
+        vec![],
+        vec![Pin {
+            game_id: "9".into(),
+            league: League::Nfl,
+            final_at: None,
+        }],
+    );
+    let log = recording(&mut app);
+    let mut fresh_final = g("9", "GB", "CHI", true);
+    fresh_final.status = Status::Final;
+    app.apply_boards(League::Nfl, vec![fresh_final.clone()], false);
+    assert!(log.borrow().is_empty(), "first sighting");
+    let mut live = g("9", "GB", "CHI", true);
+    app.apply_boards(League::Nfl, vec![live.clone()], false);
+    live.status = Status::Final;
+    app.apply_boards(League::Nfl, vec![live], true);
+    assert!(log.borrow().is_empty(), "stale");
+}
+
+#[test]
+fn notify_off_sends_nothing_and_the_test_command_reports_the_backend() {
+    let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+    app.config.favorites.push(Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    });
+    app.config.notify.clear();
+    let log = recording(&mut app);
+    let mut scored = g("1", "KC", "TB", true);
+    scored.away_score = 34;
+    app.apply_boards(League::Nfl, vec![scored], false);
+    assert!(log.borrow().is_empty(), "notify = []");
+    app.notify_test();
+    assert_eq!(
+        log.borrow().as_slice(),
+        &[(
+            "test".to_string(),
+            "gameday notifications are on".to_string()
+        )],
+        "`:notify test` ignores the config switch and the gap"
+    );
+    assert_eq!(app.status_line.as_deref(), Some("notified via recording"));
 }

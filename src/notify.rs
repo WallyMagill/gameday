@@ -32,6 +32,8 @@ pub fn applescript_literal(s: &str) -> String {
         match c {
             '\\' => out.push_str("\\\\"),
             '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
             other => out.push(other),
         }
     }
@@ -192,6 +194,10 @@ mod tests {
             r#""He said \"go\" \\ now""#
         );
         assert_eq!(applescript_literal(""), r#""""#);
+        assert_eq!(
+            applescript_literal("line one\r\nline two"),
+            r#""line one\r\nline two""#
+        );
     }
 
     #[test]

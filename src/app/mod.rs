@@ -406,7 +406,7 @@ impl App {
     /// One notification, gap-checked per (game, kind). A backend that cannot
     /// start the delivery is demoted to the silent no-op after that first
     /// failure, and the failure is logged with the backend's name.
-    pub fn notify(
+    pub(crate) fn notify(
         &mut self,
         game_id: &str,
         kind: crate::notify::Kind,
@@ -428,6 +428,23 @@ impl App {
                 });
                 false
             }
+        }
+    }
+
+    /// `:notify test`: one notification through whatever backend is
+    /// installed, past the gap and the config switch, and the footer says
+    /// which backend took it or why it could not.
+    pub fn notify_test(&mut self) {
+        let name = self.notifier.name();
+        if self.notify(
+            "",
+            crate::notify::Kind::Test,
+            "test",
+            "gameday notifications are on",
+        ) {
+            self.toast(format!("notified via {name}"));
+        } else {
+            self.sticky_status(format!("notify failed via {name}; see gameday.log"));
         }
     }
 

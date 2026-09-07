@@ -214,8 +214,52 @@ impl App {
                 .alerts
                 .check(&self.config.favorites, &self.boards, self.tick)
             {
-                self.active_alert = Some(alert);
+                self.active_alert = Some(alert.clone());
                 self.bell_pending = true;
+                // The favorite's score, as a notification: the scoreboard
+                // line for the title and the scoring play (when the feed
+                // already carries it) for the body. Same event the banner
+                // fires on, so the two can never disagree about what
+                // happened.
+                if self.config.notify_favorites() {
+                    if let Some(game) = self.game_by_id(&alert.game_id) {
+                        let title = format!(
+                            "{} {} · {} {}",
+                            game.away.abbr, game.away_score, game.home.abbr, game.home_score
+                        );
+                        let body = game
+                            .scoring_plays
+                            .last()
+                            .map(|p| p.text.clone())
+                            .unwrap_or_else(|| alert.text.clone());
+                        self.notify(&game.id, crate::notify::Kind::Score, &title, &body);
+                    }
+                }
+            }
+            // A game you follow just ended: pinned (config `pins`) or a
+            // favorite's (config `favorites`). `prev_board` is this
+            // league's last board, so a game first seen as final —
+            // startup, a new id — is not a transition and stays quiet.
+            for game in self.boards.get(&league).cloned().unwrap_or_default() {
+                if game.status != Status::Final {
+                    continue;
+                }
+                let was_live = prev_board
+                    .iter()
+                    .any(|p| p.id == game.id && p.status != Status::Final);
+                if !was_live {
+                    continue;
+                }
+                let pinned = self.pins.iter().any(|p| p.game_id == game.id);
+                let followed = (pinned && self.config.notify_pins())
+                    || (self.favorited(&game) && self.config.notify_favorites());
+                if followed {
+                    let body = format!(
+                        "{} {} · {} {}",
+                        game.away.abbr, game.away_score, game.home.abbr, game.home_score
+                    );
+                    self.notify(&game.id, crate::notify::Kind::Final, "FINAL", &body);
+                }
             }
         }
         // A cached payload never re-sorts a board, but a board that has

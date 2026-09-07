@@ -225,6 +225,7 @@ fn apply(app: &mut App, cmd: Cmd) {
         Cmd::Pin(abbr) => pin_team(app, &abbr),
         Cmd::Quit => app.should_quit = true,
         Cmd::Help => app.help_open = true,
+        Cmd::NotifyTest => app.notify_test(),
     }
 }
 
@@ -629,6 +630,13 @@ mod tests {
         assert_eq!(app.mode, InputMode::Command { buf: "nba".into() });
         handle_key(&mut app, KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.mode, InputMode::Command { buf: "nhl".into() });
+        handle_key(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(
+            app.mode,
+            InputMode::Command {
+                buf: "notify".into()
+            }
+        );
         handle_key(&mut app, KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.mode, InputMode::Command { buf: "nfl".into() }, "wraps");
         // Typing clears the cycle; completion then works on the new buffer.

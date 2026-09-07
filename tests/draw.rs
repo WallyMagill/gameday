@@ -128,6 +128,7 @@ fn active_alert_banner_renders_in_header_in_live_color() {
     app.active_alert = Some(gameday::alerts::Alert {
         text: "★ KC SCORES  27-24".into(),
         until_tick: 999,
+        game_id: "1".into(),
     });
     let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();

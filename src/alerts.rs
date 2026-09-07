@@ -29,6 +29,9 @@ pub const BANNER_TICKS: u64 = BANNER_SECS * LIVE_TICKS_PER_SEC;
 pub struct Alert {
     pub text: String,
     pub until_tick: u64,
+    /// The game this alert is about — `App::apply_boards` looks it up to
+    /// build the matching notification; the banner itself ignores it.
+    pub game_id: String,
 }
 
 /// Score memory + cooldown ledger for the alert diff. Owned by `App`,
@@ -87,6 +90,7 @@ impl AlertState {
                 fired = Some(Alert {
                     text: format!("★ {} SCORES  {own}-{other}", team.abbr),
                     until_tick: tick + BANNER_TICKS,
+                    game_id: game.id.clone(),
                 });
             }
         }
