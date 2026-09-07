@@ -979,9 +979,11 @@ fn a_score_delta_captures_the_scoreboard_last_play_as_a_scoring_play() {
     );
     let mut g2 = g1.clone();
     g2.away_score = 8;
+    // The fast path is the marked row: ESPN said this one scored.
     g2.last_plays = vec![Play {
         text: "Rodríguez homers to left (18)".into(),
         team: "SEA".into(),
+        scoring: true,
         ..Default::default()
     }];
     app.apply_boards(League::Nfl, vec![g2], false);
@@ -1237,9 +1239,11 @@ fn final_games_keep_their_scoring_plays_on_the_board() {
     app.apply_boards(League::Nfl, vec![g1.clone()], false);
     let mut g2 = g1.clone();
     g2.away_score = 7;
+    // Marked by the feed, so the delta captures it instead of queuing.
     g2.last_plays = vec![Play {
         text: "TD".into(),
         team: "SEA".into(),
+        scoring: true,
         ..Default::default()
     }];
     app.apply_boards(League::Nfl, vec![g2.clone()], false);
@@ -1589,11 +1593,12 @@ fn a_cached_board_never_writes_a_scoring_play() {
 
     let mut next = scored.clone();
     next.away_score = 21;
+    // Marked by the feed, so the fresh delta takes the fast capture path.
     next.last_plays = vec![Play {
         clock: "1:00".into(),
         team: "KC".into(),
         text: "Kelce 8 yd TD pass".into(),
-        scoring: false,
+        scoring: true,
         ..Default::default()
     }];
     app.apply_boards(League::Nfl, vec![next], false);
@@ -1624,4 +1629,176 @@ fn cfb_board_is_separate_from_nfl() {
     assert_eq!(app.visible_games()[0].id, "c1");
     app.tab = Tab::League(League::Nfl);
     assert!(app.visible_games().is_empty());
+}
+
+fn snap(id: &str, text: &str, team: &str, scoring: bool) -> Play {
+    Play {
+        id: id.into(),
+        text: text.into(),
+        team: team.into(),
+        scoring,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_delta_with_a_non_scoring_last_play_queues_a_catchup_and_fires_no_cut() {
+    let mut app = app_with(vec![], vec![]);
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 1;
+    g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g2], false);
+    assert_eq!(app.cuts_fired(), 0, "a later pitch is not the scoring play");
+    assert!(
+        app.scoring_events().is_empty(),
+        "nothing captured from a non-scoring row"
+    );
+    let wants = app.catchup_wants();
+    assert_eq!(wants.len(), 1);
+    assert_eq!(
+        (wants[0].league, wants[0].game_id.as_str(), wants[0].seq),
+        (League::Mlb, "1", 1)
+    );
+}
+
+#[test]
+fn a_delta_with_a_scoring_last_play_fires_at_once_and_queues_nothing() {
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400; // past the 30 s startup suppression, so a cut can fire
+    let mut g1 = g("1", "GB", "CHI", true);
+    g1.away_score = 0; // `g` seeds 7; the touchdown below has to move it
+    g1.last_plays = vec![snap("p1", "Love scrambles for 6", "GB", false)];
+    app.apply_boards(League::Nfl, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 7;
+    g2.last_plays = vec![snap("p2", "Love pass to Reed, TOUCHDOWN", "GB", true)];
+    app.apply_boards(League::Nfl, vec![g2], false);
+    assert_eq!(app.cuts_fired(), 1);
+    assert_eq!(app.scoring_events()[0].1.id, "p2");
+    assert!(app.catchup_wants().is_empty());
+}
+
+#[test]
+fn the_catchup_summary_fires_exactly_one_cut_on_the_newest_scoring_play_and_clears_the_queue() {
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400; // past the 30 s startup suppression, so a cut can fire
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 1;
+    g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g2], false);
+    assert_eq!(app.catchup_wants().len(), 1);
+    let summary = Summary {
+        last_plays: vec![
+            snap("p2", "Pitch 2 : Foul", "MIA", false),
+            snap("s1", "Happ homered to right (12)", "CHC", true),
+        ],
+        scoring_plays: vec![snap("s1", "Happ homered to right (12)", "CHC", true)],
+        meter: None,
+        extras: Extras::None,
+    };
+    app.merge_summary("1", summary);
+    assert_eq!(
+        app.cuts_fired(),
+        1,
+        "the summary's newest scoring play is the cut"
+    );
+    let ev = app.scoring_events();
+    assert_eq!(ev.len(), 1);
+    assert_eq!((ev[0].1.id.as_str(), ev[0].1.team.as_str()), ("s1", "CHC"));
+    assert!(app.catchup_wants().is_empty(), "the entry is consumed");
+    // The same summary again (the zoomed cadence) is history, not news.
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: vec![snap("s1", "Happ homered to right (12)", "CHC", true)],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(app.cuts_fired(), 1);
+}
+
+#[test]
+fn a_second_delta_on_a_queued_game_does_not_add_a_second_entry() {
+    let mut app = app_with(vec![], vec![]);
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    for score in [1u16, 2] {
+        let mut gn = g1.clone();
+        gn.away_score = score;
+        gn.last_plays = vec![snap(&format!("p{score}"), "Pitch : Foul", "MIA", false)];
+        app.apply_boards(League::Mlb, vec![gn], false);
+    }
+    assert_eq!(
+        app.catchup_wants().len(),
+        1,
+        "one entry per game while it is pending"
+    );
+    assert_eq!(app.catchup_wants()[0].seq, 1);
+}
+
+#[test]
+fn a_catchup_that_never_lands_expires_after_the_ttl_without_a_cut() {
+    let mut app = app_with(vec![], vec![]);
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 1;
+    g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g2], false);
+    for _ in 0..=gameday_ttl() {
+        app.advance_tick();
+    }
+    assert!(app.catchup_wants().is_empty(), "expired");
+    assert_eq!(app.cuts_fired(), 0);
+}
+
+fn gameday_ttl() -> u64 {
+    crate::app::CATCHUP_TTL_TICKS
+}
+
+#[test]
+fn a_stale_apply_never_queues_a_catchup() {
+    let mut app = app_with(vec![], vec![]);
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 3;
+    app.apply_boards(League::Mlb, vec![g2], true);
+    assert!(app.catchup_wants().is_empty());
+}
+
+#[test]
+fn scoring_plays_dedupe_by_id_then_by_text() {
+    use crate::app::merge::same_play;
+    assert!(
+        same_play(&snap("a", "x", "", true), &snap("a", "y", "", true)),
+        "same id, different text"
+    );
+    assert!(
+        !same_play(&snap("a", "x", "", true), &snap("b", "x", "", true)),
+        "different ids, same text"
+    );
+    assert!(
+        same_play(&snap("", "x", "", true), &snap("", "x", "", true)),
+        "no ids: text decides"
+    );
+    assert!(
+        same_play(&snap("a", "x", "", true), &snap("", "x", "", true)),
+        "one side without an id: text decides"
+    );
 }

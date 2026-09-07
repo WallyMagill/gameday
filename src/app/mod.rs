@@ -8,7 +8,7 @@ mod chrome;
 mod derive;
 mod draw;
 mod keys;
-mod merge;
+pub(crate) mod merge;
 pub mod net;
 mod order;
 mod persist;
@@ -40,6 +40,11 @@ pub const LIVE_TICKS_PER_SEC: u64 = 10;
 
 /// Render ticks a score flash stays lit: ≈1s at the live cadence.
 pub const FLASH_TICKS: u64 = LIVE_TICKS_PER_SEC;
+
+/// How long a queued catch-up waits for its summary: four polls. A guess —
+/// a summary that never arrives must not hold a request forever, and a
+/// score older than a minute is no longer a cut.
+pub const CATCHUP_TTL_TICKS: u64 = 60 * LIVE_TICKS_PER_SEC;
 
 /// LIVE chip pulse phase, pure in the tick: ~1s bright then ~1s dim at the
 /// 10 ticks/s live cadence. A luminance step, never a hue change.
@@ -186,6 +191,15 @@ pub struct App {
     /// about, a quiet 2-row band for everything else. Fired from the score
     /// delta below; read once per draw.
     pub cuts: crate::board::cut::CutState,
+    /// Score deltas waiting for the summary that names their scoring play
+    /// (spec §3.2). One entry per game; `seq` is `catchup_seq` at queue time.
+    pub(crate) catchup: Vec<merge::CatchupEntry>,
+    pub(crate) catchup_seq: u64,
+    /// Every scoring play captured for a cut since start, both paths — the
+    /// capture, not the pixels: `CutState::fire` may decline to display a
+    /// second cut while one is still up, and this still counts it. The
+    /// replay harness and the budget receipt read it; nothing on screen does.
+    cuts_fired_count: u32,
     /// Set when a banner starts; main consumes it to write the terminal
     /// bell (`\x07`) — App never touches stdout itself.
     pub bell_pending: bool,
@@ -255,12 +269,31 @@ impl App {
             alerts: crate::alerts::AlertState::default(),
             active_alert: None,
             cuts: crate::board::cut::CutState::default(),
+            catchup: Vec::new(),
+            catchup_seq: 0,
+            cuts_fired_count: 0,
             bell_pending: false,
             hit_zones: Vec::new(),
             offset,
             now_override: None,
             frame_cache: None,
         }
+    }
+
+    /// The snapshot `main` publishes to the poll thread.
+    pub fn catchup_wants(&self) -> Vec<crate::poll::CatchupReq> {
+        self.catchup
+            .iter()
+            .map(|c| crate::poll::CatchupReq {
+                league: c.league,
+                game_id: c.game_id.clone(),
+                seq: c.seq,
+            })
+            .collect()
+    }
+
+    pub fn cuts_fired(&self) -> u32 {
+        self.cuts_fired_count
     }
 
     /// Now, in the user's local offset — or the frozen clock when one is set.
@@ -335,6 +368,11 @@ impl App {
         {
             self.active_alert = None;
         }
+        // A catch-up whose summary never landed is dropped, not retried
+        // forever: past the TTL the score it was chasing is no longer news.
+        let ttl = CATCHUP_TTL_TICKS;
+        self.catchup
+            .retain(|c| tick.saturating_sub(c.queued_tick) <= ttl);
     }
 
     /// Is `game_id` inside its ~1s score-flash window? Pure in (tick, flashes).

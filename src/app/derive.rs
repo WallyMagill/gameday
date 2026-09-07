@@ -138,7 +138,7 @@ impl App {
 
     /// Scoring plays across every enabled board, newest first per game,
     /// games in board order. Finals keep theirs until they leave the board.
-    pub(crate) fn scoring_events(&self) -> Vec<(Game, crate::domain::Play)> {
+    pub fn scoring_events(&self) -> Vec<(Game, crate::domain::Play)> {
         let mut out = Vec::new();
         for game in self.concat_boards() {
             for play in game.scoring_plays.iter().rev() {

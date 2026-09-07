@@ -4,10 +4,30 @@
 
 use super::App;
 use crate::config::prune_pins;
-use crate::domain::{Game, GameStats, League, StandingsTable, Status, Summary};
+use crate::domain::{Game, GameStats, League, Play, StandingsTable, Status, Summary};
 use crate::views::View;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
+
+/// One pending catch-up (spec §3.2): a game whose score moved while the
+/// scoreboard's last play was not the scoring play.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CatchupEntry {
+    pub league: League,
+    pub game_id: String,
+    pub seq: u64,
+    pub queued_tick: u64,
+}
+
+/// Play identity: ESPN ids when both sides carry one, else the text (demo
+/// and sim plays have no ids). Never compare a real id against an empty one.
+pub(crate) fn same_play(a: &Play, b: &Play) -> bool {
+    if !a.id.is_empty() && !b.id.is_empty() {
+        a.id == b.id
+    } else {
+        a.text == b.text
+    }
+}
 
 impl App {
     pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
@@ -50,25 +70,29 @@ impl App {
             if let Some(prev) = self.last_scores.get(&g.id) {
                 if *prev != score {
                     self.flashes.insert(g.id.clone(), self.tick);
-                    // The scoreboard's lastPlay at the moment the score
-                    // moved IS the scoring play; dedupe on text.
-                    if let Some(p) = g.last_plays.first() {
-                        if !g.scoring_plays.iter().any(|s| s.text == p.text) {
-                            let mut p = p.clone();
-                            p.scoring = true;
-                            g.scoring_plays.push(p.clone());
-                            // The cut: a newly captured scoring
-                            // play IS the firing. Size is decided here, not
-                            // in `CutState` — pinned/favorited/TV takes the
-                            // screen, everything else is the quiet band.
-                            if !self.cut_suppressed() {
-                                let full = self.cut_is_full(g);
-                                self.cuts.fire(&g.id, &p, full, self.tick);
-                                if full {
-                                    // Only a takeover rings; the band is
-                                    // quiet by definition.
-                                    self.bell_pending = true;
-                                }
+                    // The scoreboard's last play at the moment the score
+                    // moved is the scoring play only when ESPN marks it so.
+                    // At a 15s cadence it is routinely the next pitch or
+                    // snap (the review saw `HOME RUN · MIA FOUL`), and a
+                    // real feed marks almost nothing: so the unmarked case
+                    // asks the summary, which is the authority, once.
+                    match g.last_plays.first() {
+                        Some(p) if p.scoring => {
+                            if !g.scoring_plays.iter().any(|s| same_play(s, p)) {
+                                let p = p.clone();
+                                g.scoring_plays.push(p.clone());
+                                self.fire_cut(&g.id, &p, self.cut_is_full(g));
+                            }
+                        }
+                        _ => {
+                            if !self.catchup.iter().any(|c| c.game_id == g.id) {
+                                self.catchup_seq += 1;
+                                self.catchup.push(CatchupEntry {
+                                    league: g.league,
+                                    game_id: g.id.clone(),
+                                    seq: self.catchup_seq,
+                                    queued_tick: self.tick,
+                                });
                             }
                         }
                     }
@@ -125,6 +149,22 @@ impl App {
         self.clamp_selected();
     }
 
+    /// Fire a cut unless the view suppresses them; a takeover rings the bell.
+    /// Size is decided by the caller's `full`, not in `CutState` —
+    /// pinned/favorited/TV takes the screen, everything else is the quiet
+    /// band.
+    fn fire_cut(&mut self, game_id: &str, play: &Play, full: bool) {
+        if self.cut_suppressed() {
+            return;
+        }
+        self.cuts_fired_count += 1;
+        self.cuts.fire(game_id, play, full, self.tick);
+        if full {
+            // Only a takeover rings; the band is quiet by definition.
+            self.bell_pending = true;
+        }
+    }
+
     /// A fetched non-today slate. Replaces wholesale (a dated board is a
     /// snapshot) and never touches flash/score state — traveled slates are
     /// read-only history/preview, not live data.
@@ -143,15 +183,19 @@ impl App {
         if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
             return;
         }
-        // A summary lands only for the zoomed game, and it can carry a
-        // scoring play the scoreboard never showed us. That is news exactly
-        // once: the play whose text is new to `game.scoring_plays` fires a
-        // cut, and the rest of the list is history being backfilled.
-        let mut fresh: Option<(String, crate::domain::Play)> = None;
+        // A summary lands only for the zoomed game or a queued catch-up, and
+        // it can carry a scoring play the scoreboard never showed us. That is
+        // news exactly once: the play that is new to `game.scoring_plays`
+        // fires a cut, and the rest of the list is history being backfilled.
+        //
+        // `self.catchup` is read here and written after the loop: the loop
+        // holds `self.boards` mutably, so the index is taken first and the
+        // entry removed once the borrow ends.
+        let queued = self.catchup.iter().position(|c| c.game_id == game_id);
+        let mut fresh: Option<(String, Play)> = None;
         for board in self.boards.values_mut() {
             if let Some(game) = board.iter_mut().find(|g| g.id == game_id) {
-                let known: Vec<String> =
-                    game.scoring_plays.iter().map(|p| p.text.clone()).collect();
+                let known: Vec<Play> = game.scoring_plays.clone();
                 if !summary.scoring_plays.is_empty() {
                     // Summary order differs by source: football's
                     // `scoringPlays` is oldest-first, a list derived from the
@@ -160,8 +204,9 @@ impl App {
                     // the list sit — a smaller index means newer.
                     let mut sp = summary.scoring_plays.clone();
                     let newest_first = sp.len() > 1 && {
-                        let pos = |t: &str| summary.last_plays.iter().position(|p| p.text == t);
-                        match (pos(&sp[0].text), pos(&sp[sp.len() - 1].text)) {
+                        let pos =
+                            |q: &Play| summary.last_plays.iter().position(|p| same_play(p, q));
+                        match (pos(&sp[0]), pos(&sp[sp.len() - 1])) {
                             (Some(a), Some(b)) => a < b,
                             // Nothing to compare against: ESPN's own
                             // `scoringPlays` is oldest-first already.
@@ -184,35 +229,34 @@ impl App {
                 if !summary.last_plays.is_empty() {
                     let mut last_plays = summary.last_plays;
                     for play in &mut last_plays {
-                        if summary.scoring_plays.iter().any(|s| s.text == play.text) {
+                        if summary.scoring_plays.iter().any(|s| same_play(s, play)) {
                             play.scoring = true;
                         }
                     }
                     game.last_plays = last_plays;
                 }
-                // Newest new scoring play, if any. `known` is empty on the
-                // very first summary for a game, and a whole game's scoring
-                // history is not a cut — only an append to a list we already
-                // had is.
-                if !known.is_empty() {
+                // Newest new scoring play, if any. A queued catch-up says a
+                // score just happened, so on that path the newest scoring
+                // play is news even when this is the game's first summary.
+                // Without a catch-up, a first summary is history being
+                // backfilled, never a cut.
+                if queued.is_some() || !known.is_empty() {
                     fresh = game
                         .scoring_plays
                         .iter()
                         .rev()
-                        .find(|p| !known.contains(&p.text))
+                        .find(|p| !known.iter().any(|k| same_play(k, p)))
                         .map(|p| (game.id.clone(), p.clone()));
                 }
                 break;
             }
         }
+        if let Some(i) = queued {
+            self.catchup.remove(i);
+        }
         if let Some((id, play)) = fresh {
-            if !self.cut_suppressed() {
-                let full = self.game_by_id(&id).is_some_and(|g| self.cut_is_full(&g));
-                self.cuts.fire(&id, &play, full, self.tick);
-                if full {
-                    self.bell_pending = true;
-                }
-            }
+            let full = self.game_by_id(&id).is_some_and(|g| self.cut_is_full(&g));
+            self.fire_cut(&id, &play, full);
         }
         // No reorder here, and nothing a summary carries can cause one
         // elsewhere either. The rank fingerprint is (scores, status, hot),

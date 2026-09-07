@@ -690,7 +690,7 @@ fn run_ui(
             zoomed: app.stats_target(),
             dated: app.dated_target(),
             standings: app.standings_target(),
-            catchup: Vec::new(),
+            catchup: app.catchup_wants(),
         };
         if next != published {
             if let Ok(mut w) = wants.lock() {
