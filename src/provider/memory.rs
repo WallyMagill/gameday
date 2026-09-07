@@ -31,6 +31,10 @@ impl MemoryProvider {
     pub fn insert_board(&mut self, league: League, games: Vec<Game>) {
         self.boards.insert(league, games);
     }
+
+    pub fn insert_summary(&mut self, game_id: &str, summary: Summary) {
+        self.summaries.insert(game_id.to_string(), summary);
+    }
 }
 
 impl SportsProvider for MemoryProvider {
