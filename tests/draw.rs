@@ -5464,36 +5464,34 @@ fn the_board_never_wears_the_zoomed_games_power_play() {
 }
 
 #[test]
-fn a_college_row_prints_the_field_position_once() {
+fn a_college_row_prints_the_field_position_once_from_the_feed() {
+    // Starts from raw ESPN JSON and the real mapper, not a hand-built
+    // `Situation` — a hand-built one never exercises `down_distance_from`, so
+    // it can't tell a fixed mapper from a reverted one. Event A carries only
+    // the long form (`downDistanceText` ending in " at BAY 2", no
+    // `shortDownDistanceText`), the shape that used to leak the ball
+    // position into `down_distance`; event B is a red-zone game that
+    // outranks A's quiet Q2 snap, so A lands in a tier row
+    // (`board::rows::situation_summary`, which appends `AT {ball_on}` on its
+    // own) rather than the board's hero.
+    let json = r#"{"events":[
+        {"id":"10","competitions":[{"status":{"displayClock":"7:13","period":2,"type":{"state":"in"}},
+          "competitors":[
+            {"homeAway":"away","score":"0","team":{"id":"101","abbreviation":"BAY"}},
+            {"homeAway":"home","score":"0","team":{"id":"102","abbreviation":"AUB"}}
+          ],
+          "situation":{"possession":"101","downDistanceText":"1st & 10 at BAY 2","possessionText":"BAY 2"}}]},
+        {"id":"11","competitions":[{"status":{"displayClock":"9:05","period":3,"type":{"state":"in"}},
+          "competitors":[
+            {"homeAway":"away","score":"0","team":{"id":"201","abbreviation":"HOU"}},
+            {"homeAway":"home","score":"0","team":{"id":"202","abbreviation":"TEN"}}
+          ],
+          "situation":{"possession":"201","isRedZone":true,"yardLine":15}}]}
+    ]}"#;
+    let games =
+        gameday::provider::map::map_scoreboard(League::Cfb, json, time::UtcOffset::UTC).unwrap();
     let mut app = mk();
-    let mut game = g("1", "BAY", "AUB", true);
-    game.league = League::Cfb;
-    game.period = "Q2".into();
-    game.clock = "7:13".into();
-    game.situation = Some(Situation {
-        down_distance: "1st & 10".into(),
-        possession: Some("BAY".into()),
-        ball_on: Some("BAY 2".into()),
-        ..Default::default()
-    });
-    // A lone live game is always the board's hero (`Derived::hero_id` picks
-    // `in_play.first()` whenever the band's empty), and the hero draws its
-    // situation as separate `·`-joined spans — it never has the "AT X" +
-    // "AT X" duplication this test guards against. A second, higher-ranked
-    // live game (RED ZONE outranks a quiet Q2 snap) claims the hero slot
-    // instead, so `game` renders through the tier row
-    // (`board::rows::situation_summary`), the surface that actually builds
-    // the fragment from `down_distance` + `ball_on`.
-    let mut hero_bait = g("2", "HOU", "TEN", true);
-    hero_bait.league = League::Cfb;
-    hero_bait.period = "Q3".into();
-    hero_bait.clock = "9:05".into();
-    hero_bait.situation = Some(Situation {
-        is_red_zone: Some(true),
-        possession: Some("HOU".into()),
-        ..Default::default()
-    });
-    app.apply_boards(League::Cfb, vec![hero_bait, game], false);
+    app.apply_boards(League::Cfb, games, false);
     let mut t = Terminal::new(TestBackend::new(140, 40)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
