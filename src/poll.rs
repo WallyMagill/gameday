@@ -60,6 +60,18 @@ pub enum Request {
     Standings(League),
 }
 
+/// One score delta the UI could not attribute to a scoring play: the
+/// scoreboard's `lastPlay` at that poll was a later snap or pitch. The
+/// summary is the authority, so the UI asks for it exactly once per
+/// sequence number. `seq` is monotonic per App, so the same game scoring
+/// twice is two requests and a republished snapshot is none.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CatchupReq {
+    pub league: League,
+    pub game_id: String,
+    pub seq: u64,
+}
+
 /// What the UI wants right now — a snapshot the UI thread publishes.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Wants {
@@ -68,6 +80,7 @@ pub struct Wants {
     pub zoomed: Option<(League, String)>,
     pub dated: Option<(League, time::Date)>,
     pub standings: Option<League>,
+    pub catchup: Vec<CatchupReq>,
 }
 
 #[derive(Default)]
@@ -85,6 +98,7 @@ pub struct Scheduler {
     /// The scoreboard interval the last `due` pass used, so a cadence that
     /// speeds up (idle -> live) can pull already-scheduled slots forward.
     last_every: Option<Duration>,
+    last_catchup_seq: u64,
     rng: u64,
 }
 
@@ -97,6 +111,7 @@ impl Scheduler {
             last_dated: None,
             last_standings: None,
             last_every: None,
+            last_catchup_seq: 0,
             rng: seed.max(1),
         }
     }
@@ -172,6 +187,19 @@ impl Scheduler {
                 out.push(Request::Stats(*league, id.clone()));
                 self.last_stats = Some((id.clone(), now));
             }
+        }
+        // Catch-ups: one Summary per new sequence number, no freshness
+        // window (spec §3.2). Budget is one request per score event by
+        // construction; Task 14 of the wave-1 plan measured it live.
+        for c in wants
+            .catchup
+            .iter()
+            .filter(|c| c.seq > self.last_catchup_seq)
+        {
+            out.push(Request::Summary(c.league, c.game_id.clone()));
+        }
+        if let Some(max) = wants.catchup.iter().map(|c| c.seq).max() {
+            self.last_catchup_seq = self.last_catchup_seq.max(max);
         }
         if let Some(target) = wants.dated {
             let fresh = self

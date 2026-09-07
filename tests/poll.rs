@@ -274,3 +274,87 @@ fn going_live_pulls_pending_idle_slots_forward() {
         "going live must make the board due within SCOREBOARD_LIVE, not the idle minute"
     );
 }
+
+fn catchup(league: League, id: &str, seq: u64) -> CatchupReq {
+    CatchupReq {
+        league,
+        game_id: id.into(),
+        seq,
+    }
+}
+
+#[test]
+fn a_catchup_request_emits_one_summary_and_never_repeats() {
+    let mut s = Scheduler::new(7);
+    let t0 = Instant::now();
+    let mut w = wants(&[League::Mlb], true);
+    w.catchup = vec![catchup(League::Mlb, "401", 1)];
+    let first: Vec<_> = s
+        .due(&w, false, t0)
+        .into_iter()
+        .filter(|r| matches!(r, Request::Summary(..)))
+        .collect();
+    assert_eq!(first, vec![Request::Summary(League::Mlb, "401".into())]);
+    // The same snapshot republished on later ticks emits nothing more.
+    for i in 1..20u64 {
+        let again: Vec<_> = s
+            .due(&w, false, t0 + Duration::from_millis(200 * i))
+            .into_iter()
+            .filter(|r| matches!(r, Request::Summary(..)))
+            .collect();
+        assert!(again.is_empty(), "tick {i} re-emitted {again:?}");
+    }
+}
+
+#[test]
+fn a_second_delta_on_the_same_game_is_a_new_sequence_and_emits_again() {
+    let mut s = Scheduler::new(7);
+    let t0 = Instant::now();
+    let mut w = wants(&[League::Mlb], true);
+    w.catchup = vec![catchup(League::Mlb, "401", 1)];
+    let _ = s.due(&w, false, t0);
+    w.catchup = vec![
+        catchup(League::Mlb, "401", 2),
+        catchup(League::Cfb, "555", 3),
+    ];
+    let got: Vec<_> = s
+        .due(&w, false, t0 + Duration::from_secs(1))
+        .into_iter()
+        .filter(|r| matches!(r, Request::Summary(..)))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            Request::Summary(League::Mlb, "401".into()),
+            Request::Summary(League::Cfb, "555".into())
+        ]
+    );
+}
+
+#[test]
+fn catchups_do_not_disturb_the_zoomed_summary_cadence() {
+    let mut s = Scheduler::new(7);
+    let t0 = Instant::now();
+    let mut w = wants(&[League::Nfl], true);
+    w.zoomed = Some((League::Nfl, "1".into()));
+    w.catchup = vec![catchup(League::Nfl, "2", 1)];
+    let got: Vec<_> = s
+        .due(&w, false, t0)
+        .into_iter()
+        .filter(|r| matches!(r, Request::Summary(..)))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            Request::Summary(League::Nfl, "1".into()),
+            Request::Summary(League::Nfl, "2".into())
+        ]
+    );
+    // 5s later: the zoomed game is inside SUMMARY_EVERY, the catch-up is spent.
+    let got: Vec<_> = s
+        .due(&w, false, t0 + Duration::from_secs(5))
+        .into_iter()
+        .filter(|r| matches!(r, Request::Summary(..)))
+        .collect();
+    assert!(got.is_empty(), "{got:?}");
+}
