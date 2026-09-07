@@ -26,8 +26,8 @@ impl App {
             KeyCode::Char('t') => self.toggle_favorite(),
             KeyCode::Char('[') => self.step_viewed_date(-1),
             KeyCode::Char(']') => self.step_viewed_date(1),
-            // n/p paging is deleted — the board is one scrolling
-            // list, so PgDn/PgUp have nothing to page and n/p are free again.
+            // PgDn/PgUp/g/G page the selection (see `keys::mod`'s dispatch,
+            // which runs before this match ever sees them) — n/p are free.
             KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('s') => self.cycle_sort(),
             KeyCode::Char('v') => self.open_tv(),
@@ -48,6 +48,17 @@ impl App {
             return;
         }
         self.selected = (self.selected as isize + delta).rem_euclid(n as isize) as usize;
+    }
+
+    /// PgUp/PgDn/g/G on the board: page the selection, clamped — the ends
+    /// are the ends, unlike `move_selected`'s wrap.
+    pub(in crate::app) fn page_selected(&mut self, delta: isize) {
+        let n = self.selection_len();
+        self.selected = if n == 0 {
+            0
+        } else {
+            (self.selected as isize + delta).clamp(0, n as isize - 1) as usize
+        };
     }
 
     fn toggle_pin(&mut self) {

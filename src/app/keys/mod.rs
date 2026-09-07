@@ -9,9 +9,13 @@ mod theme;
 mod tv;
 mod zoom;
 
-use super::App;
+use super::{App, PAGE_ROWS_FALLBACK};
 use crate::views::View;
 use crossterm::event::{KeyCode, KeyModifiers};
+
+/// Far enough that every mover clamps to its end, small enough that
+/// `scroll as isize + FAR` cannot overflow.
+const FAR: isize = isize::MAX / 4;
 
 impl App {
     pub fn on_key(&mut self, code: KeyCode, mods: KeyModifiers) {
@@ -30,6 +34,35 @@ impl App {
                 _ => {}
             }
             return;
+        }
+        // Paging is one gesture in every scrolling view: half of what the
+        // last frame showed, never a wrap; the ends are the ends. Ctrl-d/u
+        // are the vim spellings. The config editor is not a list (and its
+        // favorite prompt types g's), TV and the picker have nothing to page.
+        let pageable = matches!(
+            self.view,
+            View::Board | View::Zoom { .. } | View::PlaysFeed | View::Standings(_)
+        );
+        if pageable {
+            let ctrl = mods.contains(KeyModifiers::CONTROL);
+            let half = (self.page_rows.unwrap_or(PAGE_ROWS_FALLBACK).max(2) / 2) as isize;
+            let delta = match (code, ctrl) {
+                (KeyCode::PageDown, _) | (KeyCode::Char('d'), true) => Some(half),
+                (KeyCode::PageUp, _) | (KeyCode::Char('u'), true) => Some(-half),
+                (KeyCode::Home, _) | (KeyCode::Char('g'), false) => Some(-FAR),
+                (KeyCode::End, _) | (KeyCode::Char('G'), false) => Some(FAR),
+                _ => None,
+            };
+            if let Some(delta) = delta {
+                match self.view {
+                    View::Board => self.page_selected(delta),
+                    View::Zoom { .. } => self.move_zoom_scroll(delta),
+                    View::PlaysFeed => self.move_feed_scroll(delta),
+                    View::Standings(_) => self.move_standings_scroll(delta),
+                    _ => {}
+                }
+                return;
+            }
         }
         match self.view {
             View::Board => self.on_key_board(code),

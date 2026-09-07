@@ -3905,19 +3905,76 @@ fn resize_relayouts_from_the_same_list() {
     }
 }
 
+/// U1: `G`, `g`, PgDn did nothing across 189 games. Half a page is half
+/// of what the last frame showed; the ends are the ends; nothing wraps.
 #[test]
-fn paging_keys_are_dead_and_not_advertised() {
-    let mut app = board_app(10, 2, 2);
-    let before = app.selected;
-    key(&mut app, crossterm::event::KeyCode::Char('n'));
-    key(&mut app, crossterm::event::KeyCode::PageDown);
-    assert_eq!(app.selected, before, "n/PgDn are dead keys on the board");
-    let s = buf_text(&render(&mut app, 120, 40));
-    assert!(!s.contains("PAGE"), "no PAGE in the footer:\n{s}");
+fn paging_keys_move_half_a_page_and_are_in_the_overlay() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let mut app = board_app(40, 0, 0);
+    app.tab = Tab::League(League::Nfl);
+    let _ = render(&mut app, 120, 40);
+    let shown = app.page_rows.expect("the draw records what it showed");
     assert!(
-        !gameday::keymap::KEYMAP.iter().any(|b| b.label == "PAGE"),
-        "the PAGE binding is deleted"
+        (8..40).contains(&shown),
+        "a 40-row frame shows part of 40 games: {shown}"
     );
+    key(&mut app, KeyCode::PageDown);
+    assert_eq!(app.selected, shown / 2, "half of the last frame");
+    app.on_key(KeyCode::Char('d'), KeyModifiers::CONTROL);
+    assert_eq!(app.selected, shown / 2 * 2, "ctrl-d is the same half page");
+    key(&mut app, KeyCode::Char('G'));
+    assert_eq!(app.selected, 39, "G is the end");
+    key(&mut app, KeyCode::PageDown);
+    assert_eq!(app.selected, 39, "no wrap at the end");
+    let s = buf_text(&render(&mut app, 120, 40));
+    assert!(
+        s.contains("GAME 40/40"),
+        "the window followed the caret:\n{s}"
+    );
+    key(&mut app, KeyCode::Char('g'));
+    assert_eq!(app.selected, 0, "g is the top");
+    key(&mut app, KeyCode::PageUp);
+    assert_eq!(app.selected, 0, "no wrap at the top");
+    key(&mut app, KeyCode::End);
+    assert_eq!(app.selected, 39);
+    key(&mut app, KeyCode::Home);
+    assert_eq!(app.selected, 0);
+
+    // The feed pages by the rows its pane showed.
+    let mut app = mk();
+    let games: Vec<Game> = (0..30)
+        .map(|i| {
+            with_scoring({
+                let mut x = g(&format!("s{i}"), "KC", "TB", true);
+                x.last_plays[0].scoring = true;
+                x
+            })
+        })
+        .collect();
+    app.apply_boards(League::Nfl, games, false);
+    app.view = gameday::views::View::PlaysFeed;
+    let _ = render(&mut app, 120, 20);
+    let shown = app.page_rows.expect("feed records its pane");
+    key(&mut app, KeyCode::PageDown);
+    assert_eq!(app.feed_scroll, shown / 2);
+    key(&mut app, KeyCode::Char('G'));
+    assert_eq!(app.feed_scroll, 29);
+
+    // Advertised.
+    let mut app = mk();
+    app.help_open = true;
+    let s = buf_text(&render(&mut app, 120, 40));
+    for needle in [
+        "paging",
+        "pgdn/pgup",
+        "ctrl-d/ctrl-u",
+        "half page",
+        "g/shift-g",
+        "home/end",
+        "top/bottom",
+    ] {
+        assert!(s.contains(needle), "help overlay missing {needle:?}:\n{s}");
+    }
 }
 
 // ---------------------------------------------------------------- the cut

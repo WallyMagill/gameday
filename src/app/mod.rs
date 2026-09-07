@@ -68,6 +68,10 @@ pub fn live_pulse_bright(tick: u64) -> bool {
 /// "yesterday ↔ today ↔ tomorrow, ±7 max").
 pub const DATE_TRAVEL_MAX_DAYS: i8 = 7;
 
+/// A page before any frame has been drawn: key handling cannot see the
+/// pane, so the first PgDn after launch guesses the 120x36 default's body.
+pub const PAGE_ROWS_FALLBACK: usize = 20;
+
 /// How long a footer toast (`pinned KC@TB`, `sort time`) keeps the right
 /// side before the position readout has it back. Wall clock, not ticks:
 /// the idle loop ticks once a second, so thirty ticks would be thirty
@@ -134,6 +138,10 @@ pub struct App {
     /// because it depends on the frame's width: the two-column table halves
     /// how far there is to scroll.
     pub standings_max_scroll: Option<usize>,
+    /// Rows of the scrolling list the last frame showed — games on the board,
+    /// lines in a feed, the standings pane — recorded by whichever view drew,
+    /// like hit zones. Half of it is a page. `None` before the first draw.
+    pub page_rows: Option<usize>,
     /// Selected row in the Config view, an index into
     /// `views::config_view::rows`; reset when the view opens.
     pub config_cursor: usize,
@@ -276,6 +284,7 @@ impl App {
             feed_scroll: 0,
             standings_scroll: 0,
             standings_max_scroll: None,
+            page_rows: None,
             config_cursor: 0,
             config_edit: None,
             theme_cursor: 0,

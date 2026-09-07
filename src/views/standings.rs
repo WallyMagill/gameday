@@ -130,6 +130,7 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, league: League) -> Opt
     // two columns halve how far there is to scroll.
     let (body, max_offset) = window(total, pane.height as usize);
     app.standings_max_scroll = Some(max_offset);
+    app.page_rows = Some(body);
     // The clamp is written back, not just rendered with: a frame that got
     // wider (or a table that got shorter) leaves a stored offset past the new
     // end, and a stale offset spends the next j/k snapping itself back —

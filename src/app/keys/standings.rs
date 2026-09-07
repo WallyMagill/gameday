@@ -1,20 +1,18 @@
 //! Keys in the Standings view: the table scroll and the pops.
 
-use super::feed::FEED_PAGE_JUMP;
 use crate::app::App;
 use crate::views::View;
 use crossterm::event::KeyCode;
 
 impl App {
-    /// Keys in the Standings view: j/k scroll the table one line, PgUp/PgDn
-    /// jump, Tab switches league (landing on the board, as in Zoom), Esc/q
+    /// Keys in the Standings view: j/k scroll the table one line (PgUp/PgDn/
+    /// g/G page it — `keys::mod`'s dispatch runs before this match ever sees
+    /// them), Tab switches league (landing on the board, as in Zoom), Esc/q
     /// pop back to the board (q quits ONLY there).
     pub(super) fn on_key_standings(&mut self, code: KeyCode) {
         match code {
             KeyCode::Char('j') | KeyCode::Down => self.move_standings_scroll(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_standings_scroll(-1),
-            KeyCode::PageDown => self.move_standings_scroll(FEED_PAGE_JUMP),
-            KeyCode::PageUp => self.move_standings_scroll(-FEED_PAGE_JUMP),
             KeyCode::Esc | KeyCode::Char('q') => self.view = View::Board,
             KeyCode::Tab => self.cycle_tab(1),
             KeyCode::BackTab => self.cycle_tab(-1),

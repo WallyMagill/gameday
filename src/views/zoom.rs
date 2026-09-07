@@ -37,8 +37,14 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect, game_id: &str, tab: Zo
     draw_tab_bar(app, frame, chunks[0], &game, tab);
     match tab {
         ZoomTab::Overview => draw_overview(app, frame, chunks[1], &game),
-        ZoomTab::Plays => draw_plays(app, frame, chunks[1], &game),
-        ZoomTab::Stats => draw_stats(app, frame, chunks[1], &game),
+        ZoomTab::Plays => {
+            let visible = draw_plays(app, frame, chunks[1], &game);
+            app.page_rows = Some(visible);
+        }
+        ZoomTab::Stats => {
+            let visible = draw_stats(app, frame, chunks[1], &game);
+            app.page_rows = Some(visible);
+        }
     }
 }
 
@@ -550,7 +556,9 @@ fn draw_feed(frame: &mut Frame, area: Rect, game: &Game) {
 /// Full play feed for this game (its `last_plays`, newest first as mapped);
 /// `app.zoom_scroll` is the highlighted row (j/k or the mouse wheel), kept
 /// on screen by a simple scroll window.
-fn draw_plays(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
+/// Returns the pane's visible row count — the last frame's page size,
+/// recorded by the caller into `App::page_rows`.
+fn draw_plays(app: &App, frame: &mut Frame, area: Rect, game: &Game) -> usize {
     let th = theme::current();
     if game.last_plays.is_empty() {
         frame.render_widget(
@@ -559,7 +567,7 @@ fn draw_plays(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
                 .alignment(Alignment::Center),
             area,
         );
-        return;
+        return 0;
     }
     let sel = app.zoom_scroll.min(game.last_plays.len() - 1);
     // Keep the highlight visible: scroll the window once it walks past the
@@ -605,6 +613,7 @@ fn draw_plays(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
         Paragraph::new(lines).style(Style::default().bg(th.bg)),
         area,
     );
+    visible
 }
 
 /// Value columns are sized to the widest value ("6-17", "31:26"), floored at
@@ -614,7 +623,9 @@ const STAT_COL_MIN: usize = 4;
 /// Box score: comparison rows (label + away/home value columns under the team
 /// abbrs) scrolled by j/k, with the LEADERS block pinned below. Empty until
 /// the ~30s stats poll answers — says so instead of rendering a blank pane.
-fn draw_stats(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
+/// Returns the comparison table's visible row count — the last frame's page
+/// size, recorded by the caller into `App::page_rows`.
+fn draw_stats(app: &App, frame: &mut Frame, area: Rect, game: &Game) -> usize {
     let th = theme::current();
     let stats = app.stats.get(&game.id);
     let Some(stats) = stats.filter(|s| !s.rows.is_empty() || !s.leaders.is_empty()) else {
@@ -624,7 +635,7 @@ fn draw_stats(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
                 .alignment(Alignment::Center),
             area,
         );
-        return;
+        return 0;
     };
     // LEADERS gets its rows plus a header, but never more than half the pane;
     // the comparison table keeps the rest.
@@ -740,6 +751,7 @@ fn draw_stats(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
             chunks[1],
         );
     }
+    visible
 }
 
 #[cfg(test)]

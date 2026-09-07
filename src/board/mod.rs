@@ -102,8 +102,9 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
     let selected = app.selected;
     // The whole walk borrows `app` through `derived()`; the click zones it
     // collects can only be written back once that borrow has ended.
-    let zones = board_walk(app, frame, area, now, tick, selected);
+    let (zones, shown) = board_walk(app, frame, area, now, tick, selected);
     app.hit_zones.extend(zones);
+    app.page_rows = Some(shown);
 }
 
 fn board_walk<'a>(
@@ -113,7 +114,7 @@ fn board_walk<'a>(
     now: time::OffsetDateTime,
     tick: u64,
     selected: usize,
-) -> Vec<(Rect, crate::keymap::Hit)> {
+) -> (Vec<(Rect, crate::keymap::Hit)>, usize) {
     let d = app.derived();
 
     // The band's row cost excludes the hero even when the hero IS a band game
@@ -362,7 +363,7 @@ fn board_walk<'a>(
             &off,
         );
     }
-    zones
+    (zones, drawn.len())
 }
 
 /// True while `game` is pinned (as opposed to merely favorited): only a pin

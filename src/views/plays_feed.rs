@@ -16,54 +16,65 @@ use ratatui::Frame;
 /// rule when the whole feed fits — so the key bar sits with the list. A feed
 /// that fills the pane reports `None` and the bar keeps the
 /// terminal floor.
-pub fn draw(app: &App, frame: &mut Frame, area: Rect) -> Option<u16> {
+pub fn draw(app: &mut App, frame: &mut Frame, area: Rect) -> Option<u16> {
     let th = theme::current();
-    let events = &app.derived().scoring;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
-    draw_header(frame, chunks[0], events.len());
-    if events.is_empty() {
-        frame.render_widget(
-            Paragraph::new("no scoring plays yet")
-                .style(Style::default().fg(th.dim).bg(th.bg))
-                .alignment(Alignment::Center),
-            chunks[1],
-        );
-        return Some(chunks[1].y);
+    // Scoped so the `derived()` borrow ends before `page_rows` is written —
+    // `app` needs to be mutable for that, and every read of `events` happens
+    // above this block. `None` (an empty feed has nothing to page) leaves
+    // `page_rows` untouched, same as the board's empty state.
+    let (result, page_rows) = {
+        let events = &app.derived().scoring;
+        draw_header(frame, chunks[0], events.len());
+        if events.is_empty() {
+            frame.render_widget(
+                Paragraph::new("no scoring plays yet")
+                    .style(Style::default().fg(th.dim).bg(th.bg))
+                    .alignment(Alignment::Center),
+                chunks[1],
+            );
+            (Some(chunks[1].y), None)
+        } else {
+            let sel = app.feed_scroll.min(events.len() - 1);
+            // Keep the highlight visible: scroll the window once it walks
+            // past the bottom row (same windowing as the Zoom Plays tab).
+            let visible = chunks[1].height.max(1) as usize;
+            let skip = sel.saturating_sub(visible.saturating_sub(1));
+            let mut lines: Vec<Line> = events
+                .iter()
+                .enumerate()
+                .skip(skip)
+                .take(visible)
+                .map(|(i, (game, play))| feed_row(game, play, i == sel, chunks[1].width as usize))
+                .collect();
+            // A short feed closes with an end marker so the blank pane below
+            // reads as "that's all", not as rows that failed to render. The
+            // marker is the board's own rule, drawn to the frame's edge, so
+            // the list ends on a line rather than trailing off mid-row.
+            if lines.len() < visible {
+                let head = "  ── END OF FEED ";
+                let rule = (chunks[1].width as usize).saturating_sub(head.chars().count() + 1);
+                lines.push(Line::from(Span::styled(
+                    format!("{head}{}", "─".repeat(rule)),
+                    Style::default().fg(th.dim),
+                )));
+            }
+            let end = chunks[1].y + lines.len().saturating_sub(1) as u16;
+            let full = lines.len() >= visible;
+            frame.render_widget(
+                Paragraph::new(lines).style(Style::default().bg(th.bg)),
+                chunks[1],
+            );
+            ((!full).then_some(end), Some(visible))
+        }
+    };
+    if let Some(visible) = page_rows {
+        app.page_rows = Some(visible);
     }
-    let sel = app.feed_scroll.min(events.len() - 1);
-    // Keep the highlight visible: scroll the window once it walks past the
-    // bottom row (same windowing as the Zoom Plays tab).
-    let visible = chunks[1].height.max(1) as usize;
-    let skip = sel.saturating_sub(visible.saturating_sub(1));
-    let mut lines: Vec<Line> = events
-        .iter()
-        .enumerate()
-        .skip(skip)
-        .take(visible)
-        .map(|(i, (game, play))| feed_row(game, play, i == sel, chunks[1].width as usize))
-        .collect();
-    // A short feed closes with an end marker so the blank pane below reads
-    // as "that's all", not as rows that failed to render. The
-    // marker is the board's own rule, drawn to the frame's edge, so the list
-    // ends on a line rather than trailing off mid-row.
-    if lines.len() < visible {
-        let head = "  ── END OF FEED ";
-        let rule = (chunks[1].width as usize).saturating_sub(head.chars().count() + 1);
-        lines.push(Line::from(Span::styled(
-            format!("{head}{}", "─".repeat(rule)),
-            Style::default().fg(th.dim),
-        )));
-    }
-    let end = chunks[1].y + lines.len().saturating_sub(1) as u16;
-    let full = lines.len() >= visible;
-    frame.render_widget(
-        Paragraph::new(lines).style(Style::default().bg(th.bg)),
-        chunks[1],
-    );
-    (!full).then_some(end)
+    result
 }
 
 /// `PLAYS` chip (active-tab style, like the Zoom tab bar) plus the row count
@@ -124,7 +135,7 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool, width: usize) -> Line<
     let fixed = marker.chars().count()
         + CHIP_W
         + 10 // " {stamp:>8} "
-        + 4 // team abbr column
+        + crate::board::rows::ABBR_W as usize // team abbr column
         + word.chars().count()
         + 1
         + score.chars().count();
@@ -150,7 +161,10 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool, width: usize) -> Line<
         // and clock together), not the clock alone.
         Span::styled(format!(" {stamp:>8} "), Style::default().fg(th.clock())),
         Span::styled(
-            format!("{:<4}", play.team),
+            // The board's abbr width, not a hardcoded 4 — a 4-letter code
+            // (`BOIS`) used to glue straight into the word after it
+            // ("BOISPASSING").
+            format!("{:<w$}", play.team, w = crate::board::rows::ABBR_W as usize),
             Style::default()
                 .fg(App::team_color(game, &play.team))
                 .add_modifier(Modifier::BOLD),

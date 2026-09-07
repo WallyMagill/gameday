@@ -55,17 +55,25 @@ pub enum Group {
     Navigation,
     Selection,
     View,
+    Paging,
     App,
 }
 
 impl Group {
-    pub const ALL: [Group; 4] = [Group::Navigation, Group::Selection, Group::View, Group::App];
+    pub const ALL: [Group; 5] = [
+        Group::Navigation,
+        Group::Selection,
+        Group::View,
+        Group::Paging,
+        Group::App,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
             Group::Navigation => "NAVIGATION",
             Group::Selection => "SELECTION",
             Group::View => "VIEW",
+            Group::Paging => "PAGING",
             Group::App => "APP",
         }
     }
@@ -258,6 +266,19 @@ pub const KEYMAP: &[Binding] = &[
         label: "QUIT",
         group: Group::App,
         footer: FooterSlot::Board,
+    },
+    Binding {
+        // Half of what the last frame showed, in every scrolling view.
+        keys: &["PGDN/PGUP", "CTRL-D/CTRL-U"],
+        label: "HALF PAGE",
+        group: Group::Paging,
+        footer: FooterSlot::Never,
+    },
+    Binding {
+        keys: &["G/SHIFT-G", "HOME/END"],
+        label: "TOP/BOTTOM",
+        group: Group::Paging,
+        footer: FooterSlot::Never,
     },
 ];
 
