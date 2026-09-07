@@ -22,11 +22,11 @@ pub(crate) fn g(id: &str, away: &str, home: &str, live: bool) -> Game {
         league: League::Nfl,
         away: team(away),
         home: team(home),
-        away_score: 27,
-        home_score: 24,
+        away_score: 7,
+        home_score: 3,
         status: if live { Status::Live } else { Status::Pre },
-        period: "Q4".into(),
-        clock: "1:27".into(),
+        period: "Q2".into(),
+        clock: "5:00".into(),
         situation: None,
         last_plays: vec![],
         meter: None,
@@ -2670,7 +2670,10 @@ fn recording(app: &mut App) -> std::rc::Rc<std::cell::RefCell<Vec<(String, Strin
 
 #[test]
 fn a_favorite_score_notifies_once_inside_the_gap_with_the_scoring_play_as_body() {
-    let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+    let mut seed = g("1", "KC", "TB", true);
+    seed.away_score = 27;
+    seed.home_score = 24;
+    let mut app = app_with(vec![seed], vec![]);
     app.config.favorites.push(Favorite {
         league: League::Nfl,
         team_abbr: "KC".into(),
@@ -2679,6 +2682,7 @@ fn a_favorite_score_notifies_once_inside_the_gap_with_the_scoring_play_as_body()
     app.tick = 1_000;
     let mut scored = g("1", "KC", "TB", true);
     scored.away_score = 34; // was 27
+    scored.home_score = 24;
     scored.scoring_plays.push(Play {
         text: "Mahomes 12 Yd pass to Kelce".into(),
         team: "KC".into(),
@@ -2712,10 +2716,13 @@ fn a_pinned_or_favorite_game_reaching_final_notifies_and_a_stale_or_first_sighti
         league: League::Nfl,
         final_at: None,
     };
-    let mut app = app_with(
-        vec![g("1", "KC", "TB", true), g("2", "DAL", "PHI", true)],
-        vec![pin],
-    );
+    let mut seed1 = g("1", "KC", "TB", true);
+    seed1.away_score = 27;
+    seed1.home_score = 24;
+    let mut seed2 = g("2", "DAL", "PHI", true);
+    seed2.away_score = 27;
+    seed2.home_score = 24;
+    let mut app = app_with(vec![seed1, seed2], vec![pin]);
     app.config.favorites.push(Favorite {
         league: League::Nfl,
         team_abbr: "PHI".into(),
@@ -2723,8 +2730,12 @@ fn a_pinned_or_favorite_game_reaching_final_notifies_and_a_stale_or_first_sighti
     let log = recording(&mut app);
     app.tick = 1_000;
     let mut over = g("1", "KC", "TB", true);
+    over.away_score = 27;
+    over.home_score = 24;
     over.status = Status::Final;
     let mut over2 = g("2", "DAL", "PHI", true);
+    over2.away_score = 27;
+    over2.home_score = 24;
     over2.status = Status::Final;
     app.apply_boards(League::Nfl, vec![over.clone(), over2.clone()], false);
     let sent = log.borrow().clone();
