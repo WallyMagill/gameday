@@ -300,7 +300,11 @@ fn main() -> std::io::Result<()> {
     // User theme files first, so config.theme may name one of them; an
     // unknown name falls back to broadcast with a stderr note.
     gameday::theme::install_user_themes(&dir);
-    config.theme = gameday::theme::select_or_default(&config.theme);
+    let (theme_name, theme_note) = gameday::theme::select_or_default_noting(&config.theme);
+    if let Some(note) = &theme_note {
+        eprintln!("gameday: {note}");
+    }
+    config.theme = theme_name;
     let pins = pins_loaded.value;
     // Read the local offset here, on the main thread, before the poll thread
     // exists — `time` refuses the TZ database once the process is threaded.
@@ -310,6 +314,12 @@ fn main() -> std::io::Result<()> {
     // Also lands in the footer: the alternate screen swallows the stderr note
     // the moment the UI starts.
     app.set_config_error(config_error);
+    // A config parse error takes priority over the theme note — it already
+    // landed in the footer above, and a broken config is the more urgent
+    // thing to fix.
+    if app.status_line.is_none() {
+        app.status_line = theme_note;
+    }
 
     // Last stderr note before the alternate screen: from here on, the mapper's
     // skip lines go to gameday.log rather than over the board.

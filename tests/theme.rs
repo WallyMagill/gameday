@@ -447,6 +447,20 @@ fn unknown_names_fall_back_to_broadcast_and_errors_name_the_valid_set() {
 }
 
 #[test]
+fn an_unknown_theme_name_falls_back_with_a_footer_sized_note() {
+    let (name, note) = gameday::theme::select_or_default_noting("dracula");
+    assert_eq!(name, "broadcast");
+    let note = note.expect("a note for the footer");
+    assert!(
+        note.contains("\"dracula\"") && note.contains("broadcast") && note.contains("themes/"),
+        "{note}"
+    );
+    let (name, note) = gameday::theme::select_or_default_noting("studio");
+    assert_eq!(name, "studio");
+    assert_eq!(note, None);
+}
+
+#[test]
 fn next_name_cycles_the_loaded_set_both_ways() {
     assert_eq!(theme::next_name("broadcast", 1), "studio");
     assert_eq!(theme::next_name("daygame", 1), "broadcast", "wraps forward");

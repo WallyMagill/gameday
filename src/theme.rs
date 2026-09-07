@@ -771,14 +771,31 @@ pub fn set_current(name: &str) -> Result<String, String> {
     }
 }
 
+/// Lenient select for config values with the note the footer shows: an
+/// unknown name falls back to broadcast and says so on screen, because the
+/// stderr line `select_or_default` prints is swallowed the moment the
+/// alternate screen opens (the review watched it vanish).
+pub fn select_or_default_noting(name: &str) -> (String, Option<String>) {
+    match set_current(name) {
+        Ok(canonical) => (canonical, None),
+        Err(_) => {
+            let fallback = set_current("broadcast").expect("broadcast is always loaded");
+            let note =
+                format!("theme {name:?} not found · using {fallback} · themes/ loads user files");
+            (fallback, Some(note))
+        }
+    }
+}
+
 /// Lenient select for config/env values: unknown names fall back to
 /// broadcast with a stderr note naming the bad value and the valid set.
 /// Returns the name that is now current.
 pub fn select_or_default(name: &str) -> String {
-    set_current(name).unwrap_or_else(|err| {
-        eprintln!("gameday: {err}; using broadcast");
-        set_current("broadcast").expect("broadcast is always loaded")
-    })
+    let (name, note) = select_or_default_noting(name);
+    if let Some(note) = note {
+        eprintln!("gameday: {note}");
+    }
+    name
 }
 
 fn current_entry() -> Entry {

@@ -605,6 +605,17 @@ fn status_line_renders_verbatim_in_the_footer_row() {
 }
 
 #[test]
+fn the_theme_note_is_in_the_footer_at_startup() {
+    let mut app = mk();
+    let (_, note) = gameday::theme::select_or_default_noting("dracula");
+    app.status_line = note;
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.lines().last().unwrap().contains("not found"), "{s}");
+}
+
+#[test]
 fn committed_filter_narrows_the_board_and_shows_in_the_footer() {
     let mut app = mk();
     app.apply_boards(
