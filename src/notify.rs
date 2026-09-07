@@ -21,6 +21,12 @@ pub trait Notifier {
     fn send(&self, title: &str, body: &str) -> Result<(), String>;
     /// The name the footer prints after `:notify test`.
     fn name(&self) -> &'static str;
+    /// Why this backend never sends anything — [`Noop`]'s only override.
+    /// `App::notify_test` reads this to tell "notifications off, here's why"
+    /// apart from "sent, but nobody saw it".
+    fn reason(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// An AppleScript string literal: backslashes and double quotes escaped,
@@ -102,14 +108,21 @@ pub struct Noop {
 }
 impl Notifier for Noop {
     fn send(&self, _: &str, _: &str) -> Result<(), String> {
+        // Keyed by the reason, not a flat "notify-noop": a backend demoted
+        // after a live failure and a platform with no backend at all are two
+        // different reasons, and each must still log once — a flat key would
+        // let the first reason's note silently swallow the second's.
         crate::log::note_once(
-            "notify-noop",
+            &format!("notify-noop:{}", self.reason),
             &format!("notifications off: {}", self.reason),
         );
         Ok(())
     }
     fn name(&self) -> &'static str {
         "noop"
+    }
+    fn reason(&self) -> Option<&'static str> {
+        Some(self.reason)
     }
 }
 
@@ -181,6 +194,13 @@ impl NotifyState {
         self.sent_at.insert(key, tick);
         true
     }
+
+    /// Drop ledger entries for games no board carries any more — the same
+    /// bound `apply_boards` already gives `last_scores`: unbounded growth
+    /// over a days-long session otherwise.
+    pub fn retain(&mut self, alive: impl Fn(&str) -> bool) {
+        self.sent_at.retain(|(id, _), _| alive(id));
+    }
 }
 
 #[cfg(test)]
@@ -235,5 +255,43 @@ mod tests {
             &[("t".to_string(), "b".to_string())]
         );
         assert!(Noop { reason: "test" }.send("t", "b").is_ok());
+    }
+
+    #[test]
+    fn retain_drops_ledger_entries_for_games_no_board_carries_any_more() {
+        let mut s = NotifyState::default();
+        assert!(s.allows("g1", Kind::Score, 100));
+        s.retain(|id| id != "g1");
+        assert!(
+            s.allows("g1", Kind::Score, 100),
+            "g1's ledger entry is gone, so the gap no longer applies"
+        );
+    }
+
+    /// M11: the no-op path logs its reason once, even across repeated sends
+    /// — `note_once` dedupes on the reason-specific key. `log::set_file` is
+    /// process-global; this is the only test in the suite that calls it, so
+    /// there is nothing else to race it (see the module doc on `Noop::send`).
+    #[test]
+    fn the_noop_path_logs_its_reason_once() {
+        let dir = std::env::temp_dir().join(format!("gd-notify-noop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("gameday.log");
+        crate::log::set_file(path.clone());
+        let reason = "m11-noop-reason-once-only";
+        let n = Noop { reason };
+        n.send("t", "b").unwrap();
+        n.send("t", "b").unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let matching: Vec<&str> = contents
+            .lines()
+            .filter(|l| l.contains(&format!("notifications off: {reason}")))
+            .collect();
+        assert_eq!(
+            matching.len(),
+            1,
+            "the reason must be logged exactly once, got: {contents:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

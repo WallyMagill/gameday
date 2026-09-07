@@ -201,25 +201,70 @@ impl EspnProvider {
         self.fetch_with(key, |etag| self.http(url, etag), map)
     }
 
+    /// The gate `fetch_with` doesn't have on its own: a cache entry younger
+    /// than `max_age` is served as fresh without calling `http` at all — a
+    /// status bar polling every 30 s must not cost more than the TUI's own
+    /// cadence. Anything older (or unmapped) falls through to `fetch_with`,
+    /// which still falls back to the cache, marked stale, when `http` fails.
+    /// Split out from `scoreboard_cached_within` so a test can supply a
+    /// counting `http` closure instead of a real host.
+    pub(crate) fn cached_within<T>(
+        &self,
+        key: &str,
+        max_age: Duration,
+        http: impl FnOnce(Option<&str>) -> Result<Fetched, ProviderError>,
+        map: impl Fn(&str) -> Result<T, ProviderError>,
+    ) -> Result<(T, bool), ProviderError> {
+        if cache_age(&self.cache_dir, key).is_some_and(|age| age < max_age) {
+            if let Ok(body) = cache_read(&self.cache_dir, key) {
+                if let Ok(v) = map(&body) {
+                    return Ok((v, false));
+                }
+            }
+        }
+        self.fetch_with(key, http, map)
+    }
+
+    /// The scoreboard URL and cache key for `league` "today" — shared by
+    /// `scoreboard` and `scoreboard_cached_within` so the CFB dated-URL rule
+    /// (see `scoreboard_url_for`'s doc) lives in exactly one place.
+    fn scoreboard_target(&self, league: League) -> (String, String) {
+        let today = if league == League::Cfb {
+            Some(
+                time::OffsetDateTime::now_utc()
+                    .to_offset(self.offset)
+                    .date(),
+            )
+        } else {
+            None
+        };
+        (
+            scoreboard_url_for(league, today),
+            format!("{}-scoreboard", league.slug()),
+        )
+    }
+
     /// `--once`'s scoreboard: a cache entry younger than `max_age` is served
-    /// as fresh without touching the network (a status bar polling every
-    /// 30 s must not cost more than the TUI's own cadence); anything older
-    /// goes through `scoreboard`, which falls back to the cache, marked
-    /// stale, when the fetch fails.
+    /// as fresh without touching the network; anything older goes through
+    /// the same transport `scoreboard` uses, falling back to the cache,
+    /// marked stale, when the fetch fails.
     pub fn scoreboard_cached_within(
         &self,
         league: League,
         max_age: Duration,
     ) -> Result<(Vec<Game>, bool), ProviderError> {
-        let key = format!("{}-scoreboard", league.slug());
-        if cache_age(&self.cache_dir, &key).is_some_and(|age| age < max_age) {
-            if let Ok(body) = cache_read(&self.cache_dir, &key) {
-                if let Ok(games) = map_scoreboard(league, &body, self.offset) {
-                    return Ok((games, false));
-                }
-            }
-        }
-        self.scoreboard(league)
+        let (url, key) = self.scoreboard_target(league);
+        self.cached_within(
+            &key,
+            max_age,
+            |etag| self.http(&url, etag),
+            |body| {
+                map_scoreboard(league, body, self.offset).map_err(|source| ProviderError::Map {
+                    key: key.clone(),
+                    source,
+                })
+            },
+        )
     }
 }
 
@@ -314,20 +359,7 @@ pub fn cache_age(dir: &Path, key: &str) -> Option<Duration> {
 
 impl SportsProvider for EspnProvider {
     fn scoreboard(&self, league: League) -> Result<(Vec<Game>, bool), ProviderError> {
-        // CFB's "today" needs the dated URL (bare returns the whole week);
-        // NFL's "today" stays undated (the current week is what an NFL board
-        // wants). Cache key stays `cfb-scoreboard` either way — it's "today".
-        let today = if league == League::Cfb {
-            Some(
-                time::OffsetDateTime::now_utc()
-                    .to_offset(self.offset)
-                    .date(),
-            )
-        } else {
-            None
-        };
-        let url = scoreboard_url_for(league, today);
-        let key = format!("{}-scoreboard", league.slug());
+        let (url, key) = self.scoreboard_target(league);
         self.fetch(&url, &key, |body| {
             map_scoreboard(league, body, self.offset).map_err(|source| ProviderError::Map {
                 key: key.clone(),
@@ -511,35 +543,36 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// `--once`'s cache gate, mirroring `fresh_standings_cache_is_served_without_the_network`
-    /// above but for `scoreboard_cached_within`: a young cache short-circuits
-    /// the network entirely, and a cache past `max_age` still falls back to
-    /// serving stale once the (deliberately doomed) fetch fails.
+    /// `--once`'s cache gate, hermetic: `scoreboard`'s URL is baked in, so a
+    /// local listener can't intercept it — `cached_within` is the split-out
+    /// gate underneath it, and a counting closure stands in for `http` here
+    /// instead of a real host or a real timeout.
     #[test]
     fn a_young_scoreboard_cache_is_served_without_the_network() {
+        use std::cell::Cell;
         let dir = tmp("once-cache");
-        // The mapped body of any league: the committed NFL fixture.
-        cache_write(
-            &dir,
-            "nfl-scoreboard",
-            include_str!("../../fixtures/nfl_scoreboard.json"),
-        )
-        .unwrap();
-        // A provider whose HTTP cannot succeed in any reasonable time: a 1ms
-        // timeout against the real host fails near-instantly on connect.
-        let p = EspnProvider::with_timeouts(
-            dir.clone(),
-            time::UtcOffset::UTC,
-            Duration::from_millis(1),
-        );
-        let (games, stale) = p
-            .scoreboard_cached_within(League::Nfl, Duration::from_secs(60))
-            .unwrap();
-        assert!(!games.is_empty() && !stale, "young cache: fresh, no HTTP");
-        // Past the age the gate fetches (and here fails) → the cache is served stale.
+        let p = provider(&dir);
+        cache_write(&dir, "k", "{\"good\":1}").unwrap();
+        let calls = Cell::new(0);
+        let refused = |_: Option<&str>| {
+            calls.set(calls.get() + 1);
+            Err(ProviderError::Http {
+                status: 0,
+                key: String::new(),
+                url: String::new(),
+                detail: "refused".into(),
+            })
+        };
         let (_, stale) = p
-            .scoreboard_cached_within(League::Nfl, Duration::ZERO)
+            .cached_within("k", Duration::from_secs(60), refused, ok_map)
             .unwrap();
+        assert_eq!(calls.get(), 0, "young cache: no HTTP attempted");
+        assert!(!stale, "young cache: served fresh");
+
+        let (_, stale) = p
+            .cached_within("k", Duration::ZERO, refused, ok_map)
+            .unwrap();
+        assert_eq!(calls.get(), 1, "old cache: HTTP attempted exactly once");
         assert!(
             stale,
             "old cache: HTTP attempted and failed, cache served stale"

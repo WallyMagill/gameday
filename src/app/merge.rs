@@ -221,15 +221,38 @@ impl App {
                 // already carries it) for the body. Same event the banner
                 // fires on, so the two can never disagree about what
                 // happened.
-                if self.config.notify_favorites() {
+                // Only the league just applied can notify a score:
+                // `alerts.check` diffs EVERY board, so a stale alert about a
+                // game on some other league's board — untouched by this
+                // apply — must not fire a notification here; that league's
+                // own apply already had (or will have) its turn.
+                if self.config.notify_favorites()
+                    && self
+                        .boards
+                        .get(&league)
+                        .is_some_and(|b| b.iter().any(|g| g.id == alert.game_id))
+                {
                     if let Some(game) = self.game_by_id(&alert.game_id) {
                         let title = format!(
                             "{} {} · {} {}",
                             game.away.abbr, game.away_score, game.home.abbr, game.home_score
                         );
-                        let body = game
-                            .scoring_plays
-                            .last()
+                        // The body names a play from THIS apply: the
+                        // scoreboard's own scoring play only when it is new
+                        // to `prev_board`'s copy of the game. A play the
+                        // game already carried before this apply is old
+                        // news — accumulated across earlier polls — so the
+                        // alert text (the score line itself) is the honest
+                        // body instead of re-announcing it.
+                        let new_play = game.scoring_plays.last().filter(|p| {
+                            !prev_board
+                                .iter()
+                                .find(|g| g.id == game.id)
+                                .is_some_and(|prev| {
+                                    prev.scoring_plays.iter().any(|k| same_play(k, p))
+                                })
+                        });
+                        let body = new_play
                             .map(|p| p.text.clone())
                             .unwrap_or_else(|| alert.text.clone());
                         self.notify(&game.id, crate::notify::Kind::Score, &title, &body);
@@ -240,34 +263,54 @@ impl App {
             // favorite's (config `favorites`). `prev_board` is this
             // league's last board, so a game first seen as final —
             // startup, a new id — is not a transition and stays quiet.
-            for game in self.boards.get(&league).cloned().unwrap_or_default() {
-                if game.status != Status::Final {
-                    continue;
-                }
-                let was_live = prev_board
-                    .iter()
-                    .any(|p| p.id == game.id && p.status != Status::Final);
-                if !was_live {
-                    continue;
-                }
-                let pinned = self.pins.iter().any(|p| p.game_id == game.id);
-                let followed = (pinned && self.config.notify_pins())
-                    || (self.favorited(&game) && self.config.notify_favorites());
-                if followed {
-                    let body = format!(
-                        "{} {} · {} {}",
-                        game.away.abbr, game.away_score, game.home.abbr, game.home_score
-                    );
-                    self.notify(&game.id, crate::notify::Kind::Final, "FINAL", &body);
-                }
+            // (id, body) only — not a second clone of the whole board: the
+            // loop below needs `&mut self` for `notify`, so the games
+            // themselves can't stay borrowed past this collect.
+            let finals: Vec<(String, String)> = self
+                .boards
+                .get(&league)
+                .into_iter()
+                .flatten()
+                .filter(|game| game.status == Status::Final)
+                .filter(|game| {
+                    prev_board
+                        .iter()
+                        .any(|p| p.id == game.id && p.status != Status::Final)
+                })
+                .filter(|game| {
+                    let pinned = self.pins.iter().any(|p| p.game_id == game.id);
+                    (pinned && self.config.notify_pins())
+                        || (self.favorited(game) && self.config.notify_favorites())
+                })
+                .map(|game| {
+                    (
+                        game.id.clone(),
+                        format!(
+                            "{} {} · {} {}",
+                            game.away.abbr, game.away_score, game.home.abbr, game.home_score
+                        ),
+                    )
+                })
+                .collect();
+            for (id, body) in finals {
+                self.notify(&id, crate::notify::Kind::Final, "FINAL", &body);
             }
         }
-        // A cached payload never re-sorts a board, but a board that has
-        // never been ordered is not being moved: `rank_fingerprints` is
-        // empty only before the first `maybe_reorder` has ever run, so a
-        // stale first sighting still gets ranked instead of reading in raw
-        // ESPN array order forever.
-        if !stale || self.rank_fingerprints.is_empty() {
+        // A cached payload never re-sorts a board on its OWN account, but a
+        // live game the fingerprint set has never seen must still be ranked
+        // once rather than read in raw ESPN array order forever.
+        // `rank_fingerprints.is_empty()` alone caught only the very first
+        // board ever applied: a SECOND cached league's first sighting found
+        // the set already populated (by the first league) and skipped the
+        // reorder whole — `--once` with mixed stale/fresh leagues showed
+        // exactly this, a cached league's live games sitting in array order
+        // until its first fresh poll.
+        if !stale
+            || self
+                .live_all()
+                .iter()
+                .any(|g| !self.rank_fingerprints.contains_key(&g.id))
+        {
             self.maybe_reorder();
         }
         if !stale {
@@ -285,6 +328,12 @@ impl App {
         let mut stats = std::mem::take(&mut self.stats);
         stats.retain(|id, _| self.boards.values().flatten().any(|g| g.id == *id));
         self.stats = stats;
+        // Same days-long-session bound as `last_scores`/`stats`, for the
+        // notification gap ledger: unbounded growth otherwise, since
+        // `NotifyState` never sees a game leave a board on its own.
+        let mut notify_state = std::mem::take(&mut self.notify_state);
+        notify_state.retain(|id| self.boards.values().flatten().any(|g| g.id == id));
+        self.notify_state = notify_state;
         self.net.ok(Instant::now(), stale);
         self.pins = prune_pins(std::mem::take(&mut self.pins), now);
         self.persist_pins_quiet();

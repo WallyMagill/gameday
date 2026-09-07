@@ -2567,6 +2567,68 @@ fn a_never_ordered_board_ranks_on_first_sighting_even_while_stale() {
     );
 }
 
+/// A (final fix wave): the never-ordered-board rule above only covered the
+/// very FIRST board a session ever applies. A SECOND cached league's first
+/// sighting used to find `rank_fingerprints` already populated (by the first
+/// league) and skip the reorder whole — its live games sat in raw ESPN array
+/// order until that league's first fresh poll. `--once` with mixed
+/// stale/fresh leagues showed exactly this. The new gate ranks the band
+/// once whenever ANY live game is missing from the fingerprint set, stale or
+/// not — and, once every game is known, a stale reapply still never re-sorts
+/// even when scores move.
+#[test]
+fn a_stale_payload_carrying_a_never_seen_game_ranks_the_band_once() {
+    let mut app = app_with(vec![], vec![]);
+    app.tab = Tab::Home;
+    let ids =
+        |app: &App| -> Vec<String> { app.derive().in_play.iter().map(|x| x.id.clone()).collect() };
+
+    // NFL stale, its own first sighting: array order reversed from
+    // watchability (already covered above; seeds the fingerprint set with
+    // NFL only).
+    let n_hi = ranked("n-hi", "Q4", "1:30", 21, 21);
+    let n_lo = ranked("n-lo", "Q1", "15:00", 30, 0);
+    app.apply_boards(League::Nfl, vec![n_lo.clone(), n_hi.clone()], true);
+    assert_eq!(
+        ids(&app),
+        vec!["n-hi", "n-lo"],
+        "NFL's own first sighting ranks even though stale"
+    );
+
+    // CFB stale, a SECOND league's first sighting: two more games, neither
+    // id in `rank_fingerprints` yet (only NFL's are). The new gate must
+    // rank the WHOLE band across both leagues, not just append CFB raw.
+    let mut c_hi = ranked("c-hi", "Q4", "0:20", 24, 24);
+    c_hi.league = League::Cfb;
+    let mut c_mid = ranked("c-mid", "Q2", "7:30", 14, 10);
+    c_mid.league = League::Cfb;
+    app.apply_boards(League::Cfb, vec![c_mid.clone(), c_hi.clone()], true);
+    assert_eq!(
+        ids(&app),
+        vec!["c-hi", "n-hi", "c-mid", "n-lo"],
+        "a stale payload carrying a never-seen game ranks the whole band, across leagues, once"
+    );
+
+    // The same stale CFB board again, "c-mid"'s score changed sharply: every
+    // id is already in the fingerprint set, so this must NOT re-sort.
+    let mut c_mid2 = ranked("c-mid", "Q4", "1:10", 40, 40);
+    c_mid2.league = League::Cfb;
+    app.apply_boards(League::Cfb, vec![c_mid2.clone(), c_hi.clone()], true);
+    assert_eq!(
+        ids(&app),
+        vec!["c-hi", "n-hi", "c-mid", "n-lo"],
+        "a stale payload of already-known games must never re-sort, even though a score moved"
+    );
+
+    // A fresh CFB apply with that same change does re-sort.
+    app.apply_boards(League::Cfb, vec![c_mid2, c_hi], false);
+    assert_eq!(
+        ids(&app),
+        vec!["c-hi", "c-mid", "n-hi", "n-lo"],
+        "a fresh apply re-sorts once real data has moved"
+    );
+}
+
 /// E: `G` on Zoom's OVERVIEW has no list to pre-position — only PLAYS/STATS
 /// scroll. Before the fix `G` there quietly set `zoom_scroll` to the last
 /// play, so switching to PLAYS afterward opened already jumped to the end.
@@ -2709,6 +2771,106 @@ fn a_favorite_score_notifies_once_inside_the_gap_with_the_scoring_play_as_body()
     assert_eq!(log.borrow().len(), 1, "TB scored, KC is the favorite");
 }
 
+/// I2: the score notification's body is a play from THIS apply — the
+/// scoreboard's own scoring play only when it is new, else the alert text.
+/// A play the delta's payload already carried before this apply (already on
+/// `prev_board`'s copy) is old news, not a fresh cut to announce.
+#[test]
+fn the_score_notification_body_is_a_play_from_this_apply_not_an_old_one() {
+    let play_a = Play {
+        text: "Mahomes 12 Yd pass to Kelce".into(),
+        team: "KC".into(),
+        scoring: true,
+        ..Default::default()
+    };
+    let mut seed = g("1", "KC", "TB", true);
+    seed.away_score = 27;
+    seed.home_score = 24;
+    seed.scoring_plays.push(play_a.clone());
+    let mut app = app_with(vec![seed], vec![]);
+    app.config.favorites.push(Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    });
+    let log = recording(&mut app);
+    app.tick = 1_000;
+
+    // The delta's payload carries play A again — already known before this
+    // apply — so the body must be the alert text, not a re-announcement.
+    let mut same = g("1", "KC", "TB", true);
+    same.away_score = 34;
+    same.home_score = 24;
+    same.scoring_plays = vec![play_a.clone()];
+    app.apply_boards(League::Nfl, vec![same], false);
+    assert_eq!(
+        log.borrow().as_slice(),
+        &[(
+            "KC 34 · TB 24".to_string(),
+            "★ KC SCORES  34-24".to_string()
+        )],
+        "a play already known before this apply is not the body"
+    );
+
+    // A genuinely new play (B) in this delta is the body.
+    app.tick += crate::notify::NOTIFY_MIN_GAP;
+    let play_b = Play {
+        text: "Mahomes 3 Yd run".into(),
+        team: "KC".into(),
+        scoring: true,
+        ..Default::default()
+    };
+    let mut next = g("1", "KC", "TB", true);
+    next.away_score = 41;
+    next.home_score = 24;
+    next.scoring_plays = vec![play_a, play_b];
+    app.apply_boards(League::Nfl, vec![next], false);
+    assert_eq!(
+        log.borrow()[1],
+        ("KC 41 · TB 24".to_string(), "Mahomes 3 Yd run".to_string()),
+        "a play new to this apply is the body"
+    );
+}
+
+/// I3: `alerts.check` diffs every board on every apply, so it can find a
+/// delta that belongs to a league other than the one just applied — that
+/// league's own apply must be the one that notifies, not this one.
+#[test]
+fn only_the_league_just_applied_can_notify_a_score() {
+    let mut seed = g("1", "KC", "TB", true);
+    seed.away_score = 20;
+    seed.home_score = 24;
+    let mut app = app_with(vec![seed], vec![]);
+    app.config.favorites.push(Favorite {
+        league: League::Nfl,
+        team_abbr: "KC".into(),
+    });
+    let log = recording(&mut app);
+    app.tick = 1_000;
+
+    // NFL's board changes in memory — not through `apply_boards`, so
+    // `alerts.check` has not diffed it yet.
+    if let Some(nfl) = app.boards.get_mut(&League::Nfl) {
+        nfl[0].away_score = 27; // KC scores
+    }
+    // MLB is the league actually applied: `alerts.check` finds the NFL
+    // delta (it scans every board), but MLB is not where it happened.
+    app.apply_boards(League::Mlb, vec![], false);
+    assert_eq!(
+        log.borrow().len(),
+        0,
+        "the delta belongs to NFL, not the league just applied"
+    );
+
+    // A fresh NFL delta, applied through NFL: now NFL IS the league just
+    // applied, so the notification fires.
+    app.tick += crate::alerts::COOLDOWN_TICKS;
+    let mut scored = g("1", "KC", "TB", true);
+    scored.away_score = 34;
+    scored.home_score = 24;
+    app.apply_boards(League::Nfl, vec![scored], false);
+    assert_eq!(log.borrow().len(), 1);
+}
+
 #[test]
 fn a_pinned_or_favorite_game_reaching_final_notifies_and_a_stale_or_first_sighting_never_does() {
     let pin = Pin {
@@ -2794,4 +2956,20 @@ fn notify_off_sends_nothing_and_the_test_command_reports_the_backend() {
         "`:notify test` ignores the config switch and the gap"
     );
     assert_eq!(app.status_line.as_deref(), Some("notified via recording"));
+}
+
+/// M1: `:notify test` under a no-op backend says WHY, instead of the
+/// misleading "notified via noop" (a no-op always "succeeds" — nobody sees
+/// it either way).
+#[test]
+fn notify_test_under_a_noop_backend_says_why() {
+    let mut app = app_with(vec![], vec![]);
+    app.set_notifier(Box::new(crate::notify::Noop {
+        reason: "no notification backend on this OS",
+    }));
+    app.notify_test();
+    assert_eq!(
+        app.status_line.as_deref(),
+        Some("notifications off: no notification backend on this OS")
+    );
 }

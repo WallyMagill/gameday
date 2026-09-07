@@ -435,6 +435,13 @@ impl App {
     /// installed, past the gap and the config switch, and the footer says
     /// which backend took it or why it could not.
     pub fn notify_test(&mut self) {
+        // A no-op backend "sends" successfully by definition (nobody sees
+        // it) — asking it anyway would toast "notified via noop", which
+        // reads as working. Say why it's off instead.
+        if let Some(reason) = self.notifier.reason() {
+            self.sticky_status(format!("notifications off: {reason}"));
+            return;
+        }
         let name = self.notifier.name();
         if self.notify(
             "",

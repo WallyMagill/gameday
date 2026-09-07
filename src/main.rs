@@ -320,7 +320,17 @@ fn main() -> std::io::Result<()> {
             color: args.color,
             width,
         };
-        std::process::exit(once::run(config, pins, dir, offset, &provider, opts));
+        let outcome = once::run(config, pins, dir, offset, &provider, opts);
+        // Nothing prints when there's nothing to print — a `--top 0`
+        // (or any other narrowing that empties every section) must not
+        // leave a bare blank line on stdout.
+        if !outcome.stdout.is_empty() {
+            println!("{}", outcome.stdout);
+        }
+        for line in &outcome.stderr {
+            eprintln!("gameday: {line}");
+        }
+        std::process::exit(outcome.code);
     }
 
     if args.demo {
