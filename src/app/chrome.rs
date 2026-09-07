@@ -6,6 +6,7 @@
 
 use super::{date_label, App, Tab};
 use crate::app::net::NetChip;
+use crate::domain::Status;
 use crate::input::InputMode;
 use crate::keymap;
 use crate::theme;
@@ -473,6 +474,16 @@ impl App {
             }
         } else {
             let sel_len = self.derived().selection.len();
+            // The selected live game's leading term, shed before GAME x/y
+            // because it is explanation, not position.
+            if let Some(game) = self.derived().selection.get(self.selected) {
+                if game.status == Status::Live {
+                    let why = crate::rank::watchability(game, self.now()).why;
+                    if !why.is_empty() {
+                        right.push(format!("LEADS: {why}"));
+                    }
+                }
+            }
             if sel_len > 1 {
                 right.push(format!("GAME {}/{}", self.selected + 1, sel_len));
             }

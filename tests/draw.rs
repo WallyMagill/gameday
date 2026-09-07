@@ -256,6 +256,51 @@ fn footer_shows_freshness_age() {
 }
 
 #[test]
+fn the_footer_names_the_selected_games_leading_term() {
+    let mut app = mk();
+    let mut rz = g("1", "KC", "TB", true);
+    // Early and tied: lateness*closeness stays small (~8), so the red zone
+    // bonus (40, unscaled by margin) is the largest single term — a late,
+    // close game would have the base outrank it instead (spec §4.3).
+    rz.period = "Q1".into();
+    rz.clock = "10:00".into();
+    rz.away_score = 7;
+    rz.home_score = 7;
+    rz.situation = Some(Situation {
+        is_red_zone: Some(true),
+        possession: Some("KC".into()),
+        ..Default::default()
+    });
+    // Also early, so IN PLAY's watch-sort doesn't outrank `rz` and steal the
+    // selection at index 0 — this game carries no bonus, so its own low
+    // lateness*closeness base keeps it below the red zone score.
+    let mut other = g("2", "GB", "CHI", true);
+    other.period = "Q1".into();
+    other.clock = "14:00".into();
+    app.apply_boards(League::Nfl, vec![rz, other], false);
+    let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    let footer = s.lines().last().unwrap();
+    assert!(footer.contains("LEADS: RED ZONE"), "{footer}");
+    // A pre-game selection has no lead.
+    let mut app2 = mk();
+    app2.apply_boards(
+        League::Nfl,
+        vec![g("3", "NE", "SEA", false), g("4", "NO", "DET", false)],
+        false,
+    );
+    let mut t2 = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    t2.draw(|f| app2.draw(f)).unwrap();
+    assert!(!buf_text(&t2).lines().last().unwrap().contains("LEADS"));
+    // At 80 columns LEADS is shed before GAME.
+    let mut t3 = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t3.draw(|f| app.draw(f)).unwrap();
+    let f3 = buf_text(&t3).lines().last().unwrap().to_string();
+    assert!(f3.contains("GAME") || !f3.contains("LEADS"), "{f3}");
+}
+
+#[test]
 fn league_tab_with_only_scheduled_games_lists_them_under_later() {
     let mut app = mk();
     app.apply_boards(
