@@ -15,7 +15,7 @@ use crate::views::View;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 use std::ops::Range;
 use std::time::Instant;
@@ -561,6 +561,14 @@ impl App {
     /// from the same keymap table as the footer.
     pub(super) fn draw_help(&self, frame: &mut Frame, area: Rect) {
         let th = theme::current();
+        let buf = frame.buffer_mut();
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                let cell = &mut buf[(x, y)];
+                cell.fg = theme::dimmed(cell.fg);
+                cell.bg = theme::dimmed(cell.bg);
+            }
+        }
         // The overlay speaks the same lowercase grammar as
         // every footer — group titles, key chords and labels all run
         // through the keymap's lowering (`keymap::lower_key` for chords,
@@ -569,9 +577,9 @@ impl App {
         // (tab cycling) and `h/l` in Config (cycle a value) land in
         // different sections instead of one column that means two things.
         // No blank line between sections (unlike the old flat grouping) —
-        // seven sections plus the legend already push a 120x40 terminal to
-        // its limit; a spacer per section would clip the legend and the
-        // close line off the bottom.
+        // seven sections plus the legend already fill a 40-row terminal, and
+        // a spacer per section would clip the legend and the close line off
+        // the bottom.
         let mut lines: Vec<Line> = Vec::new();
         for group in keymap::help_order(&self.view) {
             lines.push(Line::from(Span::styled(
@@ -617,33 +625,9 @@ impl App {
             width: w,
             height: h,
         };
-        let buf = frame.buffer_mut();
-        for y in area.top()..area.bottom() {
-            for x in area.left()..area.right() {
-                let cell = &mut buf[(x, y)];
-                cell.fg = theme::dimmed(cell.fg);
-                cell.bg = theme::dimmed(cell.bg);
-                // The panel's own row-band shows nothing but the panel: a
-                // narrower-than-screen dialog would otherwise let whatever
-                // the view drew behind it (hero art, play text) bleed in on
-                // either side, dimmed but still legible, on the very rows
-                // the dialog claims for itself.
-                if y >= panel.top()
-                    && y < panel.bottom()
-                    && (x < panel.left() || x >= panel.right())
-                {
-                    cell.set_symbol(" ");
-                }
-            }
-        }
         frame.render_widget(Clear, panel);
-        // Top/bottom rules only, no side bars: a bare group title (`board`,
-        // `zoom`, …) has to be the first thing on its screen row for the
-        // ordering tests to find it — a left bar would sit in front of it on
-        // every row, this rule's own divider style elsewhere in the app.
         let block = Block::default()
-            .borders(Borders::TOP | Borders::BOTTOM)
-            .padding(Padding::horizontal(1))
+            .borders(Borders::ALL)
             .border_style(Style::default().fg(th.star))
             .title(Span::styled(
                 " keys ",
@@ -655,19 +639,5 @@ impl App {
                 .style(Style::default().bg(th.bg).fg(th.fg)),
             panel,
         );
-        // The bottom two corners the missing side bars don't draw — enough
-        // of a frame that the panel still reads as a box, and the one thing
-        // `no_screen_floats_a_dead_column` looks for to find and center it.
-        // (Not the top corners: the title starts flush at the block's left
-        // edge with no bar to reserve a column for one.)
-        if panel.width >= 2 && panel.height >= 2 {
-            let buf = frame.buffer_mut();
-            let corner_style = Style::default().fg(th.star);
-            let right = panel.x + panel.width - 1;
-            let bottom = panel.y + panel.height - 1;
-            for (x, y, glyph) in [(panel.x, bottom, "└"), (right, bottom, "┘")] {
-                buf[(x, y)].set_symbol(glyph).set_style(corner_style);
-            }
-        }
     }
 }

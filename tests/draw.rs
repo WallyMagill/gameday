@@ -253,7 +253,11 @@ fn help_leads_with_the_current_mode_and_closes_with_the_legend() {
     let s = buf_text(&render(&mut app, 120, 50));
     let at = |needle: &str| {
         s.lines()
-            .position(|l| l.trim_start().starts_with(needle))
+            .position(|l| {
+                l.split('│')
+                    .nth(1)
+                    .is_some_and(|inner| panel_text(inner).starts_with(needle))
+            })
             .unwrap_or_else(|| panic!("{needle:?} missing:\n{s}"))
     };
     assert!(at("zoom") < at("board"), "the current mode leads:\n{s}");
@@ -284,8 +288,23 @@ fn help_leads_with_the_current_mode_and_closes_with_the_legend() {
 
 fn at_in(s: &str, needle: &str) -> usize {
     s.lines()
-        .position(|l| l.trim_start().starts_with(needle))
+        .position(|l| {
+            l.split('│')
+                .nth(1)
+                .is_some_and(|inner| panel_text(inner).starts_with(needle))
+        })
         .unwrap_or_else(|| panic!("{needle:?} missing:\n{s}"))
+}
+
+/// The overlay line's own text: past the panel's left border and its air.
+/// Called on the segment between the panel's two `│` bars (found by
+/// splitting the whole screen row on `│` first) rather than on the raw row:
+/// a bare title is the first thing *inside* the panel, but at 120x50 over a
+/// live Zoom view the dimmed board behind a narrower-than-screen panel can
+/// still draw non-whitespace (hero art) ahead of that left bar, which
+/// `trim_start_matches` alone wouldn't clear.
+fn panel_text(l: &str) -> &str {
+    l.trim_start_matches(|c: char| c == '│' || c.is_whitespace())
 }
 
 /// U5: `:help` is a command.
