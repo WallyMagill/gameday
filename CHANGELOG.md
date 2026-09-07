@@ -18,7 +18,7 @@ All notable changes to gameday are recorded here. The format follows
 - ratatui 0.30, crossterm 0.29, ureq 3 (proxy env vars are now honored), dirs 7, tui-big-text 0.8.
 - SIGTERM and SIGHUP quit through the normal restore path; the terminal is never left in raw mode.
 - A 304 from ESPN is recognized as "cache is current" again (ureq 3 delivers it as a normal response), and a server that accepts but never answers now times out after 10 s instead of blocking the poll thread.
-- The board's watchability order now weighs ranked matchups, your favorites, and (college football) ESPN's live win probability; situation chips count in proportion to how close the game is. The footer names why the selected game leads.
+- The board's watchability order now weighs ranked matchups and (college football) ESPN's live win probability; situation chips count in proportion to how close the game is. The footer names why the selected game leads.
 
 ### Fixed
 - The scoring cut names the actual scoring play instead of whatever the poll happened to catch, via a one-shot summary catch-up when the scoreboard's own last play isn't the scoring one.
