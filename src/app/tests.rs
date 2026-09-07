@@ -1870,6 +1870,129 @@ fn the_catchup_cuts_on_the_run_that_matches_the_delta_and_backfills_the_rest() {
 }
 
 #[test]
+fn a_touchdown_row_carries_its_extra_point_so_the_catchup_matches_at_or_beyond() {
+    // ESPN folds the PAT into the touchdown row and reports the post-kick
+    // score: `fixtures/nfl_summary_full.json` has the London touchdown at 0-7
+    // and no 0-6 row anywhere. A poll that catches the board at 6 is asking
+    // about a score no row will ever carry, so exact equality answered
+    // nothing, burned all three attempts, and dropped the ask — the cut
+    // arrived a poll late, on the 0->7.
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400; // past the 30 s startup suppression
+    let mut g1 = g("1", "GB", "CHI", true);
+    g1.away_score = 0;
+    g1.home_score = 0;
+    g1.last_plays = vec![snap("p1", "Williams pass to Loveland for 9", "CHI", false)];
+    app.apply_boards(League::Nfl, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.home_score = 6; // the board catches the touchdown before the kick
+    g2.last_plays = vec![snap("p2", "Timeout, Chicago", "CHI", false)];
+    app.apply_boards(League::Nfl, vec![g2.clone()], false);
+    assert_eq!(app.catchup_wants().len(), 1);
+    let td = run(
+        "td",
+        "Williams pass to Odunze for 12 yds, TOUCHDOWN (Santos kick)",
+        "CHI",
+        (0, 7),
+    );
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: vec![td],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(
+        app.cuts_fired(),
+        1,
+        "the 0-7 row is the answer to a delta that stopped at 0-6"
+    );
+    assert_eq!(
+        app.cuts.active(app.tick).map(|c| c.play.id.as_str()),
+        Some("td")
+    );
+    assert!(app.catchup_wants().is_empty(), "answered, not retried");
+}
+
+#[test]
+fn the_catchup_takes_the_oldest_run_reaching_the_delta_and_leaves_the_next_unknown() {
+    // A summary that already carries the NEXT score too. The older run is
+    // this delta's; the newer one has to stay unknown, or the delta that
+    // reports it later would find it "already seen" and get no cut.
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400;
+    let mut g1 = g("1", "GB", "CHI", true);
+    g1.away_score = 0;
+    g1.home_score = 0;
+    g1.last_plays = vec![snap("p1", "Williams pass to Loveland for 9", "CHI", false)];
+    app.apply_boards(League::Nfl, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.home_score = 7;
+    g2.last_plays = vec![snap("p2", "Timeout, Chicago", "CHI", false)];
+    app.apply_boards(League::Nfl, vec![g2.clone()], false);
+    let feed = vec![
+        run(
+            "td",
+            "Odunze 12 yd pass, TOUCHDOWN (Santos kick)",
+            "CHI",
+            (0, 7),
+        ),
+        run("fg", "Santos 41 yd field goal", "CHI", (0, 10)),
+    ];
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: feed.clone(),
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(app.cuts_fired(), 1);
+    assert_eq!(
+        app.cuts.active(app.tick).map(|c| c.play.id.as_str()),
+        Some("td"),
+        "the oldest run reaching 0-7, not the newest row in the feed"
+    );
+    assert_eq!(
+        app.scoring_events()
+            .iter()
+            .map(|(_, p)| p.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["td"],
+        "the field goal has not reached the board, so it is not captured"
+    );
+    // …and when the board does report it, it is still news. The band from
+    // the touchdown has to clear first: `CutState` treats two cuts inside its
+    // 1.5 s lifetime as one moment and refuses to replace the first, so
+    // without these ticks the second cut is counted but never shown.
+    for _ in 0..crate::board::cut::BAND_TICKS + 1 {
+        app.advance_tick();
+    }
+    let mut g3 = g2.clone();
+    g3.home_score = 10;
+    g3.last_plays = vec![snap("p3", "Timeout, Green Bay", "GB", false)];
+    app.apply_boards(League::Nfl, vec![g3], false);
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: feed,
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(app.cuts_fired(), 2, "the next delta claims the field goal");
+    assert_eq!(
+        app.cuts.active(app.tick).map(|c| c.play.id.as_str()),
+        Some("fg")
+    );
+    assert!(app.catchup_wants().is_empty());
+}
+
+#[test]
 fn a_lagging_summary_re_asks_instead_of_cutting_on_an_older_run() {
     // The case the score match exists for: on the first delta of a session
     // nothing is "already seen", so a summary whose play-by-play is behind

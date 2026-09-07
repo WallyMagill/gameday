@@ -3,7 +3,7 @@
 //! scripts/capture-replay.sh. The assertion is the one the 2026-09-05 review
 //! found broken on live data: when a score moves, the cut names the play
 //! that scored — never the pitch or snap the poll happened to catch.
-use gameday::app::App;
+use gameday::app::{App, LIVE_TICKS_PER_SEC};
 use gameday::config::Config;
 use gameday::domain::*;
 use gameday::provider::map::{map_scoreboard, map_summary};
@@ -11,12 +11,17 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Render ticks between two polls: the live cadence is 15 s and the loop runs
+/// at [`LIVE_TICKS_PER_SEC`] while anything is live. Spending exactly that
+/// many per poll is what makes the harness's clock the app's — the 600-tick
+/// catch-up TTL is then four polls here, as it is in production, and a cut's
+/// 15-tick band expires between polls instead of lingering into the next one.
+const TICKS_PER_POLL: u64 = 15 * LIVE_TICKS_PER_SEC;
+
 fn app(name: &str) -> App {
     let dir = std::env::temp_dir().join(format!("gd-replay-{}-{name}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
-    // Ten seconds of ticks per poll keeps the catch-up TTL honest: a poll is
-    // 15 s live, and the TTL is four polls.
     app.now_override = Some(time::OffsetDateTime::now_utc());
     // Past the startup grace. `cut_suppressed` refuses every cut for the
     // first 30 s (300 ticks at LIVE_TICKS_PER_SEC = 10) so a session that
@@ -194,7 +199,8 @@ struct Lag {
 fn first_catchup_delta(league: League, polls: &[(String, String)]) -> Option<Lag> {
     let mut prev: HashMap<String, (u16, u16)> = HashMap::new();
     for (at, (_, body)) in polls.iter().enumerate() {
-        let games = map_scoreboard(league, body, time::UtcOffset::UTC).ok()?;
+        let games = map_scoreboard(league, body, time::UtcOffset::UTC)
+            .unwrap_or_else(|e| panic!("poll {at} of this sequence does not map: {e}"));
         for g in &games {
             let score = (g.away_score, g.home_score);
             if let Some(before) = prev.get(&g.id).copied() {
@@ -249,11 +255,11 @@ fn a_summary_that_has_not_caught_up_is_asked_again_and_the_cut_still_names_the_r
                 .iter()
                 .find(|g| g.id == lag.game)
                 .map(|g| (g.away_score, g.home_score));
-            let before = app.cuts_fired();
-            app.apply_boards(league, games, false);
-            for _ in 0..10 {
+            for _ in 0..TICKS_PER_POLL {
                 app.advance_tick();
             }
+            let before = app.cuts_fired();
+            app.apply_boards(league, games, false);
             let wants = app.catchup_wants();
             if i == lag.at {
                 assert_eq!(wants.len(), 1, "{ctx}: the delta must queue a catch-up");
@@ -360,12 +366,14 @@ fn every_score_delta_in_every_sequence_yields_exactly_one_cut_naming_a_scoring_p
                 }
                 prev.insert(g.id.clone(), score);
             }
-            let before = app.cuts_fired();
-            app.apply_boards(league, games, false);
-            // Ten render ticks per poll so the catch-up TTL is measured in polls.
-            for _ in 0..10 {
+            // The 15 s between polls, then the payload: a cut fired by this
+            // poll is still on screen when the assertions read it, and one
+            // fired by the last poll is long gone.
+            for _ in 0..TICKS_PER_POLL {
                 app.advance_tick();
             }
+            let before = app.cuts_fired();
+            app.apply_boards(league, games, false);
             // Serve every queued catch-up the captured summary WHOLE, exactly
             // as it sits on disk — runs from later innings included. A
             // production fetch would stop at the moment of the delta; this

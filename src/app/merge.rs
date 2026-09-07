@@ -21,9 +21,67 @@ pub(crate) struct CatchupEntry {
     /// without learning the run. Bounded by `CATCHUP_MAX_ATTEMPTS`.
     pub attempts: u8,
     /// The score this ask is chasing: `(away, home)` as the board reported it
-    /// when the delta landed. The summary's answer is the play whose
-    /// `score_after` is this — see `merge_summary`.
+    /// when the delta landed. The summary's answer is the oldest play whose
+    /// `score_after` reaches it — see [`resolve_catchup`].
     pub target: (u16, u16),
+}
+
+/// What a summary said about the catch-up that asked for it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CatchupOutcome {
+    /// This run is the one the delta reported: cut on it.
+    Cut(Play),
+    /// The run is accounted for — the scoreboard's own row captured it before
+    /// the summary arrived. Retire the ask, say nothing.
+    Answered,
+    /// The play-by-play has not reached the delta yet. Ask again (bounded).
+    AskAgain,
+}
+
+/// Resolve one queued catch-up against the summary's scoring plays, and trim
+/// them to the history this ask is allowed to leave on the board. `plays` is
+/// oldest-first; `known` is what the game already carried.
+///
+/// The run that answers a delta is the OLDEST unknown play whose
+/// `score_after` reaches `target` on both components — at or beyond, never
+/// exactly equal. Football is why: ESPN folds the extra point into the
+/// touchdown row and reports the post-kick score, so a poll that catches the
+/// board at 0-6 asks about a score no row will ever carry
+/// (`fixtures/nfl_summary_full.json` has the London touchdown at 0-7 and no
+/// 0-6 row anywhere). Equality there matched nothing, burned every attempt,
+/// and dropped the ask — the cut arrived a poll late, on the next delta.
+///
+/// Oldest, not newest, so a summary that runs past the delta cannot announce
+/// a run the board has not reported: everything after the answer is trimmed
+/// off and stays unknown, which is what lets the NEXT delta claim it. Plays
+/// before the answer are history and are kept, with no cut of their own.
+///
+/// The answer being already known means the scoreboard beat the summary to
+/// it. That is `Answered`, not another cut and not a retry — and it is why
+/// this looks for the oldest play reaching the target rather than the oldest
+/// *unknown* one: skipping past a known answer would cut on the run after it,
+/// which is exactly the future run this rule exists to refuse.
+pub(crate) fn resolve_catchup(
+    plays: &mut Vec<Play>,
+    target: (u16, u16),
+    known: &[Play],
+) -> CatchupOutcome {
+    let reaches = |p: &Play| {
+        p.score_after
+            .is_some_and(|s| s.0 >= target.0 && s.1 >= target.1)
+    };
+    let Some(at) = plays.iter().position(reaches) else {
+        // Nothing in this feed reaches the score the board is already
+        // showing: the play-by-play is behind. Everything here is history.
+        return CatchupOutcome::AskAgain;
+    };
+    let answer = plays[at].clone();
+    plays.truncate(at + 1);
+    if known.iter().any(|k| same_play(k, &answer)) {
+        CatchupOutcome::Answered
+    } else {
+        CatchupOutcome::Cut(answer)
+    }
 }
 
 /// Play identity: ESPN ids when both sides carry one, else the text (demo
@@ -99,7 +157,16 @@ impl App {
                                 // otherwise have the older score as its
                                 // target, cut on the older run, and leave the
                                 // newer one with no ask of its own.
-                                Some(pending) => pending.target = score,
+                                Some(pending) => {
+                                    pending.target = score;
+                                    // A fresh score is a fresh question: the
+                                    // attempts spent chasing the old one do
+                                    // not count against it. `seq` and
+                                    // `queued_tick` stand — the request in
+                                    // flight still answers, and the TTL runs
+                                    // from the first delta of the run.
+                                    pending.attempts = 0;
+                                }
                                 None => {
                                     self.catchup_seq += 1;
                                     self.catchup.push(CatchupEntry {
@@ -204,10 +271,13 @@ impl App {
         // The catch-up entry is consumed by the ANSWER, not by the ask: a
         // summary that did not name the run is asked again (`retry_catchup`),
         // because ESPN publishes the score before the play-by-play and the
-        // fetch a score delta triggers can land in that gap. The index is
-        // taken before the boards loop borrows `self` mutably; nothing
-        // between here and the exits touches `self.catchup`, so it stays
-        // valid.
+        // fetch a score delta triggers can land in that gap. Two exits
+        // consume it without an answer, both deliberate: a summary that
+        // carried nothing at all past its attempt bound, and a game that has
+        // left every board (nothing to cut on, and no board to cut over). The
+        // index is taken before the boards loop borrows `self` mutably;
+        // nothing between here and the exits touches `self.catchup`, so it
+        // stays valid.
         let queued = self.catchup.iter().position(|c| c.game_id == game_id);
         // Non-football summaries carry no "drives", so they can map to zero
         // plays; keep the scoreboard's lastPlay instead of blanking the tile.
@@ -245,25 +315,6 @@ impl App {
                     if newest_first {
                         sp.reverse();
                     }
-                    // A queued catch-up knows the score it is chasing, and
-                    // every summary but soccer's says what the score was
-                    // after each play. Then history is exactly the plays at
-                    // or below that score: anything above it happened after
-                    // the delta this ask is about (the request was slow, or
-                    // the game scored again while it was in flight) and must
-                    // not reach the board yet — it would be captured as
-                    // "already seen" and its own delta would never get a cut.
-                    if let Some(t) = target {
-                        if sp.iter().any(|p| p.score_after.is_some()) {
-                            sp.retain(|p| match p.score_after {
-                                Some(s) => s.0 <= t.0 && s.1 <= t.1,
-                                // A row this feed did not score: keep it,
-                                // the play-level match below is what decides
-                                // the cut.
-                                None => true,
-                            });
-                        }
-                    }
                     game.scoring_plays = sp;
                 }
                 // Per-sport facts only the summary carries (NHL strength +
@@ -283,45 +334,32 @@ impl App {
                     }
                     game.last_plays = last_plays;
                 }
-                // Which play the cut names.
-                //
-                // A queued catch-up is chasing one specific score, and every
-                // summary but soccer's says what the score was after each
-                // play — so the cut is the play that PRODUCED that score, not
-                // the newest row the app has not seen. That distinction is
-                // the whole fix: on the first delta of a session nothing is
-                // "seen", so newest-unseen would cut on whatever the summary
-                // happens to end with — a run from two innings ago if the
-                // play-by-play is behind, a run the viewer's board has not
-                // reached if it is ahead.
-                //
-                // No match means the feed has not published the run yet:
-                // that is the lag case, so ask again (bounded). A match the
-                // app already has means the scoreboard's own row beat the
-                // summary to it — the ask is done, and re-cutting it would
-                // be the same run twice.
-                let matched =
-                    target.filter(|_| game.scoring_plays.iter().any(|p| p.score_after.is_some()));
-                if let Some(t) = matched {
-                    match game.scoring_plays.iter().find(|p| p.score_after == Some(t)) {
-                        Some(p) if !known.iter().any(|k| same_play(k, p)) => {
-                            cut = Some(p.clone());
+                // Which play the cut names. A queued ask that has a running
+                // score to compare against resolves against it; everything
+                // else (soccer, and the zoom's own cadence) keeps the older
+                // newest-unseen rule.
+                let scored_feed = game.scoring_plays.iter().any(|p| p.score_after.is_some());
+                match target.filter(|_| scored_feed) {
+                    Some(t) => match resolve_catchup(&mut game.scoring_plays, t, &known) {
+                        CatchupOutcome::Cut(play) => cut = Some(play),
+                        CatchupOutcome::Answered => {}
+                        CatchupOutcome::AskAgain => ask_again = true,
+                    },
+                    None => {
+                        if queued.is_some() || !known.is_empty() {
+                            // Soccer's keyEvents carry no running score, and a
+                            // zoom's summary answers no ask: newest unseen. A
+                            // first summary with nothing queued is history
+                            // being backfilled, never a cut.
+                            cut = game
+                                .scoring_plays
+                                .iter()
+                                .rev()
+                                .find(|p| !known.iter().any(|k| same_play(k, p)))
+                                .cloned();
+                            ask_again = queued.is_some() && cut.is_none();
                         }
-                        Some(_) => {}
-                        None => ask_again = true,
                     }
-                } else if queued.is_some() || !known.is_empty() {
-                    // Soccer's keyEvents carry no running score, and a zoom's
-                    // summary answers no ask: newest unseen, as before. A
-                    // first summary with nothing queued is history being
-                    // backfilled, never a cut.
-                    cut = game
-                        .scoring_plays
-                        .iter()
-                        .rev()
-                        .find(|p| !known.iter().any(|k| same_play(k, p)))
-                        .cloned();
-                    ask_again = queued.is_some() && cut.is_none();
                 }
                 break;
             }
@@ -369,7 +407,18 @@ impl App {
         let Some(i) = queued else { return };
         let attempts = self.catchup[i].attempts + 1;
         if attempts >= crate::app::CATCHUP_MAX_ATTEMPTS {
-            self.catchup.remove(i);
+            // A limit someone can hit is a limit they have to be able to see:
+            // this is the one path where a real score gets no cut at all, and
+            // without a line it is indistinguishable from a score the app
+            // never noticed.
+            let dropped = self.catchup.remove(i);
+            crate::log::note(&format!(
+                "catch-up dropped: game={} target={}-{} attempts={attempts} (max {})",
+                dropped.game_id,
+                dropped.target.0,
+                dropped.target.1,
+                crate::app::CATCHUP_MAX_ATTEMPTS,
+            ));
             return;
         }
         self.catchup_seq += 1;
