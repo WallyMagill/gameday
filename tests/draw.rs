@@ -2264,6 +2264,69 @@ fn zoom_overview_carries_the_linescore_with_hits_and_errors() {
 }
 
 #[test]
+fn zoom_scoring_rows_carry_the_period_and_the_clock() {
+    let mut app = mk();
+    let mut game = g("1", "TOW", "NAVY", true);
+    game.league = League::Cfb;
+    game.scoring_plays = vec![
+        Play {
+            id: "a".into(),
+            period: "Q1".into(),
+            clock: "9:32".into(),
+            team: "NAVY".into(),
+            text: "Gutierrez run for 3 yds".into(),
+            scoring: true,
+            ..Default::default()
+        },
+        Play {
+            id: "b".into(),
+            period: "Q2".into(),
+            clock: "14:52".into(),
+            team: "TOW".into(),
+            text: "Indorf pass to Enterline for 48 yds".into(),
+            scoring: true,
+            ..Default::default()
+        },
+    ];
+    app.apply_boards(League::Cfb, vec![game], false);
+    key(&mut app, crossterm::event::KeyCode::Char('z'));
+    let mut t = Terminal::new(TestBackend::new(140, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("[Q2 14:52] TOW"), "{s}");
+    assert!(s.contains("[Q1 9:32] NAVY"), "{s}");
+}
+
+#[test]
+fn zoom_last_plays_do_not_print_the_clock_twice() {
+    let mut app = mk();
+    let mut game = g("1", "TOW", "NAVY", true);
+    game.league = League::Cfb;
+    game.last_plays = vec![Play {
+        id: "c".into(),
+        period: "Q2".into(),
+        clock: "3:31".into(),
+        team: "NAVY".into(),
+        text: "(03:39) #11 J.Carlson punt 42 yards to the Towson04".into(),
+        ..Default::default()
+    }];
+    app.apply_boards(League::Cfb, vec![game.clone()], false);
+    key(&mut app, crossterm::event::KeyCode::Char('z'));
+    let mut t = Terminal::new(TestBackend::new(140, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("[Q2 3:31] NAVY #11 J.Carlson punt"), "{s}");
+    assert!(
+        !s.contains("(03:39)"),
+        "the feed's own clock prefix is not drawn beside ours:\n{s}"
+    );
+    // The play text itself is untouched (presentation only).
+    assert!(app.game_by_id("1").unwrap().last_plays[0]
+        .text
+        .starts_with("(03:39)"));
+}
+
+#[test]
 fn the_linescore_wears_team_colors() {
     // The linescore's team rows wear `theme::hero_pair`
     // colors instead of the gated `team_text` role, which could fall back

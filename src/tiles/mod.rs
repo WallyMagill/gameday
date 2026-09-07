@@ -89,16 +89,44 @@ pub(crate) fn digit_glyphs(frame: &mut Frame, rect: Rect, value: u16, color: Col
     true
 }
 
-/// The bracket stamp on a play row: the game clock when the sport has one,
-/// otherwise the play's period (baseball `B9`). `-:--` only when the feed
-/// gave us neither.
-pub(crate) fn play_stamp(p: &crate::domain::Play) -> &str {
-    if !p.clock.is_empty() {
-        &p.clock
-    } else if !p.period.is_empty() {
-        &p.period
+/// The bracket stamp on a play row: period and clock when the feed gave
+/// both (`Q2 11:09`, so a scoring list reads in order across quarters),
+/// the clock alone for a scoreboard row that carries no period, the period
+/// alone for baseball (`B9`), `-:--` when neither.
+pub(crate) fn play_stamp(p: &crate::domain::Play) -> String {
+    match (p.period.is_empty(), p.clock.is_empty()) {
+        (false, false) => format!("{} {}", p.period, p.clock),
+        (true, false) => p.clock.clone(),
+        (false, true) => p.period.clone(),
+        (true, true) => "-:--".to_string(),
+    }
+}
+
+/// Presentation only: college play text carries its own `(mm:ss) ` prefix,
+/// and a row that already prints the clock in brackets would show it twice.
+/// `Play.text` is never changed; only what this row draws.
+pub(crate) fn without_leading_clock(text: &str, has_clock: bool) -> &str {
+    if !has_clock {
+        return text;
+    }
+    let Some(rest) = text.strip_prefix('(') else {
+        return text;
+    };
+    let Some(end) = rest.find(')') else {
+        return text;
+    };
+    let inside = &rest[..end];
+    let looks_like_clock = inside.len() <= 5
+        && inside.split_once(':').is_some_and(|(m, s)| {
+            !m.is_empty()
+                && m.chars().all(|c| c.is_ascii_digit())
+                && s.len() == 2
+                && s.chars().all(|c| c.is_ascii_digit())
+        });
+    if looks_like_clock {
+        rest[end + 1..].trim_start()
     } else {
-        "-:--"
+        text
     }
 }
 
@@ -116,7 +144,10 @@ pub(crate) fn play_line(game: &Game, p: &crate::domain::Play, width: usize) -> L
     let clock = format!(" [{}]", play_stamp(p));
     let abbr = format!(" {:<3} ", p.team);
     let used = clock.chars().count() + abbr.chars().count();
-    let text = truncate(&p.text, width.saturating_sub(used + 1));
+    let text = truncate(
+        without_leading_clock(&p.text, !p.clock.is_empty()),
+        width.saturating_sub(used + 1),
+    );
     Line::from(vec![
         Span::styled(clock, Style::default().fg(th.muted)),
         Span::styled(
@@ -309,4 +340,29 @@ pub(crate) fn meter_line(game: &Game, width: usize) -> Option<Line<'static>> {
         }
     };
     Some(Line::from(spans))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leading_clock_prefix_is_dropped_only_when_the_row_has_its_own_clock() {
+        assert_eq!(
+            without_leading_clock("(03:39) punt 42 yards", true),
+            "punt 42 yards"
+        );
+        assert_eq!(
+            without_leading_clock("(03:39) punt 42 yards", false),
+            "(03:39) punt 42 yards"
+        );
+        assert_eq!(
+            without_leading_clock("(D. Klein KICK)", true),
+            "(D. Klein KICK)"
+        );
+        assert_eq!(
+            without_leading_clock("Timeout Navy, clock 02:00", true),
+            "Timeout Navy, clock 02:00"
+        );
+    }
 }

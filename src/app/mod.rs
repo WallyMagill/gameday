@@ -437,7 +437,7 @@ impl App {
         self.game_by_id(game_id)
     }
 
-    pub(crate) fn game_by_id(&self, id: &str) -> Option<Game> {
+    pub fn game_by_id(&self, id: &str) -> Option<Game> {
         // Dated slates included so zooming a traveled game isn't a dead view.
         self.boards
             .values()

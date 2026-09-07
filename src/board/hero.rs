@@ -548,7 +548,13 @@ pub fn draw_hero(frame: &mut Frame, area: Rect, game: &Game, plan: &HeroPlan) {
 
     let fragment = fragment_line(game);
     let meter = tiles::meter_line(game, area.width as usize);
-    let play = game.last_plays.first().map(|p| p.text.clone());
+    // Presentation only, like the feed's play rows: a college play carries
+    // its own `(mm:ss) ` prefix, and this row would otherwise show it once
+    // more with nothing to distinguish it from the live game clock above.
+    let play = game
+        .last_plays
+        .first()
+        .map(|p| tiles::without_leading_clock(&p.text, !p.clock.is_empty()).to_string());
 
     let (band_rows, want) = row_plan(
         area,

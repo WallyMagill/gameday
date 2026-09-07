@@ -123,7 +123,7 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool, width: usize) -> Line<
     // push the score off the row's right edge.
     let fixed = marker.chars().count()
         + CHIP_W
-        + 7 // " {stamp:>5} "
+        + 10 // " {stamp:>8} "
         + 4 // team abbr column
         + word.chars().count()
         + 1
@@ -146,7 +146,9 @@ fn feed_row<'a>(game: &Game, play: &Play, selected: bool, width: usize) -> Line<
         // `play_stamp`, not `play.clock`: a baseball play carries its
         // half-inning in `period` and no clock at all, and printing the clock
         // field left the MLB rows of the feed with a blank stamp column.
-        Span::styled(format!(" {stamp:>5} "), Style::default().fg(th.clock())),
+        // Widened to 8 cells: a college row's stamp is now `Q2 14:52` (period
+        // and clock together), not the clock alone.
+        Span::styled(format!(" {stamp:>8} "), Style::default().fg(th.clock())),
         Span::styled(
             format!("{:<4}", play.team),
             Style::default()
