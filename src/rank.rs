@@ -264,7 +264,12 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             if matches!(g.period.as_str(), "Q2" | "Q4") {
                 if let Some(secs) = clock_secs(&g.clock) {
                     if secs > 0 && secs <= 120 {
-                        bonus!(30, Some("2-MIN"));
+                        // Q4's two minutes end the game; Q2's end a half.
+                        // Guess, calibrated by the slate test: a 10-0 game at
+                        // the half-time warning must not outrank No. 2 Oregon
+                        // in a one-score game.
+                        let weight = if g.period == "Q4" { 30 } else { 15 };
+                        bonus!(weight, Some("2-MIN"));
                     }
                 }
             }
@@ -744,6 +749,30 @@ mod tests {
         let mut pre = g(League::Nfl, "Q1", "15:00", 0, 0);
         pre.status = Status::Pre;
         assert_eq!(watchability(&pre, now).why, "");
+    }
+
+    /// Q4's two minutes end the game; Q2's end a half, and the bonus says so.
+    /// The two periods have different lateness (Q2 1:30 → 47, Q4 1:30 → 97),
+    /// so the halving shows in the BONUS, which is the score minus the base
+    /// each period's own lateness earns — not in the raw score gap.
+    #[test]
+    fn the_half_time_two_minute_warning_is_worth_half_the_fourth_quarters() {
+        let now = OffsetDateTime::now_utc();
+        // The same 21-20 game, same clock, two periods. Margin 1 → closeness 95.
+        let c = closeness(League::Nfl, 1);
+        assert_eq!(c, 95);
+        let base = |period: &str| lateness(League::Nfl, period, "1:30") * c / 100;
+        let q2 = watchability(&g(League::Nfl, "Q2", "1:30", 21, 20), now);
+        let q4 = watchability(&g(League::Nfl, "Q4", "1:30", 21, 20), now);
+        assert_eq!(q2.chip, Some("2-MIN"), "the half-time warning still chips");
+        assert_eq!(q4.chip, Some("2-MIN"));
+        let (q2_bonus, q4_bonus) = (q2.score - base("Q2"), q4.score - base("Q4"));
+        assert_eq!(q2_bonus, 14, "15 × 95/100 = 14.25, floored");
+        assert_eq!(q4_bonus, 28, "30 × 95/100 = 28.5, floored");
+        assert!(
+            (14..=15).contains(&(q4_bonus - q2_bonus)),
+            "Q4 is 15 × 95/100 = 14 (rounding aside) ahead of Q2: {q4_bonus} − {q2_bonus}"
+        );
     }
 
     #[test]
