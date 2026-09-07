@@ -984,7 +984,7 @@ fn a_leverage_band_crossing_reorders_once_and_freezes() {
 }
 
 #[test]
-fn rank_and_favorite_never_enter_the_fingerprint() {
+fn rank_never_enters_the_fingerprint() {
     let mut app = app_with(vec![], vec![]);
     app.tick = 400;
     let a = cfb_with_prob("a", 10, 10, 500);
@@ -993,11 +993,13 @@ fn rank_and_favorite_never_enter_the_fingerprint() {
     app.apply_boards(League::Cfb, vec![a.clone(), b.clone()], false);
     let first = ord(&app);
     // B gets ranked between polls: same scores, same bands → no reorder.
-    // `favorite` can't be exercised the same way here — `mark_favorites` and
-    // `live_all`'s MY-GAMES filter both read `config.favorites`, so a
-    // favorited game always leaves `live_all` before a fingerprint is ever
-    // built for it (see `a_pinned_game_is_not_in_the_ordered_live_band`);
-    // `RankFingerprint` never reads `Game.favorite` at all.
+    // This covers the rank half only — the favorite half is untestable the
+    // same way: `mark_favorites` and `live_all`'s MY-GAMES filter both read
+    // `config.favorites`, so a favorited game always leaves `live_all`
+    // before a fingerprint is ever built for it (see
+    // `a_pinned_game_is_not_in_the_ordered_live_band`); favorites never
+    // share the ranked band, so `RankFingerprint` never reads
+    // `Game.favorite` at all.
     let mut b2 = b.clone();
     b2.home.rank = Some(1);
     app.apply_boards(League::Cfb, vec![a, b2], false);
@@ -2475,15 +2477,18 @@ fn favorites_are_stamped_on_apply_and_after_an_edit() {
     app.config.favorites.clear();
     app.mark_favorites();
     assert!(!app.game_by_id("1").unwrap().favorite);
-    // The board key path (t on the selected game) stamps too.
+    // The board key path (t on the selected game) stamps too. Both games
+    // tie on watchability (same score, period, clock), so insertion order
+    // holds: index 0 is game "2" (GB @ CHI), and `t` favorites its home
+    // team, CHI.
     app.selected = 0;
     app.on_key(
         crossterm::event::KeyCode::Char('t'),
         crossterm::event::KeyModifiers::NONE,
     );
-    let stamped = app.game_by_id("1").unwrap().favorite || app.game_by_id("2").unwrap().favorite;
     assert!(
-        stamped,
+        app.game_by_id("2").unwrap().favorite,
         "t favorites the selected game's home team and re-stamps"
     );
+    assert!(!app.game_by_id("1").unwrap().favorite);
 }

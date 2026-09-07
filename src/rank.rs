@@ -236,9 +236,10 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             score += scaled;
             hot = true;
             if let Some(name) = $ch {
-                // The chip names the LARGEST scaled term, not the first to
-                // fire, so it always agrees with `why` — a tie keeps the
-                // earlier one rather than churning on equal weights.
+                // The chip names the largest scaled situation term, not the
+                // first to fire, so that when a situation term leads, `chip`
+                // and `why` name the same one (`why` can still be
+                // LEVERAGE/RANKED/LATE when a flat term outranks the chip).
                 let outranks = match chip_lead {
                     None => true,
                     Some((_, w)) => scaled > w,
@@ -318,8 +319,8 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
                 // `rows::T1_CHIP_W`, 13 cells to the play-text column, so the
                 // literal "TYING RUN ON 3RD" (16) would still paint into the play
                 // — "TYING RUN 3RD" (13) fits exactly.
-                let lead = bases.iter().rposition(|b| *b).unwrap_or(0);
-                let chip = match (field == bat, lead) {
+                let lead_base = bases.iter().rposition(|b| *b).unwrap_or(0);
+                let chip = match (field == bat, lead_base) {
                     (true, 0) => "GO-AHEAD 1ST",
                     (true, 1) => "GO-AHEAD 2ND",
                     (true, _) => "GO-AHEAD 3RD",
@@ -819,10 +820,6 @@ mod tests {
         let (q2_bonus, q4_bonus) = (q2.score - base("Q2"), q4.score - base("Q4"));
         assert_eq!(q2_bonus, 14, "15 × 95/100 = 14.25, floored");
         assert_eq!(q4_bonus, 28, "30 × 95/100 = 28.5, floored");
-        assert!(
-            (14..=15).contains(&(q4_bonus - q2_bonus)),
-            "Q4 is 15 × 95/100 = 14 (rounding aside) ahead of Q2: {q4_bonus} − {q2_bonus}"
-        );
     }
 
     #[test]

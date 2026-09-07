@@ -413,8 +413,10 @@ pub struct Game {
     /// when the event carries no headlines object, or the field is empty.
     pub headline: Option<String>,
     /// One of the two teams is in `config.favorites`. Stamped by
-    /// `App::mark_favorites` after every apply and every favorites edit; the
-    /// mapper never sets it. Read by `rank::watchability` for the favorite term.
+    /// `App::mark_favorites` after `apply_boards` and after every favorites
+    /// edit (not every apply — `merge_dated_board` does not stamp, and dated
+    /// boards are never live); the mapper never sets it. Read by
+    /// `rank::watchability` for the favorite term.
     pub favorite: bool,
 }
 

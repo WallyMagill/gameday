@@ -282,7 +282,9 @@ fn the_footer_names_the_selected_games_leading_term() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     let footer = s.lines().last().unwrap();
+    // At 120 columns the footer holds both LEADS and GAME.
     assert!(footer.contains("LEADS: RED ZONE"), "{footer}");
+    assert!(footer.contains("GAME"), "{footer}");
     // A pre-game selection has no lead.
     let mut app2 = mk();
     app2.apply_boards(
@@ -293,11 +295,13 @@ fn the_footer_names_the_selected_games_leading_term() {
     let mut t2 = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t2.draw(|f| app2.draw(f)).unwrap();
     assert!(!buf_text(&t2).lines().last().unwrap().contains("LEADS"));
-    // At 80 columns LEADS is shed before GAME.
-    let mut t3 = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    // At 100 columns LEADS is shed before GAME: the footer keeps GAME x/y
+    // and drops LEADS.
+    let mut t3 = Terminal::new(TestBackend::new(100, 36)).unwrap();
     t3.draw(|f| app.draw(f)).unwrap();
     let f3 = buf_text(&t3).lines().last().unwrap().to_string();
-    assert!(f3.contains("GAME") || !f3.contains("LEADS"), "{f3}");
+    assert!(f3.contains("GAME"), "{f3}");
+    assert!(!f3.contains("LEADS"), "{f3}");
 }
 
 #[test]
