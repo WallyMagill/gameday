@@ -154,6 +154,21 @@ const BCAST_W: u16 = 7;
 /// The odds after the broadcast, with air between (L2: `NETFLIXLAR -3.5`).
 const ODDS_X: u16 = TEXT_X + BCAST_W + GAP;
 
+/// V3's minimum: [`clause_cap`] never cuts inside the first 48 cells of
+/// prose, so a short play sentence goes untouched. The spec's ruling
+/// (`docs/superpowers/specs/2026-09-06-gameday-v4-ship-design.md` §7 item 3).
+const CLAUSE_MIN: usize = 48;
+/// L7's fragment field on a wide tier-2 row: the longest situation fragment
+/// this board prints (`PHI 3RD & 6 AT DAL 38`, 21 cells) fits with room to
+/// spare before the play text starts at [`PLAY_X`].
+const FRAGMENT_W: u16 = 40;
+/// Where a wide tier-2 row's last play starts: right after the fragment
+/// field, so the two can never collide regardless of either one's content.
+const PLAY_X: u16 = TEXT_X + FRAGMENT_W;
+/// L7's threshold: the width past which the review found tier-2 rows
+/// leaving their right 60% empty (spec §7 item 4).
+pub const WIDE_TIER_MIN: u16 = 160;
+
 // Tier 1 shares the one-line tiers' grid *entirely*: the same `pair_line`
 // draws `GB 13 CHI 10` at the same columns a tier-2 row does, and the clock
 // and the prose share those columns too. What tier 1 adds is height, not a
@@ -207,8 +222,9 @@ fn ink(ctx: &RowCtx) -> Color {
     }
 }
 
-/// A team abbr. Team color only for a pinned game, and only where the theme
-/// allows marks to carry it; everything else is ink.
+/// A team abbr. Team color for a pinned game, or (V2's `tint-rows` knob)
+/// every game's — either way only where the theme allows marks to carry it;
+/// everything else is ink.
 ///
 /// Padded to a 3-cell minimum (`format!("{:<3}", abbr)`) so a
 /// two-letter abbr (`KC`) fills the same cell a three-letter one (`BUF`)
@@ -216,7 +232,9 @@ fn ink(ctx: &RowCtx) -> Color {
 /// field's blank background.
 fn abbr_span(game_pinned: bool, team: &crate::domain::Team, ctx: &RowCtx) -> Line<'static> {
     let th = theme::current();
-    let color = if game_pinned && th.roles().team == TeamColorScope::HeroMarks {
+    let tinted =
+        (game_pinned || ctx.design.tint_rows) && th.roles().team == TeamColorScope::HeroMarks;
+    let color = if tinted {
         th.art_color(team.color)
     } else {
         ink(ctx)
@@ -299,6 +317,26 @@ pub fn final_story(game: &Game, leaders_line: Option<&str>) -> Option<String> {
 pub fn leaders_line(stats: &GameStats) -> Option<String> {
     let l = stats.leaders.first()?;
     Some(format!("{} {}: {}", l.team, l.label, l.text))
+}
+
+/// V3 option: cut prose at the first clause boundary (`, ` or `. `) whose
+/// start is at or past `min_cells`, dropping the separator and closing with
+/// `…`. A play sentence shorter than `min_cells`, or one with no clause
+/// boundary at or past it, comes back untouched — [`crate::text::truncate`]
+/// still runs after this at the caller, so the two compose (this one only
+/// ever shortens further, on content rather than on space).
+pub(crate) fn clause_cap(text: &str, min_cells: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= min_cells {
+        return text.to_string();
+    }
+    for i in min_cells..chars.len().saturating_sub(1) {
+        if (chars[i] == ',' || chars[i] == '.') && chars[i + 1] == ' ' {
+            let cut: String = chars[..i].iter().collect();
+            return format!("{cut}…");
+        }
+    }
+    text.to_string()
 }
 
 /// The hot mark, column 0 — the one cell every tier draws identically, one
@@ -445,10 +483,15 @@ pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
         );
     }
     if let Some(play) = game.last_plays.first() {
+        let shown = if ctx.design.clause_cap {
+            clause_cap(&play.text, CLAUSE_MIN)
+        } else {
+            play.text.clone()
+        };
         let line = Line::from(vec![
             Span::styled("▸ ", Style::default().fg(r.dim)),
             Span::styled(
-                truncate(&play.text, room.saturating_sub(2)),
+                truncate(&shown, room.saturating_sub(2)),
                 Style::default().fg(ink(ctx)),
             ),
         ]);
@@ -483,8 +526,16 @@ pub fn draw_tier2(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
         );
     }
     league_tag(frame, area, game, ctx);
+    // L7 option: at WIDE_TIER_MIN+ columns the fragment's own room shrinks
+    // to FRAGMENT_W - 1 so it can never run into the play field that starts
+    // at PLAY_X right behind it.
+    let wide = ctx.design.wide_tier && area.width >= WIDE_TIER_MIN;
     if let Some(fragment) = situation_summary(game) {
-        let room = (area.width.saturating_sub(TEXT_X)) as usize;
+        let room = if wide {
+            (FRAGMENT_W - 1) as usize
+        } else {
+            (area.width.saturating_sub(TEXT_X)) as usize
+        };
         let span = Span::styled(truncate(&fragment, room), Style::default().fg(r.dim));
         col(
             frame,
@@ -495,6 +546,19 @@ pub fn draw_tier2(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
             Alignment::Left,
             Line::from(span),
         );
+    }
+    if wide {
+        if let Some(play) = game.last_plays.first() {
+            let room = (area.width.saturating_sub(PLAY_X)) as usize;
+            let line = Line::from(vec![
+                Span::styled("▸ ", Style::default().fg(r.dim)),
+                Span::styled(
+                    truncate(&play.text, room.saturating_sub(2)),
+                    Style::default().fg(ink(ctx)),
+                ),
+            ]);
+            col(frame, area, PLAY_X, area.width, 0, Alignment::Left, line);
+        }
     }
 }
 
@@ -1200,6 +1264,116 @@ mod tests {
             buf[(ax, 0)].fg,
             theme::current().roles().ink,
             "hero-scope keeps rows monochrome"
+        );
+    }
+
+    /// V2 option: every tier row's abbrs in team color inside the theme's
+    /// `team` scope, not only a pinned game's. Draws its own `Terminal`
+    /// rather than the shared `render` helper — `render` pins the theme to
+    /// `broadcast` for every other (theme-agnostic) test in this module, the
+    /// same reason `pinned_abbr_wears_team_color_others_ink` above does too.
+    #[test]
+    fn tint_rows_colors_an_unpinned_abbr_only_under_hero_marks() {
+        install_marks_theme();
+        let game = tier2_game();
+        let mut c = ctx();
+        c.design.tint_rows = true;
+        let mut term = Terminal::new(TestBackend::new(120, 1)).unwrap();
+        term.draw(|f| draw_tier2(f, f.area(), &game, &c)).unwrap();
+        let buf = term.backend().buffer();
+        let x = col_of(buf, 0, "GB").unwrap();
+        assert_eq!(
+            buf[(x, 0)].fg,
+            theme::current().art_color(game.away.color),
+            "tinted under hero+marks"
+        );
+
+        theme::set_current("broadcast").unwrap(); // scope hero: never tinted
+        let mut term = Terminal::new(TestBackend::new(120, 1)).unwrap();
+        term.draw(|f| draw_tier2(f, f.area(), &game, &c)).unwrap();
+        let buf = term.backend().buffer();
+        assert_eq!(buf[(x, 0)].fg, ink(&c), "hero scope stays ink");
+
+        let mut off = ctx();
+        off.design.tint_rows = false;
+        install_marks_theme();
+        let mut term = Terminal::new(TestBackend::new(120, 1)).unwrap();
+        term.draw(|f| draw_tier2(f, f.area(), &game, &off)).unwrap();
+        assert_eq!(
+            term.backend().buffer()[(x, 0)].fg,
+            ink(&off),
+            "knob off: unpinned stays ink"
+        );
+    }
+
+    /// V3 option: the first clause after 48 cells, `…` closes.
+    #[test]
+    fn clause_cap_cuts_at_the_first_clause_after_the_minimum() {
+        let long = "No Huddle-Shotgun #29 T.Reed Jr. rush right for 4 yards gain to the SEMO20 (#91 B.Hawkins; #13 K.Bilal-Jones), and the clock runs";
+        let cut = clause_cap(long, CLAUSE_MIN);
+        assert!(cut.ends_with('…'), "{cut}");
+        assert!(
+            cut.chars().count() > CLAUSE_MIN && cut.chars().count() < long.chars().count(),
+            "{cut}"
+        );
+        assert!(
+            cut.starts_with(
+                "No Huddle-Shotgun #29 T.Reed Jr. rush right for 4 yards gain to the SEMO20 (#91 B.Hawkins; #13 K.Bilal-Jones)"
+            ),
+            "cut at the `, ` after 48: {cut}"
+        );
+        assert_eq!(
+            clause_cap("Short play, no cut", CLAUSE_MIN),
+            "Short play, no cut",
+            "under the minimum: untouched"
+        );
+        let no_clause = "a".repeat(120);
+        assert_eq!(
+            clause_cap(&no_clause, CLAUSE_MIN),
+            no_clause,
+            "no clause boundary: untouched (truncate still applies)"
+        );
+        // Through the tier-1 row.
+        let mut game = live_game("DAL", "PHI");
+        game.last_plays[0].text = long.into();
+        let mut c = ctx();
+        c.design.clause_cap = true;
+        let text = text_of(render(200, 3, &game, &c, draw_tier1).backend().buffer());
+        assert!(text.contains("K.Bilal-Jones)…"), "{text}");
+        assert!(!text.contains("and the clock runs"), "{text}");
+    }
+
+    /// L7 option: at ≥160 columns a tier-2 row carries its last play after
+    /// the fragment.
+    #[test]
+    fn wide_tier_puts_the_last_play_on_the_tier2_row_past_160_columns() {
+        let game = live_game("DAL", "PHI"); // has a fragment and a last play
+        let mut c = ctx();
+        c.design.wide_tier = true;
+        let term = render(180, 1, &game, &c, draw_tier2);
+        let buf = term.backend().buffer();
+        let text = text_of(buf);
+        assert_eq!(
+            col_of(buf, 0, "▸ Hurts hit"),
+            Some(PLAY_X),
+            "play at PLAY_X\n{text}"
+        );
+        assert_eq!(
+            col_of(buf, 0, "PHI 3RD & 6"),
+            Some(TEXT_X),
+            "fragment stays\n{text}"
+        );
+        let narrow = text_of(render(120, 1, &game, &c, draw_tier2).backend().buffer());
+        assert!(
+            !narrow.contains("▸ Hurts"),
+            "under WIDE_TIER_MIN: the two-row form\n{narrow}"
+        );
+        let mut off = ctx();
+        off.design.wide_tier = false;
+        let wide_off = text_of(render(180, 1, &game, &off, draw_tier2).backend().buffer());
+        assert!(
+            !wide_off.contains("▸ Hurts"),
+            "knob off: current form\n{wide_off}"
         );
     }
 

@@ -203,17 +203,14 @@ impl Scenario {
                 // not leak into the mapped slate — `render` builds this
                 // scenario's app fresh (not through `dump::demo_app`), so
                 // this only has to load the real capture onto it.
+                // favorites/enabled_tabs for this scenario are set once, in
+                // `render`'s fresh `Config` — not duplicated here.
                 app.boards.clear();
                 app.pins.clear();
-                app.config.favorites = vec![Favorite {
-                    league: League::Cfb,
-                    team_abbr: "ORE".into(),
-                }];
-                app.config.enabled_tabs = vec![League::Cfb];
                 app.now_override = Some(datetime!(2026-09-05 16:52 -4));
-                let body = std::fs::read_to_string(REVIEW_SLATE_FIXTURE).map_err(|_| {
+                let body = std::fs::read_to_string(REVIEW_SLATE_FIXTURE).map_err(|e| {
                     format!(
-                        "review-slate: {REVIEW_SLATE_FIXTURE} not found — run from the repo root"
+                        "review-slate: {REVIEW_SLATE_FIXTURE} not found — run from the repo root ({e})"
                     )
                 })?;
                 let offset = time::UtcOffset::from_hms(-4, 0, 0).expect("-04:00 is a valid offset");
