@@ -57,7 +57,7 @@ fn league_of(dir: &Path) -> League {
 
 /// Every poll of a sequence, in capture order, as (file name, body). The name
 /// rides along because a window can have gaps: `capture-replay.sh` keeps
-/// polling when one fetch fails, so `07.json` may simply not exist and an
+/// polling when one fetch fails, so `007.json` may simply not exist and an
 /// index would then name the wrong poll in a failure message.
 fn polls(dir: &Path) -> Vec<(String, String)> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)

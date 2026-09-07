@@ -4,7 +4,7 @@
 #   scripts/capture-replay.sh <league> <minutes> [event_id]
 #
 # Every 15 s (the live cadence) the scoreboard is fetched and written as
-# fixtures/replay/<league>-<UTC yyyymmdd-hhmm>/NN.json — the full payload,
+# fixtures/replay/<league>-<UTC yyyymmdd-hhmm>/NNN.json — the full payload,
 # untouched, or filtered to `events[] | select(.id == event_id)` so a
 # sequence stays small. When the loop ends, the summary for each live event
 # in the last payload (or the given one) is written beside them as
@@ -16,6 +16,10 @@
 # missing number is simply absent from the sequence (the replay harness reads
 # the files it finds, in name order), and nothing half-written is ever left
 # behind — each poll lands on a .tmp file that is renamed only on success.
+#
+# Three digits, because name order is the only order there is: a window over
+# 25 minutes reaches poll 100, and with two digits `100.json` sorts before
+# `99.json` in both the harness and the delta report below.
 #
 # Plain lists, no bash-4 features: macOS ships bash 3.2.
 set -euo pipefail
@@ -45,7 +49,7 @@ polls=$(( minutes * 60 / 15 ))
 echo "capturing $polls polls into $dir"
 i=0
 while [ "$i" -lt "$polls" ]; do
-  n=$(printf '%02d' "$i")
+  n=$(printf '%03d' "$i")
   if [ -n "$event" ]; then
     if ! curl -sf -A "$UA" "$B/$path/scoreboard?limit=300$extra" | jq --arg id "$event" '{events: [.events[] | select(.id == $id)]}' > "$dir/$n.json.tmp"; then
       echo "poll $n failed; continuing" >&2
@@ -69,13 +73,16 @@ done
 # `ls | tail`: with `pipefail` a no-match `ls` would take the whole script
 # down on the one path where every poll failed.
 last=""
-for f in "$dir"/[0-9][0-9].json; do
+for f in "$dir"/[0-9]*.json; do
   if [ -e "$f" ]; then last="$f"; fi
 done
 if [ -n "$event" ]; then
   ids="$event"
 elif [ -n "$last" ]; then
-  ids=$(jq -r '.events[] | select(.status.type.state=="in") | .id' "$last")
+  # `|| ids=""`, because `set -e` would take the whole script down here: a
+  # truncated or malformed final payload must not cost the summaries.
+  ids=$(jq -r '.events[] | select(.status.type.state=="in") | .id' "$last") || ids=""
+  [ -n "$ids" ] || echo "no live event in $last; no summary to fetch" >&2
 else
   ids=""
   echo "no poll survived; no summary to fetch" >&2
@@ -95,7 +102,7 @@ for id in $ids; do
 done
 # Which consecutive pairs carry a score delta, per event.
 prev=""
-for f in "$dir"/[0-9][0-9].json; do
+for f in "$dir"/[0-9]*.json; do
   if [ -n "$prev" ]; then
     jq -n --slurpfile a "$prev" --slurpfile b "$f" '
       [ $a[0].events[] as $e | ($b[0].events[] | select(.id == $e.id)) as $n

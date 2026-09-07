@@ -1814,7 +1814,7 @@ fn mlb_last_play_reads_the_pitch_outcome_not_the_projected_at_bat() {
 /// prose, and it is the row a scoring cut lands on: the replay capture of
 /// 2026-09-07 fired three cuts reading "Play Result — W. Smith" for runs the
 /// summary described in full. Shape copied from
-/// fixtures/replay/mlb-20260907-0334/40.json.
+/// fixtures/replay/mlb-20260907-0334/040.json.
 #[test]
 fn mlb_play_result_rows_print_the_feed_sentence_not_the_type_label() {
     let json = r#"{"events":[{"id":"5","competitions":[{"status":{"displayClock":"0:00","period":5,"type":{"state":"in","completed":false,"shortDetail":"Bot 5th"}},"competitors":[
