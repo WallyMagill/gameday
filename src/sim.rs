@@ -120,6 +120,7 @@ fn push_play(g: &mut Game, team: &str, text: &str, scoring: bool) {
             scoring,
             kind: PlayKind::Other,
             score_value: None,
+            score_after: None,
         },
     );
     g.last_plays.truncate(6);

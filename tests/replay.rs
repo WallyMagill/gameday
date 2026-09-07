@@ -84,44 +84,43 @@ fn summary_for(dir: &Path, id: &str) -> Option<String> {
     std::fs::read_to_string(dir.join(format!("summary-{id}.json"))).ok()
 }
 
-/// The captured summary as it stood when the score was `(away, home)`, plus
-/// the id and text of the play that made it so.
-struct AsOf {
-    body: String,
+/// The run that made the score `(away, home)`, and the captured feed
+/// truncated to it.
+struct Run {
     id: String,
     text: String,
+    /// The summary as it stood the instant that run landed. The harness
+    /// serves the captured file WHOLE — that is the point of matching the
+    /// delta by score — and uses this only to build a feed that has *not*
+    /// caught up yet, for the retry drill.
+    feed_through: String,
 }
 
-/// FINDING (2026-09-07, this harness's first run). The summary in each
-/// sequence is fetched once, after the last poll, so it carries every scoring
-/// play of the whole window. Served whole to the first catch-up, the app's
-/// "newest unseen scoring play" is the LAST run of the window: served whole,
-/// poll 19 of mlb-20260907-0334 (4-2, bottom 5th) fires a cut naming
-/// "T. Hernández reached on infield single…", the 4-4 that had not happened
-/// yet. It poisons the next delta too — poll 40's scoreboard play is already
-/// in the list that summary backfilled, so the 4-3 fires no cut at all
-/// (`poll 40.json: 1 score deltas but 0 cuts`). Production never sees either:
-/// the summary is fetched at delta time, so it stops at the play that just
-/// scored. So the harness reconstructs that fetch rather than replaying a
-/// fixture the app could never have received.
+/// The scoring row that leaves the score at `(away, home)` — the run a delta
+/// to that score is reporting — and the feed truncated to it.
 ///
-/// The cutoff is the SCORE, not `situation.lastPlay.id`. ESPN's scoreboard
-/// moves the score before it moves its last play: poll 19 of
-/// mlb-20260907-0334 already reports 4-2 while `lastPlay` is still
-/// `4018168410903020005` "Pitch 1 : Ball 1" — two rows BEFORE
-/// `4018168410903990057` "Edman doubled to left, Muncy scored.", the run that
-/// made it 4-2 (that lag is the whole reason the catch-up path exists). An
-/// id ≤ lastPlay.id cutoff would drop the very play the cut must name and
-/// hand the app the top of the 4th instead. Post-play `awayScore`/`homeScore`
-/// is the honest witness: keep the feed through the last scoring row whose
-/// resulting score is this poll's score. Conservative by construction —
-/// nothing that happened after the run this delta reports can survive it.
+/// This is the harness's independent answer: it comes from the raw capture,
+/// never from what the app chose. `awayScore`/`homeScore` on a summary play
+/// is the score AFTER it, so the row whose pair equals the poll's score is
+/// the run that made it, whatever else the file contains.
+///
+/// HISTORY. Each sequence's summary is fetched once, after the last poll, so
+/// it carries every scoring play of the window — including runs that had not
+/// happened when an earlier delta fired. Under the old newest-unseen rule
+/// that broke both ways: poll 19 of mlb-20260907-0334 (4-2) cut on
+/// "T. Hernández reached on infield single…", the 4-4 still in the future,
+/// and poll 40 then fired nothing at all because its scoreboard row had
+/// already been backfilled. The harness worked around it by serving a
+/// truncated feed. `App` now matches the delta by score (`Play::score_after`),
+/// so the workaround is gone: the main test below serves each captured
+/// summary WHOLE, exactly as it sits on disk, and the truncation survives
+/// only to build a feed that has not caught up yet for the retry drill.
 ///
 /// Flat arrays only (`plays` for MLB/NBA/NHL, `scoringPlays` for football).
-/// A football sequence would also want `drives.previous[].plays` truncated —
+/// A football drill would also want `drives.previous[].plays` truncated —
 /// nothing reads those for the cut, so that is left until a football window
 /// is captured.
-fn summary_as_of(body: &str, (away, home): (u16, u16), ctx: &str) -> AsOf {
+fn run_that_made(body: &str, (away, home): (u16, u16), ctx: &str) -> Run {
     let mut v: Value = serde_json::from_str(body).unwrap_or_else(|e| panic!("{ctx}: {e}"));
     let mut named: Option<(String, String)> = None;
     for key in ["plays", "scoringPlays"] {
@@ -148,28 +147,35 @@ fn summary_as_of(body: &str, (away, home): (u16, u16), ctx: &str) -> AsOf {
              or the window needs recapturing)"
         )
     });
-    AsOf {
-        body: v.to_string(),
+    Run {
         id,
         text,
+        feed_through: v.to_string(),
     }
 }
 
-/// `summary_as_of` for `game_id`, reading each sequence's summary from disk
-/// once (they run to megabytes).
-fn as_of(
+/// The sequence's captured summary for `game_id`, read from disk once (they
+/// run to megabytes) — the file as it is, which is what the app is served.
+fn summary(dir: &Path, cache: &mut HashMap<String, String>, game_id: &str, ctx: &str) -> String {
+    cache
+        .entry(game_id.to_string())
+        .or_insert_with(|| {
+            summary_for(dir, game_id).unwrap_or_else(|| {
+                panic!("{ctx}: the score moved but no summary-{game_id}.json was captured")
+            })
+        })
+        .clone()
+}
+
+/// `run_that_made` against that captured summary.
+fn run_for(
     dir: &Path,
     cache: &mut HashMap<String, String>,
     game_id: &str,
     score: (u16, u16),
     ctx: &str,
-) -> AsOf {
-    let raw = cache.entry(game_id.to_string()).or_insert_with(|| {
-        summary_for(dir, game_id).unwrap_or_else(|| {
-            panic!("{ctx}: the score moved but no summary-{game_id}.json was captured")
-        })
-    });
-    summary_as_of(raw, score, ctx)
+) -> Run {
+    run_that_made(&summary(dir, cache, game_id, ctx), score, ctx)
 }
 
 /// The first poll of a sequence whose delta takes the catch-up path: the
@@ -213,12 +219,12 @@ fn first_catchup_delta(league: League, polls: &[(String, String)]) -> Option<Lag
 /// purpose, the app must fire nothing, keep the ask alive with a new sequence
 /// number, and land the right cut on the next summary — one poll late.
 ///
-/// The drill starts from the steady state, because that is what the rule
-/// keys on: "the summary carries nothing new" only means "the feed has not
-/// caught up" once the app has already seen the earlier innings. A session
-/// that has been open for a while is there by definition, and so is any
-/// zoomed game (the zoom's own summary poll runs every 15 s), so the harness
-/// puts the app there with one plain merge that fires nothing.
+/// The drill runs from a cold session on purpose — nothing captured, nothing
+/// "already seen". That is the hard case: the lagging feed hands the app four
+/// real scoring plays it has never seen, and the rule that survives it is the
+/// one that asks which play produced THIS score. Newest-unseen would cut on
+/// "Young singled to center, Ford scored." — the top of the 4th, the wrong
+/// team's run, an inning and a half before the delta.
 #[test]
 fn a_summary_that_has_not_caught_up_is_asked_again_and_the_cut_still_names_the_run() {
     let mut drilled = 0;
@@ -243,23 +249,6 @@ fn a_summary_that_has_not_caught_up_is_asked_again_and_the_cut_still_names_the_r
                 .iter()
                 .find(|g| g.id == lag.game)
                 .map(|g| (g.away_score, g.home_score));
-            if i == lag.at {
-                let fired = app.cuts_fired();
-                let seen = as_of(
-                    &dir,
-                    &mut summaries,
-                    &lag.game,
-                    lag.before,
-                    &format!("{ctx}: priming the innings before the delta"),
-                );
-                let s = map_summary(league, &seen.body).unwrap_or_else(|e| panic!("{ctx}: {e}"));
-                app.merge_summary(&lag.game, s);
-                assert_eq!(
-                    app.cuts_fired(),
-                    fired,
-                    "{ctx}: backfilling history fired a cut"
-                );
-            }
             let before = app.cuts_fired();
             app.apply_boards(league, games, false);
             for _ in 0..10 {
@@ -270,13 +259,17 @@ fn a_summary_that_has_not_caught_up_is_asked_again_and_the_cut_still_names_the_r
                 assert_eq!(wants.len(), 1, "{ctx}: the delta must queue a catch-up");
                 // ESPN has the score but not the play yet: the feed at this
                 // instant still stops at the previous score.
-                let lagging = as_of(&dir, &mut summaries, &lag.game, lag.before, &ctx);
-                let s = map_summary(league, &lagging.body).unwrap_or_else(|e| panic!("{ctx}: {e}"));
+                let lagging = run_for(&dir, &mut summaries, &lag.game, lag.before, &ctx);
+                let s = map_summary(league, &lagging.feed_through)
+                    .unwrap_or_else(|e| panic!("{ctx}: {e}"));
                 app.merge_summary(&lag.game, s);
                 assert_eq!(
                     app.cuts_fired(),
                     before,
-                    "{ctx}: a summary that names no new run must not fire a cut"
+                    "{ctx}: the newest run this feed carries is {:?}, which is not the run that made it {}-{}",
+                    lagging.text,
+                    lag.after.0,
+                    lag.after.1
                 );
                 let again = app.catchup_wants();
                 assert_eq!(
@@ -303,8 +296,12 @@ fn a_summary_that_has_not_caught_up_is_asked_again_and_the_cut_still_names_the_r
                     1,
                     "{ctx}: the ask must still be pending one poll later"
                 );
-                let landed = as_of(&dir, &mut summaries, &lag.game, lag.after, &ctx);
-                let s = map_summary(league, &landed.body).unwrap_or_else(|e| panic!("{ctx}: {e}"));
+                // The retry, answered with the captured file whole — no
+                // reconstruction: the score match is what keeps the runs it
+                // carries from later innings out of this cut.
+                let landed = run_for(&dir, &mut summaries, &lag.game, lag.after, &ctx);
+                let whole = summary(&dir, &mut summaries, &lag.game, &ctx);
+                let s = map_summary(league, &whole).unwrap_or_else(|e| panic!("{ctx}: {e}"));
                 app.merge_summary(&lag.game, s);
                 let cut = app
                     .cuts
@@ -369,22 +366,17 @@ fn every_score_delta_in_every_sequence_yields_exactly_one_cut_naming_a_scoring_p
             for _ in 0..10 {
                 app.advance_tick();
             }
-            // Serve every queued catch-up from the captured summary, as the
-            // poll thread would — truncated to the moment of this poll, which
-            // is what the poll thread's own fetch would have returned.
+            // Serve every queued catch-up the captured summary WHOLE, exactly
+            // as it sits on disk — runs from later innings included. A
+            // production fetch would stop at the moment of the delta; this
+            // one deliberately does not, so the cut below is proof that the
+            // app picks by score and not by "the newest row I have not seen".
             let wants = app.catchup_wants();
             for c in &wants {
-                let score = *prev.get(&c.game_id).unwrap_or_else(|| {
-                    panic!(
-                        "{}: poll {name}: a catch-up for {} that is on no board",
-                        dir.display(),
-                        c.game_id
-                    )
-                });
                 let ctx = format!("{}: poll {name}: {}", dir.display(), c.game_id);
-                let served = as_of(&dir, &mut summaries, &c.game_id, score, &ctx);
-                let s = map_summary(c.league, &served.body)
-                    .unwrap_or_else(|e| panic!("{ctx}: summary: {e}"));
+                let body = summary(&dir, &mut summaries, &c.game_id, &ctx);
+                let s =
+                    map_summary(c.league, &body).unwrap_or_else(|e| panic!("{ctx}: summary: {e}"));
                 app.merge_summary(&c.game_id, s);
             }
             let fired = app.cuts_fired() - before;
@@ -401,7 +393,7 @@ fn every_score_delta_in_every_sequence_yields_exactly_one_cut_naming_a_scoring_p
             // count above carries the poll.
             if let [(id, score)] = moved.as_slice() {
                 let ctx = format!("{}: poll {name}: {id}", dir.display());
-                let want = as_of(&dir, &mut summaries, id, *score, &ctx);
+                let want = run_for(&dir, &mut summaries, id, *score, &ctx);
                 let cut = app.cuts.active(app.tick).unwrap_or_else(|| {
                     panic!(
                         "{ctx}: the score moved to {}-{} and no cut is on screen",

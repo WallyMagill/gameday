@@ -513,6 +513,10 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
                 || score_value.is_some_and(|v| v > 0),
             kind: last_play_kind(league, &sit_v["lastPlay"], score_value),
             score_value,
+            // The scoreboard's `lastPlay` carries no running score: the
+            // competitors' totals are the game's, not this play's, and a
+            // play's own scoreboard row is exactly the thing that lags.
+            score_after: None,
         });
     }
     let extras = match league {
@@ -711,6 +715,20 @@ fn mlb_last_play_text(lp: &Value) -> Option<String> {
     })
 }
 
+/// The running score after a summary play, `(away, home)`. Both halves or
+/// nothing: a row carrying only one of them is a row ESPN did not score, and
+/// half a score would match a delta by accident. Present on MLB `plays[]`,
+/// football `scoringPlays[]` and drive plays, and the hoops/NHL flat plays;
+/// absent on soccer `keyEvents` (verified across the 2026-09 captures).
+fn score_after(p: &Value) -> Option<(u16, u16)> {
+    let away = p["awayScore"].as_u64()?;
+    let home = p["homeScore"].as_u64()?;
+    Some((
+        away.min(u16::MAX as u64) as u16,
+        home.min(u16::MAX as u64) as u16,
+    ))
+}
+
 /// One `situation.dueUp[]` entry: "A. Riley (2-3, HR)".
 fn due_up_line(v: &Value) -> Option<String> {
     let name = v["athlete"]["shortName"].as_str()?;
@@ -881,6 +899,7 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                 score_value: p["scoreValue"]
                     .as_u64()
                     .map(|v| v.min(u8::MAX as u64) as u8),
+                score_after: score_after(p),
             })
         })
         .collect();
@@ -908,6 +927,7 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                             score_value: p["scoreValue"]
                                 .as_u64()
                                 .map(|v| v.min(u8::MAX as u64) as u8),
+                            score_after: score_after(p),
                         });
                     }
                 }
@@ -1024,6 +1044,9 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                     scoring,
                     kind,
                     score_value,
+                    // Soccer keyEvents carry no running score; every other
+                    // flat feed does.
+                    score_after: score_after(p),
                 });
             }
             if !plays.is_empty() {

@@ -1804,11 +1804,174 @@ fn a_catchup_that_never_lands_expires_after_the_ttl_without_a_cut() {
     assert_eq!(app.cuts_fired(), 0);
 }
 
-/// A queued catch-up whose summary lands before the play-by-play does. ESPN
-/// publishes the score first, so the summary the delta triggered can carry
-/// nothing new; the entry has to survive that and ask again, or the run never
-/// gets a cut at all (the 2026-09-07 replay capture, poll 19 of
-/// mlb-20260907-0334).
+/// A summary scoring play as a real feed sends one: the row plus the score it
+/// produced. Soccer's keyEvents are the exception and use `snap` — they carry
+/// no running score.
+fn run(id: &str, text: &str, team: &str, after: (u16, u16)) -> Play {
+    Play {
+        score_after: Some(after),
+        ..snap(id, text, team, true)
+    }
+}
+
+#[test]
+fn the_catchup_cuts_on_the_run_that_matches_the_delta_and_backfills_the_rest() {
+    // The first delta of a session, and the summary carries two runs the app
+    // never saw. Newest-unseen would be right here only by luck; the score
+    // says which play is the news.
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400; // past the 30 s startup suppression
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    g1.away_score = 1;
+    g1.home_score = 0;
+    g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 3; // a two-run homer inside one 15 s poll
+    g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g2], false);
+    assert_eq!(app.catchup_wants().len(), 1);
+    // …and by the time the summary is fetched the game has scored AGAIN, so
+    // the feed also carries a run the board has not reported yet. Newest
+    // unseen would cut on that one.
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: vec![
+                run("s1", "Happ homered to right (12)", "CHC", (1, 0)),
+                run("s2", "Busch doubled, Hoerner scored", "CHC", (2, 0)),
+                run("s3", "Suzuki homered to center (9)", "CHC", (3, 0)),
+                run(
+                    "s4",
+                    "Crow-Armstrong tripled, Swanson scored",
+                    "CHC",
+                    (4, 0),
+                ),
+            ],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(app.cuts_fired(), 1, "one delta, one cut");
+    assert_eq!(
+        app.cuts.active(app.tick).map(|c| c.play.id.as_str()),
+        Some("s3"),
+        "the cut names the run that made it 3-0, not the newest row it had not seen"
+    );
+    let ev = app.scoring_events();
+    assert_eq!(
+        ev.iter().map(|(_, p)| p.id.as_str()).collect::<Vec<_>>(),
+        vec!["s3", "s2", "s1"],
+        "the earlier runs are backfilled without cuts; the 4-0 has not reached the board yet, so it is not captured as seen"
+    );
+    assert!(app.catchup_wants().is_empty(), "answered");
+}
+
+#[test]
+fn a_lagging_summary_re_asks_instead_of_cutting_on_an_older_run() {
+    // The case the score match exists for: on the first delta of a session
+    // nothing is "already seen", so a summary whose play-by-play is behind
+    // hands the app a run from earlier in the game. Newest-unseen would cut
+    // on it and call it the news.
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400;
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    g1.away_score = 1;
+    g1.home_score = 0;
+    g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 2;
+    g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g2], false);
+    let asked = app.catchup_wants()[0].seq;
+    // The feed has the score but not the play.
+    let s1 = run("s1", "Happ homered to right (12)", "CHC", (1, 0));
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: vec![s1.clone()],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(
+        app.cuts_fired(),
+        0,
+        "the run that made it 1-0 is not the cut for a delta to 2-0"
+    );
+    let again = app.catchup_wants();
+    assert_eq!(again.len(), 1, "the ask survives a summary that is behind");
+    assert!(
+        again[0].seq > asked,
+        "a retry needs a sequence number the scheduler has not seen ({asked} -> {})",
+        again[0].seq
+    );
+    // The next one has it.
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: vec![s1, run("s2", "Suzuki homered to center (9)", "CHC", (2, 0))],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(app.cuts_fired(), 1, "one cut, one poll late");
+    assert_eq!(
+        app.cuts.active(app.tick).map(|c| c.play.id.as_str()),
+        Some("s2"),
+        "and it names the run that made it 2-0"
+    );
+    assert!(app.catchup_wants().is_empty(), "answered");
+}
+
+#[test]
+fn a_summary_without_running_scores_still_cuts_on_the_newest_unseen_goal() {
+    // Soccer keyEvents carry no awayScore/homeScore, so there is nothing to
+    // match a delta against: that feed keeps the newest-unseen rule.
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400;
+    let mut g1 = g("1", "ARS", "CHE", true);
+    g1.league = League::Epl;
+    g1.away_score = 0;
+    g1.home_score = 0;
+    g1.last_plays = vec![snap("k0", "Corner, Arsenal", "ARS", false)];
+    app.apply_boards(League::Epl, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 2;
+    g2.last_plays = vec![snap("k1", "Throw-in, Arsenal", "ARS", false)];
+    app.apply_boards(League::Epl, vec![g2], false);
+    assert_eq!(app.catchup_wants().len(), 1);
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: vec![
+                snap("g1", "Goal! Saka 12'", "ARS", true),
+                snap("g2", "Goal! Havertz 55'", "ARS", true),
+            ],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert_eq!(app.cuts_fired(), 1);
+    assert_eq!(
+        app.cuts.active(app.tick).map(|c| c.play.id.as_str()),
+        Some("g2"),
+        "no running score to match, so the newest unseen goal is the cut"
+    );
+    assert!(app.catchup_wants().is_empty(), "answered");
+}
+
+/// A queued catch-up whose summary lands before the play-by-play does, on a
+/// feed with no running score to match against (soccer's keyEvents). The
+/// entry has to survive that and ask again, or the goal never gets a cut at
+/// all.
 #[test]
 fn a_summary_that_names_no_new_run_re_asks_and_the_next_one_fires_the_cut() {
     let mut app = app_with(vec![], vec![]);

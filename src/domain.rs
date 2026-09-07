@@ -119,6 +119,17 @@ pub struct Play {
     /// Runs/points this play was worth, where the feed says so (MLB pitch
     /// outcomes, NBA/WNBA/CBB shots, NHL goals). None everywhere else.
     pub score_value: Option<u8>,
+    /// The score after this play, `(away, home)`, from the summary's
+    /// `awayScore`/`homeScore`. None on scoreboard rows, demo, sim, and
+    /// soccer keyEvents — the scoreboard's `lastPlay` carries no running
+    /// score, and soccer's keyEvents carry none either.
+    ///
+    /// This is what lets a catch-up name the play that produced the score it
+    /// is chasing instead of the newest row it has not seen: `App::merge`
+    /// matches it against the delta, so a summary that runs past the delta
+    /// (or arrives before the feed has caught up) can never cut on the wrong
+    /// run.
+    pub score_after: Option<(u16, u16)>,
 }
 
 /// Structural classification of a play, derived from ESPN's per-league type

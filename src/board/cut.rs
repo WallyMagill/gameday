@@ -621,6 +621,7 @@ mod tests {
             scoring: true,
             kind: crate::domain::PlayKind::Other,
             score_value: None,
+            score_after: None,
         }
     }
 
