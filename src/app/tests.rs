@@ -1814,6 +1814,16 @@ fn run(id: &str, text: &str, team: &str, after: (u16, u16)) -> Play {
     }
 }
 
+/// One live scoreboard poll of render ticks — exactly what a re-armed
+/// catch-up waits before `catchup_wants` will publish it again. A test that
+/// re-asks and reads the queue in the same breath is asking before the pace
+/// allows it, and would see nothing.
+fn one_poll(app: &mut App) {
+    for _ in 0..15 * crate::app::LIVE_TICKS_PER_SEC {
+        app.advance_tick();
+    }
+}
+
 #[test]
 fn the_catchup_cuts_on_the_run_that_matches_the_delta_and_backfills_the_rest() {
     // The first delta of a session, and the summary carries two runs the app
@@ -2027,6 +2037,7 @@ fn a_lagging_summary_re_asks_instead_of_cutting_on_an_older_run() {
         0,
         "the run that made it 1-0 is not the cut for a delta to 2-0"
     );
+    one_poll(&mut app);
     let again = app.catchup_wants();
     assert_eq!(again.len(), 1, "the ask survives a summary that is behind");
     assert!(
@@ -2132,6 +2143,7 @@ fn a_summary_that_names_no_new_run_re_asks_and_the_next_one_fires_the_cut() {
         },
     );
     assert_eq!(app.cuts_fired(), 0, "nothing new is not a cut");
+    one_poll(&mut app);
     let again = app.catchup_wants();
     assert_eq!(
         again.len(),
@@ -2166,7 +2178,9 @@ fn a_summary_that_names_no_new_run_re_asks_and_the_next_one_fires_the_cut() {
 fn three_empty_summaries_retire_the_catchup_without_a_cut() {
     // Re-asking is bounded: past CATCHUP_MAX_ATTEMPTS the entry goes quietly,
     // so a game whose summary never names the run cannot hold a request slot
-    // for the whole TTL.
+    // for the whole TTL. A poll passes between attempts, which is the pace
+    // the ladder actually runs at — three attempts are three polls (45 s),
+    // still inside the 60 s TTL.
     let mut app = app_with(vec![], vec![]);
     app.tick = 400;
     let mut g1 = g("1", "CHC", "MIA", true);
@@ -2188,6 +2202,7 @@ fn three_empty_summaries_retire_the_catchup_without_a_cut() {
                 extras: Extras::None,
             },
         );
+        one_poll(&mut app);
         let want = app.catchup_wants();
         if attempt < u64::from(crate::app::CATCHUP_MAX_ATTEMPTS) {
             assert_eq!(
@@ -2206,6 +2221,95 @@ fn three_empty_summaries_retire_the_catchup_without_a_cut() {
         }
     }
     assert_eq!(app.cuts_fired(), 0, "nothing to cut on");
+}
+
+#[test]
+fn a_re_armed_catchup_is_withheld_until_a_full_poll_has_passed() {
+    // The pace, pinned to the tick. Without it the UI republishes its wants
+    // every 200 ms, so all three attempts land inside two seconds — against
+    // a summary ESPN has not changed (its 304 hands back the same body). The
+    // lag being waited out is a poll, so the wait is a poll.
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400;
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    g1.away_score = 1;
+    g1.home_score = 0;
+    g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 2;
+    g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g2], false);
+    let asked = app.catchup_wants()[0].seq;
+    // The feed has the score but not the play: an ask again.
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: vec![run("s1", "Happ homered to right (12)", "CHC", (1, 0))],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert!(
+        app.catchup_wants().is_empty(),
+        "the retry is armed but not yet due: publishing it now is the same question in the same second"
+    );
+    let due_at = 15 * crate::app::LIVE_TICKS_PER_SEC;
+    for _ in 0..due_at - 1 {
+        app.advance_tick();
+    }
+    assert!(
+        app.catchup_wants().is_empty(),
+        "one tick short of a poll ({} of {due_at}) is still too early",
+        due_at - 1
+    );
+    app.advance_tick();
+    let again = app.catchup_wants();
+    assert_eq!(again.len(), 1, "a poll later the ask is published again");
+    assert!(
+        again[0].seq > asked,
+        "and with the sequence number the scheduler has not seen ({asked} -> {})",
+        again[0].seq
+    );
+}
+
+#[test]
+fn an_empty_summary_for_a_game_that_left_every_board_drops_the_catchup() {
+    // Nothing to cut on and no board to cut over: retrying would spend two
+    // more requests on a score no view can show.
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400;
+    let mut g1 = g("1", "CHC", "MIA", true);
+    g1.league = League::Mlb;
+    g1.last_plays = vec![snap("p1", "Pitch 1 : Ball", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g1.clone()], false);
+    let mut g2 = g1.clone();
+    g2.away_score = 1;
+    g2.last_plays = vec![snap("p2", "Pitch 2 : Foul", "MIA", false)];
+    app.apply_boards(League::Mlb, vec![g2], false);
+    assert_eq!(app.catchup_wants().len(), 1, "the ask");
+    // The slate rolls over and the game is gone.
+    app.apply_boards(League::Mlb, vec![], false);
+    app.merge_summary(
+        "1",
+        Summary {
+            last_plays: vec![],
+            scoring_plays: vec![],
+            meter: None,
+            extras: Extras::None,
+        },
+    );
+    assert!(app.catchup_wants().is_empty(), "dropped on the spot");
+    // Dropped, not merely withheld by the pace: a poll later there is still
+    // nothing to ask.
+    one_poll(&mut app);
+    assert!(
+        app.catchup_wants().is_empty(),
+        "a departed game must not come back as a retry"
+    );
+    assert_eq!(app.cuts_fired(), 0);
 }
 
 fn gameday_ttl() -> u64 {

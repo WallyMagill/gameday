@@ -24,6 +24,12 @@ pub(crate) struct CatchupEntry {
     /// when the delta landed. The summary's answer is the oldest play whose
     /// `score_after` reaches it — see [`resolve_catchup`].
     pub target: (u16, u16),
+    /// The earliest tick this entry may be published to the scheduler again.
+    /// 0 on the first queue — the first ask goes out at once. A retry sets it
+    /// a full live poll ahead, because the lag being waited out is a poll:
+    /// ESPN serves the same summary body until its play-by-play advances, so
+    /// three asks fired inside a second are three asks at one payload.
+    pub next_ask_tick: u64,
 }
 
 /// What a summary said about the catch-up that asked for it.
@@ -176,6 +182,7 @@ impl App {
                                         queued_tick: self.tick,
                                         attempts: 0,
                                         target: score,
+                                        next_ask_tick: 0,
                                     });
                                 }
                             }
@@ -282,7 +289,14 @@ impl App {
         // Non-football summaries carry no "drives", so they can map to zero
         // plays; keep the scoreboard's lastPlay instead of blanking the tile.
         if summary.last_plays.is_empty() && summary.scoring_plays.is_empty() {
-            self.retry_catchup(queued);
+            // A game that has left every board has nothing to cut on and no
+            // board to cut over: two more asks would buy a score nobody can
+            // see. Drop it here rather than spending the attempts.
+            if let Some(i) = queued.filter(|_| self.league_of(game_id).is_none()) {
+                self.catchup.remove(i);
+            } else {
+                self.retry_catchup(queued);
+            }
             return;
         }
         // The score this catch-up is chasing, if one asked for this summary.
@@ -401,6 +415,13 @@ impl App {
     /// forever by accident. Bounded three ways — the attempt count, the TTL,
     /// and the one-entry-per-game rule that was already here.
     ///
+    /// …and paced by a fourth: the re-armed entry is withheld from
+    /// `catchup_wants` for one live poll. The gap being waited out is a poll
+    /// (`mlb-20260907-0334` poll 19 lacks the play poll 20 has), and the UI
+    /// publishes its wants every 200 ms, so an unpaced ladder spends all
+    /// three attempts inside two seconds — three questions to a payload ESPN
+    /// has not changed (a 304 hands back the same cached body).
+    ///
     /// `None` (no entry for this game) is the zoom's own summary cadence
     /// landing: nothing was asked, so nothing is retried.
     fn retry_catchup(&mut self, queued: Option<usize>) {
@@ -424,6 +445,12 @@ impl App {
         self.catchup_seq += 1;
         self.catchup[i].attempts = attempts;
         self.catchup[i].seq = self.catchup_seq;
+        // One live scoreboard poll out: the same 15 s the board itself waits
+        // for new data. Withholding the entry leaves `last_catchup_seq`
+        // un-advanced in the scheduler, so the request goes out the moment
+        // the entry reappears — no scheduler change, and no timer of its own.
+        self.catchup[i].next_ask_tick =
+            self.tick + crate::poll::SCOREBOARD_LIVE.as_secs() * crate::app::LIVE_TICKS_PER_SEC;
     }
 
     /// The zoomed game's (league, id) — the stats poll's only target. None

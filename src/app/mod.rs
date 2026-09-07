@@ -51,9 +51,11 @@ pub const CATCHUP_TTL_TICKS: u64 = 60 * LIVE_TICKS_PER_SEC;
 /// so the summary fetched the instant a score moves can legitimately not name
 /// the run yet — the 2026-09-07 replay capture caught exactly that
 /// (`mlb-20260907-0334` poll 19 reports 4-2 while the feed's newest play is
-/// still the pitch before the double, and poll 20 has it). Three asks is
-/// three polls, ~45 s of lag, well past anything those captures show; the
-/// TTL bounds the wait regardless.
+/// still the pitch before the double, and poll 20 has it). The asks are paced
+/// one live poll apart (`merge::retry_catchup` withholds a re-armed entry for
+/// 15 s), so three of them are three polls: asked at the delta, at +15 s and
+/// at +30 s, with the last answer landing by ~45 s — inside the 60 s TTL, and
+/// well past anything those captures show.
 pub const CATCHUP_MAX_ATTEMPTS: u8 = 3;
 
 /// LIVE chip pulse phase, pure in the tick: ~1s bright then ~1s dim at the
@@ -295,9 +297,15 @@ impl App {
     }
 
     /// The snapshot `main` publishes to the poll thread.
+    ///
+    /// An entry re-armed by `merge::retry_catchup` is withheld until
+    /// its `next_ask_tick`: the scheduler only ever sees sequence numbers it
+    /// is meant to ask about now, so the ladder runs one ask per poll instead
+    /// of three inside the two seconds the 200 ms publish loop needs.
     pub fn catchup_wants(&self) -> Vec<crate::poll::CatchupReq> {
         self.catchup
             .iter()
+            .filter(|c| c.next_ask_tick <= self.tick)
             .map(|c| crate::poll::CatchupReq {
                 league: c.league,
                 game_id: c.game_id.clone(),

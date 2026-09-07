@@ -247,6 +247,10 @@ fn a_summary_that_has_not_caught_up_is_asked_again_and_the_cut_still_names_the_r
         );
         let mut app = app(&format!("{label}-lag"));
         let mut summaries: HashMap<String, String> = Default::default();
+        // The sequence number of the first ask, read at the lag poll and
+        // checked at the next one: the retry is paced a poll out, so the two
+        // halves of that assertion sit in different iterations.
+        let mut asked: Option<u64> = None;
         for (i, (name, body)) in all.iter().enumerate().take(lag.at + 2) {
             let games = map_scoreboard(league, body, time::UtcOffset::UTC)
                 .unwrap_or_else(|e| panic!("{}: poll {name}: {e}", dir.display()));
@@ -277,19 +281,13 @@ fn a_summary_that_has_not_caught_up_is_asked_again_and_the_cut_still_names_the_r
                     lag.after.0,
                     lag.after.1
                 );
-                let again = app.catchup_wants();
-                assert_eq!(
-                    again.len(),
-                    1,
-                    "{ctx}: the ask was consumed by a summary that did not answer it, so the run at {}-{} never gets a cut",
-                    lag.after.0,
-                    lag.after.1
-                );
+                // The re-armed ask is paced a poll out, so it is deliberately
+                // NOT published in this same instant — the next poll's branch
+                // is where it has to reappear, with a new sequence number.
+                asked = Some(wants[0].seq);
                 assert!(
-                    again[0].seq > wants[0].seq,
-                    "{ctx}: a retry needs a sequence number the scheduler has not seen (was {}, is {})",
-                    wants[0].seq,
-                    again[0].seq
+                    app.catchup_wants().is_empty(),
+                    "{ctx}: a retry fired in the same instant asks ESPN the same question twice for one payload"
                 );
             } else if i == lag.at + 1 {
                 assert_eq!(
@@ -300,7 +298,15 @@ fn a_summary_that_has_not_caught_up_is_asked_again_and_the_cut_still_names_the_r
                 assert_eq!(
                     wants.len(),
                     1,
-                    "{ctx}: the ask must still be pending one poll later"
+                    "{ctx}: the ask was consumed by a summary that did not answer it, so the run at {}-{} never gets a cut",
+                    lag.after.0,
+                    lag.after.1
+                );
+                let asked = asked.expect("the lag poll runs before this one");
+                assert!(
+                    wants[0].seq > asked,
+                    "{ctx}: a retry needs a sequence number the scheduler has not seen (was {asked}, is {})",
+                    wants[0].seq
                 );
                 // The retry, answered with the captured file whole — no
                 // reconstruction: the score match is what keeps the runs it
