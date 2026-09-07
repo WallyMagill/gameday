@@ -2327,6 +2327,32 @@ fn zoom_last_plays_do_not_print_the_clock_twice() {
 }
 
 #[test]
+fn a_zero_record_hides_once_the_game_is_underway() {
+    let mut app = mk();
+    let mut game = g("1", "BOIS", "ORE", true);
+    game.away.record = "0-0".into();
+    game.home.record = "1-0".into();
+    app.apply_boards(League::Nfl, vec![game.clone()], false);
+    let mut t = Terminal::new(TestBackend::new(140, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("1-0"), "{s}");
+    assert!(
+        !s.contains("BOIS 0-0") && !s.contains("0-0 BOIS"),
+        "a 0-0 during play says nothing:\n{s}"
+    );
+    // Pre-game keeps it: 0-0 before the opener is true.
+    let mut pre = g("2", "NE", "SEA", false);
+    pre.away.record = "0-0".into();
+    let mut app2 = mk();
+    app2.apply_boards(League::Nfl, vec![pre], false);
+    key(&mut app2, crossterm::event::KeyCode::Char('z'));
+    let mut t2 = Terminal::new(TestBackend::new(140, 40)).unwrap();
+    t2.draw(|f| app2.draw(f)).unwrap();
+    assert!(buf_text(&t2).contains("0-0"), "{}", buf_text(&t2));
+}
+
+#[test]
 fn the_linescore_wears_team_colors() {
     // The linescore's team rows wear `theme::hero_pair`
     // colors instead of the gated `team_text` role, which could fall back

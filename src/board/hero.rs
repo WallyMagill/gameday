@@ -428,8 +428,14 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
         team.abbr.clone(),
         Style::default().fg(color).add_modifier(Modifier::BOLD),
     );
-    let record = (!team.record.is_empty())
-        .then(|| Span::styled(team.record.clone(), Style::default().fg(r.dim)));
+    // ESPN sends "0-0" for a team mid-game more often than it should (the
+    // review saw Texas and Oregon at 0-0 in week two). A 0-0 during or
+    // after a game is never information, so it is not drawn; pre-game it
+    // is true and stays.
+    let shows_record =
+        !team.record.is_empty() && !(team.record == "0-0" && game.status != Status::Pre);
+    let record =
+        shows_record.then(|| Span::styled(team.record.clone(), Style::default().fg(r.dim)));
     // A home side that lost its color to the lookalike rule says so with a
     // one-cell block in its real (lifted) color.
     let block =
