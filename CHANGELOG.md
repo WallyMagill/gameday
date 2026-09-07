@@ -19,8 +19,12 @@ All notable changes to gameday are recorded here. The format follows
 - A day with no games for a league names the next scheduled game, or says none is scheduled in the loaded window.
 - Desktop notifications for a favorite's own score and for a pinned or favorite game going final (`notify = […]` in config, on by default; `:notify test` sends a check).
 - `gameday --once` fetches once and prints the ranked board, as text or `--json`, with `--league`, `--live`, `--top` and `--color`.
+- A README demo GIF (`docs/demo.gif`) and its `vhs` tape (`docs/demo.tape`).
 
 ### Changed
+- Team marks for every FBS school and eight D-I basketball conferences (ACC, Big East, Big Ten, Big 12, SEC, Atlantic 10, Mountain West, American), not just the AP/coaches top 25 — a game needs both teams marked before the hero draws either one, so most college games showed none before.
+- A promoted row's long last play ends on a clause boundary instead of truncating mid-word.
+- At 160 columns and wider, a live row carries its last play on the same line as its situation fragment instead of dropping it.
 - ratatui 0.30, crossterm 0.29, ureq 3 (proxy env vars are now honored), dirs 7, tui-big-text 0.8.
 - SIGTERM and SIGHUP quit through the normal restore path; the terminal is never left in raw mode.
 - A 304 from ESPN is recognized as "cache is current" again (ureq 3 delivers it as a normal response), and a server that accepts but never answers now times out after 10 s instead of blocking the poll thread.
