@@ -11,6 +11,17 @@ All notable changes to gameday are recorded here. The format follows
 - Dependabot, weekly, for Cargo dependencies and GitHub Actions.
 - `AGENTS.md` — how to work in this repo.
 - Licensed MIT OR Apache-2.0.
+- `scripts/capture-replay.sh` — captures consecutive real scoreboard polls (and the closing summary) into `fixtures/replay/` for the replay test harness; dev-only, excluded from the packaged crate.
+- MLB replay fixtures `fixtures/replay/mlb-20260907-0334` and `fixtures/replay/mlb-20260907-0355`, exercised by `tests/replay.rs`; dev-only, excluded from the packaged crate.
+
+### Fixed
+- The scoring cut names the actual scoring play instead of whatever the poll happened to catch, via a one-shot summary catch-up when the scoreboard's own last play isn't the scoring one.
+- College rows no longer print the field position twice.
+- A red zone chip is shown only when a team is possessing.
+- Zoom rows show period and clock together, and never print the clock twice.
+- A 0-0 record is hidden while the game is live or final, instead of printed as if it meant something.
+- An unknown theme name is now reported in the footer instead of silently falling back.
+- Standings say PRESEASON or POSTSEASON instead of leaving the season type unlabeled.
 
 ### Changed
 - ratatui 0.30, crossterm 0.29, ureq 3 (proxy env vars are now honored), dirs 7, tui-big-text 0.8.
