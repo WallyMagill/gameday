@@ -216,7 +216,6 @@ pub fn render_text(app: &mut App, opts: &Opts, stale: bool) -> String {
                         league_tag: mixed,
                         now,
                         leaders_line: None,
-                        design: rows::DesignOpts::default(),
                     };
                     let rect = Rect {
                         x: 0,

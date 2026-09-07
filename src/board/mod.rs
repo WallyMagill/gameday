@@ -329,7 +329,6 @@ fn board_walk<'a>(
                     league_tag: d.mixed,
                     now,
                     leaders_line,
-                    design: app.design_opts,
                 };
                 match block {
                     Block::Tier1(..) => rows::draw_tier1(frame, rect, game, &ctx),

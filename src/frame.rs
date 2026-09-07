@@ -17,7 +17,6 @@
 //! same command produce the same bytes.
 
 use crate::app::{App, Tab};
-use crate::board::rows::DesignOpts;
 use crate::config::{Config, Favorite};
 use crate::demo;
 use crate::domain::{League, Status};
@@ -240,8 +239,6 @@ pub struct Spec {
     pub rows: u16,
     /// `--tick N` when given; otherwise the scenario's own tick.
     pub tick: Option<u64>,
-    /// `--opt` design-time switches for the wave 5 sitting: default off.
-    pub opts: DesignOpts,
     /// The PNG the caller asked for. The `.ansi` and `.html` beside it carry
     /// the same stem.
     pub out: PathBuf,
@@ -342,7 +339,6 @@ pub(crate) fn render(spec: &Spec) -> std::io::Result<ratatui::buffer::Buffer> {
         spec.scenario
             .apply(&mut app)
             .map_err(std::io::Error::other)?;
-        app.design_opts = spec.opts;
         (spec.view.setup())(&mut app).map_err(|e| {
             std::io::Error::other(format!(
                 "view {} cannot render scenario {}: {e}",
@@ -414,7 +410,6 @@ mod tests {
             cols: DEFAULT_SIZE.0,
             rows: DEFAULT_SIZE.1,
             tick: None,
-            opts: DesignOpts::default(),
             out,
         }
     }
@@ -656,7 +651,6 @@ mod tests {
             cols: 120,
             rows: 40,
             tick: None,
-            opts: DesignOpts::default(),
             out: PathBuf::from("unused.png"),
         };
         let s = text_of(&render(&spec).unwrap());
@@ -676,17 +670,5 @@ mod tests {
             !s.contains("KC") || s.contains("KC "),
             "no demo game leaks in"
         );
-    }
-
-    #[test]
-    fn design_opts_parse_and_name_the_valid_set() {
-        let o = DesignOpts::parse("tint-rows,wide-tier").unwrap();
-        assert!(o.tint_rows && o.wide_tier && !o.clause_cap);
-        let e = DesignOpts::parse("tint-rows,bogus").unwrap_err();
-        assert!(
-            e.contains("bogus") && e.contains("tint-rows|clause-cap|wide-tier"),
-            "{e}"
-        );
-        assert_eq!(DesignOpts::parse("").unwrap(), DesignOpts::default());
     }
 }

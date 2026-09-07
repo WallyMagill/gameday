@@ -60,12 +60,11 @@ LEAGUES="${LEAGUES:-nfl nba wnba nhl mlb epl mls cfb cbb}"
 # standings?group=50` (all D-I, 31 conferences, filtered to the eight
 # named above: 118 teams). ESPN keys a school by one id across both
 # sports, so the existing `seen` dedupe collapses the overlap (measured:
-# 92 of the 118 hoops ids already appear in the FBS 138) down to ~164
-# unique `ncaa/<id>` marks — see `resolve_college_all`. Binary cost is
-# `include_str!`, so it is paid once at compile time: the poll set's ~35
-# ncaa marks average ~1KB dark + ~1KB light each; ~130 more marks is
-# roughly another 250-300KiB in `target/release/gameday` (measured in the
-# task report). One-time dev fetch (`COLLEGE=all LEAGUES="cfb cbb"
+# 92 of the 118 hoops ids already appear in the FBS 138) down to 165
+# unique `ncaa/<id>` marks (124 net new over the poll set) — see
+# `resolve_college_all`. Binary cost is `include_str!`, so it is paid once
+# at compile time: measured +0.6 MB in `target/release/gameday` (6.6 MB ->
+# 7.2 MB, both grounds; task report). One-time dev fetch (`COLLEGE=all LEAGUES="cfb cbb"
 # tools/gen-logos.sh`); the shipped binary embeds whatever is committed
 # under `assets/logos*`, poll or all, with no runtime cost either way.
 COLLEGE="${COLLEGE:-poll}"
@@ -162,7 +161,7 @@ resolve_college_all() {
   json=$(curl -fsSL --max-time 30 "$url") || { echo "SKIP league $comp: standings fetch failed" >&2; return 0; }
   if [ "$comp" = college-football ]; then
     local n
-    n=$(jq '[.. | objects | select(has("team"))] | length' <<<"$json")
+    n=$(jq '[.children[].standings.entries[].team] | length' <<<"$json")
     echo "  college(all) $comp: FBS group $group, $n teams" >&2
   else
     jq -r --arg confs "$CBB_CONFS" '
@@ -173,7 +172,7 @@ resolve_college_all() {
   fi
   jq -r --arg ns "$ns" --arg confs "$CBB_CONFS" --arg comp "$comp" '
     (if $comp == "college-football"
-     then [.. | objects | select(has("team")) | .team]
+     then [.children[].standings.entries[].team]
      else ($confs | split(" ")) as $want
         | [.children[] | select(.abbreviation as $a | $want | index($a)) | .standings.entries[].team]
      end)

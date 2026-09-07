@@ -374,7 +374,6 @@ fn draw_strip(
                 now,
                 // The strip is tier-2, which never reads the ladder.
                 leaders_line: None,
-                design: app.design_opts,
             },
         );
     }
