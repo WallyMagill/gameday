@@ -1809,3 +1809,32 @@ fn mlb_last_play_reads_the_pitch_outcome_not_the_projected_at_bat() {
     );
     assert!(!g.last_plays[0].scoring);
 }
+
+/// The at-bat result row (type 57) is the one MLB row whose own `text` is
+/// prose, and it is the row a scoring cut lands on: the replay capture of
+/// 2026-09-07 fired three cuts reading "Play Result — W. Smith" for runs the
+/// summary described in full. Shape copied from
+/// fixtures/replay/mlb-20260907-0334/40.json.
+#[test]
+fn mlb_play_result_rows_print_the_feed_sentence_not_the_type_label() {
+    let json = r#"{"events":[{"id":"5","competitions":[{"status":{"displayClock":"0:00","period":5,"type":{"state":"in","completed":false,"shortDetail":"Bot 5th"}},"competitors":[
+      {"homeAway":"away","score":"4","team":{"id":"16","abbreviation":"CHC","displayName":"Cubs","color":"0e3386","alternateColor":"cc3433"}},
+      {"homeAway":"home","score":"3","team":{"id":"28","abbreviation":"MIA","displayName":"Marlins","color":"00a3e0","alternateColor":"ef3340"}}
+    ],"situation":{"balls":0,"strikes":0,"outs":1,"onFirst":true,"onSecond":false,"onThird":false,
+      "lastPlay":{"id":"4018168410905990057","text":"Smith singled to center, Edman scored.","scoreValue":1,"scoringPlay":null,"team":{"id":"28"},
+        "type":{"id":"57","text":"Play Result","type":"play-result"},
+        "athletesInvolved":[{"id":"2","shortName":"W. Smith"}]}}}]}]}"#;
+    let g = &map_scoreboard(League::Mlb, json, et()).unwrap()[0];
+    assert_eq!(
+        g.last_plays[0].text, "Smith singled to center, Edman scored.",
+        "the row's own text is the sentence; type.text is the label 'Play Result'"
+    );
+    assert!(
+        !g.last_plays[0].text.contains("Play Result"),
+        "the label never reaches the screen on a result row"
+    );
+    assert!(
+        g.last_plays[0].scoring,
+        "scoreValue 1 is ESPN saying a run scored, whatever scoringPlay says"
+    );
+}

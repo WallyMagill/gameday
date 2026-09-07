@@ -679,14 +679,27 @@ fn inning_tag(period: &Value) -> String {
     }
 }
 
-/// `lastPlay.type.text` ("Ball", "Strike Looking", "Home Run") + the batter.
-/// NOT `type.alternativeText`: on MLB that field is the pitch type's
-/// *projected* at-bat outcome ("Walk" on a mere ball, "Strikeout" on a called
-/// strike) — a live-observed lie, not what happened. `type.text` is the
-/// honest pitch/outcome label and agrees with `alternativeText` on terminal
-/// plays anyway. The play-level `lp["text"]` field is the pitch-count chatter
-/// ("Pitch 6 : Ball 3"), which nobody wants either.
+/// `lastPlay.type.text` ("Ball", "Strike Looking", "Home Run") + the batter,
+/// with one exception: the at-bat *result* row (`type.id` 57, "Play Result")
+/// is where ESPN puts the sentence — `lp["text"]` is "Smith singled to
+/// center, Edman scored." while `type.text` is the label "Play Result". The
+/// 2026-09-07 replay capture priced the difference: three of four scoring
+/// cuts read "Play Result — T. Hernandez" where the summary's own feed said
+/// "T. Hernández reached on infield single to shortstop, Smith scored,
+/// Freeman to second." A result row is the only row whose `text` is prose;
+/// on every pitch row it is the pitch-count chatter ("Pitch 6 : Ball 3"),
+/// which is why the rule is keyed to the type id and not to "text looks
+/// long".
+///
+/// NOT `type.alternativeText`, on any row: on MLB that field is the pitch
+/// type's *projected* at-bat outcome ("Walk" on a mere ball, "Strikeout" on a
+/// called strike) — a live-observed lie, not what happened.
 fn mlb_last_play_text(lp: &Value) -> Option<String> {
+    if lp["type"]["id"].as_str() == Some("57") {
+        if let Some(sentence) = lp["text"].as_str().filter(|t| !t.is_empty()) {
+            return Some(sentence.to_string());
+        }
+    }
     let label = lp["type"]["text"].as_str()?;
     let batter = lp["athletesInvolved"]
         .as_array()
