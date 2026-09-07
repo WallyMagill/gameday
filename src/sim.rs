@@ -292,9 +292,9 @@ fn step_mlb(g: &mut Game, t: u64) {
             });
         }
         // The scripted re-sort (the `nudge-seq` captures). Loading the bases
-        // is worth +30 in `rank::watchability` and flips the game hot, which
-        // is what moves the rank fingerprint and makes `OrderState` re-sort:
-        // NYY@TOR climbs two places and the rows under it show `↑2`.
+        // is worth 30 × closeness in `rank::watchability` and flips the game
+        // hot, which is what moves the rank fingerprint and makes
+        // `OrderState` re-sort: NYY@TOR takes the lead and shows `↑1`.
         NUDGE_TICK => {
             push_play(
                 g,
@@ -479,8 +479,10 @@ mod tests {
         let a = watch(&after, League::Mlb, "mlb-live");
         assert_eq!(a.chip, Some("BASES LOADED"));
         assert!(a.hot, "the fingerprint's hot flag must flip: {a:?}");
-        // And it outranks every other live game, having been third before —
-        // the ↑2 the `nudge-seq` captures are built on.
+        // And it outranks every other live game, having been second before —
+        // the ↑1 the `nudge-seq` captures are built on. (Second, not third:
+        // the NHL power play is 25 × closeness 60 now, so it no longer clears
+        // the 8th-inning board.)
         let others = [
             (League::Nba, "nba-live"),
             (League::Nhl, "nhl-live"),
@@ -500,8 +502,8 @@ mod tests {
             .filter(|(l, id)| watch(&before, *l, id).score > b.score)
             .count();
         assert_eq!(
-            above_before, 2,
-            "mlb must be third the tick before, so the climb is ↑2"
+            above_before, 1,
+            "mlb must be second the tick before, so the climb is ↑1"
         );
     }
 

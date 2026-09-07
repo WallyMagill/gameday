@@ -810,8 +810,20 @@ fn a_score_delta_reorders_the_board() {
 fn a_hot_flip_reorders_the_board_with_no_score_change() {
     // Red zone appears on "a" — same score, same clock, but the game is
     // hot now, and that is news the order has to answer to.
-    let mut app = ordering_app();
-    let mut a = ranked("a", "Q1", "15:00", 14, 10);
+    // Its own two-game board rather than `ordering_app`'s: situation bonuses
+    // scale with closeness, so a red zone only outranks a closer, later game
+    // when the flipped game is itself close.
+    let quiet = ranked("a", "Q1", "15:00", 14, 14);
+    let mut app = app_with(
+        vec![quiet.clone(), ranked("b", "Q2", "5:00", 24, 21)],
+        vec![],
+    );
+    assert_eq!(
+        ord(&app),
+        vec!["b", "a"],
+        "the later game leads while a is quiet"
+    );
+    let mut a = quiet;
     // The hot flag reads `situation.isRedZone`, not the
     // meter the gauge draws from it.
     a.situation = Some(crate::domain::Situation {
@@ -1175,15 +1187,17 @@ fn epl_live(id: &str, minute: &str, away: u16, home: u16) -> Game {
 #[test]
 fn a_red_card_reorders_once_and_freezes() {
     let mut app = app_with(vec![], vec![]);
+    // "a" is level (closeness 100) because situation bonuses now scale with
+    // closeness: only in a level match is the card worth its full 40.
     app.apply_boards(
         League::Epl,
-        vec![epl_live("a", "20'", 1, 0), epl_live("b", "63'", 1, 0)],
+        vec![epl_live("a", "20'", 1, 1), epl_live("b", "63'", 1, 0)],
         false,
     );
     assert_eq!(ord(&app), vec!["b", "a"], "the later close match leads");
 
     // The card lands: "a" is down to ten and jumps the board.
-    let mut carded = epl_live("a", "20'", 1, 0);
+    let mut carded = epl_live("a", "20'", 1, 1);
     carded.extras = crate::domain::Extras::Soccer {
         events: vec![crate::domain::MatchEvent {
             minute: "20'".into(),

@@ -300,7 +300,7 @@ const REPLAY_TICKS: u64 = 3;
 /// applied first, each at its own `app.tick`, so a score that changes AT
 /// `tick` is caught mid-flash and a re-sort a tick or two back still shows
 /// its arrows — exactly like the live loop would (`--tick 15` captures the KC
-/// TD flash; `--tick 41` still shows the ↑2 earned at 40).
+/// TD flash; `--tick 41` still shows the ↑1 earned at 40).
 pub fn demo_app(config_dir: PathBuf, tick: u64) -> App {
     // The demo data is Eastern, so captures render its clocks in Eastern too —
     // never the capturing machine's zone, which would make dumps unstable.
@@ -1038,11 +1038,13 @@ mod tests {
             "frame 1 is the quiet board:\n{}",
             frames[0]
         );
+        // ↑1, not ↑2: situation bonuses scale with closeness now, so the NHL
+        // power play no longer sits above the 8th-inning game to be passed.
         for (i, f) in frames.iter().enumerate().skip(1) {
             assert_eq!(
                 gutter_nudges(f),
-                vec!["▌ ↑2".to_string()],
-                "frame {} must show the risen game's ↑2 and nothing else:\n{f}",
+                vec!["▌ ↑1".to_string()],
+                "frame {} must show the risen game's ↑1 and nothing else:\n{f}",
                 i + 1
             );
         }

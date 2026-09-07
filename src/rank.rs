@@ -2,18 +2,21 @@
 //! functions of the Game — the clock grammar strings come straight from the
 //! mapper (fixtures verified per league), and an unparsed string scores 0 so
 //! bad data can never lead the board.
-use crate::domain::{Extras, Game, League, Meter, Status};
+use crate::domain::{Extras, Game, League, Meter, Status, WinProb};
 use std::collections::HashMap;
 use time::OffsetDateTime;
 
 /// One game's watchability verdict. `score` orders the board; `hot` drives
 /// the 2-state mark; `chip` is the hero/state label ("RED ZONE", "2-MIN",
-/// "TYING RUN 3RD", "BASES LOADED", "STOPPAGE", …) or None.
+/// "TYING RUN 3RD", "BASES LOADED", "STOPPAGE", …) or None; `why` names the
+/// largest single term behind `score` ("CLOSE", "LATE", "LEVERAGE",
+/// "RANKED", "FAVORITE", or the chip) and is empty for a non-live game.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Watch {
     pub score: u32,
     pub hot: bool,
     pub chip: Option<&'static str>,
+    pub why: &'static str,
 }
 
 /// Sport scale for "one score": margins at or under this are maximally close.
@@ -147,6 +150,40 @@ fn clock_secs(clock: &str) -> Option<u32> {
     }
 }
 
+/// Which leagues' scoreboards carry `lastPlay.probability` and are trusted
+/// for it. CFB: verified on the 2026-09-05 slate. NFL: unverified until the
+/// week-one capture (spec §8.5); off until then. No other league sends it.
+pub fn leverage_enabled(league: League) -> bool {
+    matches!(league, League::Cfb)
+}
+
+/// 100 at a coin flip, 0 when one side is certain: `100 − |2·home − 100|`.
+pub fn leverage_closeness(p: &WinProb) -> u32 {
+    // In permille, then to percent: 285 → 57, 750 → 50, 999 → 0, 500 → 100.
+    let h = p.home_permille.min(1000) as i32;
+    ((1000 - (2 * h - 1000).abs()).clamp(0, 1000) / 10) as u32
+}
+
+/// Elapsed share of regulation from ESPN's `secondsLeft`; overtime pins to 100.
+pub fn leverage_lateness(league: League, period: &str, p: &WinProb) -> u32 {
+    if period == "OT" {
+        return 100;
+    }
+    let reg = 4 * quarter_len(league);
+    let left = p.seconds_left.min(reg);
+    ((reg - left) * 100 / reg).min(100)
+}
+
+/// Leverage band for the reorder fingerprint: closeness in steps of 20, so a
+/// drift inside a band is not an event and a crossing is. 0 when the game
+/// carries no leverage.
+pub fn leverage_band(g: &Game) -> u8 {
+    match g.situation.as_ref().and_then(|s| s.win_prob) {
+        Some(p) if leverage_enabled(g.league) => (leverage_closeness(&p) / 20).min(5) as u8,
+        _ => 0,
+    }
+}
+
 // `_now` is unused today — kept in the signature so a later time-of-day
 // weighting (e.g. late-night games ranked down) doesn't need to change the
 // public API.
@@ -156,21 +193,52 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             score: 0,
             hot: false,
             chip: None,
+            why: "",
         };
     }
     let margin = g.home_score.abs_diff(g.away_score) as u32;
-    let l = lateness(g.league, &g.period, &g.clock);
-    let c = closeness(g.league, margin);
-    let mut score = l * c / 100;
+    // Football with a win probability: ESPN's own read of the game, which is
+    // what closeness and lateness are trying to approximate from the score
+    // and the clock. Everything else keeps the margin path.
+    let leverage = g
+        .situation
+        .as_ref()
+        .and_then(|s| s.win_prob)
+        .filter(|_| leverage_enabled(g.league));
+    let (l, c, base_why) = match leverage {
+        Some(p) => (
+            leverage_lateness(g.league, &g.period, &p),
+            leverage_closeness(&p),
+            "LEVERAGE",
+        ),
+        None => {
+            let l = lateness(g.league, &g.period, &g.clock);
+            let c = closeness(g.league, margin);
+            (l, c, if c >= l { "CLOSE" } else { "LATE" })
+        }
+    };
+    let base = l * c / 100;
+    let mut score = base;
     let mut hot = false;
     let mut chip: Option<&'static str> = None;
+    // (label, value) of the largest single term, for the footer's LEADS.
+    let mut lead: (&'static str, u32) = (base_why, base);
 
+    // A situation bonus is worth its full weight only in a close game: a
+    // red zone at 35 points down is a chip on the row, not the hero. Guess,
+    // calibrated by tests/ranking_slate.rs.
     macro_rules! bonus {
         ($b:expr, $ch:expr) => {
-            score += $b;
+            let scaled = $b * c / 100;
+            score += scaled;
             hot = true;
             if chip.is_none() {
                 chip = $ch;
+            }
+            if let Some(name) = $ch {
+                if scaled > lead.1 {
+                    lead = (name, scaled);
+                }
             }
         };
     }
@@ -318,7 +386,39 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
         }
     }
 
-    Watch { score, hot, chip }
+    // Matchup: the poll rank ESPN already parses (guess, calibrated by the
+    // slate test: Boise at No. 2 Oregon had to beat an FCS 2-MIN).
+    let ranks = [g.away.rank, g.home.rank];
+    let ranked = ranks.iter().filter(|r| r.is_some()).count();
+    let mut matchup = match ranked {
+        2 => 20,
+        1 => 10,
+        _ => 0,
+    };
+    if ranks.iter().flatten().any(|r| *r <= 5) {
+        matchup += 5;
+    }
+    if matchup > 0 {
+        score += matchup;
+        if matchup > lead.1 {
+            lead = ("RANKED", matchup);
+        }
+    }
+    // Favorite: the viewer said so in config (guess: one tier above a ranked
+    // matchup, since it is the viewer's own answer to "what should lead").
+    if g.favorite {
+        score += 25;
+        if 25 > lead.1 {
+            lead = ("FAVORITE", 25);
+        }
+    }
+
+    Watch {
+        score,
+        hot,
+        chip,
+        why: lead.0,
+    }
 }
 
 /// How the board orders its live games. `Watch` is watchability (the default);
@@ -514,6 +614,136 @@ mod tests {
     }
     fn now() -> OffsetDateTime {
         time::macros::datetime!(2026-09-13 16:47 -4)
+    }
+
+    fn wp(home_permille: u16, seconds_left: u32) -> WinProb {
+        WinProb {
+            home_permille,
+            away_permille: 1000 - home_permille,
+            seconds_left,
+        }
+    }
+
+    #[test]
+    fn leverage_math_at_the_three_points() {
+        assert_eq!(leverage_closeness(&wp(500, 1800)), 100);
+        assert_eq!(leverage_closeness(&wp(750, 1800)), 50);
+        assert_eq!(
+            leverage_closeness(&wp(999, 1800)),
+            0,
+            "0.999 rounds to nothing left to play for"
+        );
+        assert_eq!(leverage_closeness(&wp(285, 1800)), 57, "Boise at Oregon");
+        assert_eq!(leverage_lateness(League::Cfb, "Q2", &wp(500, 1800)), 50);
+        assert_eq!(leverage_lateness(League::Cfb, "Q4", &wp(500, 0)), 100);
+        assert_eq!(
+            leverage_lateness(League::Cfb, "OT", &wp(500, 600)),
+            100,
+            "overtime pins lateness"
+        );
+        assert!(leverage_enabled(League::Cfb));
+        assert!(
+            !leverage_enabled(League::Nfl),
+            "off until the week-one capture shows the field"
+        );
+        assert!(!leverage_enabled(League::Mlb));
+    }
+
+    #[test]
+    fn situation_bonuses_scale_with_closeness() {
+        let mut close = g(League::Nfl, "Q3", "9:05", 21, 17);
+        close.situation = Some(Situation {
+            is_red_zone: Some(true),
+            possession: Some("AAA".into()),
+            ..Default::default()
+        });
+        let mut blowout = g(League::Nfl, "Q3", "9:05", 42, 7);
+        blowout.situation = close.situation.clone();
+        let now = OffsetDateTime::now_utc();
+        let (wc, wb) = (watchability(&close, now), watchability(&blowout, now));
+        assert_eq!(wc.chip, Some("RED ZONE"));
+        assert_eq!(
+            wb.chip,
+            Some("RED ZONE"),
+            "the chip still names the situation"
+        );
+        assert!(wb.hot, "hot follows the chip");
+        // Closeness 0 at a 35-point margin: the bonus contributes nothing to the score.
+        assert!(
+            wc.score > wb.score + 30,
+            "close {} vs blowout {}",
+            wc.score,
+            wb.score
+        );
+    }
+
+    #[test]
+    fn matchup_and_favorite_terms() {
+        let now = OffsetDateTime::now_utc();
+        let base = g(League::Nfl, "Q2", "7:00", 10, 7);
+        let plain = watchability(&base, now).score;
+        let mut one = base.clone();
+        one.home.rank = Some(12);
+        assert_eq!(watchability(&one, now).score, plain + 10);
+        let mut both = one.clone();
+        both.away.rank = Some(20);
+        assert_eq!(watchability(&both, now).score, plain + 20);
+        let mut top = both.clone();
+        top.home.rank = Some(3);
+        assert_eq!(watchability(&top, now).score, plain + 25);
+        let mut fav = base.clone();
+        fav.favorite = true;
+        assert_eq!(watchability(&fav, now).score, plain + 25);
+    }
+
+    #[test]
+    fn football_leverage_replaces_the_margin_path_only_where_enabled() {
+        let now = OffsetDateTime::now_utc();
+        let mut cfb = g(League::Cfb, "Q2", "7:27", 17, 7);
+        cfb.situation = Some(Situation {
+            win_prob: Some(wp(285, 2116)),
+            ..Default::default()
+        });
+        let mut nfl = cfb.clone();
+        nfl.league = League::Nfl;
+        let (c, n) = (watchability(&cfb, now), watchability(&nfl, now));
+        // CFB: closeness 57, lateness (3600-2116)/3600 = 41 → base 23.
+        assert_eq!(c.score, 23, "{c:?}");
+        // NFL, gated off: margin path (margin 10 → closeness 50; Q2 7:27 → lateness 37) → 18.
+        assert_eq!(n.score, 18, "{n:?}");
+        assert_eq!(c.why, "LEVERAGE");
+    }
+
+    #[test]
+    fn why_names_the_leading_term() {
+        let now = OffsetDateTime::now_utc();
+        let mut fav = g(League::Nfl, "Q1", "14:00", 0, 0);
+        fav.favorite = true;
+        assert_eq!(watchability(&fav, now).why, "FAVORITE");
+        let mut ranked = g(League::Nfl, "Q1", "14:00", 0, 0);
+        ranked.home.rank = Some(1);
+        ranked.away.rank = Some(2);
+        assert_eq!(watchability(&ranked, now).why, "RANKED");
+        // Early and tied, so the red zone (40 × closeness) outweighs the base.
+        let mut rz = g(League::Nfl, "Q1", "10:00", 7, 7);
+        rz.situation = Some(Situation {
+            is_red_zone: Some(true),
+            possession: Some("AAA".into()),
+            ..Default::default()
+        });
+        assert_eq!(watchability(&rz, now).why, "RED ZONE");
+        let tight = g(League::Nba, "Q3", "6:00", 80, 79);
+        assert_eq!(watchability(&tight, now).why, "CLOSE");
+        let late = g(League::Nba, "Q4", "0:30", 110, 90);
+        assert_eq!(watchability(&late, now).why, "LATE");
+        assert_eq!(
+            watchability(&g(League::Nfl, "Q1", "15:00", 0, 0), now).why,
+            "CLOSE",
+            "a scoreless opener is close before it is anything else"
+        );
+        let mut pre = g(League::Nfl, "Q1", "15:00", 0, 0);
+        pre.status = Status::Pre;
+        assert_eq!(watchability(&pre, now).why, "");
     }
 
     #[test]
@@ -786,7 +1016,8 @@ mod tests {
             Watch {
                 score: 0,
                 hot: false,
-                chip: None
+                chip: None,
+                why: ""
             }
         );
         let mut p = g(League::Nfl, "", "", 0, 0);
@@ -960,7 +1191,8 @@ mod tests {
         let w = watchability(&carded(Some((10, 11)), "63'", 4, 0), now());
         assert!(w.hot);
         assert_eq!(w.chip, Some("10 MEN"));
-        assert_eq!(w.score, 40, "the bonus is the CLUTCH tier, on a base of 0");
+        // Bonuses scale with closeness: at 0 the card is chip and heat, not score.
+        assert_eq!(w.score, 0, "40 × closeness 0 on a base of 0");
 
         // The chip names the SHORT side's count, whichever side that is.
         assert_eq!(
