@@ -43,10 +43,21 @@ pub struct Config {
     /// only re-sorts on a data event — see `rank::OrderState`.
     #[serde(default)]
     pub sort: SortKey,
+    /// Which games get a desktop notification (a favorite scored, a pinned
+    /// game went final): any of "favorites"/"pins", case-insensitive.
+    /// `notify = ["favorites", "pins"]` is the default; `[]` turns
+    /// notifications off entirely; an unknown word is kept on round-trip but
+    /// means nothing.
+    #[serde(default = "default_notify")]
+    pub notify: Vec<String>,
 }
 
 fn default_theme() -> String {
     crate::theme::BUILTIN_NAMES[0].to_string()
+}
+
+fn default_notify() -> Vec<String> {
+    vec!["favorites".to_string(), "pins".to_string()]
 }
 
 impl Config {
@@ -56,7 +67,18 @@ impl Config {
             favorites: vec![],
             theme: default_theme(),
             sort: SortKey::default(),
+            notify: default_notify(),
         }
+    }
+
+    pub fn notify_favorites(&self) -> bool {
+        self.notify
+            .iter()
+            .any(|w| w.eq_ignore_ascii_case("favorites"))
+    }
+
+    pub fn notify_pins(&self) -> bool {
+        self.notify.iter().any(|w| w.eq_ignore_ascii_case("pins"))
     }
 
     pub fn load_from(dir: &Path) -> Result<Self, ConfigError> {

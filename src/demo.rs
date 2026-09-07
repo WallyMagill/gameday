@@ -82,6 +82,7 @@ pub fn demo_config() -> Config {
         favorites: vec![],
         theme: crate::theme::current_name(),
         sort: Default::default(),
+        notify: vec!["favorites".into(), "pins".into()],
     }
 }
 

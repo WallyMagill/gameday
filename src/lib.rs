@@ -12,6 +12,7 @@ pub mod home;
 pub mod input;
 pub mod keymap;
 pub mod log;
+pub mod notify;
 pub mod poll;
 pub mod provider;
 pub mod rank;

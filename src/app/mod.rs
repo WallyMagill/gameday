@@ -260,6 +260,13 @@ pub struct App {
     /// lines of [`App::draw`]. Widgets read it through `derived()`; nothing
     /// outside a draw may, which is why it is private and cleared.
     frame_cache: Option<Derived>,
+    /// Desktop notification backend. Defaults to a silent no-op — `main`
+    /// installs the real OS backend on the TUI path; tests and the demo
+    /// gallery stay quiet. `App` runs only on the UI thread, so this needs
+    /// no `Send` bound.
+    notifier: Box<dyn crate::notify::Notifier>,
+    /// Per (game, kind) gap ledger — see [`crate::notify::NotifyState`].
+    notify_state: crate::notify::NotifyState,
 }
 
 impl App {
@@ -319,6 +326,10 @@ impl App {
             offset,
             now_override: None,
             frame_cache: None,
+            notifier: Box::new(crate::notify::Noop {
+                reason: "no backend installed",
+            }),
+            notify_state: crate::notify::NotifyState::default(),
         }
     }
 
@@ -381,6 +392,42 @@ impl App {
             (Some(_), _) => self.sticky_status(format!("{ok_text} · not saving (config error)")),
             (None, Some(err)) => self.sticky_status(err),
             (None, None) => self.toast(ok_text),
+        }
+    }
+
+    pub fn set_notifier(&mut self, n: Box<dyn crate::notify::Notifier>) {
+        self.notifier = n;
+    }
+
+    pub fn notifier_name(&self) -> &'static str {
+        self.notifier.name()
+    }
+
+    /// One notification, gap-checked per (game, kind). A backend that cannot
+    /// start the delivery is demoted to the silent no-op after that first
+    /// failure, and the failure is logged with the backend's name.
+    pub fn notify(
+        &mut self,
+        game_id: &str,
+        kind: crate::notify::Kind,
+        title: &str,
+        body: &str,
+    ) -> bool {
+        if !self.notify_state.allows(game_id, kind, self.tick) {
+            return false;
+        }
+        match self.notifier.send(title, body) {
+            Ok(()) => true,
+            Err(err) => {
+                crate::log::note(&format!(
+                    "notify via {} failed, switching off: {err}",
+                    self.notifier.name()
+                ));
+                self.notifier = Box::new(crate::notify::Noop {
+                    reason: "the backend failed once",
+                });
+                false
+            }
         }
     }
 

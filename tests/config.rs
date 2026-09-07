@@ -24,6 +24,7 @@ fn roundtrip_config() {
         }],
         theme: "ceefax".into(),
         sort: Default::default(),
+        notify: vec!["favorites".into(), "pins".into()],
     };
     c.save_to(&dir).unwrap();
     let loaded = Config::load_from(&dir).unwrap();
@@ -63,6 +64,7 @@ fn new_league_variants_roundtrip_in_toml() {
         favorites: vec![],
         theme: "broadcast".into(),
         sort: Default::default(),
+        notify: vec!["favorites".into(), "pins".into()],
     };
     c.save_to(&dir).unwrap();
     let loaded = Config::load_from(&dir).unwrap();
@@ -254,4 +256,38 @@ fn sort_key_round_trips_and_old_layout_keys_are_ignored() {
     assert!(text.contains("sort = \"time\""));
     assert!(!text.contains("layout"), "removed key is not re-written");
     fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn notify_defaults_to_favorites_and_pins_and_an_empty_list_disables() {
+    let dir = tmp("notify-default");
+    std::fs::write(
+        dir.join("config.toml"),
+        "enabled_tabs = [\"Nfl\"]\nfavorites = []\n",
+    )
+    .unwrap();
+    let c = Config::load_from(&dir).unwrap();
+    assert_eq!(
+        c.notify,
+        vec!["favorites".to_string(), "pins".to_string()],
+        "an old config gets both"
+    );
+    assert!(c.notify_favorites() && c.notify_pins());
+    std::fs::write(
+        dir.join("config.toml"),
+        "enabled_tabs = [\"Nfl\"]\nfavorites = []\nnotify = []\n",
+    )
+    .unwrap();
+    let c = Config::load_from(&dir).unwrap();
+    assert!(
+        !c.notify_favorites() && !c.notify_pins(),
+        "notify = [] is off"
+    );
+    // Round-trips, and an unknown word is kept (not an error) and means nothing.
+    let mut c = Config::default_all();
+    c.notify = vec!["pins".into(), "bogus".into()];
+    c.save_to(&dir).unwrap();
+    let back = Config::load_from(&dir).unwrap();
+    assert_eq!(back.notify, c.notify);
+    assert!(back.notify_pins() && !back.notify_favorites());
 }

@@ -1059,6 +1059,7 @@ fn enabled_cfb_tab_appears() {
         favorites: vec![],
         theme: "broadcast".into(),
         sort: Default::default(),
+        notify: vec!["favorites".into(), "pins".into()],
     };
     let app = App::new(cfg, vec![], dir, time::UtcOffset::UTC);
     assert_eq!(
@@ -1755,6 +1756,7 @@ fn cfb_board_is_separate_from_nfl() {
             favorites: vec![],
             theme: "broadcast".into(),
             sort: Default::default(),
+            notify: vec!["favorites".into(), "pins".into()],
         },
         vec![],
         dir,
@@ -2621,5 +2623,40 @@ fn report_save_never_mistakes_a_live_toast_for_a_save_refusal() {
         app.status_line.as_deref(),
         Some("sort watch"),
         "the live toast must not be replayed back as a save refusal"
+    );
+}
+
+#[test]
+fn app_notify_honors_the_gap_and_demotes_a_failing_backend_to_noop() {
+    use crate::notify::{Kind, Notifier, Recording};
+    let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
+    let rec = Recording::default();
+    let log = rec.sent.clone();
+    app.set_notifier(Box::new(rec));
+    app.tick = 1_000;
+    assert!(app.notify("1", Kind::Score, "KC 7 · TB 0", "TD"));
+    assert!(
+        !app.notify("1", Kind::Score, "KC 14 · TB 0", "TD again"),
+        "inside the gap"
+    );
+    app.tick += crate::notify::NOTIFY_MIN_GAP;
+    assert!(app.notify("1", Kind::Score, "KC 14 · TB 0", "TD again"));
+    assert_eq!(log.borrow().len(), 2);
+    // A backend that cannot send is replaced by the silent no-op after one failure.
+    struct Broken;
+    impl Notifier for Broken {
+        fn send(&self, _: &str, _: &str) -> Result<(), String> {
+            Err("no such binary".into())
+        }
+        fn name(&self) -> &'static str {
+            "broken"
+        }
+    }
+    app.set_notifier(Box::new(Broken));
+    assert!(!app.notify("2", Kind::Score, "t", "b"));
+    assert_eq!(
+        app.notifier_name(),
+        "noop",
+        "demoted after the first failure"
     );
 }
