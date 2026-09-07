@@ -79,8 +79,10 @@ const STRIP_GUTTER: u16 = 2;
 /// competing with the game it is supposed to be a footnote to.
 const STRIP_MAX_ROWS: usize = 5;
 
-/// The play-clock stamp column: `12:34` right-aligned, plus a column of air.
-const STAMP_W: usize = 6;
+/// The play-clock stamp column, right-aligned, plus a column of air. Widest
+/// form is period + clock together (`Q4 14:52`, 8 cells) — `tiles::play_stamp`
+/// prints both when the feed gave both, not the clock alone.
+const STAMP_W: usize = 8;
 
 /// The strip never takes more than this share of the body: the whole point of
 /// TV is the one game, so a 20-game slate shrinks its own strip, never the
@@ -249,7 +251,10 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
                 ),
                 Span::styled("  ▸ ", Style::default().fg(r.dim)),
                 Span::styled(
-                    truncate(&play.text, text_room),
+                    truncate(
+                        crate::tiles::without_leading_clock(&play.text, !play.clock.is_empty()),
+                        text_room,
+                    ),
                     Style::default().fg(if play.scoring { r.hot } else { r.ink }),
                 ),
             ])),

@@ -451,7 +451,10 @@ fn draw_feed(frame: &mut Frame, area: Rect, game: &Game) {
                 Style::default().fg(r.hot).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                truncate(&p.text, width.saturating_sub(used + 1)),
+                truncate(
+                    tiles::without_leading_clock(&p.text, !p.clock.is_empty()),
+                    width.saturating_sub(used + 1),
+                ),
                 Style::default().fg(r.ink),
             ),
         ]));

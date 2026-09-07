@@ -2357,6 +2357,36 @@ fn zoom_last_plays_do_not_print_the_clock_twice() {
         .starts_with("(03:39)"));
 }
 
+/// The SCORING list (`draw_feed`'s second block) truncates its own text
+/// separately from LAST PLAYS — it must apply the same clock-prefix rule,
+/// not just the bracket stamp.
+#[test]
+fn zoom_scoring_list_does_not_print_the_clock_twice_either() {
+    let mut app = mk();
+    let mut game = g("1", "BOIS", "ORE", true);
+    game.league = League::Cfb;
+    game.scoring_plays = vec![Play {
+        id: "d".into(),
+        period: "Q1".into(),
+        clock: "11:09".into(),
+        team: "BOIS".into(),
+        text: "(11:09) M. Madsen pass to C. Bates for 13 yds, for a TD".into(),
+        scoring: true,
+        ..Default::default()
+    }];
+    app.apply_boards(League::Cfb, vec![game], false);
+    key(&mut app, crossterm::event::KeyCode::Char('z'));
+    let mut t = Terminal::new(TestBackend::new(140, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("[Q1 11:09] BOIS"), "{s}");
+    assert!(s.contains("M. Madsen"), "{s}");
+    assert!(
+        !s.contains("(11:09)"),
+        "the feed's own clock prefix is not drawn beside ours:\n{s}"
+    );
+}
+
 #[test]
 fn a_zero_record_hides_once_the_game_is_underway() {
     let mut app = mk();
@@ -4146,6 +4176,36 @@ fn tv_fills_the_screen_with_the_hero_and_strips_the_rest() {
     // TV is not the board: no section rules, no off-screen lane.
     assert!(!text.contains("IN PLAY"), "no board rules in TV:\n{text}");
     assert!(!text.contains("OFF-SCREEN"), "no lane in TV:\n{text}");
+}
+
+/// The jumbotron's own play ticker (`draw`'s `plays` loop, distinct from the
+/// zoom's feed) must apply the same clock-prefix rule as the zoom.
+#[test]
+fn tv_ticker_plays_do_not_print_the_clock_twice_either() {
+    use gameday::views::View;
+    let mut app = mk();
+    let mut game = g("1", "BOIS", "ORE", true);
+    game.league = League::Cfb;
+    game.last_plays = vec![Play {
+        id: "e".into(),
+        period: "Q2".into(),
+        clock: "3:31".into(),
+        team: "BOIS".into(),
+        text: "(03:39) #11 J.Carlson punt 42 yards to the Towson04".into(),
+        ..Default::default()
+    }];
+    app.apply_boards(League::Cfb, vec![game], false);
+    app.tab = Tab::League(League::Cfb);
+    key(&mut app, crossterm::event::KeyCode::Char('v'));
+    assert_eq!(app.view, View::Tv);
+    let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(
+        !s.contains("(03:39)"),
+        "the feed's own clock prefix is not drawn beside ours:\n{s}"
+    );
+    assert!(s.contains("3:31"), "{s}");
 }
 
 #[test]
