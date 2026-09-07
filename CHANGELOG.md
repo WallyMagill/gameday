@@ -13,12 +13,19 @@ All notable changes to gameday are recorded here. The format follows
 - Licensed MIT OR Apache-2.0.
 - `scripts/capture-replay.sh` — captures consecutive real scoreboard polls (and the closing summary) into `fixtures/replay/` for the replay test harness; dev-only, excluded from the packaged crate.
 - MLB replay fixtures `fixtures/replay/mlb-20260907-0334` and `fixtures/replay/mlb-20260907-0355`, exercised by `tests/replay.rs`; dev-only, excluded from the packaged crate.
+- Paging: PgDn/PgUp and ctrl-d/ctrl-u move half a page, g/G and Home/End jump to the ends, in the board, feeds, standings and zoom lists.
+- `:help` opens the help overlay.
+- The `/` filter matches whole words by prefix (team name or abbreviation), a league slug at the start scopes the search, and the footer shows a match count.
+- A day with no games for a league names the next scheduled game, or says none is scheduled in the loaded window.
 
 ### Changed
 - ratatui 0.30, crossterm 0.29, ureq 3 (proxy env vars are now honored), dirs 7, tui-big-text 0.8.
 - SIGTERM and SIGHUP quit through the normal restore path; the terminal is never left in raw mode.
 - A 304 from ESPN is recognized as "cache is current" again (ureq 3 delivers it as a normal response), and a server that accepts but never answers now times out after 10 s instead of blocking the poll thread.
 - The board's watchability order now weighs ranked matchups and (college football) ESPN's live win probability; situation chips count in proportion to how close the game is. The footer names why the selected game leads.
+- Toasts (pin, favorite, sort, `:pin`) sit right of the key hints and clear after three seconds instead of sitting sticky forever.
+- `c` opens the theme picker.
+- The help overlay is sectioned by mode, with the mode you're in shown first, and closes with a glyph legend.
 
 ### Fixed
 - The scoring cut names the actual scoring play instead of whatever the poll happened to catch, via a one-shot summary catch-up when the scoreboard's own last play isn't the scoring one.
@@ -29,3 +36,12 @@ All notable changes to gameday are recorded here. The format follows
 - A 0-0 record is hidden while the game is live or final, instead of printed as if it meant something.
 - An unknown theme name is now reported in the footer instead of silently falling back.
 - Standings say PRESEASON or POSTSEASON instead of leaving the season type unlabeled.
+- A game starting more than six days out now prints its full date instead of getting clipped.
+- The broadcast name and the odds now have air between them instead of running together.
+- A rising game's `↑n` no longer glues onto its four-letter code.
+- The STATS leaders column keeps a gap after a four-letter code, matching the board and plays feed.
+- The zoom overview fills its whole pane instead of leaving a blank band under short feeds.
+- The config editor's content starts under its header instead of overlapping it.
+- A feed section rule no longer draws over an empty section.
+- The stray block beside the hero's win-loss record is gone.
+- A cached slate shown at launch is ranked from the very first frame, instead of jumping into order on the first fresh poll.
