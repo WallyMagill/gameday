@@ -220,7 +220,10 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
     let base = l * c / 100;
     let mut score = base;
     let mut hot = false;
-    let mut chip: Option<&'static str> = None;
+    // (name, scaled value) of the largest bonus seen so far — read once at
+    // the end to build `chip`, so a match arm with only one `bonus!` call
+    // still has its assignment read.
+    let mut chip_lead: Option<(&'static str, u32)> = None;
     // (label, value) of the largest single term, for the footer's LEADS.
     let mut lead: (&'static str, u32) = (base_why, base);
 
@@ -232,10 +235,17 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
             let scaled = $b * c / 100;
             score += scaled;
             hot = true;
-            if chip.is_none() {
-                chip = $ch;
-            }
             if let Some(name) = $ch {
+                // The chip names the LARGEST scaled term, not the first to
+                // fire, so it always agrees with `why` — a tie keeps the
+                // earlier one rather than churning on equal weights.
+                let outranks = match chip_lead {
+                    None => true,
+                    Some((_, w)) => scaled > w,
+                };
+                if outranks {
+                    chip_lead = Some((name, scaled));
+                }
                 if scaled > lead.1 {
                     lead = (name, scaled);
                 }
@@ -411,6 +421,9 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
     }
     // Favorite: the viewer said so in config (guess: one tier above a ranked
     // matchup, since it is the viewer's own answer to "what should lead").
+    // Not calibrated by the slate test — `Game.favorite` is stamped from
+    // `config.favorites` after the mapper runs, so a raw ESPN slate fixture
+    // never carries one.
     if g.favorite {
         score += 25;
         if 25 > lead.1 {
@@ -421,7 +434,7 @@ pub fn watchability(g: &Game, _now: OffsetDateTime) -> Watch {
     Watch {
         score,
         hot,
-        chip,
+        chip: chip_lead.map(|(name, _)| name),
         why: lead.0,
     }
 }
@@ -652,6 +665,30 @@ mod tests {
             "off until the week-one capture shows the field"
         );
         assert!(!leverage_enabled(League::Mlb));
+
+        // leverage_band: closeness in steps of 20, capped 5, 0 when the
+        // game carries no applicable win probability.
+        let mut cfb500 = g(League::Cfb, "Q2", "7:00", 10, 10);
+        cfb500.situation = Some(Situation {
+            win_prob: Some(wp(500, 1800)),
+            ..Default::default()
+        });
+        assert_eq!(leverage_band(&cfb500), 5, "closeness 100 at a coin flip");
+        let mut cfb950 = cfb500.clone();
+        cfb950.situation = Some(Situation {
+            win_prob: Some(wp(950, 1800)),
+            ..Default::default()
+        });
+        assert_eq!(leverage_band(&cfb950), 0, "closeness 10 at 950 permille");
+        let mut nfl_with_prob = cfb500.clone();
+        nfl_with_prob.league = League::Nfl;
+        assert_eq!(
+            leverage_band(&nfl_with_prob),
+            0,
+            "gated off for NFL regardless of the win prob"
+        );
+        let cfb_no_prob = g(League::Cfb, "Q2", "7:00", 10, 10);
+        assert_eq!(leverage_band(&cfb_no_prob), 0, "no win prob, no band");
     }
 
     #[test]
@@ -673,12 +710,20 @@ mod tests {
             "the chip still names the situation"
         );
         assert!(wb.hot, "hot follows the chip");
-        // Closeness 0 at a 35-point margin: the bonus contributes nothing to the score.
-        assert!(
-            wc.score > wb.score + 30,
-            "close {} vs blowout {}",
-            wc.score,
-            wb.score
+        // Blowout: margin 35 → closeness 0 (`100 - 35*40/8` saturates to 0),
+        // so both the base and the scaled bonus are zero.
+        assert_eq!(
+            wb.score, 0,
+            "closeness 0 zeroes both the base and the bonus"
+        );
+        // Close: margin 4 → closeness 80 (`100 - 4*40/8`). Q3 9:05 → lateness
+        // 59 (`(2*900 + 355) * 100 / 3600`, `900 - 545` played in Q3).
+        // base = 59*80/100 = 47; the red-zone bonus = 40*80/100 = 32.
+        // 47 + 32 = 79 — this fails under the old unscaled (`+ 40` flat)
+        // formula, which would give 87.
+        assert_eq!(
+            wc.score, 79,
+            "base 47 (lateness 59 × closeness 80) + red-zone bonus 32 (40 × closeness 80)"
         );
     }
 
@@ -696,6 +741,11 @@ mod tests {
         let mut top = both.clone();
         top.home.rank = Some(3);
         assert_eq!(watchability(&top, now).score, plain + 25);
+        // One ranked plus top-five: the Boise at Oregon path — away
+        // unranked, home No. 2 (ranked==1 → 10, plus the <=5 bonus → +5).
+        let mut boise_at_oregon = base.clone();
+        boise_at_oregon.home.rank = Some(2);
+        assert_eq!(watchability(&boise_at_oregon, now).score, plain + 15);
         let mut fav = base.clone();
         fav.favorite = true;
         assert_eq!(watchability(&fav, now).score, plain + 25);
@@ -1245,5 +1295,38 @@ mod tests {
         let quiet = watchability(&carded(None, "63'", 4, 0), now());
         assert!(!quiet.hot);
         assert_eq!(quiet.chip, None);
+    }
+
+    /// BOT 9TH, bases loaded, home batting down 1: BASES LOADED (30) and
+    /// TYING RUN 3RD (40) both fire. Before this fix the chip named
+    /// whichever bonus fired first in match-arm order (BASES LOADED, since
+    /// that `if` comes before the tying-run one) even though TYING RUN 3RD
+    /// outweighs it once scaled. The chip must name the larger bonus.
+    #[test]
+    fn a_bases_loaded_tying_run_chip_names_the_larger_bonus() {
+        let mut ty = g(League::Mlb, "BOT 9TH", "", 5, 4); // away 5, home 4
+        ty.situation = Some(Situation {
+            on_base: Some([true, true, true]),
+            outs: Some(2),
+            ..Default::default()
+        });
+        let w = watchability(&ty, now());
+        assert_eq!(
+            w.chip,
+            Some("TYING RUN 3RD"),
+            "the larger scaled bonus wins the chip, not the first to fire"
+        );
+        // `why` is untouched by this fix, and stays "LATE" here rather than
+        // naming the chip — not a gap in the fix, a structural fact about
+        // MLB's late-inning bonuses. `inning_late` requires the SAME
+        // `lateness(...)` reading (>= 77) that scales the base term
+        // (`base = lateness * closeness / 100`), and every MLB situational
+        // bonus tops out at weight 40 (`scaled = weight * closeness / 100`).
+        // Since 77 > 40, `base >= scaled` at every closeness once
+        // `inning_late` holds — no bases-loaded/tying-run/go-ahead fixture
+        // can make a late-inning MLB bonus outweigh the base, unlike an
+        // early-game NFL red zone (`why_names_the_leading_term`). Verified
+        // empirically before writing this assertion, not assumed.
+        assert_eq!(w.why, "LATE", "base × closeness still leads late in a game");
     }
 }

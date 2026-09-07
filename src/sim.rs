@@ -452,8 +452,9 @@ mod tests {
         );
     }
 
-    /// The scripted re-sort: at [`NUDGE_TICK`] the bases load, which is worth
-    /// +30 and flips the game hot — the two things `App::maybe_reorder`'s
+    /// The scripted re-sort: at [`NUDGE_TICK`] the bases load, which is
+    /// worth 30 × closeness now (22 at this fixture's margin, per the Task
+    /// 2 report) and flips the game hot — the two things `App::maybe_reorder`'s
     /// fingerprint watches. The tick before it, none of that is true.
     #[test]
     fn the_nudge_tick_loads_the_bases_and_makes_the_game_the_top_ranked_one() {
