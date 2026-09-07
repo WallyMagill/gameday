@@ -11,6 +11,12 @@
 # summary-<id>.json. The script prints which consecutive pairs carry a score
 # delta; a sequence with no delta is not worth committing — delete it.
 #
+# A poll that fails is skipped, not fatal: a window is minutes of a real game
+# that cannot be re-run, so one 503 must not throw the other 79 away. The
+# missing number is simply absent from the sequence (the replay harness reads
+# the files it finds, in name order), and nothing half-written is ever left
+# behind — each poll lands on a .tmp file that is renamed only on success.
+#
 # Plain lists, no bash-4 features: macOS ships bash 3.2.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -41,9 +47,19 @@ i=0
 while [ "$i" -lt "$polls" ]; do
   n=$(printf '%02d' "$i")
   if [ -n "$event" ]; then
-    curl -sf -A "$UA" "$B/$path/scoreboard?limit=300$extra" | jq --arg id "$event" '{events: [.events[] | select(.id == $id)]}' > "$dir/$n.json"
+    if ! curl -sf -A "$UA" "$B/$path/scoreboard?limit=300$extra" | jq --arg id "$event" '{events: [.events[] | select(.id == $id)]}' > "$dir/$n.json.tmp"; then
+      echo "poll $n failed; continuing" >&2
+      rm -f "$dir/$n.json.tmp"
+    else
+      mv "$dir/$n.json.tmp" "$dir/$n.json"
+    fi
   else
-    curl -sf -A "$UA" "$B/$path/scoreboard?limit=300$extra" | jq '.' > "$dir/$n.json"
+    if ! curl -sf -A "$UA" "$B/$path/scoreboard?limit=300$extra" | jq '.' > "$dir/$n.json.tmp"; then
+      echo "poll $n failed; continuing" >&2
+      rm -f "$dir/$n.json.tmp"
+    else
+      mv "$dir/$n.json.tmp" "$dir/$n.json"
+    fi
   fi
   i=$(( i + 1 ))
   [ "$i" -lt "$polls" ] && sleep 15
