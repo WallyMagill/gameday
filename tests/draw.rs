@@ -5462,3 +5462,44 @@ fn the_board_never_wears_the_zoomed_games_power_play() {
     );
     assert!(text.contains("PENALTY"), "with its meter:\n{text}");
 }
+
+#[test]
+fn a_college_row_prints_the_field_position_once() {
+    let mut app = mk();
+    let mut game = g("1", "BAY", "AUB", true);
+    game.league = League::Cfb;
+    game.period = "Q2".into();
+    game.clock = "7:13".into();
+    game.situation = Some(Situation {
+        down_distance: "1st & 10".into(),
+        possession: Some("BAY".into()),
+        ball_on: Some("BAY 2".into()),
+        ..Default::default()
+    });
+    // A lone live game is always the board's hero (`Derived::hero_id` picks
+    // `in_play.first()` whenever the band's empty), and the hero draws its
+    // situation as separate `·`-joined spans — it never has the "AT X" +
+    // "AT X" duplication this test guards against. A second, higher-ranked
+    // live game (RED ZONE outranks a quiet Q2 snap) claims the hero slot
+    // instead, so `game` renders through the tier row
+    // (`board::rows::situation_summary`), the surface that actually builds
+    // the fragment from `down_distance` + `ball_on`.
+    let mut hero_bait = g("2", "HOU", "TEN", true);
+    hero_bait.league = League::Cfb;
+    hero_bait.period = "Q3".into();
+    hero_bait.clock = "9:05".into();
+    hero_bait.situation = Some(Situation {
+        is_red_zone: Some(true),
+        possession: Some("HOU".into()),
+        ..Default::default()
+    });
+    app.apply_boards(League::Cfb, vec![hero_bait, game], false);
+    let mut t = Terminal::new(TestBackend::new(140, 40)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let s = buf_text(&t);
+    assert!(s.contains("BAY 1ST & 10 AT BAY 2"), "{s}");
+    assert!(
+        !s.contains("AT BAY 2 AT BAY 2"),
+        "the field position printed twice:\n{s}"
+    );
+}

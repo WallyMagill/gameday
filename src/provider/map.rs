@@ -155,6 +155,36 @@ fn record_from(competitor: &Value) -> String {
         .to_string()
 }
 
+/// Down and distance without the ball position: ESPN's `shortDownDistanceText`
+/// ("1st & 10") when it is there (college feeds carry it, verified in
+/// fixtures/live/cfb_scoreboard_live.json), else `downDistanceText` with its
+/// trailing " at <possessionText>" removed so the row, which prints the
+/// position from `ball_on`, never says it twice.
+fn down_distance_from(sit_v: &Value) -> String {
+    if let Some(short) = sit_v["shortDownDistanceText"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+    {
+        return short.to_string();
+    }
+    let long = sit_v["downDistanceText"].as_str().unwrap_or("");
+    match sit_v["possessionText"].as_str().filter(|s| !s.is_empty()) {
+        Some(pos) => {
+            let suffix = format!(" at {pos}");
+            long.strip_suffix(suffix.as_str())
+                .or_else(|| {
+                    let lower = long.to_ascii_lowercase();
+                    lower
+                        .strip_suffix(suffix.to_ascii_lowercase().as_str())
+                        .map(|_| &long[..long.len() - suffix.len()])
+                })
+                .unwrap_or(long)
+                .to_string()
+        }
+        None => long.to_string(),
+    }
+}
+
 /// Yards the possessing team has left to the goal it's attacking, from
 /// ESPN's absolute `situation.yardLine` (0 = home goal line, 100 = away
 /// goal line — see [`Situation::yard_line`]). The home team attacks 100, the
@@ -380,7 +410,7 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         let possession = abbr_for_id(sit_v["possession"].as_str());
         let u8_at = |key: &str| sit_v[key].as_u64().map(|n| n.min(u8::MAX as u64) as u8);
         let mut sit = Situation {
-            down_distance: sit_v["downDistanceText"].as_str().unwrap_or("").to_string(),
+            down_distance: down_distance_from(sit_v),
             possession,
             ball_on: sit_v["possessionText"].as_str().map(|s| s.to_string()),
             // The numbers as ESPN sends them. A league that

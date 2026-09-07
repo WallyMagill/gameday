@@ -1686,3 +1686,49 @@ fn a_scoreboard_last_play_is_scoring_only_when_the_feed_marks_it() {
     .unwrap();
     assert!(games.iter().flat_map(|g| &g.last_plays).all(|p| !p.scoring));
 }
+
+#[test]
+fn a_scoring_play_flag_alone_marks_it_scoring_even_at_score_value_zero() {
+    // The `scoringPlay` branch is isolated from the `scoreValue` branch: a
+    // feed can mark `scoringPlay:true` with `scoreValue:0` (a two-point
+    // conversion attempt that whiffs, an extra point ESPN hasn't tallied
+    // yet) and the flag alone is enough.
+    let flagged = one_event_with_last_play(
+        r#"{"id":"80","text":"Two-point conversion attempt","scoringPlay":true,"scoreValue":0,"team":{"id":"1"},"type":{"id":"70","text":"Two-Point Conversion"}}"#,
+    );
+    let g = &map_scoreboard(League::Nfl, &flagged, et()).unwrap()[0];
+    assert!(
+        g.last_plays[0].scoring,
+        "scoringPlay:true marks it even with scoreValue:0"
+    );
+}
+
+#[test]
+fn down_distance_never_repeats_the_ball_position() {
+    // The live CFB capture carries both fields.
+    let games = map_scoreboard(
+        League::Cfb,
+        include_str!("../fixtures/live/cfb_scoreboard_live.json"),
+        et(),
+    )
+    .unwrap();
+    let sit = games
+        .iter()
+        .filter_map(|g| g.situation.as_ref())
+        .find(|s| !s.down_distance.is_empty())
+        .unwrap();
+    assert!(
+        !sit.down_distance.contains(" at "),
+        "short form wins: {}",
+        sit.down_distance
+    );
+    // A feed with only the long form loses its trailing " at <ball_on>".
+    let long_only = one_event_with_last_play(
+        r#"{"id":"1","text":"x","scoringPlay":null,"scoreValue":0,"team":{"id":"1"},"type":{"id":"5","text":"Rush"}}"#,
+    )
+    .replace(r#""shortDownDistanceText":"1st & 10","#, "");
+    let g = &map_scoreboard(League::Nfl, &long_only, et()).unwrap()[0];
+    let sit = g.situation.as_ref().unwrap();
+    assert_eq!(sit.down_distance, "1st & 10");
+    assert_eq!(sit.ball_on.as_deref(), Some("CHI 41"));
+}
