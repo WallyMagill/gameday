@@ -70,15 +70,16 @@ dev:
       --view V      board|tv|zoom|cut-full|cut-band|standings|plays|config|help|theme-picker|filter
       --theme T     a loaded theme name, or a path to a theme .toml
       --size WxH    default 120x36
-      --scenario S  full-slate|redzone|thin-slate|finals-only|empty|nudge-resort
+      --scenario S  full-slate|redzone|thin-slate|finals-only|empty|nudge-resort|review-slate
       --tick N      sim tick (default: the scenario's own beat)
+      --opt O[,O]   design-time switches: tint-rows|clause-cap|wide-tier (wave 5 sitting only)
       --out PATH    writes PATH plus .ansi/.html beside it
   gameday probe <league>    fetch + map one live scoreboard and print it
 ";
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
     const VALID: &str =
-        "--demo|--help|-h|--version|-V|--config-dir <path>|--once [--json] [--league L]... [--live] [--top N] [--color]|dump [--tick N]|frame [--view V --theme T --size WxH --scenario S --tick N --out PATH]|probe <league>";
+        "--demo|--help|-h|--version|-V|--config-dir <path>|--once [--json] [--league L]... [--live] [--top N] [--color]|dump [--tick N]|frame [--view V --theme T --size WxH --scenario S --tick N --opt O --out PATH]|probe <league>";
     let mut a = Args {
         demo: false,
         dump: false,
@@ -99,8 +100,8 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut it = args.iter().skip(1);
     // `frame`'s flags are collected raw and validated together after the
     // loop, so `--size` can be checked whether or not `frame` came first.
-    let (mut frame, mut view, mut theme, mut size, mut scenario, mut out) =
-        (false, None, None, None, None, None);
+    let (mut frame, mut view, mut theme, mut size, mut scenario, mut opt, mut out) =
+        (false, None, None, None, None, None, None);
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--demo" => a.demo = true,
@@ -112,6 +113,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--theme" => theme = Some(next_value(&mut it, "--theme")?),
             "--size" => size = Some(next_value(&mut it, "--size")?),
             "--scenario" => scenario = Some(next_value(&mut it, "--scenario")?),
+            "--opt" => opt = Some(next_value(&mut it, "--opt")?),
             "--out" => out = Some(next_value(&mut it, "--out")?),
             "--tick" => {
                 let raw = it.next().map(String::as_str).unwrap_or("");
@@ -160,6 +162,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             ("--view", &view),
             ("--size", &size),
             ("--scenario", &scenario),
+            ("--opt", &opt),
             ("--out", &out),
             ("--theme", &theme),
         ] {
@@ -179,6 +182,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             cols,
             rows,
             tick: a.tick_given.then_some(a.tick),
+            opts: gameday::board::rows::DesignOpts::parse(opt.as_deref().unwrap_or(""))?,
             out: PathBuf::from(out.ok_or_else(|| {
                 "frame expects --out PATH (e.g. --out out/design/tv-studio-80.png)".to_string()
             })?),
@@ -1010,6 +1014,30 @@ mod tests {
     }
 
     #[test]
+    fn frame_opt_flag_parses_design_switches_and_needs_frame() {
+        use gameday::board::rows::DesignOpts;
+        let f = parsed(&["gameday", "frame", "--opt", "clause-cap", "--out", "x.png"])
+            .frame
+            .expect("frame spec");
+        assert!(f.opts.clause_cap);
+        assert!(!f.opts.tint_rows && !f.opts.wide_tier);
+        // Unflagged --opt is every switch off.
+        let f = parsed(&["gameday", "frame", "--out", "x.png"])
+            .frame
+            .expect("frame spec");
+        assert_eq!(f.opts, DesignOpts::default());
+        // Outside `frame` it's a typo, not a silent no-op.
+        let e = err(&["gameday", "--opt", "clause-cap"]);
+        assert!(e.contains("frame"), "{e}");
+        // An unknown switch names the value and the valid set.
+        let e = err(&["gameday", "frame", "--opt", "bogus", "--out", "x.png"]);
+        assert!(
+            e.contains("bogus") && e.contains("tint-rows|clause-cap|wide-tier"),
+            "{e}"
+        );
+    }
+
+    #[test]
     fn frame_errors_name_the_bad_value_and_the_valid_set() {
         let err = |args: &[&str]| {
             let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
@@ -1055,6 +1083,7 @@ mod tests {
             "--out",
             "probe",
             "--tick",
+            "--opt",
             "~/.config/gameday",
         ] {
             assert!(super::HELP.contains(needle), "HELP missing {needle}");

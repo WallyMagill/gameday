@@ -16,6 +16,7 @@ mod persist;
 pub use derive::Derived;
 
 use crate::app::net::NetStatus;
+use crate::board::rows::DesignOpts;
 use crate::config::{Config, Pin};
 use crate::domain::{Game, GameStats, League, StandingsTable, Status};
 use crate::input::{CompletionState, InputMode};
@@ -267,6 +268,10 @@ pub struct App {
     notifier: Box<dyn crate::notify::Notifier>,
     /// Per (game, kind) gap ledger — see [`crate::notify::NotifyState`].
     notify_state: crate::notify::NotifyState,
+    /// `gameday frame --opt` design-time switches for the wave 5 sitting —
+    /// `Default` (every switch off) outside `frame`. Copied onto every
+    /// [`crate::board::rows::RowCtx`] the board walk builds.
+    pub design_opts: DesignOpts,
 }
 
 impl App {
@@ -330,6 +335,7 @@ impl App {
                 reason: "no backend installed",
             }),
             notify_state: crate::notify::NotifyState::default(),
+            design_opts: DesignOpts::default(),
         }
     }
 

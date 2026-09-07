@@ -16,11 +16,16 @@
 //! clock is frozen, and no file name carries a timestamp. Two runs of the
 //! same command produce the same bytes.
 
-use crate::app::App;
-use crate::domain::Status;
+use crate::app::{App, Tab};
+use crate::board::rows::DesignOpts;
+use crate::config::{Config, Favorite};
+use crate::demo;
+use crate::domain::{League, Status};
 use crate::dump::{self, setup, Page};
+use crate::provider::map::map_scoreboard;
 use crate::theme;
 use std::path::{Path, PathBuf};
+use time::macros::datetime;
 
 /// A surface `--view` can name. The setup each one runs is the *same*
 /// function the matching `dump` stem uses, so a frame and its gallery
@@ -112,16 +117,22 @@ pub enum Scenario {
     /// The one scripted beat that re-sorts the live list (`sim::NUDGE_TICK`):
     /// the bases load and the rows below carry `↑n`.
     NudgeResort,
+    /// The 2026-09-05 CFB afternoon that exposed R1 — 68 events, 18 live,
+    /// real win probabilities; read from
+    /// `fixtures/review-slate-2026-09-05.json` at run time (it is a
+    /// megabyte; dev only), mapped through `provider::map::map_scoreboard`.
+    ReviewSlate,
 }
 
 impl Scenario {
-    pub const ALL: [(&'static str, Scenario); 6] = [
+    pub const ALL: [(&'static str, Scenario); 7] = [
         ("full-slate", Scenario::FullSlate),
         ("redzone", Scenario::Redzone),
         ("thin-slate", Scenario::ThinSlate),
         ("finals-only", Scenario::FinalsOnly),
         ("empty", Scenario::Empty),
         ("nudge-resort", Scenario::NudgeResort),
+        ("review-slate", Scenario::ReviewSlate),
     ];
 
     pub fn parse(s: &str) -> Result<Scenario, String> {
@@ -160,7 +171,9 @@ impl Scenario {
 
     /// Shape the seeded boards. Filtering happens after the sim has run, so
     /// a filtered scenario at a late tick still shows that tick's scores.
-    pub fn apply(self, app: &mut App) {
+    /// Every scenario but `ReviewSlate` always succeeds; that one reads a
+    /// fixture off disk and names the failure rather than panicking.
+    pub fn apply(self, app: &mut App) -> Result<(), String> {
         match self {
             Scenario::FullSlate | Scenario::Redzone | Scenario::NudgeResort => {}
             Scenario::ThinSlate => {
@@ -185,9 +198,39 @@ impl Scenario {
                 }
             }
             Scenario::Empty => app.boards.clear(),
+            Scenario::ReviewSlate => {
+                // The demo's scripted order state and rank fingerprints must
+                // not leak into the mapped slate — `render` builds this
+                // scenario's app fresh (not through `dump::demo_app`), so
+                // this only has to load the real capture onto it.
+                app.boards.clear();
+                app.pins.clear();
+                app.config.favorites = vec![Favorite {
+                    league: League::Cfb,
+                    team_abbr: "ORE".into(),
+                }];
+                app.config.enabled_tabs = vec![League::Cfb];
+                app.now_override = Some(datetime!(2026-09-05 16:52 -4));
+                let body = std::fs::read_to_string(REVIEW_SLATE_FIXTURE).map_err(|_| {
+                    format!(
+                        "review-slate: {REVIEW_SLATE_FIXTURE} not found — run from the repo root"
+                    )
+                })?;
+                let offset = time::UtcOffset::from_hms(-4, 0, 0).expect("-04:00 is a valid offset");
+                let games = map_scoreboard(League::Cfb, &body, offset).map_err(|e| {
+                    format!("review-slate: {REVIEW_SLATE_FIXTURE} failed to map: {e}")
+                })?;
+                app.apply_boards(League::Cfb, games, false);
+                app.tab = Tab::Home;
+            }
         }
+        Ok(())
     }
 }
+
+/// The captured 2026-09-05 CFB scoreboard `Scenario::ReviewSlate` reads —
+/// dev only, a megabyte on disk, never `include_str!`ed into the binary.
+const REVIEW_SLATE_FIXTURE: &str = "fixtures/review-slate-2026-09-05.json";
 
 /// Everything one `gameday frame` invocation renders.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -200,6 +243,8 @@ pub struct Spec {
     pub rows: u16,
     /// `--tick N` when given; otherwise the scenario's own tick.
     pub tick: Option<u64>,
+    /// `--opt` design-time switches for the wave 5 sitting: default off.
+    pub opts: DesignOpts,
     /// The PNG the caller asked for. The `.ansi` and `.html` beside it carry
     /// the same stem.
     pub out: PathBuf,
@@ -270,6 +315,53 @@ pub fn resolve_theme(spec: &str) -> Result<String, String> {
     Ok(name)
 }
 
+/// Render one frame's buffer: the demo app (or, for `ReviewSlate`, a fresh
+/// app built straight from the mapped fixture — the demo's scripted order
+/// state and rank fingerprints must not leak into it) at the scenario's
+/// state, drawn through the real view setup and the real renderer. No
+/// Chrome, no files — this is what `run` writes to disk and what a test
+/// inspects directly.
+pub(crate) fn render(spec: &Spec) -> std::io::Result<ratatui::buffer::Buffer> {
+    let theme_name = resolve_theme(&spec.theme).map_err(std::io::Error::other)?;
+    let tick = spec.tick.unwrap_or_else(|| spec.scenario.default_tick());
+    dump::with_theme(&theme_name, || {
+        let dir = std::env::temp_dir().join(format!("gameday-frame-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let mut app = match spec.scenario {
+            Scenario::ReviewSlate => {
+                let config = Config {
+                    enabled_tabs: vec![League::Cfb],
+                    favorites: vec![Favorite {
+                        league: League::Cfb,
+                        team_abbr: "ORE".into(),
+                    }],
+                    ..demo::demo_config()
+                };
+                let offset = time::UtcOffset::from_hms(-4, 0, 0).expect("-04:00 is a valid offset");
+                App::new(config, vec![], dir, offset)
+            }
+            _ => dump::demo_app(dir, tick),
+        };
+        spec.scenario
+            .apply(&mut app)
+            .map_err(std::io::Error::other)?;
+        app.design_opts = spec.opts;
+        (spec.view.setup())(&mut app).map_err(|e| {
+            std::io::Error::other(format!(
+                "view {} cannot render scenario {}: {e}",
+                spec.view.name(),
+                spec.scenario.name()
+            ))
+        })?;
+        // TestBackend's Error is Infallible, so this unwrap cannot fire.
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(spec.cols, spec.rows))
+                .unwrap();
+        term.draw(|f| app.draw(f)).unwrap();
+        Ok::<_, std::io::Error>(term.backend().buffer().clone())
+    })
+}
+
 /// Render one frame and write `<stem>.html`, `<stem>.ansi` and (when Chrome
 /// is available) `<stem>.png` beside the `--out` path. The directory is
 /// created. Returns the stem's directory and stem, for the caller's report.
@@ -287,26 +379,7 @@ pub fn run(spec: &Spec) -> std::io::Result<()> {
         })?;
     std::fs::create_dir_all(&out_dir)?;
     let theme_name = resolve_theme(&spec.theme).map_err(std::io::Error::other)?;
-    let tick = spec.tick.unwrap_or_else(|| spec.scenario.default_tick());
-    let buf = dump::with_theme(&theme_name, || {
-        let dir = std::env::temp_dir().join(format!("gameday-frame-{}", std::process::id()));
-        std::fs::create_dir_all(&dir)?;
-        let mut app = dump::demo_app(dir, tick);
-        spec.scenario.apply(&mut app);
-        (spec.view.setup())(&mut app).map_err(|e| {
-            std::io::Error::other(format!(
-                "view {} cannot render scenario {}: {e}",
-                spec.view.name(),
-                spec.scenario.name()
-            ))
-        })?;
-        // TestBackend's Error is Infallible, so this unwrap cannot fire.
-        let mut term =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(spec.cols, spec.rows))
-                .unwrap();
-        term.draw(|f| app.draw(f)).unwrap();
-        Ok::<_, std::io::Error>(term.backend().buffer().clone())
-    })?;
+    let buf = render(spec)?;
     let page = Page {
         stem,
         cols: spec.cols,
@@ -344,6 +417,7 @@ mod tests {
             cols: DEFAULT_SIZE.0,
             rows: DEFAULT_SIZE.1,
             tick: None,
+            opts: DesignOpts::default(),
             out,
         }
     }
@@ -353,25 +427,6 @@ mod tests {
             std::env::temp_dir().join(format!("gameday-frame-test-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    /// A rendered frame, without the Chrome leg — the buffer is what the
-    /// design loop is actually looking at.
-    fn render(spec: &Spec) -> String {
-        let name = resolve_theme(&spec.theme).unwrap();
-        let buf = dump::with_theme(&name, || {
-            let dir = std::env::temp_dir().join(format!("gameday-frame-t-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).unwrap();
-            let mut app = dump::demo_app(dir, spec.tick.unwrap_or(spec.scenario.default_tick()));
-            spec.scenario.apply(&mut app);
-            (spec.view.setup())(&mut app).unwrap();
-            let mut term =
-                ratatui::Terminal::new(ratatui::backend::TestBackend::new(spec.cols, spec.rows))
-                    .unwrap();
-            term.draw(|f| app.draw(f)).unwrap();
-            term.backend().buffer().clone()
-        });
-        text_of(&buf)
     }
 
     #[test]
@@ -469,14 +524,14 @@ mod tests {
     /// for — a name with nothing behind it is worse than no scenario.
     #[test]
     fn every_scenario_shows_the_state_it_is_named_for() {
-        let full = render(&spec("board", Scenario::FullSlate, "x.png".into()));
+        let full = text_of(&render(&spec("board", Scenario::FullSlate, "x.png".into())).unwrap());
         assert!(full.contains("IN PLAY") && full.contains("FINAL"), "{full}");
 
-        let red = render(&spec("board", Scenario::Redzone, "x.png".into()));
+        let red = text_of(&render(&spec("board", Scenario::Redzone, "x.png".into())).unwrap());
         assert!(red.contains("RED ZONE"), "the hero's red-zone chip:\n{red}");
         assert!(red.contains("Goal"), "a live goal-line drive:\n{red}");
 
-        let thin = render(&spec("board", Scenario::ThinSlate, "x.png".into()));
+        let thin = text_of(&render(&spec("board", Scenario::ThinSlate, "x.png".into())).unwrap());
         assert!(thin.contains("KC"), "the one live game survives:\n{thin}");
         // One league only: the NBA/NHL/MLB rows are gone.
         assert!(
@@ -484,11 +539,12 @@ mod tests {
             "one league only:\n{thin}"
         );
 
-        let finals = render(&spec("board", Scenario::FinalsOnly, "x.png".into()));
+        let finals =
+            text_of(&render(&spec("board", Scenario::FinalsOnly, "x.png".into())).unwrap());
         assert!(finals.contains("FINAL"), "the FINAL section:\n{finals}");
         assert!(!finals.contains("IN PLAY"), "nothing is live:\n{finals}");
 
-        let empty = render(&spec("board", Scenario::Empty, "x.png".into()));
+        let empty = text_of(&render(&spec("board", Scenario::Empty, "x.png".into())).unwrap());
         assert!(
             !empty.contains("IN PLAY"),
             "no sections on an empty board:\n{empty}"
@@ -500,7 +556,8 @@ mod tests {
 
         // The nudge scenario lands on the scripted re-sort: the cause is on
         // screen and the risen row wears its arrow.
-        let nudge = render(&spec("board", Scenario::NudgeResort, "x.png".into()));
+        let nudge =
+            text_of(&render(&spec("board", Scenario::NudgeResort, "x.png".into())).unwrap());
         assert!(nudge.contains("BASES LOADED"), "the cause:\n{nudge}");
         assert!(
             nudge.lines().any(|l| l.chars().nth(2) == Some('↑')),
@@ -517,7 +574,7 @@ mod tests {
         assert_eq!(Scenario::FullSlate.default_tick(), 0);
         let mut s = spec("board", Scenario::FullSlate, "x.png".into());
         s.tick = Some(crate::sim::KC_TD_TICK);
-        let text = render(&s);
+        let text = text_of(&render(&s).unwrap());
         assert!(text.contains("TOUCHDOWN"), "tick 15 is the TD:\n{text}");
     }
 
@@ -550,19 +607,7 @@ mod tests {
             (s.cols, s.rows) = size;
             // Chrome is not required for the files this test judges.
             let theme_name = resolve_theme(&s.theme).unwrap();
-            let buf = dump::with_theme(&theme_name, || {
-                let d =
-                    std::env::temp_dir().join(format!("gameday-frame-w-{}", std::process::id()));
-                std::fs::create_dir_all(&d).unwrap();
-                let mut app = dump::demo_app(d, 0);
-                s.scenario.apply(&mut app);
-                (s.view.setup())(&mut app).unwrap();
-                let mut term =
-                    ratatui::Terminal::new(ratatui::backend::TestBackend::new(s.cols, s.rows))
-                        .unwrap();
-                term.draw(|f| app.draw(f)).unwrap();
-                term.backend().buffer().clone()
-            });
+            let buf = render(&s).unwrap();
             let pages = [Page {
                 stem: view.to_string(),
                 cols: s.cols,
@@ -603,5 +648,48 @@ mod tests {
             assert_eq!(widest, usize::from(size.0), "{view}: the ansi row width");
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_review_slate_scenario_is_the_saturday_board_with_a_favorite() {
+        let spec = Spec {
+            view: FrameView::Board,
+            scenario: Scenario::ReviewSlate,
+            theme: "broadcast".into(),
+            cols: 120,
+            rows: 40,
+            tick: None,
+            opts: DesignOpts::default(),
+            out: PathBuf::from("unused.png"),
+        };
+        let s = text_of(&render(&spec).unwrap());
+        assert!(
+            s.contains("BOIS") && s.contains("ORE"),
+            "Boise at Oregon is on the board:\n{s}"
+        );
+        assert!(
+            s.contains("MY GAMES") && s.contains("★"),
+            "the scenario's favorite (ORE) sits in the band:\n{s}"
+        );
+        assert!(
+            s.contains("SAT SEP 5") || s.contains("SEP 5"),
+            "the clock is the capture's afternoon:\n{s}"
+        );
+        assert!(
+            !s.contains("KC") || s.contains("KC "),
+            "no demo game leaks in"
+        );
+    }
+
+    #[test]
+    fn design_opts_parse_and_name_the_valid_set() {
+        let o = DesignOpts::parse("tint-rows,wide-tier").unwrap();
+        assert!(o.tint_rows && o.wide_tier && !o.clause_cap);
+        let e = DesignOpts::parse("tint-rows,bogus").unwrap_err();
+        assert!(
+            e.contains("bogus") && e.contains("tint-rows|clause-cap|wide-tier"),
+            "{e}"
+        );
+        assert_eq!(DesignOpts::parse("").unwrap(), DesignOpts::default());
     }
 }

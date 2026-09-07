@@ -61,6 +61,43 @@ pub struct RowCtx {
     /// this is `Some` for at most one row at a time — every other final
     /// falls through it to the newest scoring play, honestly.
     pub leaders_line: Option<String>,
+    /// The wave 5 sitting's `--opt` switches — `App::design_opts`, copied in
+    /// wholesale. A row reads its own field(s) off this, once a later task
+    /// wires one up; until then every switch is inert.
+    pub design: DesignOpts,
+}
+
+/// Design-time switches for the wave 5 sitting. Default off; only
+/// `gameday frame --opt` sets them; deleted when the sitting is decided.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DesignOpts {
+    pub tint_rows: bool,
+    pub clause_cap: bool,
+    pub wide_tier: bool,
+}
+
+impl DesignOpts {
+    pub const NAMES: [&'static str; 3] = ["tint-rows", "clause-cap", "wide-tier"];
+
+    /// `"tint-rows,wide-tier"` → opts; an unknown name errors naming the
+    /// valid set. An empty string is every switch off (`DesignOpts::default()`).
+    pub fn parse(list: &str) -> Result<DesignOpts, String> {
+        let mut opts = DesignOpts::default();
+        for name in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            match name {
+                "tint-rows" => opts.tint_rows = true,
+                "clause-cap" => opts.clause_cap = true,
+                "wide-tier" => opts.wide_tier = true,
+                other => {
+                    return Err(format!(
+                        "unknown --opt {other:?}, valid: {}",
+                        Self::NAMES.join("|")
+                    ))
+                }
+            }
+        }
+        Ok(opts)
+    }
 }
 
 // ---------------------------------------------------------------- the grid
@@ -701,6 +738,7 @@ mod tests {
             league_tag: true,
             now: datetime!(2026-09-13 14:47 -4),
             leaders_line: None,
+            design: DesignOpts::default(),
         }
     }
 
