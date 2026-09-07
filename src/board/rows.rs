@@ -10,7 +10,7 @@
 //!
 //! * **Two gutters, always reserved** ([`GUTTER`]). Column 0 is the hot mark
 //!   — `▌` in `hot` when the row is hot, `dim` when it isn't, and *only*
-//!   those two states. Columns 2–3 are the nudge. A row that rises shows
+//!   those two states. Columns 2–4 are the nudge. A row that rises shows
 //!   `↑2` there and does not move by a single cell (A′ calls #6/#7: rank and
 //!   hotness are different facts, so a nudge may never restyle the mark or
 //!   reflow the line).
@@ -63,49 +63,59 @@ pub struct RowCtx {
     pub leaders_line: Option<String>,
 }
 
-/// The two fixed gutters every tier-1/2 row reserves: 2-cell hot mark,
-/// 2-cell nudge.
-pub const GUTTER: u16 = 4;
-
-/// Column of the nudge inside [`GUTTER`]: the mark takes 0 and its air, the
-/// nudge takes the rest.
-const NUDGE_X: u16 = 2;
-
-/// Largest climb the 2-cell nudge gutter can say truthfully:
-/// `↑9` means "rose 9 or more places".
-const NUDGE_MAX: usize = 9;
-
 // ---------------------------------------------------------------- the grid
 //
 // Column offsets from the row's left edge, measured off the A′ reference
 // frame at 120 columns (docs/research/v3-identity/nfl-sunday-120x40.png:
 // `GB 13 CHI 10  Q3 4:20  NFL  GB 3RD & 2 AT CHI 41`, and the LATER rows
-// whose start times and league tags share the same columns). ±1 column of
-// pixel-measurement error; the frame's *ordering and alignment* is the
-// contract, the exact offsets are ours.
+// whose start times and league tags share the same columns) — but the grid
+// itself is a *derivation* from a handful of field widths, not a table of
+// offsets someone can edit one at a time. That is what the review's glue
+// bugs were: `↑9TNST`, `NETFLIXLAR -3.5`, `BOISPASSING YARDS` were all one
+// field ending exactly where the next one started, with no cell of air
+// between them. ±1 column of pixel-measurement error on the frame; the
+// frame's *ordering and alignment* is the contract, the exact offsets are
+// ours.
 
-/// Abbr field width: four cells holds every abbr the mapper emits (`WSH`,
-/// `MTL`, and soccer's four-letter clubs).
-const ABBR_W: u16 = 4;
+/// Column pitch of a team abbreviation: four cells hold every abbr the mapper
+/// emits (`WSH`, `MTL`, `TNST`, soccer's four-letter clubs) and the fifth is
+/// air. One number for the board rows, the STATS leaders column and the
+/// standings table, so a four-letter code can never glue itself to what
+/// follows (the review's `BOISPASSING YARDS`).
+pub const ABBR_W: u16 = 5;
+/// The cells an abbr's text may occupy inside its column; the last is air.
+const ABBR_TEXT_W: u16 = ABBR_W - 1;
 /// Score field width: three cells for a college basketball 100+.
 const SCORE_W: u16 = 3;
+/// Air between two fields whose pitch does not already carry it.
+const GAP: u16 = 1;
+/// The hot mark and its air.
+const MARK_W: u16 = 2;
+/// The nudge: `↑9` plus one cell of air before the abbr — `↑9TNST` was the
+/// review's L3.
+const NUDGE_W: u16 = 3;
+/// The two fixed gutters every tier-1/2 row reserves.
+pub const GUTTER: u16 = MARK_W + NUDGE_W;
+const NUDGE_X: u16 = MARK_W;
+/// Largest climb two glyphs can say truthfully: `↑9` means "rose 9 or more".
+const NUDGE_MAX: usize = 9;
 
 const AWAY_ABBR_X: u16 = GUTTER;
-const AWAY_SCORE_X: u16 = 9;
-const HOME_ABBR_X: u16 = 13;
-const HOME_SCORE_X: u16 = 18;
-/// Clock/status column — wide enough for baseball's `BOT 7TH` and soccer's
-/// `2ND HALF` without touching the league tag. The text is truncated one cell
-/// short of the field so a full-width state (`SEP 13 8:20`, a LATER row a week
-/// out) keeps a column of air before the tag instead of reading `8:20NFL`.
-const CLOCK_X: u16 = 22;
-const CLOCK_W: u16 = 11;
-const LEAGUE_X: u16 = 33;
+const AWAY_SCORE_X: u16 = AWAY_ABBR_X + ABBR_W;
+const HOME_ABBR_X: u16 = AWAY_SCORE_X + SCORE_W + GAP;
+const HOME_SCORE_X: u16 = HOME_ABBR_X + ABBR_W;
+const CLOCK_X: u16 = HOME_SCORE_X + SCORE_W + GAP;
+/// The longest state a row prints is a start more than six days out,
+/// `SEP 21 8:20 PM`: fourteen cells (the review's L1 clipped it at eleven).
+const CLOCK_W: u16 = 14;
+const LEAGUE_X: u16 = CLOCK_X + CLOCK_W + GAP;
 const LEAGUE_W: u16 = 4;
 /// Where a row's prose starts: the headline, the fragment, the broadcast.
-const TEXT_X: u16 = 38;
-/// Broadcast field on a LATER row, before the odds (`FOX`, `ESPN`, `PRIME`).
+const TEXT_X: u16 = LEAGUE_X + LEAGUE_W + GAP;
+/// Broadcast field on a LATER row: `NETFLIX` is the longest at seven.
 const BCAST_W: u16 = 7;
+/// The odds after the broadcast, with air between (L2: `NETFLIXLAR -3.5`).
+const ODDS_X: u16 = TEXT_X + BCAST_W + GAP;
 
 // Tier 1 shares the one-line tiers' grid *entirely*: the same `pair_line`
 // draws `GB 13 CHI 10` at the same columns a tier-2 row does, and the clock
@@ -116,13 +126,13 @@ const BCAST_W: u16 = 7;
 // was deleted: it tofued on terminals without sextant
 // coverage, it duplicated the numerals `pair_line` already draws, and it was
 // the only reason tier 1 pushed its clock out to x40 while every row under it
-// clocked at x22. Dropping it buys that alignment back for free.
+// clocked at [`CLOCK_X`]. Dropping it buys that alignment back for free.
 /// The tier-1 state chip's field. It rides on row 1, where nothing sits
 /// between the clock column and the play text, so it gets the whole gap
-/// rather than the clock's own [`CLOCK_W`] — at 11 cells the longest chips
-/// `rank::watchability` emits ("BASES LOADED" and "GO-AHEAD 3RD" at 12,
-/// "TYING RUN 3RD" at 13) were clipped to a word that isn't
-/// one. Now `TEXT_X - CLOCK_X` = 16, which holds all of them.
+/// rather than the clock's own [`CLOCK_W`] — a fixed 11-cell chip field once
+/// clipped the longest chips `rank::watchability` emits ("BASES LOADED" and
+/// "GO-AHEAD 3RD" at 12, "TYING RUN 3RD" at 13) to a word that isn't one.
+/// `TEXT_X - CLOCK_X` holds all of them with room to spare.
 const T1_CHIP_W: u16 = TEXT_X - CLOCK_X;
 
 /// Render `line` into the column `x..x+w` of row `y` (both relative to
@@ -196,7 +206,7 @@ fn score_span(value: u16, r: &Roles, strong: bool) -> Line<'static> {
 /// says FT where the American leagues say FINAL (the A′ frame's FINAL
 /// section: `ARS 3 BHA 0 FT EPL` above `BOS 5 TEX 2 FINAL MLB`).
 fn state_text(game: &Game, now: OffsetDateTime) -> String {
-    truncate(&state_text_raw(game, now), CLOCK_W as usize - 1)
+    truncate(&state_text_raw(game, now), CLOCK_W as usize)
 }
 
 fn state_text_raw(game: &Game, now: OffsetDateTime) -> String {
@@ -296,7 +306,7 @@ fn gutters(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
                 .add_modifier(Modifier::BOLD),
         ))
     } else {
-        // The gutter is two cells, so the DISPLAYED climb clamps
+        // The nudge is two glyphs, so the DISPLAYED climb clamps
         // at 9 — `↑9` reads "rose 9 or more". Clipping `↑12` to `↑1` would
         // print a number that never happened; an understated climb is the
         // honest failure.
@@ -312,7 +322,7 @@ fn gutters(frame: &mut Frame, area: Rect, ctx: &RowCtx, rows: u16, bar: bool) {
             frame,
             area,
             NUDGE_X,
-            GUTTER - NUDGE_X,
+            NUDGE_W,
             0,
             Alignment::Left,
             Line::from(span),
@@ -344,7 +354,7 @@ pub fn draw_tier1(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
             frame,
             area,
             AWAY_ABBR_X,
-            ABBR_W,
+            ABBR_TEXT_W,
             1,
             Alignment::Right,
             Line::from(tag),
@@ -467,7 +477,7 @@ pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
             frame,
             area,
             AWAY_ABBR_X,
-            ABBR_W,
+            ABBR_TEXT_W,
             0,
             Alignment::Right,
             abbr_span(ctx.pinned, &game.away, ctx),
@@ -486,7 +496,7 @@ pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
             frame,
             area,
             HOME_ABBR_X,
-            ABBR_W,
+            ABBR_TEXT_W,
             0,
             Alignment::Left,
             abbr_span(ctx.pinned, &game.home, ctx),
@@ -523,7 +533,7 @@ pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
             );
         }
         if let Some(odds) = game.odds.as_deref().filter(|s| !s.is_empty()) {
-            let x = TEXT_X + BCAST_W;
+            let x = ODDS_X;
             let room = (area.width.saturating_sub(x)) as usize;
             let span = Span::styled(truncate(odds, room), Style::default().fg(r.dim));
             col(
@@ -566,7 +576,7 @@ fn pair_line(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx, strong: b
         frame,
         area,
         AWAY_ABBR_X,
-        ABBR_W,
+        ABBR_TEXT_W,
         0,
         Alignment::Right,
         abbr_span(ctx.pinned, &game.away, ctx),
@@ -584,7 +594,7 @@ fn pair_line(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx, strong: b
         frame,
         area,
         HOME_ABBR_X,
-        ABBR_W,
+        ABBR_TEXT_W,
         0,
         Alignment::Left,
         abbr_span(ctx.pinned, &game.home, ctx),
@@ -774,10 +784,10 @@ mod tests {
         // score right-aligned two columns later, home pair mirrored.
         // The abbr pads to a 3-cell minimum, so a 2-char abbr
         // right-aligned in the 4-cell field now starts one column left of
-        // where the unpadded text used to (ABBR_W-3, not ABBR_W-2).
+        // where the unpadded text used to (ABBR_TEXT_W-3, not ABBR_TEXT_W-2).
         assert_eq!(
             col_of(buf, 0, "GB"),
-            Some(AWAY_ABBR_X + ABBR_W - 3),
+            Some(AWAY_ABBR_X + ABBR_TEXT_W - 3),
             "away abbr right-aligned\n{text}"
         );
         assert_eq!(
@@ -942,14 +952,23 @@ mod tests {
                 draw_tier2,
             );
             let buf = term.backend().buffer();
-            let got: String = (NUDGE_X..GUTTER).map(|x| buf[(x, 0)].symbol()).collect();
+            // The nudge glyph is always two cells (arrow + one digit); the
+            // gutter's third cell is the air before the abbr — trim it off
+            // rather than pasting the glyph width as a literal.
+            let got: String = (NUDGE_X..GUTTER)
+                .map(|x| buf[(x, 0)].symbol())
+                .collect::<String>()
+                .trim_end()
+                .to_string();
             assert_eq!(
                 got,
                 want,
                 "nudge {nudge} renders {want} in the gutter\n{}",
                 text_of(buf)
             );
-            for x in NUDGE_X..GUTTER {
+            // Only the glyph's own cells carry the amber style; the air
+            // cell the wider gutter now reserves is unstyled.
+            for x in NUDGE_X..NUDGE_X + got.chars().count() as u16 {
                 assert_eq!(
                     buf[(x, 0)].fg,
                     r.digits,
@@ -963,6 +982,35 @@ mod tests {
                 "nudge {nudge} must not spill past the gutter"
             );
         }
+    }
+
+    /// L3: `↑9TNST`. The nudge field is three cells so a two-glyph climb
+    /// keeps a cell of air before a four-letter code.
+    #[test]
+    fn a_four_letter_code_with_a_nudge_keeps_its_gap() {
+        let mut game = tier2_game();
+        game.away.abbr = "TNST".into();
+        game.home.abbr = "UGA".into();
+        let mut c = ctx();
+        c.nudge = Some(12); // prints ↑9: "rose 9 or more"
+        let term = render(120, 1, &game, &c, draw_tier2);
+        let buf = term.backend().buffer();
+        let text = text_of(buf);
+        assert_eq!(col_of(buf, 0, "↑9"), Some(NUDGE_X), "{text}");
+        assert_eq!(col_of(buf, 0, "TNST"), Some(AWAY_ABBR_X), "{text}");
+        assert!(!text.contains("↑9TNST"), "no air after the nudge\n{text}");
+        assert_eq!(
+            buf[(AWAY_ABBR_X + ABBR_TEXT_W, 0)].symbol(),
+            " ",
+            "air before the score\n{text}"
+        );
+        // Right-aligned in the 3-cell score field, same as every other
+        // 2-digit score in this file.
+        assert_eq!(
+            col_of(buf, 0, "13"),
+            Some(AWAY_SCORE_X + SCORE_W - 2),
+            "{text}"
+        );
     }
 
     #[test]
@@ -1135,10 +1183,10 @@ mod tests {
             "fmt_start(ctx.now) in the clock column\n{text}"
         );
         assert!(!text.contains("2026-"), "never an ISO stamp\n{text}");
-        // Padded to a 3-cell minimum, ABBR_W-3 not ABBR_W-2.
+        // Padded to a 3-cell minimum, ABBR_TEXT_W-3 not ABBR_TEXT_W-2.
         assert_eq!(
             col_of(buf, 0, "TB"),
-            Some(AWAY_ABBR_X + ABBR_W - 3),
+            Some(AWAY_ABBR_X + ABBR_TEXT_W - 3),
             "away abbr right-aligned\n{text}"
         );
         assert_eq!(
@@ -1152,11 +1200,7 @@ mod tests {
             "home abbr left-aligned\n{text}"
         );
         assert_eq!(col_of(buf, 0, "FOX"), Some(TEXT_X), "broadcast\n{text}");
-        assert_eq!(
-            col_of(buf, 0, "TB -1.5"),
-            Some(TEXT_X + BCAST_W),
-            "odds\n{text}"
-        );
+        assert_eq!(col_of(buf, 0, "TB -1.5"), Some(ODDS_X), "odds\n{text}");
         assert_eq!(
             buf[(0, 0)].symbol(),
             "·",
@@ -1202,6 +1246,62 @@ mod tests {
             theme::current().roles().digits,
             "scores stay amber\n{text}"
         );
+    }
+
+    /// L1 + L2: a start more than six days out prints whole at every width,
+    /// and `NETFLIX` is followed by air before the odds.
+    #[test]
+    fn a_later_row_a_week_out_prints_its_whole_date_at_80_and_200_columns() {
+        let mut game = live_game("TB", "ATL");
+        game.status = Status::Pre;
+        game.situation = None;
+        game.last_plays.clear();
+        // Eight days past ctx().now (2026-09-13): the month-day form.
+        game.start = Some(datetime!(2026-09-21 20:20 -4));
+        game.broadcast = Some("NETFLIX".into());
+        game.odds = Some("LAR -3.5  O/U 44.5".into());
+        for w in [80u16, 200] {
+            let term = render(w, 1, &game, &ctx(), draw_tier3);
+            let buf = term.backend().buffer();
+            let text = text_of(buf);
+            assert_eq!(
+                col_of(buf, 0, "SEP 21 8:20 PM"),
+                Some(CLOCK_X),
+                "whole start at {w} columns\n{text}"
+            );
+            assert_eq!(
+                buf[(CLOCK_X + CLOCK_W, 0)].symbol(),
+                " ",
+                "air before the tag at {w}\n{text}"
+            );
+            assert_eq!(col_of(buf, 0, "NFL"), Some(LEAGUE_X), "{text}");
+            assert_eq!(col_of(buf, 0, "NETFLIX"), Some(TEXT_X), "{text}");
+            assert_eq!(
+                buf[(TEXT_X + BCAST_W, 0)].symbol(),
+                " ",
+                "air after NETFLIX at {w}\n{text}"
+            );
+            assert_eq!(col_of(buf, 0, "LAR -3.5"), Some(ODDS_X), "{text}");
+        }
+    }
+
+    /// The grid is a derivation, and this is the receipt for its numbers.
+    #[test]
+    fn the_grid_derives_from_its_widths() {
+        assert_eq!(GUTTER, MARK_W + NUDGE_W);
+        assert_eq!(AWAY_SCORE_X, AWAY_ABBR_X + ABBR_W);
+        assert_eq!(HOME_ABBR_X, AWAY_SCORE_X + SCORE_W + GAP);
+        assert_eq!(HOME_SCORE_X, HOME_ABBR_X + ABBR_W);
+        assert_eq!(CLOCK_X, HOME_SCORE_X + SCORE_W + GAP);
+        assert_eq!(LEAGUE_X, CLOCK_X + CLOCK_W + GAP);
+        assert_eq!(TEXT_X, LEAGUE_X + LEAGUE_W + GAP);
+        assert_eq!(ODDS_X, TEXT_X + BCAST_W + GAP);
+        assert_eq!(
+            CLOCK_W as usize,
+            "SEP 21 8:20 PM".chars().count(),
+            "CLOCK_W holds the longest state"
+        );
+        assert_eq!(BCAST_W as usize, "NETFLIX".len());
     }
 
     /// The tier-3 FINAL ladder in its fixed order — `headline` → leaders line →
@@ -1368,12 +1468,12 @@ mod tests {
         // text rows sit in tier 2's own columns as well.
         assert_eq!(
             col_of(buf, 0, "DAL"),
-            Some(AWAY_ABBR_X + ABBR_W - 3),
+            Some(AWAY_ABBR_X + ABBR_TEXT_W - 3),
             "away abbr, row 0\n{text}"
         );
         assert_eq!(
             col_of(buf, 1, "NFL"),
-            Some(AWAY_ABBR_X + ABBR_W - 3),
+            Some(AWAY_ABBR_X + ABBR_TEXT_W - 3),
             "league under it, row 1\n{text}"
         );
         assert_eq!(

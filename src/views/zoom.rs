@@ -644,7 +644,11 @@ fn draw_stats(app: &App, frame: &mut Frame, area: Rect, game: &Game) {
         for leader in &stats.leaders {
             lines.push(Line::from(vec![
                 Span::styled(
-                    format!("  {:<4}", leader.team),
+                    format!(
+                        "  {:<w$}",
+                        leader.team,
+                        w = crate::board::rows::ABBR_W as usize
+                    ),
                     Style::default()
                         .fg(App::team_color(game, &leader.team))
                         .add_modifier(Modifier::BOLD),

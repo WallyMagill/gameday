@@ -73,6 +73,17 @@ fn buf_text(term: &Terminal<TestBackend>) -> String {
     s
 }
 
+/// The column `needle` starts at on row `y` of the last frame, or None.
+fn col_of(term: &Terminal<TestBackend>, y: u16, needle: &str) -> Option<u16> {
+    let b = term.backend().buffer();
+    let row: String = (0..b.area().width)
+        .map(|x| b[(x, y)].symbol())
+        .collect::<Vec<_>>()
+        .concat();
+    row.find(needle)
+        .map(|byte| row[..byte].chars().count() as u16)
+}
+
 fn mk() -> App {
     let dir = std::env::temp_dir().join(format!("gd-draw-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
@@ -1102,6 +1113,47 @@ fn stats_tab_without_data_says_no_stats_yet() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     assert!(s.contains("no stats yet"), "{s}");
+}
+
+/// L4: `BOISPASSING YARDS`. The leaders column is the row grid's abbr pitch.
+#[test]
+fn stats_leaders_keep_a_gap_after_a_four_letter_code() {
+    use gameday::views::{View, ZoomTab};
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "BOIS", "ORE", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.stats.insert(
+        "1".into(),
+        GameStats {
+            rows: vec![StatRow {
+                label: "Total yards".into(),
+                away: "412".into(),
+                home: "388".into(),
+            }],
+            leaders: vec![Leader {
+                team: "BOIS".into(),
+                label: "Passing yards".into(),
+                text: "M. Madsen 24/31, 288".into(),
+            }],
+        },
+    );
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Stats,
+    };
+    let term = render(&mut app, 120, 40);
+    let s = buf_text(&term);
+    let y = s
+        .lines()
+        .position(|l| l.contains("PASSING YARDS"))
+        .expect("leader row") as u16;
+    let abbr = col_of(&term, y, "BOIS").expect("abbr");
+    assert_eq!(
+        col_of(&term, y, "PASSING YARDS"),
+        Some(abbr + gameday::board::rows::ABBR_W),
+        "{s}"
+    );
+    assert!(!s.contains("BOISPASSING"), "{s}");
 }
 
 /// Live NBA game with one scoring play, for cross-league feed tests.

@@ -16,8 +16,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-/// Abbr column width: 4-char abbrs plus a gap.
-const ABBR_W: usize = 5;
+/// Abbr column width — the row grid's [`crate::board::rows::ABBR_W`]: four
+/// cells for the abbr, the fifth is air.
+const ABBR_W: usize = crate::board::rows::ABBR_W as usize;
 /// W/L/third value column width (right-aligned): 3-digit season totals (MLB
 /// plays 162) plus a leading space.
 const VAL_W: usize = 4;
