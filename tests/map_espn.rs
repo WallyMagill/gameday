@@ -1766,3 +1766,21 @@ fn a_red_zone_flag_without_possession_makes_no_meter() {
     let g = &map_scoreboard(League::Nfl, &stranger, et()).unwrap()[0];
     assert_eq!(g.meter, None, "an id that is neither team is not a side");
 }
+
+#[test]
+fn mlb_last_play_reads_the_pitch_outcome_not_the_projected_at_bat() {
+    let json = r#"{"events":[{"id":"5","competitions":[{"status":{"displayClock":"0:00","period":3,"type":{"state":"in","completed":false,"shortDetail":"Bot 3rd"}},"competitors":[
+      {"homeAway":"away","score":"1","team":{"id":"16","abbreviation":"CHC","displayName":"Cubs","color":"0e3386","alternateColor":"cc3433"}},
+      {"homeAway":"home","score":"0","team":{"id":"28","abbreviation":"MIA","displayName":"Marlins","color":"00a3e0","alternateColor":"ef3340"}}
+    ],"situation":{"balls":0,"strikes":2,"outs":1,"onFirst":false,"onSecond":false,"onThird":false,
+      "lastPlay":{"id":"401","text":"Pitch 2 : Strike 2 Looking","scoreValue":0,"scoringPlay":null,"team":{"id":"28"},
+        "type":{"id":"36","text":"Strike Looking","abbreviation":"SL","alternativeText":"Strikeout","type":"strike-looking"},
+        "athletesInvolved":[{"id":"1","shortName":"J. Ortiz"}]}}}]}]}"#;
+    let g = &map_scoreboard(League::Mlb, json, et()).unwrap()[0];
+    assert_eq!(g.last_plays[0].text, "Strike Looking — J. Ortiz");
+    assert!(
+        !g.last_plays[0].text.contains("Strikeout"),
+        "alternativeText is a projection, not what happened"
+    );
+    assert!(!g.last_plays[0].scoring);
+}
