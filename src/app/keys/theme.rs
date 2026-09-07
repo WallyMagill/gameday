@@ -1,5 +1,5 @@
-//! Keys in the theme picker, plus `c`'s one-press theme cycle. Both live
-//! here because both are the same preview-then-persist dance.
+//! Keys in the theme picker: preview-then-persist as the cursor moves,
+//! Enter keeps it, Esc/q reverts.
 
 use crate::app::App;
 use crate::theme;
@@ -68,24 +68,5 @@ impl App {
         let n = names.len() as isize;
         self.theme_cursor = (self.theme_cursor as isize + delta).rem_euclid(n) as usize;
         let _ = theme::set_current(&names[self.theme_cursor]);
-    }
-
-    /// 'c': step to the next loaded theme in picker order (built-ins, then
-    /// user files), wrapping; persisted like layout.
-    pub(super) fn cycle_theme(&mut self) {
-        let next = theme::next_name(&theme::current_name(), 1);
-        let _ = theme::set_current(&next);
-        self.config.theme = next.clone();
-        // One keypress, one line. `persist_config` writes its own refusal
-        // toast, and the old order let "theme X" overwrite it — so the toast
-        // is composed here, after the save, and says both halves.
-        self.status_line = None;
-        self.persist_config();
-        let save_error = self.status_line.take();
-        self.status_line = Some(match (&self.config_error, save_error) {
-            (Some(_), _) => format!("theme {next} · not saving (config error)"),
-            (None, Some(err)) => err,
-            (None, None) => format!("theme {next}"),
-        });
     }
 }

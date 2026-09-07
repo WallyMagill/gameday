@@ -169,7 +169,7 @@ fn board_walk<'a>(
     if let Some(at) = in_play_hero {
         blocks.push(hero_block(&d.in_play[at], index + at));
     }
-    if !d.in_play.is_empty() {
+    if d.in_play.len() > usize::from(in_play_hero.is_some()) {
         blocks.push(Block::Rule(
             "IN PLAY",
             format!("SORTED BY {}", sort_phrase(app.config.sort)),
@@ -266,15 +266,13 @@ fn board_walk<'a>(
         // A rule that fits is still an orphan if the window
         // runs out immediately after it — the truncation path, not just the
         // empty-list one (`if games.is_empty() { continue; }` above only
-        // catches a section with zero games). Distinguish that from IN
-        // PLAY's legitimate zero-content case (the section's only game is
-        // the hero, drawn above the rule, so no tier1/tier2 block follows
-        // it in `blocks` at all — that rule stands on its own by design,
-        // never suppressed). Only when a real content block for this
-        // section *exists* right after the rule, but doesn't fit the
-        // window, is the rule an orphan — skip it and stop, since nothing
-        // after it fits either (`y` only grows) and the SCORES lane already
-        // accounts for every row that didn't make the window.
+        // catches a section with zero games). IN PLAY's hero-only case never
+        // reaches here at all: when the hero absorbs the section's only live
+        // game, no rule is pushed for it in the first place (the `in_play_hero`
+        // guard above), so every rule that does make it into `blocks` always
+        // has a content block following it. Skip the rule and stop, since
+        // nothing after it fits either (`y` only grows) and the SCORES lane
+        // already accounts for every row that didn't make the window.
         if matches!(block, Block::Rule(..)) {
             if let Some(next) = visible.get(i + 1) {
                 if !matches!(next, Block::Rule(..)) && y + rows + next.rows() > window {

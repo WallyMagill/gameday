@@ -31,7 +31,7 @@ impl App {
             KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('s') => self.cycle_sort(),
             KeyCode::Char('v') => self.open_tv(),
-            KeyCode::Char('c') => self.cycle_theme(),
+            KeyCode::Char('c') => self.open_theme_picker(),
             KeyCode::Char('r') => self.refresh_now = true,
             KeyCode::Char('q') => self.should_quit = true,
             _ => {}

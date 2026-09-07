@@ -407,7 +407,7 @@ fn clock_text(game: &Game, now: OffsetDateTime) -> String {
 fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
     let th = theme::current();
     let r = th.roles();
-    let (away_color, home_color, fell) = theme::hero_pair(&th, game.away.color, game.home.color);
+    let (away_color, home_color, _) = theme::hero_pair(&th, game.away.color, game.home.color);
     let team = if away { &game.away } else { &game.home };
     let color = if away { away_color } else { home_color };
     let star = Style::default().fg(th.star);
@@ -436,10 +436,6 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
         !team.record.is_empty() && !(team.record == "0-0" && game.status != Status::Pre);
     let record =
         shows_record.then(|| Span::styled(team.record.clone(), Style::default().fg(r.dim)));
-    // A home side that lost its color to the lookalike rule says so with a
-    // one-cell block in its real (lifted) color.
-    let block =
-        (!away && fell).then(|| Span::styled("▌", Style::default().fg(th.art_color(team.color))));
     let mut spans: Vec<Span<'static>> = Vec::new();
     if away {
         if plan.selected {
@@ -456,7 +452,6 @@ fn nameplate(game: &Game, away: bool, plan: &HeroPlan) -> Line<'static> {
             spans.push(rec);
             spans.push(Span::raw(" "));
         }
-        spans.extend(block);
         spans.push(abbr);
         spans.extend(
             marks

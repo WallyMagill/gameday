@@ -422,7 +422,14 @@ fn studio_theme_grays_the_chrome_but_keeps_scores_and_live_colored() {
         scoring: true,
         ..Default::default()
     }];
-    app.apply_boards(League::Nfl, vec![with_scoring(game)], false);
+    // A second live game so IN PLAY is a real section (a lone live game is
+    // the hero, not a section — the rule this test wants to check needs a
+    // row under it).
+    app.apply_boards(
+        League::Nfl,
+        vec![with_scoring(game), g("2", "DAL", "PHI", true)],
+        false,
+    );
     app.tab = Tab::League(League::Nfl);
     let mut t = Terminal::new(TestBackend::new(120, 36)).unwrap();
     t.draw(|f| app.draw(f)).unwrap();
@@ -588,13 +595,14 @@ fn nfl_tab_draws_live_score() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     // The only live game is the hero — its score is digit glyphs and
-    // the tile's "[NFL] LIVE" chip is gone with the tile.
+    // the tile's "[NFL] LIVE" chip is gone with the tile. A lone live game
+    // is the hero, not a section, so there is no IN PLAY rule to draw.
     assert!(s.contains("KC") && s.contains("TB"), "{s}");
     assert!(
         s.contains('█') || s.contains("27"),
         "the score renders in some form:\n{s}"
     );
-    assert!(s.contains("IN PLAY"), "{s}");
+    assert!(!s.contains("IN PLAY"), "{s}");
 }
 
 #[test]
@@ -4484,8 +4492,8 @@ fn tv_fills_its_frame() {
         top < digit_rows[0],
         "the nameplate row is above the digits:\n{text}"
     );
-    // Columns, not byte offsets: the home nameplate's lookalike block is
-    // multi-byte, so `find` would walk off the buffer.
+    // Columns, not byte offsets: nameplate marks (⚑/★) are multi-byte, so
+    // a raw `find` position would walk off the buffer if either were drawn.
     let plate = lines[top as usize];
     let col = |byte: usize| plate[..byte].chars().count() as u16;
     let kc_x = col(plate.find("KC").expect("KC nameplate"));
@@ -5909,4 +5917,59 @@ fn a_short_zoom_never_captions_a_void() {
             "SCORING must never spill onto the footer row at {h}:\n{s}"
         );
     }
+}
+
+/// U8: the IN PLAY rule drew over nothing when the hero absorbed the only
+/// live game. A section rule needs a row under it.
+#[test]
+fn the_in_play_rule_needs_a_row_under_it() {
+    let mut app = board_app(1, 1, 1);
+    let s = buf_text(&render(&mut app, 120, 40));
+    assert!(
+        !s.contains("IN PLAY"),
+        "one live game is the hero, not a section:\n{s}"
+    );
+    assert!(s.contains("FINAL") && s.contains("LATER"), "{s}");
+    let mut app = board_app(2, 0, 0);
+    let s = buf_text(&render(&mut app, 120, 40));
+    assert!(
+        s.contains("IN PLAY"),
+        "a second live game is a section:\n{s}"
+    );
+}
+
+/// U9: `0-0 ▌ISU` — the `▌` on the hero record line was the lookalike-color
+/// swatch, not a possession mark. Gone; the record meets the abbr.
+#[test]
+fn the_hero_nameplate_carries_no_color_swatch() {
+    let mut game = g("1", "KC", "TB", true);
+    game.home.color = game.away.color; // the lookalike rule "fells" the home color
+    game.home.record = "1-0".into();
+    game.away.record = "1-0".into();
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![game], false);
+    app.tab = Tab::League(League::Nfl);
+    let s = buf_text(&render(&mut app, 120, 40));
+    assert!(!s.contains("▌TB"), "swatch beside the home abbr:\n{s}");
+    assert!(s.contains("1-0 TB"), "record then abbr, one space:\n{s}");
+}
+
+/// U4: `c` cycled themes silently while `:theme` opened a picker.
+#[test]
+fn c_opens_the_theme_picker() {
+    use gameday::views::View;
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    key(&mut app, crossterm::event::KeyCode::Char('c'));
+    assert_eq!(app.view, View::ThemePicker);
+    let s = buf_text(&render(&mut app, 120, 40));
+    assert!(
+        s.contains("broadcast") && s.contains("studio"),
+        "picker over the board:\n{s}"
+    );
+    assert!(
+        app.status_line.is_none(),
+        "no 'theme X' toast: nothing changed yet"
+    );
 }

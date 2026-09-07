@@ -176,24 +176,29 @@ fn a_failed_standings_fetch_shows_the_error_where_the_table_would_be() {
     assert_eq!(app.aux_error(League::Cfb, "standings"), None);
 }
 
-/// One keypress writes one status line: `t` under a broken config used to
-/// toast "not saving: …" and then immediately overwrite it with "theme X",
-/// so the refusal never reached the user's eye.
+/// `c` used to cycle the theme in place, so a broken config needed its own
+/// composed toast ("theme X · not saving (config error)") or the refusal
+/// would be overwritten by the next line. `c` opens the picker now and a
+/// healthy commit leaves no toast at all — the picker already showed the
+/// choice — so the only thing left to check is that a broken config's
+/// refusal still reaches the user when Enter tries to persist.
 #[test]
-fn cycling_the_theme_with_a_broken_config_says_both_halves_in_one_line() {
+fn picking_a_theme_under_a_broken_config_reports_the_refusal() {
     let mut app = app_with(vec![g("1", "KC", "TB", true)], vec![]);
-    app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
-    let healthy = app.status_line.clone().unwrap_or_default();
+    app.open_theme_picker();
+    app.on_key(KeyCode::Enter, KeyModifiers::NONE);
     assert!(
-        healthy.starts_with("theme ") && !healthy.contains("not saving"),
-        "{healthy}"
+        app.status_line.is_none(),
+        "a healthy commit needs no toast: the picker already showed it"
     );
     app.set_config_error(Some("config.toml:7: unknown variant `NFLL`".into()));
-    app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
+    app.open_theme_picker();
+    app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    app.on_key(KeyCode::Enter, KeyModifiers::NONE);
     let line = app.status_line.clone().unwrap_or_default();
     assert!(
-        line.starts_with("theme ") && line.ends_with("· not saving (config error)"),
-        "one line, both halves: {line:?}"
+        line.contains("not saving") && line.contains("NFLL"),
+        "the refusal names the config error: {line:?}"
     );
 }
 
@@ -437,7 +442,7 @@ fn placeholder_views_pop_with_esc_or_q() {
 }
 
 #[test]
-fn c_cycles_theme_and_persists() {
+fn c_opens_the_picker_and_enter_persists_the_theme() {
     use crate::theme;
     theme::set_current("broadcast").unwrap();
     // Own dir: app_with's shared dir is also written by other tests' saves.
@@ -445,16 +450,35 @@ fn c_cycles_theme_and_persists() {
     let _ = std::fs::create_dir_all(&dir);
     let mut app = App::new(Config::default_all(), vec![], dir, time::UtcOffset::UTC);
     app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
+    assert_eq!(
+        app.view,
+        View::ThemePicker,
+        "c opens the picker, not a silent cycle"
+    );
+    assert_eq!(
+        app.config.theme, "broadcast",
+        "opening alone writes nothing"
+    );
+    // j previews every loaded theme in turn and wraps back to where it started.
+    for _ in 0..theme::names().len() {
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    }
+    assert_eq!(
+        theme::current_name(),
+        "broadcast",
+        "a full cycle wraps to the start"
+    );
+    assert_eq!(
+        app.config.theme, "broadcast",
+        "still nothing written mid-preview"
+    );
+    app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(theme::current_name(), "studio");
+    app.on_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(app.view, View::Board, "Enter commits and closes the picker");
     assert_eq!(app.config.theme, "studio");
     let saved = Config::load_from(&app.config_dir).unwrap();
-    assert_eq!(saved.theme, "studio");
-    // The whole loaded set cycles back to the start.
-    for _ in 1..theme::names().len() {
-        app.on_key(KeyCode::Char('c'), KeyModifiers::NONE);
-    }
-    assert_eq!(theme::current_name(), "broadcast");
-    assert_eq!(app.config.theme, "broadcast");
+    assert_eq!(saved.theme, "studio", "the picker's choice reaches disk");
 }
 
 #[test]
