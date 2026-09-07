@@ -46,10 +46,11 @@ fn ordinal(n: i64) -> String {
     format!("{n}{suffix}")
 }
 
-/// Human period/inning/minute label per league. Prefers ESPN's own
-/// `status.type.shortDetail` where it carries the label ("Bot 7th"), and
-/// falls back to the period number otherwise.
-fn period_label(
+/// Human period/inning/minute label per league, for the game header. Prefers
+/// ESPN's own `status.type.shortDetail` where it carries the label ("Bot
+/// 7th"), and falls back to the period number otherwise. Distinct from
+/// `period_label` below, which tags one play from its own `period` object.
+fn game_period_label(
     league: League,
     status: Status,
     period: i64,
@@ -287,7 +288,7 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
     let st = &comp["status"];
     let status = status_from(st["type"]["state"].as_str().unwrap_or("pre"));
     let display_clock = st["displayClock"].as_str().unwrap_or("");
-    let period = period_label(
+    let period = game_period_label(
         league,
         status,
         st["period"].as_i64().unwrap_or(0),
@@ -456,6 +457,7 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
             .as_u64()
             .map(|v| v.min(u8::MAX as u64) as u8);
         last_plays.push(Play {
+            id: sit_v["lastPlay"]["id"].as_str().unwrap_or("").to_string(),
             clock: if league == League::Mlb {
                 String::new()
             } else {
@@ -588,6 +590,35 @@ fn mlb_inning_tag(period: &str) -> String {
     match half.chars().next() {
         Some(c) => format!("{c}{digits}"),
         None => String::new(),
+    }
+}
+
+/// The compact period tag a play row prints beside its clock, from the
+/// play's own `period` object, in the grammar the scoreboard's period
+/// labels already use: football and pro hoops `Q1`..`Q4` then `OT`;
+/// college hoops `1H`/`2H` then `OT`; hockey `P1`..`P3` then `OT`;
+/// baseball `T3`/`B9` (top/bottom + inning, via `inning_tag`); soccer plays
+/// carry the minute in their clock and no period, so "".
+pub fn period_label(league: League, period: &Value) -> String {
+    let Some(n) = period["number"].as_u64() else {
+        return String::new();
+    };
+    match league {
+        League::Mlb => inning_tag(period),
+        League::Epl | League::Mls => String::new(),
+        League::Cbb => match n {
+            1 => "1H".into(),
+            2 => "2H".into(),
+            _ => "OT".into(),
+        },
+        League::Nhl => match n {
+            1..=3 => format!("P{n}"),
+            _ => "OT".into(),
+        },
+        League::Nfl | League::Cfb | League::Nba | League::Wnba => match n {
+            1..=4 => format!("Q{n}"),
+            _ => "OT".into(),
+        },
     }
 }
 
@@ -777,11 +808,12 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
         .iter()
         .filter_map(|p| {
             Some(Play {
+                id: p["id"].as_str().unwrap_or("").to_string(),
                 clock: p["clock"]["displayValue"]
                     .as_str()
                     .unwrap_or("")
                     .to_string(),
-                period: String::new(),
+                period: period_label(league, &p["period"]),
                 team: team_of(p),
                 text: p["text"].as_str()?.to_string(),
                 scoring: true,
@@ -806,11 +838,12 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                         let type_id = p["type"]["id"].as_str().unwrap_or("");
                         let scoring_type = p["scoringType"]["name"].as_str();
                         plays.push(Play {
+                            id: p["id"].as_str().unwrap_or("").to_string(),
                             clock: p["clock"]["displayValue"]
                                 .as_str()
                                 .unwrap_or("")
                                 .to_string(),
-                            period: String::new(),
+                            period: period_label(league, &p["period"]),
                             team: drive_team.to_string(),
                             text: text.to_string(),
                             scoring: p["scoringPlay"].as_bool().unwrap_or(false),
@@ -923,11 +956,12 @@ pub fn map_summary(league: League, json: &str) -> Result<Summary, MapError> {
                     League::Nfl | League::Cfb => PlayKind::Other,
                 };
                 plays.push(Play {
+                    id: p["id"].as_str().unwrap_or("").to_string(),
                     clock: p["clock"]["displayValue"]
                         .as_str()
                         .unwrap_or("")
                         .to_string(),
-                    period: inning_tag(&p["period"]),
+                    period: period_label(league, &p["period"]),
                     team: team_of(p),
                     text,
                     scoring,

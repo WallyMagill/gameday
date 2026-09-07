@@ -112,6 +112,7 @@ fn push_play(g: &mut Game, team: &str, text: &str, scoring: bool) {
     g.last_plays.insert(
         0,
         Play {
+            id: String::new(),
             clock,
             period,
             team: team.into(),

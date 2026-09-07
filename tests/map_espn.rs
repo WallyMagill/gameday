@@ -1535,3 +1535,107 @@ fn college_and_soccer_logo_keys_are_id_keyed() {
     let g = &map_scoreboard(League::Nba, &sb(("2", "BOS"), ("7", "DEN")), et()).unwrap()[0];
     assert_eq!(g.away.logo_key, "nba/bos");
 }
+
+#[test]
+fn summary_plays_carry_ids_and_period_labels_in_every_league() {
+    // Football: drives.previous[].plays[].period.number → "Q1".
+    let s = map_summary(
+        League::Cfb,
+        include_str!("../fixtures/cfb_summary_full.json"),
+    )
+    .unwrap();
+    let p = s
+        .last_plays
+        .iter()
+        .find(|p| !p.id.is_empty())
+        .expect("football plays carry ids");
+    assert!(
+        p.id.chars().all(|c| c.is_ascii_digit()),
+        "ESPN play ids are numeric: {}",
+        p.id
+    );
+    assert!(
+        s.last_plays
+            .iter()
+            .all(|p| p.period.starts_with('Q') || p.period == "OT"),
+        "{:?}",
+        s.last_plays
+            .iter()
+            .map(|p| &p.period)
+            .take(5)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        s.scoring_plays
+            .iter()
+            .all(|p| !p.id.is_empty() && !p.period.is_empty()),
+        "scoringPlays carry id + period"
+    );
+    // Hoops: plays[].period.number → "Q1".."Q4"/"OT".
+    let s = map_summary(
+        League::Nba,
+        include_str!("../fixtures/nba_summary_full.json"),
+    )
+    .unwrap();
+    assert!(s.last_plays.iter().all(|p| !p.id.is_empty()));
+    assert!(
+        s.last_plays.iter().any(|p| p.period == "Q1"),
+        "{:?}",
+        s.last_plays
+            .iter()
+            .map(|p| &p.period)
+            .take(5)
+            .collect::<Vec<_>>()
+    );
+    // NHL: period.number → "P1".."P3"/"OT".
+    let s = map_summary(
+        League::Nhl,
+        include_str!("../fixtures/nhl_summary_full.json"),
+    )
+    .unwrap();
+    assert!(
+        s.last_plays.iter().any(|p| p.period == "P1"),
+        "{:?}",
+        s.last_plays
+            .iter()
+            .map(|p| &p.period)
+            .take(5)
+            .collect::<Vec<_>>()
+    );
+    // MLB keeps the existing inning tag ("T1"/"B9").
+    let s = map_summary(
+        League::Mlb,
+        include_str!("../fixtures/mlb_summary_full.json"),
+    )
+    .unwrap();
+    assert!(
+        s.last_plays
+            .iter()
+            .any(|p| p.period == "T1" || p.period == "B1"),
+        "{:?}",
+        s.last_plays
+            .iter()
+            .map(|p| &p.period)
+            .take(5)
+            .collect::<Vec<_>>()
+    );
+    assert!(s.last_plays.iter().all(|p| !p.id.is_empty()));
+}
+
+#[test]
+fn scoreboard_last_play_carries_its_id() {
+    let games = map_scoreboard(
+        League::Cfb,
+        include_str!("../fixtures/live/cfb_scoreboard_live.json"),
+        et(),
+    )
+    .unwrap();
+    let live = games
+        .iter()
+        .find(|g| g.status == Status::Live && !g.last_plays.is_empty())
+        .expect("a live game with a last play");
+    assert!(
+        !live.last_plays[0].id.is_empty(),
+        "situation.lastPlay.id is mapped"
+    );
+}

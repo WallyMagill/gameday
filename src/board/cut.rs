@@ -613,6 +613,7 @@ mod tests {
 
     fn play(text: &str) -> Play {
         Play {
+            id: String::new(),
             clock: "1:52".into(),
             period: "Q4".into(),
             team: "KC".into(),

@@ -100,6 +100,10 @@ pub struct Team {
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Play {
+    /// ESPN's own play id (`situation.lastPlay.id`, `plays[].id`,
+    /// `scoringPlays[].id`). Empty for demo and sim plays, which carry no
+    /// feed identity; dedupe falls back to `text` then (`merge::same_play`).
+    pub id: String,
     pub clock: String,
     /// Period label for sports without a play clock: baseball `B9`/`T7`;
     /// empty when the clock carries the moment. Renders where `[-:--]` did.

@@ -40,6 +40,7 @@ fn with_espn_id(mut t: Team, league: League, id: &str) -> Team {
 
 fn play(clock: &str, team: &str, text: &str, scoring: bool) -> Play {
     Play {
+        id: String::new(),
         clock: clock.into(),
         period: String::new(),
         team: team.into(),
@@ -56,6 +57,7 @@ fn play(clock: &str, team: &str, text: &str, scoring: bool) -> Play {
 /// the mapper emits for MLB — never appeared in a capture.
 fn inning_play(period: &str, team: &str, text: &str, scoring: bool) -> Play {
     Play {
+        id: String::new(),
         clock: String::new(),
         period: period.into(),
         team: team.into(),
