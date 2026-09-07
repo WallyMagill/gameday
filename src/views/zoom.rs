@@ -398,7 +398,12 @@ const FEED_FLOOR: usize = 4;
 /// plays to fill it (L5 was five to eight blank rows under SCORING). Under
 /// two floors (`avail` too small to grant both), neither floor can hold, so
 /// this falls back to a plain proportional split rounded to the nearest
-/// row, with SCORING taking whatever LAST PLAYS doesn't.
+/// row — except a section that exists (its input is at least one) never
+/// drops to zero while `avail >= 2` leaves room to steal a row from the
+/// other side. At `avail == 1` the lone row goes to LAST PLAYS and at
+/// `avail == 0` neither section gets one: both are the ties `draw_feed`
+/// (round 1 fix) now honors strictly, since SCORING draws last and would
+/// otherwise be the section `lines.truncate` silently ate.
 pub(crate) fn feed_split(avail: usize, plays: usize, scoring: usize) -> (usize, usize) {
     if plays + scoring <= avail {
         return (plays, scoring);
@@ -406,10 +411,23 @@ pub(crate) fn feed_split(avail: usize, plays: usize, scoring: usize) -> (usize, 
     let floor_p = FEED_FLOOR.min(plays);
     let floor_s = FEED_FLOOR.min(scoring);
     if avail < floor_p + floor_s {
+        if avail == 0 {
+            return (0, 0);
+        }
+        if avail == 1 {
+            return (1, 0);
+        }
         let total = plays + scoring;
-        let p = (2 * avail * plays + total) / (2 * total);
-        let p = p.min(avail).min(plays);
-        let s = avail.saturating_sub(p).min(scoring);
+        let mut p = (2 * avail * plays + total) / (2 * total);
+        p = p.min(avail).min(plays);
+        let mut s = avail.saturating_sub(p).min(scoring);
+        if p == 0 && plays >= 1 {
+            p = 1;
+            s = avail - p;
+        } else if s == 0 && scoring >= 1 {
+            s = 1;
+            p = avail - s;
+        }
         return (p, s);
     }
     let mut p = (avail * plays / (plays + scoring)).max(floor_p).min(plays);
@@ -448,69 +466,80 @@ fn draw_feed(frame: &mut Frame, area: Rect, game: &Game) {
             Style::default().fg(r.cool),
         ))
     };
-    let mut lines: Vec<Line<'static>> = vec![
-        rule(),
-        Line::from(Span::styled(
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    // The split is honored strictly: a section allotted zero rows draws
+    // nothing at all — no rule, no caption, no empty-message placeholder —
+    // so a caption can never sit over a void, and SCORING (drawn last)
+    // can never be the tail `lines.truncate` silently eats because an
+    // unbudgeted line snuck in ahead of it.
+    if p_rows > 0 {
+        lines.push(rule());
+        lines.push(Line::from(Span::styled(
             " LAST PLAYS",
             Style::default()
                 .fg(th.section_label(th.league_accent(game.league)))
                 .add_modifier(Modifier::BOLD),
-        )),
-    ];
-    if game.last_plays.is_empty() {
-        // A pre-game zoom has no plays; its line is the betting line (dim —
-        // odds are context, never chrome-loud).
-        let empty = match (&game.status, &game.odds) {
-            (Status::Pre, Some(odds)) => format!(" {odds}"),
-            _ => " no plays yet".to_string(),
-        };
-        lines.push(Line::from(Span::styled(empty, Style::default().fg(r.dim))));
-    } else {
-        lines.extend(
-            game.last_plays
-                .iter()
-                .take(p_rows)
-                .map(|p| tiles::play_line(game, p, width)),
-        );
-    }
-    lines.push(rule());
-    lines.push(Line::from(Span::styled(
-        " SCORING",
-        Style::default().fg(r.hot).add_modifier(Modifier::BOLD),
-    )));
-    let word = theme::scoring_word(game.league);
-    for p in game.scoring_plays.iter().rev().take(s_rows) {
-        let color = if p.team.eq_ignore_ascii_case(&game.away.abbr) {
-            th.team_text(game.away.color)
-        } else {
-            th.team_text(game.home.color)
-        };
-        let head = format!(" [{}] {:<3} ", tiles::play_stamp(p), p.team);
-        let used = head.chars().count() + word.chars().count() + 1;
-        lines.push(Line::from(vec![
-            Span::styled(
-                head,
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{word} "),
-                Style::default().fg(r.hot).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                truncate(
-                    tiles::without_leading_clock(&p.text, !p.clock.is_empty()),
-                    width.saturating_sub(used + 1),
-                ),
-                Style::default().fg(r.ink),
-            ),
-        ]));
-    }
-    if game.scoring_plays.is_empty() {
-        lines.push(Line::from(Span::styled(
-            " no scoring yet",
-            Style::default().fg(r.dim),
         )));
+        if game.last_plays.is_empty() {
+            // A pre-game zoom has no plays; its line is the betting line
+            // (dim — odds are context, never chrome-loud).
+            let empty = match (&game.status, &game.odds) {
+                (Status::Pre, Some(odds)) => format!(" {odds}"),
+                _ => " no plays yet".to_string(),
+            };
+            lines.push(Line::from(Span::styled(empty, Style::default().fg(r.dim))));
+        } else {
+            lines.extend(
+                game.last_plays
+                    .iter()
+                    .take(p_rows)
+                    .map(|p| tiles::play_line(game, p, width)),
+            );
+        }
     }
+    if s_rows > 0 {
+        lines.push(rule());
+        lines.push(Line::from(Span::styled(
+            " SCORING",
+            Style::default().fg(r.hot).add_modifier(Modifier::BOLD),
+        )));
+        if game.scoring_plays.is_empty() {
+            lines.push(Line::from(Span::styled(
+                " no scoring yet",
+                Style::default().fg(r.dim),
+            )));
+        } else {
+            let word = theme::scoring_word(game.league);
+            for p in game.scoring_plays.iter().rev().take(s_rows) {
+                let color = if p.team.eq_ignore_ascii_case(&game.away.abbr) {
+                    th.team_text(game.away.color)
+                } else {
+                    th.team_text(game.home.color)
+                };
+                let head = format!(" [{}] {:<3} ", tiles::play_stamp(p), p.team);
+                let used = head.chars().count() + word.chars().count() + 1;
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        head,
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{word} "),
+                        Style::default().fg(r.hot).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        truncate(
+                            tiles::without_leading_clock(&p.text, !p.clock.is_empty()),
+                            width.saturating_sub(used + 1),
+                        ),
+                        Style::default().fg(r.ink),
+                    ),
+                ]));
+            }
+        }
+    }
+    // The last resort only: the split above already keeps every drawn
+    // section inside its budget, so this never fires in practice.
     lines.truncate(area.height as usize);
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().bg(th.bg)),
@@ -740,6 +769,36 @@ mod tests {
             feed_split(3, 40, 40),
             (2, 1),
             "under two floors: proportional, scoring last"
+        );
+    }
+
+    /// Round 1 fix: a section that exists (its input is at least one) never
+    /// starves to zero rows just because it lost the floor race — the
+    /// review that prompted this found `draw_feed` still printing that
+    /// section's caption and one-line message even when its budget was
+    /// zero, so the vector overdrew and `truncate` ate SCORING's tail.
+    #[test]
+    fn feed_split_keeps_a_section_that_exists_alive_under_two_floors() {
+        assert_eq!(
+            feed_split(3, 1, 10),
+            (1, 2),
+            "LAST PLAYS exists and keeps its one row, stolen from SCORING"
+        );
+        assert_eq!(
+            feed_split(2, 1, 10),
+            (1, 1),
+            "exactly enough for one row each"
+        );
+        assert_eq!(
+            feed_split(1, 1, 10),
+            (1, 0),
+            "the lone row goes to LAST PLAYS — SCORING draws last"
+        );
+        assert_eq!(feed_split(0, 10, 10), (0, 0), "no room, no rows at all");
+        assert_eq!(
+            feed_split(5, 40, 1),
+            (4, 1),
+            "SCORING's one real row keeps it, at its own floor of one"
         );
     }
 }

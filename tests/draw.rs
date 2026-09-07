@@ -5853,3 +5853,60 @@ fn a_college_row_prints_the_field_position_once_from_the_feed() {
         "the field position printed twice:\n{s}"
     );
 }
+
+/// Round-1 fix regression: a section that exists (its content or its own
+/// "no plays/scoring yet" line) gets its caption only when it also gets at
+/// least one row of body under it — never a caption over a void, and never
+/// a footer row silently wearing what was meant to be SCORING's content.
+#[test]
+fn a_short_zoom_never_captions_a_void() {
+    use gameday::views::{View, ZoomTab};
+    let mut game = g("1", "KC", "TB", true);
+    game.last_plays = vec![];
+    game.scoring_plays = (0..10u16)
+        .map(|i| Play {
+            id: format!("s{i}"),
+            clock: format!("{}:{:02}", 14 - i / 4, 59 - i),
+            period: "Q1".into(),
+            team: "KC".into(),
+            text: format!("score {i}"),
+            scoring: true,
+            ..Default::default()
+        })
+        .collect();
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![game], false);
+    app.tab = Tab::League(League::Nfl);
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
+    for h in [19u16, 20, 21, 22] {
+        let term = render(&mut app, 120, h);
+        let s = buf_text(&term);
+        let lines: Vec<&str> = s.lines().collect();
+        let footer = h as usize - 1;
+        for caption in ["LAST PLAYS", "SCORING"] {
+            let Some(y) = lines.iter().position(|l| l.contains(caption)) else {
+                continue;
+            };
+            assert_ne!(
+                y, footer,
+                "{caption} itself must never land on the footer row at {h}:\n{s}"
+            );
+            assert!(
+                !lines[y + 1].trim().is_empty(),
+                "{caption} captions a void at {h}:\n{s}"
+            );
+            assert_ne!(
+                y + 1,
+                footer,
+                "{caption}'s body row must not be the footer at {h}:\n{s}"
+            );
+        }
+        assert!(
+            !lines[footer].contains("SCORING"),
+            "SCORING must never spill onto the footer row at {h}:\n{s}"
+        );
+    }
+}
