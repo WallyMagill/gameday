@@ -666,11 +666,12 @@ mod tests {
             s.contains("SAT SEP 5") || s.contains("SEP 5"),
             "the clock is the capture's afternoon:\n{s}"
         );
-        for tag in ["NFL", "NBA", "MLB", "NHL", "EPL", "MLS", "WNBA", "CBB"] {
-            assert!(
-                !s.contains(&format!(" {tag} ")),
-                "no non-CFB league tag on the review slate board: {tag}\n{s}"
-            );
-        }
+        // League tags print only on a mixed board, so "no NFL tag" would be
+        // vacuous here. The footer's count is the tooth: the fixture holds
+        // exactly 68 events, so a demo game leaking in would read 69.
+        assert!(
+            s.contains("GAME 1/68"),
+            "the board is the fixture's 68 games and nothing else\n{s}"
+        );
     }
 }
