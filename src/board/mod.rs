@@ -375,7 +375,7 @@ fn app_pins_hold(app: &App, game: &Game) -> bool {
 /// The A′ rule's right-hand caption: `SORTED BY WATCHABILITY`. The sort keys
 /// are named for the footer/header in two words; the rule says the long form
 /// of the default because that is what the frame prints.
-fn sort_phrase(key: rank::SortKey) -> &'static str {
+pub(crate) fn sort_phrase(key: rank::SortKey) -> &'static str {
     match key {
         rank::SortKey::Watch => "WATCHABILITY",
         other => other.label(),
@@ -416,7 +416,7 @@ fn first_visible(blocks: &[Block], selected: usize, window: u16) -> usize {
 
 /// `IN PLAY ─────── SORTED BY WATCHABILITY`: a label, dim dashes, a caption.
 /// No box drawing — the rule IS the section's only structure.
-fn draw_rule(frame: &mut Frame, area: Rect, label: &str, caption: &str) {
+pub(crate) fn draw_rule(frame: &mut Frame, area: Rect, label: &str, caption: &str) {
     let r = theme::current().roles();
     let w = area.width as usize;
     let label_w = label.chars().count();

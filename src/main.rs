@@ -11,9 +11,10 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use gameday::app::App;
-use gameday::config::{load_config, load_pins_outcome, resolve_dir};
+use gameday::config::{load_config, load_pins_outcome, resolve_dir, Config, Pin};
 use gameday::domain::*;
 use gameday::frame;
+use gameday::once;
 use gameday::provider::espn::EspnProvider;
 use gameday::provider::SportsProvider;
 use ratatui::backend::CrosstermBackend;
@@ -37,6 +38,14 @@ struct Args {
     help: bool,
     version: bool,
     config_dir: Option<PathBuf>,
+    /// `--once`: fetch every enabled/named league once, print the ranked
+    /// board, exit. The flags below only mean anything under it.
+    once: bool,
+    json: bool,
+    leagues: Vec<League>,
+    live: bool,
+    top: Option<usize>,
+    color: bool,
 }
 
 const HELP: &str = "\
@@ -45,6 +54,8 @@ gameday — terminal sports board. Pin games, they tile.
 USAGE
   gameday                 live board (needs a terminal)
   gameday --demo          scripted demo slate, no network
+  gameday --once [--json] [--league L]... [--live] [--top N] [--color]
+                          fetch once, print the ranked board (text, or JSON for scripts), exit
   gameday --config-dir P  use P instead of ~/.config/gameday
   gameday -h, --help      this text
   gameday -V, --version   version
@@ -67,7 +78,7 @@ dev:
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
     const VALID: &str =
-        "--demo|--help|-h|--version|-V|--config-dir <path>|dump [--tick N]|frame [--view V --theme T --size WxH --scenario S --tick N --out PATH]|probe <league>";
+        "--demo|--help|-h|--version|-V|--config-dir <path>|--once [--json] [--league L]... [--live] [--top N] [--color]|dump [--tick N]|frame [--view V --theme T --size WxH --scenario S --tick N --out PATH]|probe <league>";
     let mut a = Args {
         demo: false,
         dump: false,
@@ -78,6 +89,12 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         help: false,
         version: false,
         config_dir: None,
+        once: false,
+        json: false,
+        leagues: Vec::new(),
+        live: false,
+        top: None,
+        color: false,
     };
     let mut it = args.iter().skip(1);
     // `frame`'s flags are collected raw and validated together after the
@@ -110,6 +127,29 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                     .ok_or_else(|| "--config-dir expects a path".to_string())?;
                 a.config_dir = Some(PathBuf::from(p));
             }
+            "--once" => a.once = true,
+            "--json" => a.json = true,
+            "--league" => {
+                let slug = next_value(&mut it, "--league")?;
+                match League::from_slug(&slug) {
+                    Some(l) => a.leagues.push(l),
+                    None => {
+                        return Err(format!(
+                            "--league {slug:?} is not a league, valid: {}",
+                            League::ALL.map(League::slug).join("|")
+                        ))
+                    }
+                }
+            }
+            "--live" => a.live = true,
+            "--top" => {
+                let raw = it.next().map(String::as_str).unwrap_or("");
+                a.top =
+                    Some(raw.parse().map_err(|_| {
+                        format!("--top expects a non-negative integer, got {raw:?}")
+                    })?);
+            }
+            "--color" => a.color = true,
             other => return Err(format!("unknown argument {other:?}, valid: {VALID}")),
         }
     }
@@ -143,6 +183,21 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 "frame expects --out PATH (e.g. --out out/design/tv-studio-80.png)".to_string()
             })?),
         });
+    }
+    // Same shape as the frame check above: these flags only mean anything
+    // under `--once`, so naming one without it is a typo worth reporting.
+    if !a.once {
+        for (flag, given) in [
+            ("--json", a.json),
+            ("--live", a.live),
+            ("--color", a.color),
+            ("--top", a.top.is_some()),
+            ("--league", !a.leagues.is_empty()),
+        ] {
+            if given {
+                return Err(format!("{flag} is a `gameday --once` flag; valid: {VALID}"));
+            }
+        }
     }
     Ok(a)
 }
@@ -237,6 +292,37 @@ fn main() -> std::io::Result<()> {
         return probe(&slug);
     }
 
+    if args.once {
+        let (dir, config, pins, _config_error) = load_state(args.config_dir.clone())?;
+        // Read the local offset here, on the main thread, before any fetch
+        // thread exists — `time` refuses the TZ database once the process
+        // is threaded.
+        let offset = gameday::text::startup_offset();
+        // No alternate screen on this path: notes go to the log, not
+        // stdout, so a script reading `--once`'s own stdout never sees one.
+        gameday::log::set_file(dir.join("gameday.log"));
+        let provider = EspnProvider::new(dir.join("cache"), offset);
+        // A real terminal sizes the board to fit it; a pipe (a script, a
+        // status bar, `| head`) gets the fixed ONCE_WIDTH instead of
+        // whatever width a redirected stdout would misreport.
+        let width = if stdout().is_terminal() {
+            crossterm::terminal::size()
+                .map(|(w, _)| w)
+                .unwrap_or(once::ONCE_WIDTH)
+        } else {
+            once::ONCE_WIDTH
+        };
+        let opts = once::Opts {
+            json: args.json,
+            leagues: args.leagues,
+            live: args.live,
+            top: args.top,
+            color: args.color,
+            width,
+        };
+        std::process::exit(once::run(config, pins, dir, offset, &provider, opts));
+    }
+
     if args.demo {
         if let Err(e) = require_tty() {
             eprintln!("gameday: {e}");
@@ -271,32 +357,7 @@ fn main() -> std::io::Result<()> {
         std::process::exit(1);
     }
 
-    let resolved = resolve_dir(
-        args.config_dir.clone(),
-        &dirs::home_dir().unwrap_or_default(),
-        std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .as_deref(),
-        dirs::config_dir().map(|d| d.join("gameday")).as_deref(),
-    );
-    if let Some(l) = &resolved.legacy_read_from {
-        eprintln!(
-            "gameday: reading config from {} — gameday now writes to {}; move the folder to keep one copy",
-            l.display(),
-            resolved.dir.display()
-        );
-    }
-    let dir = resolved.dir.clone();
-    std::fs::create_dir_all(dir.join("cache"))?;
-    let loaded = load_config(&resolved);
-    let pins_loaded = load_pins_outcome(&resolved);
-    // A file we could not parse is reported and left alone: the app runs on
-    // defaults and every save is refused until the user fixes it.
-    let config_error = loaded.error.clone().or_else(|| pins_loaded.error.clone());
-    if let Some(err) = &config_error {
-        eprintln!("gameday: {err} — running on defaults, not saving until it parses");
-    }
-    let mut config = loaded.value;
+    let (dir, mut config, pins, config_error) = load_state(args.config_dir.clone())?;
     // User theme files first, so config.theme may name one of them; an
     // unknown name falls back to broadcast with a stderr note.
     gameday::theme::install_user_themes(&dir);
@@ -305,7 +366,6 @@ fn main() -> std::io::Result<()> {
         eprintln!("gameday: {note}");
     }
     config.theme = theme_name;
-    let pins = pins_loaded.value;
     // Read the local offset here, on the main thread, before the poll thread
     // exists — `time` refuses the TZ database once the process is threaded.
     // The app and the mapper share this one value.
@@ -339,6 +399,41 @@ fn main() -> std::io::Result<()> {
     let refresh_poll = refresh.clone();
     thread::spawn(move || poll_loop(provider, tx, wants_poll, refresh_poll));
     run_ui(app, Some(rx), wants, refresh)
+}
+
+/// The config, pins and resolved dir every real (non-demo) startup path
+/// shares — the live TUI and `--once` both begin here. Stops short of theme
+/// resolution: the TUI picks a theme after this (and folds a broken one into
+/// its footer); `--once` has no footer and never touches themes at all.
+fn load_state(
+    config_dir: Option<PathBuf>,
+) -> std::io::Result<(PathBuf, Config, Vec<Pin>, Option<String>)> {
+    let resolved = resolve_dir(
+        config_dir,
+        &dirs::home_dir().unwrap_or_default(),
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .as_deref(),
+        dirs::config_dir().map(|d| d.join("gameday")).as_deref(),
+    );
+    if let Some(l) = &resolved.legacy_read_from {
+        eprintln!(
+            "gameday: reading config from {} — gameday now writes to {}; move the folder to keep one copy",
+            l.display(),
+            resolved.dir.display()
+        );
+    }
+    let dir = resolved.dir.clone();
+    std::fs::create_dir_all(dir.join("cache"))?;
+    let loaded = load_config(&resolved);
+    let pins_loaded = load_pins_outcome(&resolved);
+    // A file we could not parse is reported and left alone: the app runs on
+    // defaults and every save is refused until the user fixes it.
+    let config_error = loaded.error.clone().or_else(|| pins_loaded.error.clone());
+    if let Some(err) = &config_error {
+        eprintln!("gameday: {err} — running on defaults, not saving until it parses");
+    }
+    Ok((dir, loaded.value, pins_loaded.value, config_error))
 }
 
 /// Dev verification: fetch and map one league's real scoreboard, print one
@@ -727,6 +822,7 @@ fn run_ui(
 #[cfg(test)]
 mod tests {
     use super::parse_args;
+    use gameday::domain::League;
     use std::sync::atomic::Ordering;
 
     /// A panic on the poll thread must not drag the UI out of the alternate
@@ -758,6 +854,37 @@ mod tests {
     fn parsed(args: &[&str]) -> super::Args {
         let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         parse_args(&owned).expect("valid args")
+    }
+
+    fn err(args: &[&str]) -> String {
+        let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        parse_args(&owned).expect_err("invalid args")
+    }
+
+    #[test]
+    fn once_flags_parse_and_the_rest_need_once() {
+        let a = parsed(&[
+            "gameday", "--once", "--json", "--league", "nfl", "--league", "mlb", "--live", "--top",
+            "3", "--color",
+        ]);
+        assert!(a.once && a.json && a.live && a.color);
+        assert_eq!(a.leagues, vec![League::Nfl, League::Mlb]);
+        assert_eq!(a.top, Some(3));
+        assert!(!parsed(&["gameday", "--once"]).json);
+        for bad in [
+            vec!["gameday", "--json"],
+            vec!["gameday", "--league", "nfl"],
+            vec!["gameday", "--top", "3"],
+            vec!["gameday", "--live"],
+        ] {
+            let owned: Vec<String> = bad.iter().map(|s| s.to_string()).collect();
+            let e = parse_args(&owned).unwrap_err();
+            assert!(e.contains("--once"), "{e}");
+        }
+        let e = err(&["gameday", "--once", "--league", "xfl"]);
+        assert!(e.contains("xfl") && e.contains("nfl|cfb"), "{e}");
+        let e = err(&["gameday", "--once", "--top", "many"]);
+        assert!(e.contains("--top") && e.contains("many"), "{e}");
     }
 
     #[test]

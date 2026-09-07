@@ -200,6 +200,27 @@ impl EspnProvider {
     ) -> Result<(T, bool), ProviderError> {
         self.fetch_with(key, |etag| self.http(url, etag), map)
     }
+
+    /// `--once`'s scoreboard: a cache entry younger than `max_age` is served
+    /// as fresh without touching the network (a status bar polling every
+    /// 30 s must not cost more than the TUI's own cadence); anything older
+    /// goes through `scoreboard`, which falls back to the cache, marked
+    /// stale, when the fetch fails.
+    pub fn scoreboard_cached_within(
+        &self,
+        league: League,
+        max_age: Duration,
+    ) -> Result<(Vec<Game>, bool), ProviderError> {
+        let key = format!("{}-scoreboard", league.slug());
+        if cache_age(&self.cache_dir, &key).is_some_and(|age| age < max_age) {
+            if let Ok(body) = cache_read(&self.cache_dir, &key) {
+                if let Ok(games) = map_scoreboard(league, &body, self.offset) {
+                    return Ok((games, false));
+                }
+            }
+        }
+        self.scoreboard(league)
+    }
 }
 
 /// Bare CFB scoreboard (no `dates`) returns the current *week*, not today —
@@ -488,6 +509,41 @@ mod tests {
         assert!(cache_age(&dir, "nfl-standings").unwrap() < STANDINGS_TTL);
         assert_eq!(cache_age(&dir, "missing-key"), None);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// `--once`'s cache gate, mirroring `fresh_standings_cache_is_served_without_the_network`
+    /// above but for `scoreboard_cached_within`: a young cache short-circuits
+    /// the network entirely, and a cache past `max_age` still falls back to
+    /// serving stale once the (deliberately doomed) fetch fails.
+    #[test]
+    fn a_young_scoreboard_cache_is_served_without_the_network() {
+        let dir = tmp("once-cache");
+        // The mapped body of any league: the committed NFL fixture.
+        cache_write(
+            &dir,
+            "nfl-scoreboard",
+            include_str!("../../fixtures/nfl_scoreboard.json"),
+        )
+        .unwrap();
+        // A provider whose HTTP cannot succeed in any reasonable time: a 1ms
+        // timeout against the real host fails near-instantly on connect.
+        let p = EspnProvider::with_timeouts(
+            dir.clone(),
+            time::UtcOffset::UTC,
+            Duration::from_millis(1),
+        );
+        let (games, stale) = p
+            .scoreboard_cached_within(League::Nfl, Duration::from_secs(60))
+            .unwrap();
+        assert!(!games.is_empty() && !stale, "young cache: fresh, no HTTP");
+        // Past the age the gate fetches (and here fails) → the cache is served stale.
+        let (_, stale) = p
+            .scoreboard_cached_within(League::Nfl, Duration::ZERO)
+            .unwrap();
+        assert!(
+            stale,
+            "old cache: HTTP attempted and failed, cache served stale"
+        );
     }
 
     #[test]

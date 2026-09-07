@@ -1,0 +1,456 @@
+{
+  "games": [
+    {
+      "away": {
+        "abbr": "KC",
+        "name": "Chiefs",
+        "rank": null,
+        "record": "11-6",
+        "score": 27
+      },
+      "clock": "1:27",
+      "home": {
+        "abbr": "TB",
+        "name": "Buccaneers",
+        "rank": null,
+        "record": "11-6",
+        "score": 24
+      },
+      "id": "nfl-live",
+      "last_play": "Patrick Mahomes pass to T. Kelce for 3 yards (1st & Goal)",
+      "league": "nfl",
+      "period": "Q4",
+      "pinned": true,
+      "situation": "KC 1ST & GOAL AT TB 3",
+      "start": null,
+      "status": "live",
+      "watch": {
+        "chip": "RED ZONE",
+        "score": 141,
+        "why": "LATE"
+      }
+    },
+    {
+      "away": {
+        "abbr": "GB",
+        "name": "Packers",
+        "rank": null,
+        "record": "9-8",
+        "score": 13
+      },
+      "clock": "4:20",
+      "home": {
+        "abbr": "CHI",
+        "name": "Bears",
+        "rank": null,
+        "record": "7-10",
+        "score": 10
+      },
+      "id": "nfl-live2",
+      "last_play": "Love scrambles for 6, short of the sticks",
+      "league": "nfl",
+      "period": "Q3",
+      "pinned": false,
+      "situation": "GB 3RD & 2 AT CHI 41",
+      "start": null,
+      "status": "live",
+      "watch": {
+        "chip": null,
+        "score": 56,
+        "why": "CLOSE"
+      }
+    },
+    {
+      "away": {
+        "abbr": "BOS",
+        "name": "Red Sox",
+        "rank": null,
+        "record": "25-21",
+        "score": 2
+      },
+      "clock": "",
+      "home": {
+        "abbr": "TEX",
+        "name": "Rangers",
+        "rank": null,
+        "record": "23-23",
+        "score": 2
+      },
+      "id": "mlb-live2",
+      "last_play": "Devers lines out to left",
+      "league": "mlb",
+      "period": "TOP 6TH",
+      "pinned": false,
+      "situation": "1 OUT · 0-1",
+      "start": null,
+      "status": "live",
+      "watch": {
+        "chip": null,
+        "score": 55,
+        "why": "CLOSE"
+      }
+    },
+    {
+      "away": {
+        "abbr": "NYY",
+        "name": "Yankees",
+        "rank": null,
+        "record": "29-17",
+        "score": 5
+      },
+      "clock": "",
+      "home": {
+        "abbr": "TOR",
+        "name": "Blue Jays",
+        "rank": null,
+        "record": "24-22",
+        "score": 3
+      },
+      "id": "mlb-live",
+      "last_play": "Vladimir Guerrero Jr. singles to right",
+      "league": "mlb",
+      "period": "BOT 7TH",
+      "pinned": false,
+      "situation": "2 OUT · 1-2",
+      "start": null,
+      "status": "live",
+      "watch": {
+        "chip": null,
+        "score": 53,
+        "why": "CLOSE"
+      }
+    },
+    {
+      "away": {
+        "abbr": "EDM",
+        "name": "Oilers",
+        "rank": null,
+        "record": "49-27",
+        "score": 3
+      },
+      "clock": "1:03",
+      "home": {
+        "abbr": "DAL",
+        "name": "Stars",
+        "rank": null,
+        "record": "52-21",
+        "score": 2
+      },
+      "id": "nhl-live",
+      "last_play": "Leon Draisaitl snap shot GOAL (32)  [3-2]",
+      "league": "nhl",
+      "period": "2ND",
+      "pinned": false,
+      "situation": null,
+      "start": null,
+      "status": "live",
+      "watch": {
+        "chip": "POWER PLAY",
+        "score": 53,
+        "why": "LATE"
+      }
+    },
+    {
+      "away": {
+        "abbr": "ARS",
+        "name": "Arsenal",
+        "rank": null,
+        "record": "1-1-0",
+        "score": 1
+      },
+      "clock": "",
+      "home": {
+        "abbr": "LIV",
+        "name": "Liverpool",
+        "rank": null,
+        "record": "0-2-0",
+        "score": 2
+      },
+      "id": "epl-live",
+      "last_play": "Mohamed Salah right-footed GOAL from the box  [2-1]",
+      "league": "epl",
+      "period": "78'",
+      "pinned": false,
+      "situation": null,
+      "start": null,
+      "status": "live",
+      "watch": {
+        "chip": null,
+        "score": 49,
+        "why": "LATE"
+      }
+    },
+    {
+      "away": {
+        "abbr": "DEN",
+        "name": "Nuggets",
+        "rank": null,
+        "record": "53-29",
+        "score": 88
+      },
+      "clock": "4:38",
+      "home": {
+        "abbr": "BOS",
+        "name": "Celtics",
+        "rank": null,
+        "record": "58-24",
+        "score": 81
+      },
+      "id": "nba-live",
+      "last_play": "Nikola Jokic makes layup (28 PTS)",
+      "league": "nba",
+      "period": "Q3",
+      "pinned": false,
+      "situation": null,
+      "start": null,
+      "status": "live",
+      "watch": {
+        "chip": null,
+        "score": 46,
+        "why": "CLOSE"
+      }
+    },
+    {
+      "away": {
+        "abbr": "PHI",
+        "name": "Eagles",
+        "rank": null,
+        "record": "12-5",
+        "score": 28
+      },
+      "clock": "",
+      "home": {
+        "abbr": "DAL",
+        "name": "Cowboys",
+        "rank": null,
+        "record": "10-7",
+        "score": 17
+      },
+      "id": "nfl-final",
+      "last_play": null,
+      "league": "nfl",
+      "period": "F",
+      "pinned": false,
+      "situation": null,
+      "start": null,
+      "status": "final",
+      "watch": {
+        "chip": null,
+        "score": 0,
+        "why": ""
+      }
+    },
+    {
+      "away": {
+        "abbr": "NYJ",
+        "name": "Jets",
+        "rank": null,
+        "record": "6-11",
+        "score": 10
+      },
+      "clock": "",
+      "home": {
+        "abbr": "MIA",
+        "name": "Dolphins",
+        "rank": null,
+        "record": "10-7",
+        "score": 13
+      },
+      "id": "nfl-final2",
+      "last_play": null,
+      "league": "nfl",
+      "period": "F",
+      "pinned": false,
+      "situation": null,
+      "start": null,
+      "status": "final",
+      "watch": {
+        "chip": null,
+        "score": 0,
+        "why": ""
+      }
+    },
+    {
+      "away": {
+        "abbr": "SF",
+        "name": "Giants",
+        "rank": null,
+        "record": "26-20",
+        "score": 7
+      },
+      "clock": "",
+      "home": {
+        "abbr": "ATL",
+        "name": "Braves",
+        "rank": null,
+        "record": "22-24",
+        "score": 3
+      },
+      "id": "mlb-final",
+      "last_play": null,
+      "league": "mlb",
+      "period": "F",
+      "pinned": false,
+      "situation": null,
+      "start": null,
+      "status": "final",
+      "watch": {
+        "chip": null,
+        "score": 0,
+        "why": ""
+      }
+    },
+    {
+      "away": {
+        "abbr": "BOS",
+        "name": "Bruins",
+        "rank": null,
+        "record": "44-32",
+        "score": 4
+      },
+      "clock": "",
+      "home": {
+        "abbr": "TOR",
+        "name": "Maple Leafs",
+        "rank": null,
+        "record": "46-30",
+        "score": 2
+      },
+      "id": "nhl-final",
+      "last_play": null,
+      "league": "nhl",
+      "period": "F",
+      "pinned": false,
+      "situation": null,
+      "start": null,
+      "status": "final",
+      "watch": {
+        "chip": null,
+        "score": 0,
+        "why": ""
+      }
+    },
+    {
+      "away": {
+        "abbr": "MCI",
+        "name": "Man City",
+        "rank": null,
+        "record": "2-0-0",
+        "score": 2
+      },
+      "clock": "",
+      "home": {
+        "abbr": "CHE",
+        "name": "Chelsea",
+        "rank": null,
+        "record": "1-0-1",
+        "score": 2
+      },
+      "id": "epl-final",
+      "last_play": null,
+      "league": "epl",
+      "period": "F",
+      "pinned": false,
+      "situation": null,
+      "start": null,
+      "status": "final",
+      "watch": {
+        "chip": null,
+        "score": 0,
+        "why": ""
+      }
+    },
+    {
+      "away": {
+        "abbr": "SF",
+        "name": "49ers",
+        "rank": null,
+        "record": "12-5",
+        "score": 0
+      },
+      "clock": "",
+      "home": {
+        "abbr": "SEA",
+        "name": "Seahawks",
+        "rank": null,
+        "record": "9-8",
+        "score": 0
+      },
+      "id": "nfl-pre",
+      "last_play": null,
+      "league": "nfl",
+      "period": "",
+      "pinned": false,
+      "situation": null,
+      "start": "2026-09-13T20:20:00-04:00",
+      "status": "pre",
+      "watch": {
+        "chip": null,
+        "score": 0,
+        "why": ""
+      }
+    },
+    {
+      "away": {
+        "abbr": "HOU",
+        "name": "Texans",
+        "rank": null,
+        "record": "10-7",
+        "score": 0
+      },
+      "clock": "",
+      "home": {
+        "abbr": "LAR",
+        "name": "Rams",
+        "rank": null,
+        "record": "10-7",
+        "score": 0
+      },
+      "id": "nfl-late2",
+      "last_play": null,
+      "league": "nfl",
+      "period": "",
+      "pinned": false,
+      "situation": null,
+      "start": "2026-09-13T16:25:00-04:00",
+      "status": "pre",
+      "watch": {
+        "chip": null,
+        "score": 0,
+        "why": ""
+      }
+    },
+    {
+      "away": {
+        "abbr": "NO",
+        "name": "Saints",
+        "rank": null,
+        "record": "5-12",
+        "score": 0
+      },
+      "clock": "",
+      "home": {
+        "abbr": "CAR",
+        "name": "Panthers",
+        "rank": null,
+        "record": "5-12",
+        "score": 0
+      },
+      "id": "nfl-late3",
+      "last_play": null,
+      "league": "nfl",
+      "period": "",
+      "pinned": false,
+      "situation": null,
+      "start": "2026-09-13T16:25:00-04:00",
+      "status": "pre",
+      "watch": {
+        "chip": null,
+        "score": 0,
+        "why": ""
+      }
+    }
+  ],
+  "generated_at": "2026-08-31T21:30:01-04:00",
+  "stale": false
+}

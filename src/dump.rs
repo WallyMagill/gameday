@@ -653,6 +653,23 @@ fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// Plain-text form of a buffer: symbols only, one line per row, each row
+/// `trim_end()`ed (no styling, no trailing padding) — `gameday --once`'s text
+/// output, and what the test module's `text_of` also renders.
+pub fn buffer_to_text(buf: &Buffer) -> String {
+    let area = buf.area();
+    (0..area.height)
+        .map(|y| {
+            (0..area.width)
+                .map(|x| buf[(x, y)].symbol())
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn buffer_to_ansi(buf: &Buffer) -> String {
     let mut out = String::from("\x1b[0m");
     let area = buf.area();
@@ -685,15 +702,7 @@ mod tests {
     use super::*;
 
     fn text_of(buf: &Buffer) -> String {
-        let area = *buf.area();
-        let mut text = String::new();
-        for y in 0..area.height {
-            for x in 0..area.width {
-                text.push_str(buf[(x, y)].symbol());
-            }
-            text.push('\n');
-        }
-        text
+        buffer_to_text(buf)
     }
 
     fn variant(stem: &str) -> Variant {

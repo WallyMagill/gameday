@@ -223,7 +223,7 @@ fn state_text_raw(game: &Game, now: OffsetDateTime) -> String {
 /// The situation fragment the frame prints beside a promoted row:
 /// `PHI 3RD & 6 AT DAL 38` for football, `2 OUT · 1-0` for the sports whose
 /// headline already says everything.
-fn situation_summary(game: &Game) -> Option<String> {
+pub(crate) fn situation_summary(game: &Game) -> Option<String> {
     let sit = game.situation.as_ref()?;
     let mut parts: Vec<String> = Vec::new();
     if let Some(poss) = sit.possession.as_deref().filter(|s| !s.is_empty()) {
