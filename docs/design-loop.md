@@ -32,7 +32,7 @@ is not decided in prose. It produces labeled PNGs, and Walter picks a letter.
 
 ## Rendering an option
 
-`gameday dump` writes the fixed 22-stem gallery — that is the regression
+`gameday dump` writes the fixed 23-stem gallery — that is the regression
 gallery, not the design surface. Don't add stems to it for a gate.
 
 `gameday frame` renders exactly one surface, parameterized:
