@@ -188,15 +188,37 @@ impl Scheduler {
                 self.last_stats = Some((id.clone(), now));
             }
         }
-        // Catch-ups: one Summary per new sequence number, no freshness
-        // window (spec §3.2). Budget is one request per score event by
-        // construction; Task 14 of the wave-1 plan measured it live.
+        // Catch-ups: one Summary per new sequence number, and no freshness
+        // window of their own — the ask is already paced on the UI side (a
+        // retry waits a poll) and bounded by its attempt count, so a second
+        // gate here would only delay the answer. The live budget measured on
+        // 2026-09-07 was 0 catch-up summaries against three score changes;
+        // every delta took the fast path.
         for c in wants
             .catchup
             .iter()
             .filter(|c| c.seq > self.last_catchup_seq)
         {
+            // The zoomed game's summary is this same fetch. If the block
+            // above already asked for it this pass, the catch-up rides that
+            // request rather than sending a second identical one.
+            if out
+                .iter()
+                .any(|r| matches!(r, Request::Summary(_, id) if id == &c.game_id))
+            {
+                continue;
+            }
             out.push(Request::Summary(c.league, c.game_id.clone()));
+            // …and when the catch-up is the one asking for the zoomed game,
+            // it stamps the zoom's freshness window too: the data landed, so
+            // the next pass must not immediately repeat it from that side.
+            if wants
+                .zoomed
+                .as_ref()
+                .is_some_and(|(_, id)| id == &c.game_id)
+            {
+                self.last_summary = Some((c.game_id.clone(), now));
+            }
         }
         if let Some(max) = wants.catchup.iter().map(|c| c.seq).max() {
             self.last_catchup_seq = self.last_catchup_seq.max(max);

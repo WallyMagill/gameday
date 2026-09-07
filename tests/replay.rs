@@ -3,6 +3,13 @@
 //! scripts/capture-replay.sh. The assertion is the one the 2026-09-05 review
 //! found broken on live data: when a score moves, the cut names the play
 //! that scored — never the pitch or snap the poll happened to catch.
+//!
+//! One rule this harness does NOT prove: that a catch-up matches at or beyond
+//! its target rather than exactly. Baseball has no extra point, so no MLB
+//! window can exercise it; the football unit test
+//! (`a_touchdown_row_carries_its_extra_point_so_the_catchup_matches_at_or_beyond`)
+//! is where that lives. Do not "strengthen" the harness for it — a captured
+//! window either contains the case or it does not.
 use gameday::app::{App, LIVE_TICKS_PER_SEC};
 use gameday::config::Config;
 use gameday::domain::*;

@@ -9,8 +9,8 @@ use crate::views::View;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 
-/// One pending catch-up (spec §3.2): a game whose score moved while the
-/// scoreboard's last play was not the scoring play.
+/// One pending catch-up: a game whose score moved while the scoreboard's
+/// last play was not the scoring play, so the summary owes us the run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CatchupEntry {
     pub league: League,
@@ -433,9 +433,16 @@ impl App {
             // without a line it is indistinguishable from a score the app
             // never noticed.
             let dropped = self.catchup.remove(i);
+            // The teams too, when the game is still on a board: a bare ESPN
+            // id names nothing a reader of the log can recognize.
+            let teams = self
+                .game_by_id(&dropped.game_id)
+                .map(|g| format!(" {}@{}", g.away.abbr, g.home.abbr))
+                .unwrap_or_default();
             crate::log::note(&format!(
-                "catch-up dropped: game={} target={}-{} attempts={attempts} (max {})",
+                "catch-up dropped: game={} league={}{teams} target={}-{} attempts={attempts} (max {})",
                 dropped.game_id,
+                dropped.league.slug(),
                 dropped.target.0,
                 dropped.target.1,
                 crate::app::CATCHUP_MAX_ATTEMPTS,

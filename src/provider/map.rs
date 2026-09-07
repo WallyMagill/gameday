@@ -503,12 +503,15 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
             },
             team,
             text,
-            // ESPN's own verdict. The observed scoreboard rows carry
-            // `scoringPlay: null` (every live capture in fixtures/live, and
-            // every pitch and snap seen in the review's caches), so on real
-            // data this is usually false even for the play that scored — which
-            // is exactly why a score delta with a non-scoring last play asks
-            // the summary instead (`app::merge`).
+            // Two ways a scoreboard row can say "this one scored": ESPN's own
+            // `scoringPlay` flag, and a positive `scoreValue`. The flag is the
+            // one that is usually missing — every live capture in
+            // fixtures/live carries `scoringPlay: null` — but `scoreValue`
+            // catches most of what it misses: of the four score deltas in the
+            // 2026-09-07 replay windows, three had a last play with
+            // `scoreValue > 0` and took this fast path. The fourth is what
+            // the catch-up exists for: neither arm fired, so `app::merge`
+            // asks the summary which run it was.
             scoring: sit_v["lastPlay"]["scoringPlay"].as_bool() == Some(true)
                 || score_value.is_some_and(|v| v > 0),
             kind: last_play_kind(league, &sit_v["lastPlay"], score_value),

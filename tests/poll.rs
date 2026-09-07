@@ -358,3 +358,44 @@ fn catchups_do_not_disturb_the_zoomed_summary_cadence() {
         .collect();
     assert!(got.is_empty(), "{got:?}");
 }
+
+#[test]
+fn a_catchup_for_the_zoomed_game_is_one_summary_not_two() {
+    // Zooming a game that then scores off the fast path asks for the same
+    // URL from both sides. One fetch answers both.
+    let mut s = Scheduler::new(7);
+    let t0 = Instant::now();
+    let mut w = wants(&[League::Mlb], true);
+    w.zoomed = Some((League::Mlb, "401".into()));
+    w.catchup = vec![catchup(League::Mlb, "401", 1)];
+    let got: Vec<_> = s
+        .due(&w, false, t0)
+        .into_iter()
+        .filter(|r| matches!(r, Request::Summary(..)))
+        .collect();
+    assert_eq!(
+        got,
+        vec![Request::Summary(League::Mlb, "401".into())],
+        "one id, one Summary in one pass"
+    );
+    // A second delta 10 s later is a new question and does fetch — the zoom's
+    // freshness window never gags a catch-up. What it does do is restart that
+    // window: the data landed at 10 s, so the zoom's own 15 s cadence runs
+    // from there and does not re-ask at 16 s.
+    w.catchup = vec![catchup(League::Mlb, "401", 2)];
+    let got: Vec<_> = s
+        .due(&w, false, t0 + Duration::from_secs(10))
+        .into_iter()
+        .filter(|r| matches!(r, Request::Summary(..)))
+        .collect();
+    assert_eq!(got, vec![Request::Summary(League::Mlb, "401".into())]);
+    let got: Vec<_> = s
+        .due(&w, false, t0 + Duration::from_secs(16))
+        .into_iter()
+        .filter(|r| matches!(r, Request::Summary(..)))
+        .collect();
+    assert!(
+        got.is_empty(),
+        "the catch-up's fetch is the zoom's fetch: {got:?}"
+    );
+}

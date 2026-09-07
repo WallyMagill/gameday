@@ -203,8 +203,10 @@ pub struct App {
     /// about, a quiet 2-row band for everything else. Fired from the score
     /// delta below; read once per draw.
     pub cuts: crate::board::cut::CutState,
-    /// Score deltas waiting for the summary that names their scoring play
-    /// (spec §3.2). One entry per game; `seq` is `catchup_seq` at queue time.
+    /// Score deltas waiting for the summary that names their scoring play —
+    /// the scoreboard's own last play was a later pitch or snap, so the
+    /// summary is asked instead. One entry per game; `seq` is `catchup_seq`
+    /// at queue time.
     catchup: Vec<merge::CatchupEntry>,
     catchup_seq: u64,
     /// Cuts handed to `CutState` since start, from both firing paths: the
@@ -392,9 +394,23 @@ impl App {
         }
         // A catch-up whose summary never landed is dropped, not retried
         // forever: past the TTL the score it was chasing is no longer news.
-        let ttl = CATCHUP_TTL_TICKS;
-        self.catchup
-            .retain(|c| tick.saturating_sub(c.queued_tick) <= ttl);
+        // Logged like the attempts drop, and for the same reason — this is a
+        // real score that gets no cut, and a silent drop is indistinguishable
+        // from a score the app never saw.
+        self.catchup.retain(|c| {
+            let age = tick.saturating_sub(c.queued_tick);
+            if age <= CATCHUP_TTL_TICKS {
+                return true;
+            }
+            crate::log::note(&format!(
+                "catch-up dropped: game={} league={} target={}-{} age={age} ticks (ttl {CATCHUP_TTL_TICKS})",
+                c.game_id,
+                c.league.slug(),
+                c.target.0,
+                c.target.1,
+            ));
+            false
+        });
     }
 
     /// Is `game_id` inside its ~1s score-flash window? Pure in (tick, flashes).
