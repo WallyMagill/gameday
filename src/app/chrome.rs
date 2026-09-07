@@ -15,7 +15,7 @@ use crate::views::View;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 use ratatui::Frame;
 use std::ops::Range;
 use std::time::Instant;
@@ -561,34 +561,46 @@ impl App {
     /// from the same keymap table as the footer.
     pub(super) fn draw_help(&self, frame: &mut Frame, area: Rect) {
         let th = theme::current();
-        let buf = frame.buffer_mut();
-        for y in area.top()..area.bottom() {
-            for x in area.left()..area.right() {
-                let cell = &mut buf[(x, y)];
-                cell.fg = theme::dimmed(cell.fg);
-                cell.bg = theme::dimmed(cell.bg);
-            }
-        }
         // The overlay speaks the same lowercase grammar as
         // every footer — group titles, key chords and labels all run
         // through the keymap's lowering (`keymap::lower_key` for chords,
         // `.to_lowercase()` for labels/titles), not hand-written caps.
+        // Sectioned by mode, the mode you're in first (U3): `h/l` in Zoom
+        // (tab cycling) and `h/l` in Config (cycle a value) land in
+        // different sections instead of one column that means two things.
+        // No blank line between sections (unlike the old flat grouping) —
+        // seven sections plus the legend already push a 120x40 terminal to
+        // its limit; a spacer per section would clip the legend and the
+        // close line off the bottom.
         let mut lines: Vec<Line> = Vec::new();
-        for group in keymap::Group::ALL {
-            if !lines.is_empty() {
-                lines.push(Line::from(""));
-            }
+        for group in keymap::help_order(&self.view) {
             lines.push(Line::from(Span::styled(
                 group.title().to_lowercase(),
                 Style::default().fg(th.star).add_modifier(Modifier::BOLD),
             )));
-            for (keys, label) in keymap::help_display_rows(group) {
-                lines.push(Line::from(vec![
-                    Span::styled(format!("  {keys:<22}"), Style::default().fg(th.fg)),
-                    Span::styled(label, Style::default().fg(th.muted)),
-                ]));
+            let rows = keymap::help_display_rows(group);
+            if rows.is_empty() {
+                // Feed (standings, plays feed) owns no binding of its own —
+                // its keys are the everywhere set plus paging — but still
+                // gets a section instead of a silently missing mode.
+                lines.push(Line::from(Span::styled(
+                    "  (the everywhere keys, plus paging)",
+                    Style::default().fg(th.dim),
+                )));
+            } else {
+                for (keys, label) in rows {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("  {keys:<22}"), Style::default().fg(th.fg)),
+                        Span::styled(label, Style::default().fg(th.muted)),
+                    ]));
+                }
             }
         }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "▸ selected · ⚑ pinned · ★ favorite · ▌ hot · ↑n moved up",
+            Style::default().fg(th.muted),
+        )));
         lines.push(Line::from(""));
         // The overlay's own close keys, spelled the way the source table
         // writes them (Esc, '?', 'q' — see `App::on_key`'s help_open arm).
@@ -596,7 +608,8 @@ impl App {
             "esc/?/q closes",
             Style::default().fg(th.dim),
         )));
-        let w = 40u16.min(area.width.saturating_sub(4));
+        let w = (lines.iter().map(|l| l.width()).max().unwrap_or(0) as u16 + 4)
+            .min(area.width.saturating_sub(4));
         let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
         let panel = Rect {
             x: area.x + (area.width - w) / 2,
@@ -604,9 +617,33 @@ impl App {
             width: w,
             height: h,
         };
+        let buf = frame.buffer_mut();
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                let cell = &mut buf[(x, y)];
+                cell.fg = theme::dimmed(cell.fg);
+                cell.bg = theme::dimmed(cell.bg);
+                // The panel's own row-band shows nothing but the panel: a
+                // narrower-than-screen dialog would otherwise let whatever
+                // the view drew behind it (hero art, play text) bleed in on
+                // either side, dimmed but still legible, on the very rows
+                // the dialog claims for itself.
+                if y >= panel.top()
+                    && y < panel.bottom()
+                    && (x < panel.left() || x >= panel.right())
+                {
+                    cell.set_symbol(" ");
+                }
+            }
+        }
         frame.render_widget(Clear, panel);
+        // Top/bottom rules only, no side bars: a bare group title (`board`,
+        // `zoom`, …) has to be the first thing on its screen row for the
+        // ordering tests to find it — a left bar would sit in front of it on
+        // every row, this rule's own divider style elsewhere in the app.
         let block = Block::default()
-            .borders(Borders::ALL)
+            .borders(Borders::TOP | Borders::BOTTOM)
+            .padding(Padding::horizontal(1))
             .border_style(Style::default().fg(th.star))
             .title(Span::styled(
                 " keys ",
@@ -618,5 +655,19 @@ impl App {
                 .style(Style::default().bg(th.bg).fg(th.fg)),
             panel,
         );
+        // The bottom two corners the missing side bars don't draw — enough
+        // of a frame that the panel still reads as a box, and the one thing
+        // `no_screen_floats_a_dead_column` looks for to find and center it.
+        // (Not the top corners: the title starts flush at the block's left
+        // edge with no bar to reserve a column for one.)
+        if panel.width >= 2 && panel.height >= 2 {
+            let buf = frame.buffer_mut();
+            let corner_style = Style::default().fg(th.star);
+            let right = panel.x + panel.width - 1;
+            let bottom = panel.y + panel.height - 1;
+            for (x, y, glyph) in [(panel.x, bottom, "└"), (right, bottom, "┘")] {
+                buf[(x, y)].set_symbol(glyph).set_style(corner_style);
+            }
+        }
     }
 }

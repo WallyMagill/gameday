@@ -24,6 +24,9 @@ pub enum Cmd {
     Tv,
     Pin(String),
     Quit,
+    /// `:help` opens the `?` overlay — U5: the overlay and the `:` grammar
+    /// name the same feature, so both should open it.
+    Help,
 }
 
 /// Argument shape a registry entry accepts; drives both parse and complete.
@@ -60,6 +63,7 @@ const REGISTRY: &[(&str, ArgSpec)] = &[
     ("sort", ArgSpec::Sort),
     ("tv", ArgSpec::None),
     ("pin", ArgSpec::Abbr),
+    ("help", ArgSpec::None),
     ("q", ArgSpec::None),
     ("quit", ArgSpec::None),
 ];
@@ -118,6 +122,7 @@ pub fn parse(input: &str) -> Result<Cmd, String> {
                 "plays" => Cmd::Plays,
                 "config" => Cmd::ConfigView,
                 "tv" => Cmd::Tv,
+                "help" => Cmd::Help,
                 "q" | "quit" => Cmd::Quit,
                 slug => Cmd::GoLeague(
                     League::from_slug(slug).expect("registry league entries match League::ALL"),

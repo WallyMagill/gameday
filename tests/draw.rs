@@ -187,14 +187,16 @@ fn help_overlay_lists_every_group_and_the_hidden_chords() {
     let s = buf_text(&t);
     for needle in [
         "keys",
-        "navigation",
-        "selection",
-        "view",
-        "app",
+        "board",
+        "zoom",
+        "tv",
+        "config",
+        "standings & feed",
+        "paging",
+        "everywhere",
         // Chords the footer omits must still be discoverable here.
         "theme",
         "sort",
-        "tv",
         "favorite",
         "ctrl-c",
         "s-tab",
@@ -216,20 +218,89 @@ fn help_panel_speaks_the_lowercase_grammar_not_just_the_footer() {
     t.draw(|f| app.draw(f)).unwrap();
     let s = buf_text(&t);
     // The panel's own new rows, lowercase.
-    for needle in [
-        "navigation",
-        "space pin",
-        "esc  q",
-        "esc/?/q closes",
-        " keys ",
-    ] {
+    for needle in ["board", "space pin", "esc  q", "esc/?/q closes", " keys "] {
         assert!(s.contains(needle), "panel missing {needle:?}:\n{s}");
     }
-    // No leftover caps-token grammar (the old NAVIGATION/SPC/ESC-CLOSES
-    // style, and the footer's own dead NAV: label).
-    for caps in ["NAVIGATION", "SELECTION", " SPC", "ESC/?/Q CLOSES", "NAV:"] {
+    // No leftover caps-token grammar (the old NAVIGATION/SELECTION style,
+    // the new BOARD/EVERYWHERE titles, and the footer's own dead NAV:
+    // label) — every one of those is spoken lowercase instead.
+    for caps in [
+        "NAVIGATION",
+        "SELECTION",
+        "BOARD",
+        "EVERYWHERE",
+        " SPC",
+        "ESC/?/Q CLOSES",
+        "NAV:",
+    ] {
         assert!(!s.contains(caps), "leftover caps token {caps:?}:\n{s}");
     }
+}
+
+/// U3: six modes in one column, `h/l` twice with two meanings. The overlay
+/// is sectioned by mode, the current mode first, and closes with the glyphs.
+#[test]
+fn help_leads_with_the_current_mode_and_closes_with_the_legend() {
+    use gameday::views::{View, ZoomTab};
+    let mut app = mk();
+    app.apply_boards(League::Nfl, vec![g("1", "KC", "TB", true)], false);
+    app.tab = Tab::League(League::Nfl);
+    app.view = View::Zoom {
+        game_id: "1".into(),
+        tab: ZoomTab::Overview,
+    };
+    app.help_open = true;
+    let s = buf_text(&render(&mut app, 120, 50));
+    let at = |needle: &str| {
+        s.lines()
+            .position(|l| l.trim_start().starts_with(needle))
+            .unwrap_or_else(|| panic!("{needle:?} missing:\n{s}"))
+    };
+    assert!(at("zoom") < at("board"), "the current mode leads:\n{s}");
+    assert!(
+        at("board") < at("everywhere") && at("paging") < at("everywhere"),
+        "{s}"
+    );
+    // tabs (h/l) is a zoom row; cycle (h/l) is a config row; league is everywhere.
+    let row = |label: &str| {
+        s.lines()
+            .position(|l| l.contains(label))
+            .unwrap_or_else(|| panic!("{label:?} missing:\n{s}"))
+    };
+    assert!((at("zoom")..at("board")).contains(&row("tabs")), "{s}");
+    assert!(
+        row("cycle") > at("config") && row("cycle") < at("standings & feed"),
+        "{s}"
+    );
+    assert!(
+        s.contains("▸ selected · ⚑ pinned · ★ favorite · ▌ hot · ↑n moved up"),
+        "legend:\n{s}"
+    );
+    // The board leads from the board.
+    app.view = View::Board;
+    let s = buf_text(&render(&mut app, 120, 50));
+    assert!(at_in(&s, "board") < at_in(&s, "zoom"), "{s}");
+}
+
+fn at_in(s: &str, needle: &str) -> usize {
+    s.lines()
+        .position(|l| l.trim_start().starts_with(needle))
+        .unwrap_or_else(|| panic!("{needle:?} missing:\n{s}"))
+}
+
+/// U5: `:help` is a command.
+#[test]
+fn colon_help_opens_the_overlay() {
+    use crossterm::event::KeyCode;
+    let mut app = mk();
+    key(&mut app, KeyCode::Char(':'));
+    type_text(&mut app, "help");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.help_open);
+    assert_eq!(
+        gameday::command::parse("help").unwrap(),
+        gameday::command::Cmd::Help
+    );
 }
 
 #[test]

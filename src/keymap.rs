@@ -49,34 +49,62 @@ pub fn on_mouse(app: &mut App, ev: MouseEvent) {
     }
 }
 
-/// Help-overlay section a binding belongs to.
+/// Help-overlay section a binding belongs to. The overlay sections by mode
+/// rather than by nav/selection/view/app, since `h/l` means one thing in
+/// `Zoom` (tab cycling) and another in `Config` (cycle a value) — splitting
+/// by mode is the only grouping where a chord means one thing per section.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Group {
-    Navigation,
-    Selection,
-    View,
+    Board,
+    Zoom,
+    Tv,
+    Config,
+    /// Standings and the plays feed. Holds no binding of its own — its keys
+    /// are the [`Group::Everywhere`] set plus [`Group::Paging`] — but still
+    /// gets a section so the overlay says so rather than omitting the mode.
+    Feed,
     Paging,
-    App,
+    Everywhere,
 }
 
 impl Group {
-    pub const ALL: [Group; 5] = [
-        Group::Navigation,
-        Group::Selection,
-        Group::View,
+    pub const ALL: [Group; 7] = [
+        Group::Board,
+        Group::Zoom,
+        Group::Tv,
+        Group::Config,
+        Group::Feed,
         Group::Paging,
-        Group::App,
+        Group::Everywhere,
     ];
 
     pub fn title(self) -> &'static str {
         match self {
-            Group::Navigation => "NAVIGATION",
-            Group::Selection => "SELECTION",
-            Group::View => "VIEW",
+            Group::Board => "BOARD",
+            Group::Zoom => "ZOOM",
+            Group::Tv => "TV",
+            Group::Config => "CONFIG",
+            Group::Feed => "STANDINGS & FEED",
             Group::Paging => "PAGING",
-            Group::App => "APP",
+            Group::Everywhere => "EVERYWHERE",
         }
     }
+}
+
+/// The overlay's section order for a view: the mode you are in first, the
+/// other modes in [`Group::ALL`] order, then paging and the everywhere set.
+pub fn help_order(view: &crate::views::View) -> Vec<Group> {
+    use crate::views::View;
+    let current = match view {
+        View::Board | View::ThemePicker => Group::Board,
+        View::Zoom { .. } => Group::Zoom,
+        View::Tv => Group::Tv,
+        View::ConfigView => Group::Config,
+        View::PlaysFeed | View::Standings(_) => Group::Feed,
+    };
+    let mut order = vec![current];
+    order.extend(Group::ALL.iter().copied().filter(|g| *g != current));
+    order
 }
 
 /// Which surface the footer is describing — Board, the zoomed game (with its
@@ -131,7 +159,7 @@ pub const KEYMAP: &[Binding] = &[
     Binding {
         keys: &["TAB", "S-TAB", "L/H", "→/←"],
         label: "LEAGUE",
-        group: Group::Navigation,
+        group: Group::Everywhere,
         footer: FooterSlot::Always,
     },
     Binding {
@@ -140,77 +168,77 @@ pub const KEYMAP: &[Binding] = &[
         // it is in use.
         keys: &["[/]"],
         label: "DATE",
-        group: Group::Navigation,
+        group: Group::Board,
         footer: FooterSlot::Never,
     },
     Binding {
         keys: &["J/K", "↓/↑"],
         label: "MOVE",
-        group: Group::Selection,
+        group: Group::Everywhere,
         footer: FooterSlot::Board,
     },
     Binding {
         keys: &["SPC"],
         label: "PIN",
-        group: Group::Selection,
+        group: Group::Board,
         footer: FooterSlot::Board,
     },
     Binding {
         keys: &["T"],
         label: "FAVORITE",
-        group: Group::Selection,
+        group: Group::Board,
         footer: FooterSlot::Never,
     },
     Binding {
         keys: &["Z", "ENTER"],
         label: "ZOOM",
-        group: Group::Selection,
+        group: Group::Board,
         footer: FooterSlot::Board,
     },
     Binding {
         keys: &["ESC", "Q"],
         label: "BACK",
-        group: Group::Selection,
+        group: Group::Everywhere,
         footer: FooterSlot::NotBoard,
     },
     Binding {
         // Zoom tabs: OVERVIEW | PLAYS | STATS.
         keys: &["H/L", "[/]"],
         label: "TABS",
-        group: Group::View,
+        group: Group::Zoom,
         footer: FooterSlot::Zoomed,
     },
     Binding {
         // Config rows: enable/disable a league tab, remove a favorite.
         keys: &["SPC"],
         label: "TOGGLE",
-        group: Group::View,
+        group: Group::Config,
         footer: FooterSlot::Config,
     },
     Binding {
         // Config: ENTER activates the row (add/remove favorite, toggle).
         keys: &["ENTER"],
         label: "EDIT",
-        group: Group::View,
+        group: Group::Config,
         footer: FooterSlot::Config,
     },
     Binding {
         // Config display rows: THEME / SORT values.
         keys: &["H/L"],
         label: "CYCLE",
-        group: Group::View,
+        group: Group::Config,
         footer: FooterSlot::Config,
     },
     Binding {
         keys: &["S"],
         label: "SORT",
-        group: Group::View,
+        group: Group::Board,
         footer: FooterSlot::Board,
     },
     Binding {
         keys: &["V"],
         label: "TV",
-        group: Group::View,
+        group: Group::Board,
         footer: FooterSlot::Board,
     },
     // TV's own two keys. They reach the footer through [`TV_LEGEND`], not the
@@ -219,44 +247,44 @@ pub const KEYMAP: &[Binding] = &[
     Binding {
         keys: &["SPC"],
         label: "TV LOCK",
-        group: Group::View,
+        group: Group::Tv,
         footer: FooterSlot::Never,
     },
     Binding {
         keys: &["N"],
         label: "TV NEXT",
-        group: Group::View,
+        group: Group::Tv,
         footer: FooterSlot::Never,
     },
     Binding {
         keys: &["C"],
         label: "THEME",
-        group: Group::View,
+        group: Group::Board,
         footer: FooterSlot::Never,
     },
     Binding {
         keys: &[":"],
         label: "CMD",
-        group: Group::App,
+        group: Group::Everywhere,
         footer: FooterSlot::Always,
     },
     Binding {
         keys: &["/"],
         label: "FILTER",
-        group: Group::View,
+        group: Group::Board,
         footer: FooterSlot::Always,
     },
     Binding {
         // Footer real estate went to [:] and [/]; refresh stays in help.
         keys: &["R"],
         label: "REFRESH",
-        group: Group::App,
+        group: Group::Everywhere,
         footer: FooterSlot::Never,
     },
     Binding {
         keys: &["?"],
         label: "HELP",
-        group: Group::App,
+        group: Group::Everywhere,
         footer: FooterSlot::Always,
     },
     Binding {
@@ -264,7 +292,7 @@ pub const KEYMAP: &[Binding] = &[
         // advertises it only where it's true. Ctrl+C quits from anywhere.
         keys: &["Q", "CTRL-C"],
         label: "QUIT",
-        group: Group::App,
+        group: Group::Everywhere,
         footer: FooterSlot::Board,
     },
     Binding {

@@ -224,6 +224,7 @@ fn apply(app: &mut App, cmd: Cmd) {
         Cmd::Tv => app.open_tv(),
         Cmd::Pin(abbr) => pin_team(app, &abbr),
         Cmd::Quit => app.should_quit = true,
+        Cmd::Help => app.help_open = true,
     }
 }
 
