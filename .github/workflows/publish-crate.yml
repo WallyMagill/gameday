@@ -27,7 +27,7 @@ jobs:
     # Release workflow at startup (run 34249642237, the first rc tag). Checkout
     # of a public repo needs no scope.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
           submodules: recursive
