@@ -12,16 +12,22 @@ repository = "https://github.com/WallyMagill/gameday"
 readme = "README.md"
 keywords = ["sports", "tui", "terminal", "scores", "espn"]
 categories = ["command-line-utilities"]
-# Everything the binary embeds stays in (assets/, fixtures/nfl_standings.json
-# via src/dump.rs). Docs, research, tooling and captures stay out.
+# Everything the binary embeds stays in: assets/ whole (logos and themes,
+# embedded via include_str! in src/board/logo_sources.rs and src/theme.rs)
+# and fixtures/nfl_standings.json (the gallery's standings, src/dump.rs).
+# Docs, research, tests, tooling and captures stay out.
 exclude = [
     "docs/",
-    "fixtures/replay/",
+    "tests/",
+    "fixtures/*",
+    "!fixtures/nfl_standings.json",
     "scripts/",
     "tools/",
     ".github/",
     "*.tape",
     ".git-blame-ignore-revs",
+    "deny.toml",
+    "out/",
 ]
 
 [dependencies]

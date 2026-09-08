@@ -73,10 +73,10 @@ const STRIP_TWO_COL_COLS: u16 = 100;
 /// Air between the strip's two columns.
 const STRIP_GUTTER: u16 = 2;
 
-/// Rows one strip column may spend. The reference frame
-/// (docs/research/v3-identity/tv-nfl-sunday-120x40.png) lists five games per
-/// column and captions the remainder; more than that and the strip is
-/// competing with the game it is supposed to be a footnote to.
+/// Rows one strip column may spend. The 120×40 TV reference frame
+/// (2026-09-01) lists five games per column and captions the remainder;
+/// more than that and the strip is competing with the game it is supposed
+/// to be a footnote to.
 const STRIP_MAX_ROWS: usize = 5;
 
 /// The play-clock stamp column, right-aligned, plus a column of air. Widest
@@ -176,7 +176,7 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     // fifteen dead rows around them (the design review's "TV is the weakest
     // frame"). The band now takes the doubled form plus `BAND_AIR` and stops;
     // the rows it declines go to the gap above the linescore, where the
-    // reference frame's air is (docs/research/v3-identity/tv-nfl-sunday-120x40.png).
+    // 120×40 TV reference frame's air is (2026-09-01).
     let can = body.height - plays_rows - ls_rows;
     let options = u16::from(hero::fragment_line(game).is_some())
         + u16::from(crate::tiles::meter_line(game, body.width as usize).is_some());

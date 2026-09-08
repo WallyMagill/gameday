@@ -71,6 +71,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo package --locked
+      - name: the crate ships what the binary embeds and nothing else
+        run: |
+          cargo package --list --locked > /tmp/pkg.txt
+          for must in assets/logos/nfl/kc.ans assets/themes/broadcast.toml assets/candidates/gruvbox-warm.toml fixtures/nfl_standings.json src/main.rs; do
+            grep -qx "$must" /tmp/pkg.txt || { echo "missing from the crate: $must"; exit 1; }
+          done
+          for never in '^tests/' '^docs/' '^fixtures/replay/' '^fixtures/live/' '^scripts/' '^tools/' '^deny.toml$' '\.tape$'; do
+            if grep -qE "$never" /tmp/pkg.txt; then echo "must not ship: $(grep -E "$never" /tmp/pkg.txt | head -3)"; exit 1; fi
+          done
       - name: crate size under 5 MB
         run: |
           size=$(stat -c %s target/package/*.crate)

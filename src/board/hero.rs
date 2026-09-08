@@ -65,11 +65,10 @@ pub struct HeroPlan {
 }
 
 /// Minimum flank width, in cells, that earns a 16-wide hero mark: the art
-/// plus one column of air on each side. The reference frame leaves 29-column
-/// outer margins (docs/research/v3-identity/logo-study/NOTES.md — "16×10 …
-/// the largest size that fits the empty 29-col outer margins without moving
-/// a digit"), so 18 is the floor at which a mark still gets its margin
-/// rather than the width at which it merely fits.
+/// plus one column of air on each side. The 2026-09-02 logo study found
+/// 16×10 the largest size that fits the reference frame's 29-column outer
+/// margins without moving a digit, so 18 is the floor at which a mark
+/// still gets its margin rather than the width at which it merely fits.
 const FLANK_MIN_COLS: u16 = 18;
 
 /// Committed hero art is 16 cells wide; a narrower flank is not a flank.
@@ -615,7 +614,7 @@ pub fn draw_hero(frame: &mut Frame, area: Rect, game: &Game, plan: &HeroPlan) {
         if let Some(line) = meter {
             // The bar meters are anchored to the frame like the field they
             // stand for; the diamond is a small cluster and centers under
-            // the digits (docs/research/v3-identity/tonight-120x40.png).
+            // the digits, per the 120×40 tonight reference frame (2026-09-01).
             let align = match game.meter {
                 Some(crate::domain::Meter::Diamond { .. }) => Alignment::Center,
                 _ => Alignment::Left,
@@ -785,8 +784,8 @@ mod tests {
         }
     }
 
-    /// KC red vs BUF blue, red zone, 24-21 — the reference frame's game
-    /// (docs/research/v3-identity/nfl-sunday-120x40.png).
+    /// KC red vs BUF blue, red zone, 24-21 — the 120×40 NFL Sunday
+    /// reference frame's game (2026-09-01).
     fn nfl_game() -> Game {
         Game {
             id: "1".into(),

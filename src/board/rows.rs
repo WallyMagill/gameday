@@ -65,10 +65,10 @@ pub struct RowCtx {
 
 // ---------------------------------------------------------------- the grid
 //
-// Column offsets from the row's left edge, measured off the A′ reference
-// frame at 120 columns (docs/research/v3-identity/nfl-sunday-120x40.png:
-// `GB 13 CHI 10  Q3 4:20  NFL  GB 3RD & 2 AT CHI 41`, and the LATER rows
-// whose start times and league tags share the same columns) — but the grid
+// Column offsets from the row's left edge, measured off the A′ 120-column
+// NFL Sunday reference frame (2026-09-01): `GB 13 CHI 10  Q3 4:20  NFL  GB
+// 3RD & 2 AT CHI 41`, and the LATER rows whose start times and league tags
+// share the same columns — but the grid
 // itself is a *derivation* from a handful of field widths, not a table of
 // offsets someone can edit one at a time. That is what the review's glue
 // bugs were: `↑9TNST`, `NETFLIXLAR -3.5`, `BOISPASSING YARDS` were all one
@@ -715,8 +715,8 @@ mod tests {
         }
     }
 
-    /// The A′ frame's tier-1 row: DAL 17 PHI 17, Q4 0:48, 2-MIN
-    /// (docs/research/v3-identity/nfl-sunday-120x40.png).
+    /// The A′ 120×40 NFL Sunday reference frame's tier-1 row: DAL 17 PHI 17,
+    /// Q4 0:48, 2-MIN (2026-09-01).
     fn live_game(away: &str, home: &str) -> Game {
         Game {
             id: "1".into(),
@@ -1651,8 +1651,8 @@ mod tests {
             assert_eq!(buf[(0, y)].fg, r.hot, "hot row\n{text}");
         }
 
-        // The state chip rides under the clock, in `hot` — the A′ frame's red
-        // `2-MIN` beneath `Q4 0:48` (docs/research/v3-identity/nfl-sunday-120x40.png).
+        // The state chip rides under the clock, in `hot` — the A′ 120×40 NFL
+        // Sunday reference frame's red `2-MIN` beneath `Q4 0:48` (2026-09-01).
         let chipped = RowCtx {
             chip: Some("2-MIN"),
             ..ctx()

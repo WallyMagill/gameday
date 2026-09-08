@@ -4919,8 +4919,8 @@ fn tv_fills_its_frame() {
     //   * 2 rows are the glyph cell's own baseline gap, doubled (`24`/`21`
     //     ink 7 of 8 glyph rows), and 1 is the band's air under the nameplate;
     //   * the rest is ONE gap between the hero block and the linescore, which
-    //     is where the reference frame's own blank rows are
-    //     (docs/research/v3-identity/tv-nfl-sunday-120x40.png has five).
+    //     is where the 120×40 TV reference frame's own blank rows are (it
+    //     has five, 2026-09-01).
     // Nine is what a 40-row terminal has left over once the doubled digits,
     // the fragment, the meter, the linescore, three plays and the strip have
     // taken their rows; the shape assertion below is the real claim — the

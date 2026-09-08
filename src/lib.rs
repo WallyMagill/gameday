@@ -1,3 +1,8 @@
+//! gameday is a binary. This library exists so the integration tests,
+//! `gameday frame` and `gameday dump` can reach the same code; it is not a
+//! stable API and carries no semver promise. What 1.0.0 promises: the CLI
+//! flags, `config.toml`'s keys, `pins.json`, and the `--once --json` schema.
+
 pub mod alerts;
 pub mod app;
 pub mod board;
