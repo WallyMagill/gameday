@@ -83,7 +83,7 @@ The pipeline is `cargo-dist` (0.32.0), configured in `dist-workspace.toml` and g
    - the shell installer: `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.sh | sh`
    - a downloaded archive from the release page, unpacked and run directly
    - on a Windows box, if one is at hand: `powershell -ExecutionPolicy Bypass -c "irm https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.ps1 | iex"`
-5. The rc form (`vX.Y.Z-rc.N`) exercises the same workflow — build, GitHub Release, shell/PowerShell installers, Homebrew tap — but skips the crates.io publish twice over: cargo-dist's own prerelease gate (`announcement_is_prerelease`, true for any `-rc.N` suffix) skips `custom-publish-crate` at the call site in `release.yml`, and `publish-crate.yml`'s own job carries `if: ${{ !contains(github.ref, '-rc') }}` as a second, explicit check. Push an rc tag to test the pipeline itself before cutting a real one.
+5. The rc form (`vX.Y.Z-rc.N`) exercises the same workflow — build, GitHub Release, shell/PowerShell installers, Homebrew tap (`publish-prereleases = true` in `dist-workspace.toml` lifts dist's prerelease gate, which otherwise skipped the tap job on rc.1; the tap then points at the rc until the real tag replaces the formula) — but skips the crates.io publish twice over: cargo-dist's own prerelease gate (`announcement_is_prerelease`, true for any `-rc.N` suffix) skips `custom-publish-crate` at the call site in `release.yml`, and `publish-crate.yml`'s own job carries `if: ${{ !contains(github.ref, '-rc') }}` as a second, explicit check. Push an rc tag to test the pipeline itself before cutting a real one.
 
 Two repo secrets the pipeline needs, set at **Settings → Secrets and variables → Actions** on the `gameday` repo (repository secrets, not environment secrets):
 
@@ -92,4 +92,4 @@ Two repo secrets the pipeline needs, set at **Settings → Secrets and variables
 
 ## Two `gh` accounts
 
-This machine's default `gh` account is the work one. Before any `gh` command in this repo: `gh auth switch --user WallyMagill`. Switch back to the work account when you're done.
+This machine's default `gh` account is the work one. Before any `gh` command in this repo: `gh auth switch --user WallyMagill`. Switch back to the work account when you're done. This includes `git push`: the HTTPS remote authenticates through `gh`'s credential helper, so a push under the work account fails with a bare `403` (seen on the rc.2 push, 2026-09-08).
