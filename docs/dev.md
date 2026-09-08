@@ -72,15 +72,22 @@ Fetches one real scoreboard for `<league>`, maps it through the real provider co
 
 ## Release procedure
 
-**To be regenerated with `dist init` in Task 3** — cargo-dist's own output supersedes this once it exists. Until then, the plan:
+The pipeline is `cargo-dist` (0.32.0), configured in `dist-workspace.toml` and generated into `.github/workflows/release.yml` by `dist generate --mode ci`; `.github/workflows/publish-crate.yml` is a hand-written reusable workflow wired in as a custom publish job (`publish-jobs = ["homebrew", "./publish-crate"]`). Re-run `dist generate --mode ci` after editing `dist-workspace.toml`, and `dist plan` to sanity-check the announcement before tagging.
 
-1. Bump the version in `Cargo.toml` and the `CHANGELOG.md` date in one commit.
-2. `git tag vX.Y.Z` and push the tag (Walter does the push).
-3. Watch the release workflow run: it builds five targets (`aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`), publishes three installers (shell, PowerShell, Homebrew), pushes the Homebrew tap, and — on a non-`-rc` tag only — publishes the crate to crates.io.
-4. Verify on a clean machine: `brew install WallyMagill/tap/gameday`, `cargo install gameday --version X.Y.Z`, the shell installer (`curl ... gameday-installer.sh | sh`), and a downloaded archive from the release page.
-5. An rc form of the same (`vX.Y.Z-rc.N`) skips the crates.io publish — everything else runs the same way, so an rc is how the pipeline itself gets tested before a real tag.
+1. Bump the version in `Cargo.toml` and the `CHANGELOG.md` date, in one commit.
+2. `git tag vX.Y.Z` and push the tag (Walter does the push — this repo has no remote wired up for anyone else to push to).
+3. Watch the release workflow (`Release` in Actions) run on the tag push: it builds five targets (`aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`), creates the GitHub Release with those archives plus a source tarball and checksums, publishes two universal installers (shell, PowerShell) to it, pushes a Homebrew formula to `WallyMagill/homebrew-tap`, and — via the `custom-publish-crate` job, which only runs on a non-prerelease tag — publishes the crate to crates.io with `cargo publish --locked`.
+4. Verify on a clean machine (no prior `gameday` install, no cached tap):
+   - `brew install WallyMagill/tap/gameday`
+   - `cargo install gameday --version X.Y.Z`
+   - the shell installer: `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.sh | sh`
+   - a downloaded archive from the release page, unpacked and run directly
+5. The rc form (`vX.Y.Z-rc.N`) exercises the same workflow — build, GitHub Release, shell/PowerShell installers, Homebrew tap — but skips the crates.io publish twice over: cargo-dist's own prerelease gate (`announcement_is_prerelease`, true for any `-rc.N` suffix) skips `custom-publish-crate` at the call site in `release.yml`, and `publish-crate.yml`'s own job carries `if: ${{ !contains(github.ref, '-rc') }}` as a second, explicit check. Push an rc tag to test the pipeline itself before cutting a real one.
 
-Two repo secrets the pipeline needs, set at Settings → Secrets and variables → Actions on the `gameday` repo: `HOMEBREW_TAP_TOKEN` (a fine-grained PAT with contents write on the `WallyMagill/homebrew-tap` repo) and `CARGO_REGISTRY_TOKEN` (crates.io publish token).
+Two repo secrets the pipeline needs, set at **Settings → Secrets and variables → Actions** on the `gameday` repo (repository secrets, not environment secrets):
+
+- `HOMEBREW_TAP_TOKEN` — a fine-grained personal access token scoped to `WallyMagill/homebrew-tap` only, with repository permission **Contents: Read and write**. Create it at github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens.
+- `CARGO_REGISTRY_TOKEN` — from crates.io → Account Settings → API Tokens → New Token, scoped to `publish-update` for the `gameday` crate (not a blanket publish-any token).
 
 ## Two `gh` accounts
 
