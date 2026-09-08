@@ -52,7 +52,7 @@ LEAGUES="nba epl" tools/gen-logos.sh    # just these leagues
 COLLEGE=all LEAGUES="cfb cbb" tools/gen-logos.sh   # every FBS school + the top 8 CBB conferences
 ```
 
-The script's own flag default is `COLLEGE=poll` (today's behavior, byte-identical: AP/coaches top-25 college marks only) — but the committed art under `assets/logos*` was generated with `COLLEGE=all` and is the shipped baseline (every FBS school plus eight D-I basketball conferences: ACC, Big East, Big Ten, Big 12, SEC, Atlantic 10, Mountain West, American — 165 unique marks, both grounds). Running the script bare only refreshes the poll subset; pass `COLLEGE=all` explicitly to regenerate the full committed set.
+The script's default is `COLLEGE=all`, the shipped set (every FBS school plus eight D-I basketball conferences: ACC, Big East, Big Ten, Big 12, SEC, Atlantic 10, Mountain West, American — 165 unique marks, both grounds), so a bare `LEAGUES="cfb cbb" tools/gen-logos.sh` regenerates what is committed. `COLLEGE=poll` is the older ranked-25 set (AP/coaches top 25 only).
 
 Rerun it when:
 - **EPL churn** — three clubs relegate and three promote every summer; rerun `LEAGUES="epl"` once promotion is settled.

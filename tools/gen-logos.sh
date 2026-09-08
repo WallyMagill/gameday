@@ -47,10 +47,10 @@ SYMBOLS="${SYMBOLS:-space+solid+half+quad}"
 API="https://site.api.espn.com/apis/site/v2/sports"
 LEAGUES="${LEAGUES:-nfl nba wnba nhl mlb epl mls cfb cbb}"
 
-# COLLEGE=poll (default): today's behaviour, byte-identical — cfb/cbb rows
-# come from the AP/coaches rankings endpoint, top 25 only (`resolve_league`
-# below). COLLEGE=all is the sitting's "every school" option: every FBS
+# COLLEGE=all (default; the shipped set, wave 5 direction 10): every FBS
 # team (cfb) plus the top eight D-I men's basketball conferences (cbb) —
+# COLLEGE=poll is the older ranked-25 set — cfb/cbb rows from the AP/coaches
+# rankings endpoint, top 25 only (`resolve_league` below). The full set —
 # ACC, Big East, Big Ten, Big 12, SEC, Atlantic 10, Mountain West, American
 # — off the standings payloads `provider::espn::standings_url` and
 # `provider::map::map_standings` already read, not the teams list (the
