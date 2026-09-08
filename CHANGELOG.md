@@ -8,7 +8,10 @@ All notable changes to gameday are recorded here. The format follows
 
 ## [1.0.0] — unreleased
 
+First public release. No 0.x version was ever published, so this section is the feature list, not a delta.
+
 ### Added
+- Installable four ways: prebuilt binaries on GitHub Releases for macOS (arm64, x86_64), Linux (x86_64, aarch64) and Windows (x86_64, built but untested); a shell installer and a PowerShell installer; `brew install WallyMagill/tap/gameday`; `cargo install gameday`. `docs/dev.md` holds the release procedure and the contributor tooling.
 - Continuous integration: `cargo fmt --check`, `cargo clippy -- -D warnings`, the test suite on Linux and macOS, an MSRV check against the `rust-version` in `Cargo.toml`, `cargo-deny` (bans, licenses, advisories, sources), and a `cargo package` step that fails if the crate exceeds 5 MB.
 - Dependabot, weekly, for Cargo dependencies and GitHub Actions.
 - `AGENTS.md` — how to work in this repo.

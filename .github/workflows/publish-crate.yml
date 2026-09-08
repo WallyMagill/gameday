@@ -5,8 +5,9 @@
 # to release.yml that calls this reusable workflow after `host` succeeds,
 # already gated on `!announcement_is_prerelease || publish_prereleases`
 # (an `-rc.N` tag is a semver prerelease, so it's skipped there too). The
-# `if` below is redundant with that gate but states the rc/non-rc rule
-# explicitly, matching the release procedure in docs/dev.md.
+# `if` below is redundant with that gate but states the `-rc` rule
+# explicitly, matching the release procedure in docs/dev.md (other prerelease
+# spellings, `-beta.N` say, rely on dist's gate alone).
 name: publish-crate
 
 on:

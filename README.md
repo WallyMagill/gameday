@@ -11,7 +11,8 @@ Available from 1.0.0; until then: `cargo install --git https://github.com/WallyM
 ```bash
 brew install WallyMagill/tap/gameday
 cargo install gameday
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.sh powershell -ExecutionPolicy Bypass -c "irm https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.ps1 | iex"
+| sh
 ```
 
 Or grab a binary from [Releases](https://github.com/WallyMagill/gameday/releases).
@@ -109,7 +110,7 @@ Exit codes: `0` with output printed (nothing printed at all when there's nothing
 
 ## Data
 
-Unofficial ESPN JSON (`site.web.api.espn.com`), polled — never a websocket. The last good payload stays on disk, so a network failure shows `STALE` instead of going blank. Measured with nine leagues live: 38 requests a minute, scoreboards only; a full summary (play-by-play, box score) is fetched only for the game you zoom and for a one-shot scoring catch-up.
+Unofficial ESPN JSON (`site.web.api.espn.com`), polled — never a websocket: scoreboards every 15 s while any game is live, every 60 s when none is. The last good payload stays on disk, so a network failure shows `STALE` instead of going blank. Measured with nine leagues live: 38 requests a minute, scoreboards only; a full summary (play-by-play, box score) is fetched only for the game you zoom and for a one-shot scoring catch-up.
 
 Team marks are quadrant-block renderings of league-owned logos, used only to identify teams; gameday is not affiliated with ESPN or any league, and a mark comes down on request. College now ships every FBS school plus eight D-I basketball conferences (ACC, Big East, Big Ten, Big 12, SEC, Atlantic 10, Mountain West, American) — 165 marks in all. A team without a committed mark falls back to its abbreviation painted in its own colors, which is the designed look, not a gap.
 
