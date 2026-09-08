@@ -1,3 +1,3 @@
 # Whitespace-only commits, skipped by git blame when configured with:
 #   git config blame.ignoreRevsFile .git-blame-ignore-revs
-9b52d5b819953c9ab63cd55da47d473983004f09  style: rustfmt the tree
+379be496cc44b8582069362c4552fafdbeca15db  # style: rustfmt the tree
