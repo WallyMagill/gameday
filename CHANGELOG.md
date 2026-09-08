@@ -6,6 +6,8 @@ All notable changes to gameday are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] — unreleased
+
 ### Added
 - Continuous integration: `cargo fmt --check`, `cargo clippy -- -D warnings`, the test suite on Linux and macOS, an MSRV check against the `rust-version` in `Cargo.toml`, `cargo-deny` (bans, licenses, advisories, sources), and a `cargo package` step that fails if the crate exceeds 5 MB.
 - Dependabot, weekly, for Cargo dependencies and GitHub Actions.
