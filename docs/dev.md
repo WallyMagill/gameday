@@ -72,7 +72,7 @@ Fetches one real scoreboard for `<league>`, maps it through the real provider co
 
 ## Release procedure
 
-The pipeline is `cargo-dist` (0.32.0), configured in `dist-workspace.toml` and generated into `.github/workflows/release.yml` by `dist generate --mode ci`; `.github/workflows/publish-crate.yml` is a hand-written reusable workflow wired in as a custom publish job (`publish-jobs = ["homebrew", "./publish-crate"]`). Re-run `dist generate --mode ci` after editing `dist-workspace.toml`, and `dist plan` to sanity-check the announcement before tagging.
+The pipeline is `cargo-dist` (0.32.0), configured in `dist-workspace.toml` and generated into `.github/workflows/release.yml` by `dist generate --mode ci`; `.github/workflows/publish-crate.yml` is a hand-written reusable workflow wired in as a custom publish job (`publish-jobs = ["homebrew", "./publish-crate"]`). Re-run `dist generate --mode ci` after editing `dist-workspace.toml`, and `dist plan` to sanity-check the announcement before tagging. There is no `changelog` config key in 0.32: dist finds `CHANGELOG.md` at the workspace root on its own and folds the tagged version's section into the GitHub release body.
 
 1. Bump the version in `Cargo.toml` and the `CHANGELOG.md` date, in one commit.
 2. `git tag vX.Y.Z` and push the tag (Walter does the push — this repo has no remote wired up for anyone else to push to).
