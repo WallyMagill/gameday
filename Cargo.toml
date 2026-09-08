@@ -28,6 +28,9 @@ exclude = [
     ".git-blame-ignore-revs",
     "deny.toml",
     "out/",
+    # Repo guidance, not user docs.
+    "AGENTS.md",
+    "CLAUDE.md",
 ]
 
 [dependencies]

@@ -67,7 +67,7 @@ LEAGUES="${LEAGUES:-nfl nba wnba nhl mlb epl mls cfb cbb}"
 # 7.2 MB, both grounds; task report). One-time dev fetch (`COLLEGE=all LEAGUES="cfb cbb"
 # tools/gen-logos.sh`); the shipped binary embeds whatever is committed
 # under `assets/logos*`, poll or all, with no runtime cost either way.
-COLLEGE="${COLLEGE:-poll}"
+COLLEGE="${COLLEGE:-all}"   # the shipped set (wave 5 direction 10); COLLEGE=poll for the ranked-25 set
 
 # ---------------------------------------------------------- the light set
 # v3.4 §7. Every mark is rendered twice: once over black (the dark themes)

@@ -40,7 +40,7 @@ Or grab a binary from [Releases](https://github.com/WallyMagill/gameday/releases
 | Paging | `pgdn`/`pgup`, `ctrl-d`/`ctrl-u` half a page · `g`/`G`, `home`/`end` to the ends |
 | Everywhere | `tab`/`shift-tab`/`h`/`l` league · `j`/`k` move · `esc`/`q` back · `:` command · `r` refresh · `?` help · `q`/`ctrl-c` quit |
 
-`:` commands: `:nfl` `:cfb` `:cbb` `:nba` `:wnba` `:nhl` `:mlb` `:epl` `:mls` (jump to a league) · `:home`/`:all` · `:plays` · `:standings [league]` · `:config` · `:theme [name]` · `:sort [key]` · `:tv` · `:pin <abbr>` · `:notify test` · `:help` · `:q`
+`:` commands: `:nfl` `:cfb` `:cbb` `:nba` `:wnba` `:nhl` `:mlb` `:epl` `:mls` (jump to a league) · `:home`/`:all` · `:plays` · `:standings [league]` · `:config` · `:theme [name]` · `:sort [key]` · `:tv` · `:pin <abbr>` · `:notify test` · `:help` · `:q`/`:quit`
 
 ## Config
 

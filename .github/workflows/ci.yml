@@ -77,7 +77,7 @@ jobs:
           for must in assets/logos/nfl/kc.ans assets/themes/broadcast.toml assets/candidates/gruvbox-warm.toml fixtures/nfl_standings.json src/main.rs; do
             grep -qx "$must" /tmp/pkg.txt || { echo "missing from the crate: $must"; exit 1; }
           done
-          for never in '^tests/' '^docs/' '^fixtures/replay/' '^fixtures/live/' '^scripts/' '^tools/' '^deny.toml$' '\.tape$'; do
+          for never in '^tests/' '^docs/' '^fixtures/replay/' '^fixtures/live/' '^scripts/' '^tools/' '^deny.toml$' '\.tape$' '^AGENTS.md$' '^CLAUDE.md$'; do
             if grep -qE "$never" /tmp/pkg.txt; then echo "must not ship: $(grep -E "$never" /tmp/pkg.txt | head -3)"; exit 1; fi
           done
       - name: crate size under 5 MB

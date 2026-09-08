@@ -4,7 +4,7 @@
 //!   gameday frame --view tv --theme studio --size 80x24 \
 //!                 --scenario redzone --tick 40 --out out/design/tv-studio-80.png
 //!
-//! `dump` is the fixed gallery: 22 pinned stems other tasks verify against.
+//! `dump` is the fixed gallery: 23 pinned stems other tasks verify against.
 //! `frame` is the design loop's one-shot: any view, any theme (including a
 //! candidate theme file that is not a built-in), any size, any scripted sim
 //! state, written where the caller asks. Both go through the same setup
