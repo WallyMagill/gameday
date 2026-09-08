@@ -87,8 +87,8 @@ The pipeline is `cargo-dist` (0.32.0), configured in `dist-workspace.toml` and g
 
 Two repo secrets the pipeline needs, set at **Settings → Secrets and variables → Actions** on the `gameday` repo (repository secrets, not environment secrets):
 
-- `HOMEBREW_TAP_TOKEN` — a fine-grained personal access token scoped to `WallyMagill/homebrew-tap` only, with repository permission **Contents: Read and write**. Create it at github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens.
-- `CARGO_REGISTRY_TOKEN` — from crates.io → Account Settings → API Tokens → New Token, scoped to `publish-update` for the `gameday` crate (not a blanket publish-any token).
+- `HOMEBREW_TAP_TOKEN` — a fine-grained personal access token scoped to `WallyMagill/homebrew-tap` only, with repository permission **Contents: Read and write**. Create it while logged in as `WallyMagill` at https://github.com/settings/personal-access-tokens/new (Settings → Developer settings → Personal access tokens → Fine-grained tokens): resource owner `WallyMagill`, repository access "Only select repositories" → `homebrew-tap`. The value is shown once. Store both secrets from an interactive terminal (`gh secret set NAME --repo WallyMagill/gameday` prompts for a paste); a non-interactive stdin stores an empty value.
+- `CARGO_REGISTRY_TOKEN` — from crates.io → Account Settings → API Tokens → New Token, scoped to `publish-new` **and** `publish-update` with the crate pattern `gameday` (the first publish of a crate needs `publish-new`; `publish-update` alone only covers later versions). crates.io also requires a verified email on the account before any publish.
 
 ## Two `gh` accounts
 
