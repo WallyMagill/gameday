@@ -1,6 +1,6 @@
 [package]
 name = "gameday"
-version = "0.1.0"
+version = "1.0.0-rc.1"
 edition = "2021"
 # Floor: the dependency graph's own rust-version fields (ratatui 0.30 and its
 # workspace, via darling/time, need 1.88); higher than the 1.87 floor from
