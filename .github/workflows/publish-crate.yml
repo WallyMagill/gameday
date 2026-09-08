@@ -21,8 +21,11 @@ jobs:
   publish-crate:
     runs-on: ubuntu-22.04
     if: ${{ !contains(github.ref, '-rc') }}
-    permissions:
-      contents: read
+    # No `permissions` block: the caller grants this job `id-token: write` and
+    # `packages: write` only, and a called workflow may not request a scope the
+    # caller left at `none` — asking for `contents: read` here failed the whole
+    # Release workflow at startup (run 34249642237, the first rc tag). Checkout
+    # of a public repo needs no scope.
     steps:
       - uses: actions/checkout@v6
         with:
