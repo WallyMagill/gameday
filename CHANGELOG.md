@@ -17,7 +17,7 @@ First public release. No 0.x version was ever published, so this section is the 
 - `AGENTS.md` — how to work in this repo.
 - Licensed MIT OR Apache-2.0.
 - `scripts/capture-replay.sh` — captures consecutive real scoreboard polls (and the closing summary) into `fixtures/replay/` for the replay test harness; dev-only, excluded from the packaged crate.
-- MLB replay fixtures `fixtures/replay/mlb-20260907-0334` and `fixtures/replay/mlb-20260907-0355`, exercised by `tests/replay.rs`; dev-only, excluded from the packaged crate.
+- Replay fixtures `fixtures/replay/mlb-20260907-0334`, `fixtures/replay/mlb-20260907-0355` and `fixtures/replay/nfl-20260911-0210` (SF at LAR, week one: a touchdown and its kick), exercised by `tests/replay.rs`; dev-only, excluded from the packaged crate.
 - Paging: PgDn/PgUp and ctrl-d/ctrl-u move half a page, g/G and Home/End jump to the ends, in the board, feeds, standings and zoom lists.
 - `:help` opens the help overlay.
 - The `/` filter matches whole words by prefix (team name or abbreviation), a league slug at the start scopes the search, and the footer shows a match count.
@@ -33,7 +33,7 @@ First public release. No 0.x version was ever published, so this section is the 
 - ratatui 0.30, crossterm 0.29, ureq 3 (proxy env vars are now honored), dirs 7, tui-big-text 0.8.
 - SIGTERM and SIGHUP quit through the normal restore path; the terminal is never left in raw mode.
 - A 304 from ESPN is recognized as "cache is current" again (ureq 3 delivers it as a normal response), and a server that accepts but never answers now times out after 10 s instead of blocking the poll thread.
-- The board's watchability order now weighs ranked matchups and (college football) ESPN's live win probability; situation chips count in proportion to how close the game is. The footer names why the selected game leads.
+- The board's watchability order now weighs ranked matchups and, for football (NFL and college), ESPN's live win probability; situation chips count in proportion to how close the game is. The footer names why the selected game leads. A football game keeps its last win probability across a poll that lacks one (the extra-point row carries none), so a kick never reorders the board.
 - Toasts (pin, favorite, sort, `:pin`) sit right of the key hints and clear after three seconds instead of sitting sticky forever.
 - `c` opens the theme picker.
 - The help overlay is sectioned by mode, with the mode you're in shown first, and closes with a glyph legend.
@@ -43,6 +43,7 @@ First public release. No 0.x version was ever published, so this section is the 
 - MLB play-result rows show the feed's sentence instead of `Play Result — <batter>`.
 - College rows no longer print the field position twice.
 - A red zone chip is shown only when a team is possessing.
+- In football, the point-after no longer fires a second scoring cut after the touchdown: ESPN folds the kick into the touchdown's scoring row, and the board now does too (verified on the 2026 NFL opener, `fixtures/replay/nfl-20260911-0210`).
 - Zoom rows show period and clock together, and never print the clock twice.
 - A 0-0 record is hidden while the game is live or final, instead of printed as if it meant something.
 - An unknown theme name is now reported in the footer instead of silently falling back.

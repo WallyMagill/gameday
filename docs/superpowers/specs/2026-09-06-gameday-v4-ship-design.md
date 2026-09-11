@@ -24,6 +24,8 @@ Recorded as directions, not rulings. Each names what won, why, and what reopens 
 14. **Zoom fill: confirmed, no change.** Rendered at 40 and 60 rows; the §5.6 layout fills its pane at both with no blank band. Reopens never on its own.
 15. **README GIF: A** — board → the red-zone beat → the scoring cut → zoom, over board → the cut → tv. Recorded by `vhs` (in the Brewfile) from `docs/demo.tape`: `--demo` at 120x36, the broadcast theme, twenty seconds. Reasoning: the zoom is the surface a newcomer most needs to see (the hero, the chip, the situation), and it reads clearer in a short loop than the TV strip. Reopens if a future GIF wants the TV surface too — nothing stops a second tape.
 
+16. **1.0.0 after the Saturday CFB receipt: A** (2026-09-11) — the point-after fold and the win-probability carry now apply to college football on the strength of an NFL feed alone; Saturday 2026-09-12's CFB capture (wave 1's open touchdown sequence) is the receipt before the tag. No rc.3: rc.2 proved every stage but the crates.io publish, which no rc can exercise; 1.0.0's run is that test and its failure mode is a manual `cargo publish`, not a re-tag. Reopens if Saturday's slate yields no usable sequence — then 1.0.0 ships and CFB rides 1.0.1.
+
 Execution decisions made alongside (mine, noted so they are visible): rustfmt is adopted in one commit with a `.git-blame-ignore-revs` entry; the app split lands in wave 0 before any feature work; the visual items go to exactly one render sitting; `signal-hook` is the one new dependency (SIGTERM/SIGHUP restore), and `docs/superpowers/` ships public as-is.
 
 ## §0 Goal and principles
