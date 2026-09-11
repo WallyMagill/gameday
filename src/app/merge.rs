@@ -128,6 +128,23 @@ impl App {
                 {
                     g.extras = prev.extras.clone();
                 }
+                // Football's win probability rides `lastPlay`, and one poll
+                // in a live game can carry a last play without it — the
+                // extra-point stub row (nfl-20260911-0210, poll 029: id
+                // -389596, no `probability`). Without this carry the game
+                // drops to the margin path for one poll, its leverage band
+                // moves, the board reorders, and reorders back on the next
+                // poll: a flap on a kick. The last known read stands until
+                // the feed sends a new one.
+                if g.status == Status::Live && matches!(g.league, League::Nfl | League::Cfb) {
+                    if let (Some(sit), Some(prev_sit)) =
+                        (g.situation.as_mut(), prev.situation.as_ref())
+                    {
+                        if sit.win_prob.is_none() {
+                            sit.win_prob = prev_sit.win_prob;
+                        }
+                    }
+                }
             }
             // A cached payload is an OLDER snapshot, not news: its diff
             // against the last fresh scores is backwards and its lastPlay is

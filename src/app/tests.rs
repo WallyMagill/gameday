@@ -955,6 +955,37 @@ fn cfb_with_prob(id: &str, away: u16, home: u16, home_permille: u16) -> Game {
 }
 
 #[test]
+fn a_poll_without_the_probability_keeps_the_last_one_and_does_not_reorder() {
+    // nfl-20260911-0210, poll 029: the extra-point stub row carries no
+    // `probability`. The game keeps the read from poll 028 and the board
+    // does not flap: A leads on the coin flip both times.
+    let mut app = app_with(vec![], vec![]);
+    app.tick = 400;
+    let a = cfb_with_prob("a", 10, 10, 500);
+    let b = cfb_with_prob("b", 21, 3, 950);
+    app.apply_boards(League::Cfb, vec![a.clone(), b.clone()], false);
+    let first = ord(&app);
+    assert_eq!(first[0], "a");
+    let mut a2 = a.clone();
+    a2.situation.as_mut().unwrap().win_prob = None;
+    app.apply_boards(League::Cfb, vec![a2, b.clone()], false);
+    let kept = app
+        .boards
+        .get(&League::Cfb)
+        .unwrap()
+        .iter()
+        .find(|g| g.id == "a")
+        .and_then(|g| g.situation.as_ref())
+        .and_then(|s| s.win_prob);
+    assert_eq!(
+        kept.map(|p| p.home_permille),
+        Some(500),
+        "the last probability stands until the feed sends a new one"
+    );
+    assert_eq!(ord(&app), first, "no reorder on the stub poll");
+}
+
+#[test]
 fn a_leverage_band_crossing_reorders_once_and_freezes() {
     let mut app = app_with(vec![], vec![]);
     app.tick = 400;
