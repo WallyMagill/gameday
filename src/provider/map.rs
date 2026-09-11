@@ -526,8 +526,17 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
             // `scoreValue > 0` and took this fast path. The fourth is what
             // the catch-up exists for: neither arm fired, so `app::merge`
             // asks the summary which run it was.
-            scoring: sit_v["lastPlay"]["scoringPlay"].as_bool() == Some(true)
-                || score_value.is_some_and(|v| v > 0),
+            // Football's point-after is the exception: ESPN folds it into
+            // the touchdown row (the summary's `scoringPlays` has one row at
+            // the post-kick score and none at the six), and the scoreboard's
+            // kick row is a stub — a negative id, no `probability`
+            // (nfl-20260911-0210, poll 029: id -389596, "(Eddy Pineiro
+            // Kick)"). Nothing else in football scores exactly one, so
+            // `scoreValue == 1` names it without reading the text. The
+            // touchdown already cut; the kick moves the score, not the board.
+            scoring: (sit_v["lastPlay"]["scoringPlay"].as_bool() == Some(true)
+                || score_value.is_some_and(|v| v > 0))
+                && !(matches!(league, League::Nfl | League::Cfb) && score_value == Some(1)),
             kind: last_play_kind(league, &sit_v["lastPlay"], score_value),
             score_value,
             // The scoreboard's `lastPlay` carries no running score: the

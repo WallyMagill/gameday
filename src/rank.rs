@@ -152,8 +152,9 @@ fn clock_secs(clock: &str) -> Option<u32> {
 
 /// Which leagues' scoreboards carry `lastPlay.probability` and are trusted
 /// for it. CFB: verified on the 2026-09-05 slate. NFL: verified live on
-/// 2026-09-10 (SF at LAR, week one: `fixtures/replay/nfl-20260911-0139`,
-/// home win 0.4995 → 0.5192 across consecutive polls). No other league sends it.
+/// 2026-09-10 (SF at LAR, week one: `fixtures/replay/nfl-20260911-0210`
+/// carries it on 119 of 120 polls — the one without is the extra-point stub
+/// row; a first half-hour window had it on 120 of 120). No other league sends it.
 pub fn leverage_enabled(league: League) -> bool {
     matches!(league, League::Cfb | League::Nfl)
 }

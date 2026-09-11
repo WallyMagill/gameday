@@ -139,10 +139,18 @@ fn run_that_made(body: &str, (away, home): (u16, u16), ctx: &str) -> Run {
         let Some(rows) = v[key].as_array().cloned() else {
             continue;
         };
-        let Some(at) = rows.iter().rposition(|p| {
-            p["scoringPlay"].as_bool().unwrap_or(false)
-                && p["awayScore"].as_u64() == Some(away as u64)
-                && p["homeScore"].as_u64() == Some(home as u64)
+        // The app's rule (`resolve_catchup`): the OLDEST scoring row whose
+        // score reaches the delta on both components — at or beyond, never
+        // exactly equal. Football is why: ESPN folds the extra point into
+        // the touchdown row and reports the post-kick score, so the board's
+        // 16-7 (touchdown, kick pending) is explained by the 17-7 row and no
+        // row anywhere says 16-7 (nfl-20260911-0210, polls 028 → 029).
+        // MLB/NBA/NHL `plays[]` flag their scoring rows; football's
+        // `scoringPlays[]` is nothing but scoring rows and carries no flag.
+        let Some(at) = rows.iter().position(|p| {
+            (key == "scoringPlays" || p["scoringPlay"].as_bool().unwrap_or(false))
+                && p["awayScore"].as_u64().is_some_and(|a| a >= away as u64)
+                && p["homeScore"].as_u64().is_some_and(|h| h >= home as u64)
         }) else {
             continue;
         };
@@ -211,7 +219,17 @@ fn first_catchup_delta(league: League, polls: &[(String, String)]) -> Option<Lag
         for g in &games {
             let score = (g.away_score, g.home_score);
             if let Some(before) = prev.get(&g.id).copied() {
-                if before != score && !g.last_plays.first().is_some_and(|p| p.scoring) {
+                // The kick after a touchdown moves the score with an
+                // unmarked last play, but it is folded into the touchdown's
+                // row, not a catch-up (nfl-20260911-0210, poll 029).
+                let folded_kick = matches!(league, League::Nfl | League::Cfb)
+                    && g.last_plays
+                        .first()
+                        .is_some_and(|p| p.score_value == Some(1));
+                if before != score
+                    && !folded_kick
+                    && !g.last_plays.first().is_some_and(|p| p.scoring)
+                {
                     return Some(Lag {
                         at,
                         game: g.id.clone(),
@@ -362,6 +380,12 @@ fn every_score_delta_in_every_sequence_yields_exactly_one_cut_naming_a_scoring_p
         let label = dir.file_name().unwrap().to_string_lossy().into_owned();
         let mut app = app(&label);
         let mut deltas = 0u32;
+        // Deltas answered by a row that already cut (the kick after the touchdown).
+        let mut folded = 0u32;
+        // The run that last cut for each game: a later delta answered by
+        // the same row is folded, not cut again.
+        let mut cut_runs: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         let mut prev: HashMap<String, (u16, u16)> = Default::default();
         let mut summaries: HashMap<String, String> = Default::default();
         for (name, body) in polls(&dir) {
@@ -401,18 +425,39 @@ fn every_score_delta_in_every_sequence_yields_exactly_one_cut_naming_a_scoring_p
                 app.merge_summary(&c.game_id, s);
             }
             let fired = app.cuts_fired() - before;
+            // A delta whose run is the row that already answered this game's
+            // previous delta is the second half of one event — football's
+            // extra point after the touchdown (nfl-20260911-0210, polls 028
+            // and 029: 16-7 then 17-7, one `scoringPlays` row at 17-7). The
+            // board moves, the cut does not fire again.
+            let mut fresh: Vec<(String, (u16, u16))> = Vec::new();
+            for (id, score) in &moved {
+                let ctx = format!("{}: poll {name}: {id}", dir.display());
+                let want = run_for(&dir, &mut summaries, id, *score, &ctx);
+                if cut_runs.get(id) == Some(&want.id) {
+                    println!(
+                        "{label} poll {name}: {}-{} · folded into {:?}",
+                        score.0, score.1, want.text
+                    );
+                    folded += 1;
+                    continue;
+                }
+                cut_runs.insert(id.clone(), want.id.clone());
+                fresh.push((id.clone(), *score));
+            }
             assert_eq!(
                 fired as usize,
-                moved.len(),
-                "{}: poll {name}: {} score deltas but {fired} cuts",
+                fresh.len(),
+                "{}: poll {name}: {} score deltas ({} fresh) but {fired} cuts",
                 dir.display(),
-                moved.len()
+                moved.len(),
+                fresh.len()
             );
             // One game moved: the cut on screen names the play that made the
             // score what this poll reports. Two games in one poll share the
             // one CutState slot, so the naming check is skipped there and the
             // count above carries the poll.
-            if let [(id, score)] = moved.as_slice() {
+            if let [(id, score)] = fresh.as_slice() {
                 let ctx = format!("{}: poll {name}: {id}", dir.display());
                 let want = run_for(&dir, &mut summaries, id, *score, &ctx);
                 let cut = app.cuts.active(app.tick).unwrap_or_else(|| {
@@ -445,8 +490,8 @@ fn every_score_delta_in_every_sequence_yields_exactly_one_cut_naming_a_scoring_p
         );
         assert_eq!(
             app.cuts_fired(),
-            deltas,
-            "{}: {deltas} score deltas but {} cuts",
+            deltas - folded,
+            "{}: {deltas} score deltas ({folded} folded) but {} cuts",
             dir.display(),
             app.cuts_fired()
         );
