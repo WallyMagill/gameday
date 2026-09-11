@@ -274,6 +274,7 @@ mod tests {
     /// there is nothing else to race it (see the module doc on `Noop::send`).
     #[test]
     fn the_noop_path_logs_its_reason_once() {
+        let _g = crate::log::test_guard();
         let dir = std::env::temp_dir().join(format!("gd-notify-noop-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("gameday.log");

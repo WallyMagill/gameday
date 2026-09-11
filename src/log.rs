@@ -67,6 +67,15 @@ pub fn note_once(key: &str, msg: &str) {
     note(msg);
 }
 
+/// The sink and the once-set are process globals, so the tests that set a
+/// log file or count lines in one must not interleave — the first such
+/// test found the race (a key from another test between two reads).
+#[cfg(test)]
+pub(crate) fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,14 +85,23 @@ mod tests {
     /// the dedupe, and the stderr fallback simply must not panic.)
     #[test]
     fn note_once_writes_a_key_once_and_note_before_set_file_does_not_panic() {
+        // Before any sink is set, a note must not panic (it goes to stderr).
+        note("plain note before any sink");
+        let _g = test_guard();
+        let dir = std::env::temp_dir().join(format!("gd-log-once-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("gameday.log");
+        set_file(path.clone());
         let key = "test:note-once";
-        note_once(key, "first");
+        note_once(key, "once-only-line");
         assert!(seen().lock().unwrap().contains(key));
-        let n = seen().lock().unwrap().len();
-        note_once(key, "second");
-        assert_eq!(seen().lock().unwrap().len(), n, "a repeat adds no key");
-        // No file set in the test process: notes go to stderr, quietly.
-        note("plain note with no sink");
-        assert!(sink().lock().unwrap().is_none(), "no test sets a log file");
+        note_once(key, "once-only-line");
+        let hits = std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .filter(|l| l.contains("once-only-line"))
+            .count();
+        assert_eq!(hits, 1, "a repeat writes nothing");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
