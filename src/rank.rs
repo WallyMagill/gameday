@@ -151,10 +151,11 @@ fn clock_secs(clock: &str) -> Option<u32> {
 }
 
 /// Which leagues' scoreboards carry `lastPlay.probability` and are trusted
-/// for it. CFB: verified on the 2026-09-05 slate. NFL: unverified until the
-/// week-one capture (spec §8.5); off until then. No other league sends it.
+/// for it. CFB: verified on the 2026-09-05 slate. NFL: verified live on
+/// 2026-09-10 (SF at LAR, week one: `fixtures/replay/nfl-20260911-0139`,
+/// home win 0.4995 → 0.5192 across consecutive polls). No other league sends it.
 pub fn leverage_enabled(league: League) -> bool {
-    matches!(league, League::Cfb)
+    matches!(league, League::Cfb | League::Nfl)
 }
 
 /// 100 at a coin flip, 0 when one side is certain: `100 − |2·home − 100|`.
@@ -662,8 +663,8 @@ mod tests {
         );
         assert!(leverage_enabled(League::Cfb));
         assert!(
-            !leverage_enabled(League::Nfl),
-            "off until the week-one capture shows the field"
+            leverage_enabled(League::Nfl),
+            "week one (2026-09-10, SF at LAR) showed the field on every poll"
         );
         assert!(!leverage_enabled(League::Mlb));
 
@@ -685,8 +686,15 @@ mod tests {
         nfl_with_prob.league = League::Nfl;
         assert_eq!(
             leverage_band(&nfl_with_prob),
+            5,
+            "NFL carries the field since week one 2026"
+        );
+        let mut mlb_with_prob = cfb500.clone();
+        mlb_with_prob.league = League::Mlb;
+        assert_eq!(
+            leverage_band(&mlb_with_prob),
             0,
-            "gated off for NFL regardless of the win prob"
+            "gated off for a league that never sends the field, regardless of the win prob"
         );
         let cfb_no_prob = g(League::Cfb, "Q2", "7:00", 10, 10);
         assert_eq!(leverage_band(&cfb_no_prob), 0, "no win prob, no band");
@@ -753,7 +761,7 @@ mod tests {
     }
 
     #[test]
-    fn football_leverage_replaces_the_margin_path_only_where_enabled() {
+    fn football_leverage_replaces_the_margin_path_in_both_football_leagues() {
         let now = OffsetDateTime::now_utc();
         let mut cfb = g(League::Cfb, "Q2", "7:27", 17, 7);
         cfb.situation = Some(Situation {
@@ -763,11 +771,18 @@ mod tests {
         let mut nfl = cfb.clone();
         nfl.league = League::Nfl;
         let (c, n) = (watchability(&cfb, now), watchability(&nfl, now));
-        // CFB: closeness 57, lateness (3600-2116)/3600 = 41 → base 23.
+        // Both: closeness 57, lateness (3600-2116)/3600 = 41 → base 23.
         assert_eq!(c.score, 23, "{c:?}");
-        // NFL, gated off: margin path (margin 10 → closeness 50; Q2 7:27 → lateness 37) → 18.
-        assert_eq!(n.score, 18, "{n:?}");
+        assert_eq!(n.score, 23, "{n:?}");
         assert_eq!(c.why, "LEVERAGE");
+        assert_eq!(n.why, "LEVERAGE");
+        // Without the field the margin path still stands: margin 10 →
+        // closeness 50; Q2 7:27 → lateness 37 → 18.
+        let mut bare = nfl.clone();
+        bare.situation = None;
+        let b = watchability(&bare, now);
+        assert_eq!(b.score, 18, "{b:?}");
+        assert_ne!(b.why, "LEVERAGE");
     }
 
     #[test]

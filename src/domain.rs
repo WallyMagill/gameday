@@ -210,8 +210,9 @@ pub struct Situation {
 }
 
 /// ESPN's `situation.lastPlay.probability` on football scoreboards (verified on
-/// the 2026-09-05 CFB slate: 16 of 18 live games carried it; absent on every
-/// other league's scoreboard in the review caches). Permille so `Situation`
+/// the 2026-09-05 CFB slate: 16 of 18 live games carried it; on the NFL
+/// scoreboard live on 2026-09-10, SF at LAR; absent on every other league's
+/// scoreboard in the review caches). Permille so `Situation`
 /// stays `Eq`; `seconds_left` is regulation seconds remaining as ESPN counts
 /// them. The ranking reads it for closeness and lateness where
 /// `rank::leverage_enabled` says so.
