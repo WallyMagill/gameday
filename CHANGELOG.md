@@ -6,7 +6,7 @@ All notable changes to gameday are recorded here. The format follows
 
 ## [Unreleased]
 
-## [1.0.0] — unreleased
+## [1.0.0] — 2026-09-12
 
 First public release. No 0.x version was ever published, so this section is the feature list, not a delta.
 
