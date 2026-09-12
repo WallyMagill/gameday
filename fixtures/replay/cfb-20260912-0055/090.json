@@ -1,0 +1,675 @@
+{
+  "events": [
+    {
+      "id": "401858214",
+      "uid": "s:20~l:23~e:401858214",
+      "date": "2026-09-11T23:30Z",
+      "name": "Rutgers Scarlet Knights at Boston College Eagles",
+      "shortName": "RUTG @ BC",
+      "season": {
+        "year": 2026,
+        "type": 2,
+        "slug": "regular-season"
+      },
+      "week": {
+        "number": 2
+      },
+      "competitions": [
+        {
+          "id": "401858214",
+          "uid": "s:20~l:23~e:401858214~c:401858214",
+          "date": "2026-09-11T23:30Z",
+          "attendance": 0,
+          "type": {
+            "id": "1",
+            "abbreviation": "STD"
+          },
+          "timeValid": true,
+          "dateValid": true,
+          "neutralSite": false,
+          "conferenceCompetition": false,
+          "playByPlayAvailable": true,
+          "recent": true,
+          "venue": {
+            "id": "3615",
+            "fullName": "Alumni Stadium (Chestnut Hill, MA)",
+            "address": {
+              "city": "Chestnut Hill",
+              "state": "MA",
+              "country": "USA"
+            },
+            "indoor": false
+          },
+          "competitors": [
+            {
+              "id": "103",
+              "uid": "s:20~l:23~t:103",
+              "type": "team",
+              "order": 0,
+              "homeAway": "home",
+              "team": {
+                "id": "103",
+                "uid": "s:20~l:23~t:103",
+                "location": "Boston College",
+                "name": "Eagles",
+                "abbreviation": "BC",
+                "displayName": "Boston College Eagles",
+                "shortDisplayName": "Boston College",
+                "color": "8c2232",
+                "alternateColor": "dbcca6",
+                "isActive": true,
+                "venue": {
+                  "id": "3615"
+                },
+                "links": [
+                  {
+                    "rel": [
+                      "clubhouse",
+                      "desktop",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/college-football/team/_/id/103/boston-college-eagles",
+                    "text": "Clubhouse",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "clubhouse",
+                      "mobile",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/college-football/team/_/id/103/boston-college-eagles",
+                    "text": "Clubhouse",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "roster",
+                      "desktop",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/college-football/team/roster/_/id/103",
+                    "text": "Roster",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "roster",
+                      "sportscenter",
+                      "app",
+                      "team"
+                    ],
+                    "href": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:23~t:103&section=roster",
+                    "text": "Roster",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "stats",
+                      "desktop",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/college-football/team/stats/_/id/103",
+                    "text": "Statistics",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "stats",
+                      "sportscenter",
+                      "app",
+                      "team"
+                    ],
+                    "href": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:23~t:103&section=stats",
+                    "text": "Statistics",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "schedule",
+                      "desktop",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/college-football/team/schedule/_/id/103",
+                    "text": "Schedule",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "schedule",
+                      "sportscenter",
+                      "app",
+                      "team"
+                    ],
+                    "href": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:23~t:103&section=scores",
+                    "text": "Schedule",
+                    "isExternal": false,
+                    "isPremium": false
+                  }
+                ],
+                "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/103.png",
+                "conferenceId": "1"
+              },
+              "score": "17",
+              "linescores": [
+                {
+                  "value": 14.0,
+                  "displayValue": "14",
+                  "period": 1
+                },
+                {
+                  "value": 3.0,
+                  "displayValue": "3",
+                  "period": 2
+                }
+              ],
+              "statistics": [],
+              "curatedRank": {
+                "current": 99
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "overall",
+                  "type": "total",
+                  "summary": "0-1"
+                },
+                {
+                  "name": "Home",
+                  "abbreviation": "Home",
+                  "type": "homerecord",
+                  "summary": "0-0"
+                },
+                {
+                  "name": "Away",
+                  "abbreviation": "Away",
+                  "type": "awayrecord",
+                  "summary": "0-1"
+                },
+                {
+                  "name": "vs. Conf.",
+                  "abbreviation": "CONF",
+                  "type": "vsconf",
+                  "summary": "0-0"
+                }
+              ]
+            },
+            {
+              "id": "164",
+              "uid": "s:20~l:23~t:164",
+              "type": "team",
+              "order": 1,
+              "homeAway": "away",
+              "team": {
+                "id": "164",
+                "uid": "s:20~l:23~t:164",
+                "location": "Rutgers",
+                "name": "Scarlet Knights",
+                "abbreviation": "RUTG",
+                "displayName": "Rutgers Scarlet Knights",
+                "shortDisplayName": "Rutgers",
+                "color": "ce0e2d",
+                "alternateColor": "ffffff",
+                "isActive": true,
+                "venue": {
+                  "id": "3754"
+                },
+                "links": [
+                  {
+                    "rel": [
+                      "clubhouse",
+                      "desktop",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/college-football/team/_/id/164/rutgers-scarlet-knights",
+                    "text": "Clubhouse",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "clubhouse",
+                      "mobile",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/college-football/team/_/id/164/rutgers-scarlet-knights",
+                    "text": "Clubhouse",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "roster",
+                      "desktop",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/college-football/team/roster/_/id/164",
+                    "text": "Roster",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "roster",
+                      "sportscenter",
+                      "app",
+                      "team"
+                    ],
+                    "href": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:23~t:164&section=roster",
+                    "text": "Roster",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "stats",
+                      "desktop",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/college-football/team/stats/_/id/164",
+                    "text": "Statistics",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "stats",
+                      "sportscenter",
+                      "app",
+                      "team"
+                    ],
+                    "href": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:23~t:164&section=stats",
+                    "text": "Statistics",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "schedule",
+                      "desktop",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/college-football/team/schedule/_/id/164",
+                    "text": "Schedule",
+                    "isExternal": false,
+                    "isPremium": false
+                  },
+                  {
+                    "rel": [
+                      "schedule",
+                      "sportscenter",
+                      "app",
+                      "team"
+                    ],
+                    "href": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:23~t:164&section=scores",
+                    "text": "Schedule",
+                    "isExternal": false,
+                    "isPremium": false
+                  }
+                ],
+                "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/164.png",
+                "conferenceId": "5"
+              },
+              "score": "7",
+              "linescores": [
+                {
+                  "value": 0.0,
+                  "displayValue": "0",
+                  "period": 1
+                },
+                {
+                  "value": 7.0,
+                  "displayValue": "7",
+                  "period": 2
+                }
+              ],
+              "statistics": [],
+              "curatedRank": {
+                "current": 99
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "overall",
+                  "type": "total",
+                  "summary": "0-1"
+                },
+                {
+                  "name": "Home",
+                  "abbreviation": "Home",
+                  "type": "homerecord",
+                  "summary": "0-1"
+                },
+                {
+                  "name": "Away",
+                  "abbreviation": "Away",
+                  "type": "awayrecord",
+                  "summary": "0-0"
+                },
+                {
+                  "name": "vs. Conf.",
+                  "abbreviation": "CONF",
+                  "type": "vsconf",
+                  "summary": "0-0"
+                }
+              ]
+            }
+          ],
+          "notes": [],
+          "situation": {
+            "lastPlay": {
+              "id": "401858214337",
+              "type": {
+                "id": "21",
+                "text": "Timeout",
+                "abbreviation": "TO"
+              },
+              "text": "Timeout Boston College, clock 00:22",
+              "scoreValue": 0,
+              "team": {
+                "id": "103"
+              },
+              "probability": {
+                "tiePercentage": 0.0,
+                "homeWinPercentage": 0.8691,
+                "awayWinPercentage": 0.13090000000000002,
+                "secondsLeft": 1822
+              },
+              "statYardage": 0,
+              "drive": {
+                "description": "7 plays, 33 yards, 1:33",
+                "start": {
+                  "yardLine": 25,
+                  "text": "BC 25"
+                },
+                "timeElapsed": {
+                  "displayValue": "1:33"
+                }
+              },
+              "start": {
+                "yardLine": 53,
+                "team": {
+                  "id": "103"
+                }
+              },
+              "end": {
+                "yardLine": 53,
+                "team": {
+                  "id": "103"
+                }
+              }
+            },
+            "down": 0,
+            "yardLine": 53,
+            "distance": 10,
+            "isRedZone": false,
+            "homeTimeouts": 0,
+            "awayTimeouts": 1
+          },
+          "status": {
+            "clock": 22.0,
+            "displayClock": "0:22",
+            "period": 2,
+            "type": {
+              "id": "2",
+              "name": "STATUS_IN_PROGRESS",
+              "state": "in",
+              "completed": false,
+              "description": "In Progress",
+              "detail": "0:22 - 2nd Quarter",
+              "shortDetail": "0:22 - 2nd"
+            }
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "ESPN2"
+              ]
+            }
+          ],
+          "leaders": [
+            {
+              "name": "passingYards",
+              "displayName": "Passing Leader",
+              "shortDisplayName": "PASS",
+              "abbreviation": "PYDS",
+              "leaders": [
+                {
+                  "displayValue": "9/14, 119 YDS",
+                  "value": 119.0,
+                  "athlete": {
+                    "id": "5307005",
+                    "fullName": "Mason McKenzie",
+                    "displayName": "Mason McKenzie",
+                    "shortName": "M. McKenzie",
+                    "links": [
+                      {
+                        "rel": [
+                          "playercard",
+                          "desktop",
+                          "athlete"
+                        ],
+                        "href": "https://www.espn.com/college-football/player/_/id/5307005/mason-mckenzie"
+                      }
+                    ],
+                    "headshot": "https://a.espncdn.com/i/headshots/college-football/players/full/5307005.png",
+                    "jersey": "10",
+                    "position": {
+                      "abbreviation": "QB"
+                    },
+                    "team": {
+                      "id": "103"
+                    },
+                    "active": true
+                  },
+                  "team": {
+                    "id": "103"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "rushingYards",
+              "displayName": "Rushing Leader",
+              "shortDisplayName": "RUSH",
+              "abbreviation": "RYDS",
+              "leaders": [
+                {
+                  "displayValue": "16 CAR, 94 YDS",
+                  "value": 94.0,
+                  "athlete": {
+                    "id": "5209945",
+                    "fullName": "Antwan Raymond",
+                    "displayName": "Antwan Raymond",
+                    "shortName": "A. Raymond",
+                    "links": [
+                      {
+                        "rel": [
+                          "playercard",
+                          "desktop",
+                          "athlete"
+                        ],
+                        "href": "https://www.espn.com/college-football/player/_/id/5209945/antwan-raymond"
+                      }
+                    ],
+                    "headshot": "https://a.espncdn.com/i/headshots/college-football/players/full/5209945.png",
+                    "jersey": "3",
+                    "position": {
+                      "abbreviation": "RB"
+                    },
+                    "team": {
+                      "id": "164"
+                    },
+                    "active": true
+                  },
+                  "team": {
+                    "id": "164"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "receivingYards",
+              "displayName": "Receiving Leader",
+              "shortDisplayName": "REC",
+              "abbreviation": "RECYDS",
+              "leaders": [
+                {
+                  "displayValue": "2 REC, 60 YDS",
+                  "value": 60.0,
+                  "athlete": {
+                    "id": "5144853",
+                    "fullName": "Landon Wright",
+                    "displayName": "Landon Wright",
+                    "shortName": "L. Wright",
+                    "links": [
+                      {
+                        "rel": [
+                          "playercard",
+                          "desktop",
+                          "athlete"
+                        ],
+                        "href": "https://www.espn.com/college-football/player/_/id/5144853/landon-wright"
+                      }
+                    ],
+                    "headshot": "https://a.espncdn.com/i/headshots/college-football/players/full/5144853.png",
+                    "jersey": "9",
+                    "position": {
+                      "abbreviation": "WR"
+                    },
+                    "team": {
+                      "id": "103"
+                    },
+                    "active": true
+                  },
+                  "team": {
+                    "id": "103"
+                  }
+                }
+              ]
+            }
+          ],
+          "format": {
+            "regulation": {
+              "periods": 4
+            }
+          },
+          "startDate": "2026-09-11T23:30Z",
+          "broadcast": "ESPN2",
+          "geoBroadcasts": [
+            {
+              "type": {
+                "id": "1",
+                "shortName": "TV"
+              },
+              "market": {
+                "id": "1",
+                "type": "National"
+              },
+              "media": {
+                "shortName": "ESPN2",
+                "logo": "https://a.espncdn.com/guid/4bab8fd8-cd13-379f-9558-c3614851bf91/logos/default.png",
+                "darkLogo": ""
+              },
+              "lang": "en",
+              "region": "us"
+            }
+          ],
+          "highlights": []
+        }
+      ],
+      "links": [
+        {
+          "language": "en-US",
+          "rel": [
+            "live",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/college-football/game?gameId=401858214",
+          "text": "Gamecast",
+          "shortText": "Gamecast",
+          "isExternal": false,
+          "isPremium": false
+        },
+        {
+          "language": "en-US",
+          "rel": [
+            "boxscore",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/college-football/boxscore/_/gameId/401858214",
+          "text": "Box Score",
+          "shortText": "Box Score",
+          "isExternal": false,
+          "isPremium": false
+        },
+        {
+          "language": "en-US",
+          "rel": [
+            "highlights",
+            "desktop"
+          ],
+          "href": "https://www.espn.com/college-football/video?gameId=401858214",
+          "text": "Highlights",
+          "shortText": "Highlights",
+          "isExternal": false,
+          "isPremium": false
+        },
+        {
+          "language": "en-US",
+          "rel": [
+            "pbp",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/college-football/playbyplay/_/gameId/401858214",
+          "text": "Play-by-Play",
+          "shortText": "Play-by-Play",
+          "isExternal": false,
+          "isPremium": false
+        }
+      ],
+      "weather": {
+        "displayValue": "33",
+        "temperature": 58,
+        "highTemperature": 58,
+        "conditionId": "Clear",
+        "link": {
+          "language": "en-US",
+          "rel": [
+            "02467"
+          ],
+          "href": "http://www.accuweather.com/en/us/alumni-stadium-chestnut-hill-ma-ma/02467/current-weather/53585_poi?lang=en-us",
+          "text": "Weather",
+          "shortText": "Weather",
+          "isExternal": true,
+          "isPremium": false
+        }
+      },
+      "status": {
+        "clock": 22.0,
+        "displayClock": "0:22",
+        "period": 2,
+        "type": {
+          "id": "2",
+          "name": "STATUS_IN_PROGRESS",
+          "state": "in",
+          "completed": false,
+          "description": "In Progress",
+          "detail": "0:22 - 2nd Quarter",
+          "shortDetail": "0:22 - 2nd"
+        }
+      }
+    }
+  ]
+}
