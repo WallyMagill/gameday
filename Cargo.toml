@@ -48,7 +48,7 @@ dirs = "7"
 tui-big-text = "0.8"
 
 [target.'cfg(unix)'.dependencies]
-signal-hook = "0.3"
+signal-hook = "0.4"
 
 # The profile that 'dist' will build with
 [profile.dist]
