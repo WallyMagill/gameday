@@ -6,8 +6,6 @@ A terminal sports board that ranks live games by watchability. Nine leagues, no 
 
 ## Install
 
-Available from 1.0.0; until then: `cargo install --git https://github.com/WallyMagill/gameday`
-
 ```bash
 brew install WallyMagill/tap/gameday
 cargo install gameday

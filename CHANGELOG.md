@@ -6,6 +6,18 @@ All notable changes to gameday are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-09-15
+
+Dependency patch. No behavior change.
+
+### Security
+- `rustls` 0.23.43 → 0.23.45: RUSTSEC-2026-0285 (TLS 1.3 handshake messages accepted across encryption-level boundaries). `cargo-deny` was failing every CI run on the advisory, so this is the reason 1.0.1 exists.
+
+### Changed
+- `toml` 0.8 → 1.1 (config and theme files parse and serialize as before; the round-trip tests cover the shapes gameday writes).
+- `signal-hook` 0.3 → 0.4 for the SIGTERM/SIGHUP flags. `crossterm` still pins 0.3, so both build until it moves; `cargo-deny` reports the duplicate as a warning, not an error.
+- Dependabot ignores `actions/checkout`, `actions/upload-artifact` and `actions/download-artifact`: `cargo-dist` generates `.github/workflows/release.yml` and its `plan` job refuses a hand-edited copy (PR #1 could never go green). Those actions move when cargo-dist itself is bumped and `dist generate --mode ci` is re-run.
+
 ## [1.0.0] — 2026-09-12
 
 First public release. No 0.x version was ever published, so this section is the feature list, not a delta.

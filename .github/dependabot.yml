@@ -11,3 +11,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # cargo-dist generates release.yml and its `plan` job refuses a hand-edited
+      # copy, so Dependabot must not touch the actions that file uses. They move
+      # when cargo-dist itself is bumped and `dist generate --mode ci` is re-run.
+      # (ci.yml's checkout rides along; Dependabot cannot scope an ignore to one file.)
+      - dependency-name: actions/checkout
+      - dependency-name: actions/upload-artifact
+      - dependency-name: actions/download-artifact
