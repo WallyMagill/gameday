@@ -213,7 +213,7 @@ impl App {
             if pin.final_at.is_none()
                 && games
                     .iter()
-                    .any(|g| g.id == pin.game_id && g.status == Status::Final)
+                    .any(|g| g.id == pin.game_id && matches!(g.status, Status::Final | Status::Off))
             {
                 pin.final_at = Some(now);
             }

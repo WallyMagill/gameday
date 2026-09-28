@@ -27,9 +27,13 @@ fn hex_color(s: &str) -> [u8; 3] {
     }
 }
 
-fn status_from(state: &str) -> Status {
+/// `completed` is `status.type.completed`. Only an explicit `false` on a
+/// `post` game makes it `Off`: every captured final (224 of them, all nine
+/// leagues) carries `true`, so a payload without the key stays a final.
+fn status_from(state: &str, completed: Option<bool>) -> Status {
     match state {
         "in" => Status::Live,
+        "post" if completed == Some(false) => Status::Off,
         "post" => Status::Final,
         _ => Status::Pre,
     }
@@ -59,6 +63,14 @@ fn game_period_label(
 ) -> String {
     if status == Status::Pre {
         return String::new();
+    }
+    if status == Status::Off {
+        // ESPN's own word: "Canceled", "Postponed", "Suspended".
+        return if short_detail.is_empty() {
+            "NO RESULT".into()
+        } else {
+            short_detail.to_uppercase()
+        };
     }
     match league {
         League::Nfl | League::Cfb | League::Nba | League::Wnba => match period {
@@ -329,7 +341,10 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         .and_then(|a| a.first())
         .ok_or_else(|| miss("competitions[0]"))?;
     let st = &comp["status"];
-    let status = status_from(st["type"]["state"].as_str().unwrap_or("pre"));
+    let status = status_from(
+        st["type"]["state"].as_str().unwrap_or("pre"),
+        st["type"]["completed"].as_bool(),
+    );
     let display_clock = st["displayClock"].as_str().unwrap_or("");
     let period = game_period_label(
         league,
@@ -342,10 +357,10 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
     // period label; a raw "0:00" next to them is noise. A final's
     // displayClock is whatever ESPN left behind (a WNBA final probed
     // 2026-08-30 carried "10:00" — the fixture keeps one), so it's dropped
-    // too: nothing is on the clock once the game is over.
+    // too: nothing is on the clock once the game is over (or called off).
     let clock = match league {
         League::Mlb | League::Epl | League::Mls => String::new(),
-        _ if status == Status::Final => String::new(),
+        _ if matches!(status, Status::Final | Status::Off) => String::new(),
         _ => display_clock.to_string(),
     };
     let comps = comp

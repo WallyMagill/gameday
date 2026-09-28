@@ -245,9 +245,12 @@ impl App {
             .map(|g| (*g).clone())
             .collect();
         let in_play: Vec<Game> = self.order.ordered(&live).into_iter().cloned().collect();
+        // A game called off (canceled, postponed) is over for the day too,
+        // so it closes the FINAL section — under every real result.
         let finals: Vec<Game> = rest
             .iter()
             .filter(|g| g.status == Status::Final)
+            .chain(rest.iter().filter(|g| g.status == Status::Off))
             .map(|g| (*g).clone())
             .collect();
         let later: Vec<Game> = rest

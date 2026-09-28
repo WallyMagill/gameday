@@ -421,3 +421,47 @@ fn once_respects_enabled_tabs_and_league_narrows_both_fetch_and_render() {
         "only MLB was fetched"
     );
 }
+
+/// The canceled BAL @ NYY (fixtures/live/mlb_scoreboard_canceled.json, the
+/// 2026-09-27 MLB slate) through the whole `--once` path: ESPN's word where
+/// the clock goes, no score cells, under every real final — and `"off"`, not
+/// `"final"`, in the JSON.
+#[test]
+fn a_called_off_game_prints_espns_word_under_the_finals() {
+    let offset = time::UtcOffset::from_hms(-4, 0, 0).unwrap();
+    let json = include_str!("../fixtures/live/mlb_scoreboard_canceled.json");
+    let games = gameday::provider::map::map_scoreboard(League::Mlb, json, offset).unwrap();
+    let dir = std::env::temp_dir().join(format!("gd-once-off-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = once::build_app(
+        demo::demo_config(),
+        vec![],
+        dir,
+        offset,
+        time::macros::datetime!(2026-09-27 21:00:00 -4),
+        vec![(League::Mlb, games, false)],
+    );
+
+    let text = once::render_text(&mut app, &opts(), false);
+    let rows: Vec<&str> = text.lines().filter(|l| l.starts_with('·')).collect();
+    assert_eq!(rows.len(), 15, "every game has a row:\n{text}");
+    let last = rows.last().unwrap();
+    assert!(
+        last.contains("BAL") && last.contains("NYY"),
+        "the called-off game closes FINAL:\n{text}"
+    );
+    assert!(
+        last.contains("CANCELED") && !last.contains("FINAL"),
+        "{last}"
+    );
+    assert!(
+        !last.chars().any(|c| c.is_ascii_digit()),
+        "no score cells on a game with no result: {last}"
+    );
+
+    let v = once::render_json(&mut app, &opts(), false);
+    let games = v["games"].as_array().unwrap();
+    let off = games.iter().find(|g| g["id"] == "401817103").unwrap();
+    assert_eq!(off["status"], "off");
+    assert_eq!(off["period"], "CANCELED");
+}

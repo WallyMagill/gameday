@@ -452,7 +452,10 @@ fn draw_lane(frame: &mut Frame, area: Rect, off: &[&Game]) {
     let r = theme::current().roles();
     let live: Vec<&&Game> = off.iter().filter(|g| g.status == Status::Live).collect();
     let body = if live.is_empty() {
-        let finals = off.iter().filter(|g| g.status == Status::Final).count();
+        let finals = off
+            .iter()
+            .filter(|g| matches!(g.status, Status::Final | Status::Off))
+            .count();
         let later = off.iter().filter(|g| g.status == Status::Pre).count();
         format!("{} OFF-SCREEN · {finals} FINAL · {later} LATER", off.len())
     } else {

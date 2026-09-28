@@ -83,7 +83,7 @@ gameday --once [--json] [--league L]... [--live] [--top N] [--color]
     {
       "league": "nfl",
       "id": "...",
-      "status": "live|pre|final",
+      "status": "live|pre|final|off",
       "period": "Q4",
       "clock": "1:27",
       "start": "RFC3339 or null",
@@ -97,6 +97,8 @@ gameday --once [--json] [--league L]... [--live] [--top N] [--color]
   ]
 }
 ```
+
+`off` is a game over for the day without a result — canceled, postponed, suspended. Its `period` carries ESPN's word for it (`"CANCELED"`), and its scores are not a result.
 
 A status-bar recipe (tmux, polybar, whatever reads a shell command):
 

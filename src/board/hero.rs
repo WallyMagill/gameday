@@ -397,6 +397,7 @@ fn clock_text(game: &Game, now: OffsetDateTime) -> String {
             .start
             .map(|t| crate::text::fmt_start(t, now))
             .unwrap_or_default(),
+        Status::Off => game.period.clone(),
     }
 }
 

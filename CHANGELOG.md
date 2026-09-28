@@ -6,6 +6,9 @@ All notable changes to gameday are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- A canceled or postponed game no longer shows as `FINAL 0-0`. ESPN marks one `state: "post"` with `completed: false` (BAL @ NYY, 2026-09-27, `STATUS_CANCELED`); gameday read only the state. It now prints ESPN's word (`CANCELED`, `POSTPONED`) where the clock goes, with no score, at the bottom of FINAL; a pin on it expires like a final's, and no "went final" notification fires. `--json` reports it as `"status": "off"` — a new value in the documented set.
+
 ## [1.0.1] — 2026-09-15
 
 Dependency patch. No behavior change.
