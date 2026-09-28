@@ -16,6 +16,7 @@ Dependency patch. No behavior change.
 ### Changed
 - `toml` 0.8 → 1.1 (config and theme files parse and serialize as before; the round-trip tests cover the shapes gameday writes).
 - `signal-hook` 0.3 → 0.4 for the SIGTERM/SIGHUP flags. `crossterm` still pins 0.3, so both build until it moves; `cargo-deny` reports the duplicate as a warning, not an error.
+- `Cargo.lock` refreshed to the latest semver-compatible release of every other dependency (35 crates, all patch or minor — `ureq` 3.4.2 among them, Dependabot #5). The release binaries now build from the same versions a plain `cargo install gameday` resolves; MSRV 1.88 still builds (`cargo +1.88 check --all-targets --locked`).
 - Dependabot ignores `actions/checkout`, `actions/upload-artifact` and `actions/download-artifact`: `cargo-dist` generates `.github/workflows/release.yml` and its `plan` job refuses a hand-edited copy (PR #1 could never go green). Those actions move when cargo-dist itself is bumped and `dist generate --mode ci` is re-run.
 
 ## [1.0.0] — 2026-09-12
