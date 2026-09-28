@@ -70,6 +70,28 @@ Captures consecutive real scoreboard polls (every 15s, the live cadence) into `f
 
 Fetches one real scoreboard for `<league>`, maps it through the real provider code, and prints the result. Dev-only — no fixture involved, so it's the fastest way to check ESPN hasn't changed a field shape under you.
 
+## ESPN drift canary
+
+```bash
+scripts/espn-canary.sh [path/to/gameday] [out-dir]
+```
+
+Runs the real binary's `--once --json` against all nine leagues with a fresh config dir and fails when ESPN's live payloads drift:
+- **a league didn't fetch:** non-zero exit, stderr, `stale`, or a missing raw scoreboard
+- **the mapper dropped an event:** a `skipped` / `none mappable` line in `gameday.log`
+- **ESPN sent an unfamiliar status:** a `status.type.name` outside `KNOWN_STATUS`
+- **gameday disagrees with ESPN about a game:** its status doesn't match ESPN's own `state` + `completed`, or the game is missing from the board
+
+`.github/workflows/espn-canary.yml` runs it at 17:00 and 00:30 UTC every day. It also runs on demand (`gh workflow run espn-canary`) and on any PR that touches the script or the workflow. Each run uploads the raw scoreboards and gameday's output as a 14-day artifact.
+
+Request budget: 9 scoreboard fetches per run, 18 a day. The app does about 4 a minute with one league live (the 2026-09-10 NFL window's request log).
+
+When it fails, the log line names the league, the event and what it expected.
+- **Unfamiliar status:** run `gameday --once --league <l>` while the game is still on the board and fix the mapping if it draws wrong. Then add the name to `KNOWN_STATUS`. The first sighting of each new status fails exactly once, on purpose: gameday never reads the name, so the list's only job is to get the new status looked at.
+- **A fetch or mapping failure:** the artifact holds the raw payload to capture as a fixture.
+
+GitHub turns off scheduled workflows in a public repo after 60 days without activity. Re-enable it from the Actions tab.
+
 ## Release procedure
 
 The pipeline is `cargo-dist` (0.32.0), configured in `dist-workspace.toml` and generated into `.github/workflows/release.yml` by `dist generate --mode ci`; `.github/workflows/publish-crate.yml` is a hand-written reusable workflow wired in as a custom publish job (`publish-jobs = ["homebrew", "./publish-crate"]`). Re-run `dist generate --mode ci` after editing `dist-workspace.toml`, and `dist plan` to sanity-check the announcement before tagging. There is no `changelog` config key in 0.32: dist finds `CHANGELOG.md` at the workspace root on its own and folds the tagged version's section into the GitHub release body.

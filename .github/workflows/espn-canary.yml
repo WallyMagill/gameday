@@ -1,0 +1,46 @@
+# ESPN drift canary. gameday reads an unofficial API, so this runs the real
+# binary against every league's live scoreboard and fails when ESPN sends
+# something gameday hasn't been checked against. The checks live in
+# scripts/espn-canary.sh; docs/dev.md says what to do when it fails.
+name: espn-canary
+
+on:
+  schedule:
+    # 17:00 UTC (1pm EDT / noon EST): yesterday's results and today's slate
+    # are both on the scoreboards. 00:30 UTC (8:30pm EDT / 7:30pm EST):
+    # prime-time games are live. Two runs a day is a guess, sized so a status
+    # that lasts one day (the 2026-09-27 cancellation) is seen at least once.
+    - cron: "0 17 * * *"
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/espn-canary.sh
+      - .github/workflows/espn-canary.yml
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    env:
+      # ESPN's scoreboards run on the US day, and gameday takes "today" (CFB's
+      # dated fetch) from the local zone; a runner's zone is UTC.
+      TZ: America/New_York
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - run: scripts/espn-canary.sh target/release/gameday "$RUNNER_TEMP/canary"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: espn-canary
+          path: ${{ runner.temp }}/canary
+          # A guess: two weeks is long enough to look at a failure.
+          retention-days: 14
