@@ -284,6 +284,7 @@ pub fn render_json(app: &mut App, opts: &Opts, stale: bool) -> serde_json::Value
                 Status::Live => "live",
                 Status::Pre => "pre",
                 Status::Final => "final",
+                Status::Off => "off",
             };
             serde_json::json!({
                 "league": g.league.slug(),

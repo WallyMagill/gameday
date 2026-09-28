@@ -1875,3 +1875,20 @@ fn win_probability_maps_from_the_football_scoreboard() {
         .iter()
         .all(|g| g.situation.as_ref().is_none_or(|s| s.win_prob.is_none())));
 }
+
+/// A game ESPN calls off is not a final. BAL @ NYY on the 2026-09-27 MLB
+/// slate is `state: "post"` with `completed: false` (`STATUS_CANCELED`); the
+/// other fourteen are `completed: true`. Before `Status::Off` the canceled
+/// game mapped to a FINAL 0-0.
+#[test]
+fn a_game_espn_calls_off_maps_to_off_not_final() {
+    let json = include_str!("../fixtures/live/mlb_scoreboard_canceled.json");
+    let games = map_scoreboard(League::Mlb, json, et()).unwrap();
+    assert_eq!(games.len(), 15);
+    let off = games.iter().find(|g| g.id == "401817103").unwrap();
+    assert_eq!(off.status, Status::Off);
+    assert_eq!(off.period, "CANCELED", "ESPN's shortDetail, uppercased");
+    assert_eq!(off.clock, "");
+    let finals = games.iter().filter(|g| g.status == Status::Final).count();
+    assert_eq!(finals, 14, "every completed game stays a final");
+}

@@ -6,6 +6,22 @@ All notable changes to gameday are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-09-28
+
+Security and dependency patch, plus one fix: canceled and postponed games.
+
+### Security
+- `rustls` 0.23.43 → 0.23.45: RUSTSEC-2026-0285 (TLS 1.3 handshake messages accepted across encryption-level boundaries). `cargo-deny` was failing every CI run on the advisory, so this is the reason 1.0.1 exists.
+
+### Fixed
+- A canceled or postponed game no longer shows as `FINAL 0-0`. ESPN marks one `state: "post"` with `completed: false` (BAL @ NYY, 2026-09-27, `STATUS_CANCELED`); gameday read only the state. It now prints ESPN's word (`CANCELED`, `POSTPONED`) where the clock goes, with no score, at the bottom of FINAL; a pin on it expires like a final's, and no "went final" notification fires. `--json` reports it as `"status": "off"` — a new value in the documented set.
+
+### Changed
+- `toml` 0.8 → 1.1 (config and theme files parse and serialize as before; the round-trip tests cover the shapes gameday writes).
+- `signal-hook` 0.3 → 0.4 for the SIGTERM/SIGHUP flags. `crossterm` still pins 0.3, so both build until it moves; `cargo-deny` reports the duplicate as a warning, not an error.
+- `Cargo.lock` refreshed to the latest semver-compatible release of every other dependency (35 crates, all patch or minor — `ureq` 3.4.2 among them, Dependabot #5). The release binaries now build from the same versions a plain `cargo install gameday` resolves; MSRV 1.88 still builds (`cargo +1.88 check --all-targets --locked`).
+- Dependabot ignores `actions/checkout`, `actions/upload-artifact` and `actions/download-artifact`: `cargo-dist` generates `.github/workflows/release.yml` and its `plan` job refuses a hand-edited copy (PR #1 could never go green). Those actions move when cargo-dist itself is bumped and `dist generate --mode ci` is re-run.
+
 ## [1.0.0] — 2026-09-12
 
 First public release. No 0.x version was ever published, so this section is the feature list, not a delta.

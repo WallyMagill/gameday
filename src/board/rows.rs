@@ -236,6 +236,7 @@ fn state_text_raw(game: &Game, now: OffsetDateTime) -> String {
             _ => "FINAL".into(),
         },
         Status::Pre => game.start.map(|t| fmt_start(t, now)).unwrap_or_default(),
+        Status::Off => game.period.clone(),
     }
 }
 
@@ -522,8 +523,9 @@ pub fn draw_tier2(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     }
 }
 
-/// Tier 3: dim final (`· ARS 3 BHA 0 FT EPL headline`) or later
-/// (`· TB @ ATL 4:25 PM NFL FOX TB -1.5 O/U 47.5`).
+/// Tier 3: dim final (`· ARS 3 BHA 0 FT EPL headline`), later
+/// (`· TB @ ATL 4:25 PM NFL FOX TB -1.5 O/U 47.5`), or called off
+/// (`· BAL @ NYY CANCELED MLB` — no result, so no score cells).
 pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -531,9 +533,9 @@ pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     let r = theme::current().roles();
     gutters(frame, area, ctx, 1, false);
     let later = game.status == Status::Pre;
-    if later {
-        // No score to print yet: the `@` takes the away score's column so a
-        // LATER row and a FINAL row keep the same grid.
+    if later || game.status == Status::Off {
+        // No score to print (not yet, or not ever): the `@` takes the away
+        // score's column so a LATER row and a FINAL row keep the same grid.
         col(
             frame,
             area,

@@ -79,6 +79,11 @@ pub enum Status {
     Pre,
     Live,
     Final,
+    /// Over for this date without a result: ESPN's `state: "post"` with
+    /// `completed: false` — canceled, postponed, suspended, abandoned
+    /// (`STATUS_CANCELED` on BAL @ NYY, 2026-09-27). `period` carries ESPN's
+    /// own word for it; the scores are the zeros ESPN leaves, never a result.
+    Off,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]

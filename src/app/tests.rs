@@ -1081,6 +1081,24 @@ fn apply_boards_stamps_final_at() {
     assert!(app.pins[0].final_at.is_some());
 }
 
+/// A pinned game that is called off expires like a final: without the stamp
+/// its pin would outlive the day.
+#[test]
+fn apply_boards_stamps_final_at_for_a_called_off_game() {
+    let mut app = app_with(
+        vec![g("1", "KC", "TB", false)],
+        vec![Pin {
+            game_id: "1".into(),
+            league: League::Nfl,
+            final_at: None,
+        }],
+    );
+    let mut off = g("1", "KC", "TB", false);
+    off.status = Status::Off;
+    app.apply_boards(League::Nfl, vec![off], false);
+    assert!(app.pins[0].final_at.is_some());
+}
+
 #[test]
 fn enabled_cfb_tab_appears() {
     let dir = std::env::temp_dir().join(format!("gd-cfb-{}", std::process::id()));

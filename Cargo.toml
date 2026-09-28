@@ -1,6 +1,6 @@
 [package]
 name = "gameday"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 # Floor: the dependency graph's own rust-version fields (ratatui 0.30 and its
 # workspace, via darling/time, need 1.88); higher than the 1.87 floor from
@@ -40,7 +40,7 @@ crossterm = "0.29"
 ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1.1"
 ureq = "3"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing", "serde", "local-offset", "macros"] }
@@ -48,7 +48,7 @@ dirs = "7"
 tui-big-text = "0.8"
 
 [target.'cfg(unix)'.dependencies]
-signal-hook = "0.3"
+signal-hook = "0.4"
 
 # The profile that 'dist' will build with
 [profile.dist]
