@@ -17,17 +17,21 @@ on:
         required: true
         type: string
 
+# Empty on purpose. The caller (release.yml's custom-publish-crate) grants
+# only `id-token: write` and `packages: write`, and a called workflow may not
+# request a scope the caller left at `none`: asking for `contents: read` here
+# failed the whole Release workflow at startup (run 34249642237, the first rc
+# tag). `{}` asks for nothing, so it can't exceed the caller, and drops the two
+# scopes this job never uses: checkout of a public repo needs no scope, and
+# `cargo publish` authenticates with CARGO_REGISTRY_TOKEN, not OIDC.
+permissions: {}
+
 jobs:
   publish-crate:
     runs-on: ubuntu-22.04
     if: ${{ !contains(github.ref, '-rc') }}
-    # No `permissions` block: the caller grants this job `id-token: write` and
-    # `packages: write` only, and a called workflow may not request a scope the
-    # caller left at `none` — asking for `contents: read` here failed the whole
-    # Release workflow at startup (run 34249642237, the first rc tag). Checkout
-    # of a public repo needs no scope.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: recursive
