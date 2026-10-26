@@ -21,3 +21,7 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+# release.yml is hand-edited: its actions are pinned to commit SHAs. Without
+# this, `dist plan` fails the Release workflow on the edited file. After a dist
+# upgrade: drop this line, `dist generate --mode ci`, re-pin, restore it.
+allow-dirty = ["ci"]
