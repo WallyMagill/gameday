@@ -333,6 +333,27 @@ pub fn map_scoreboard(
     Ok(out)
 }
 
+/// The day ESPN says a bare scoreboard is serving: its top-level `day.date`
+/// (`"2026-11-12"`). None when the body carries no `day` (every dated body
+/// and NFL's week board, in the captures) or the value is not a plain
+/// `YYYY-MM-DD`. Read from the field, never from event times.
+pub fn served_day(json: &str) -> Option<time::Date> {
+    #[derive(serde::Deserialize)]
+    struct Body {
+        day: Option<Day>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Day {
+        date: String,
+    }
+    let date = serde_json::from_str::<Body>(json).ok()?.day?.date;
+    time::Date::parse(
+        &date,
+        time::macros::format_description!("[year]-[month]-[day]"),
+    )
+    .ok()
+}
+
 /// One `events[]` entry -> `Game`. Fallible per event so a malformed row is a
 /// skipped tile, not a dead league.
 pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, MapError> {
@@ -1426,6 +1447,18 @@ mod tests {
             third,
             third_label: if third.is_some() { "OTL" } else { "" },
         }
+    }
+
+    #[test]
+    fn served_day_reads_day_date_and_nothing_else() {
+        let d = time::macros::date!(2026 - 11 - 12);
+        assert_eq!(
+            served_day(r#"{"day":{"date":"2026-11-12"},"events":[]}"#),
+            Some(d)
+        );
+        // A dated body has no `day`; a value that is not YYYY-MM-DD is no day.
+        assert_eq!(served_day(r#"{"events":[]}"#), None);
+        assert_eq!(served_day(r#"{"day":{"date":"Nov 12"},"events":[]}"#), None);
     }
 
     #[test]

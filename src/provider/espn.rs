@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::domain::{League, StandingsTable};
 use crate::poll::STANDINGS_TTL;
-use crate::provider::map::{map_scoreboard, map_standings, map_stats, map_summary};
+use crate::provider::map::{map_scoreboard, map_standings, map_stats, map_summary, served_day};
 use crate::provider::{ProviderError, Refusal, SportsProvider};
 use crate::{Game, GameStats, Summary};
 
@@ -287,47 +287,146 @@ impl EspnProvider {
         self.fetch_with(key, http, map)
     }
 
-    /// The scoreboard URL and cache key for `league` "today" — shared by
-    /// `scoreboard` and `scoreboard_cached_within` so the CFB dated-URL rule
-    /// (see `scoreboard_url_for`'s doc) lives in exactly one place.
-    fn scoreboard_target(&self, league: League) -> (String, String) {
-        let today = if league == League::Cfb {
-            Some(
-                time::OffsetDateTime::now_utc()
-                    .to_offset(self.offset)
-                    .date(),
-            )
-        } else {
-            None
-        };
-        (
-            scoreboard_url_for(league, today),
-            format!("{}-scoreboard", league.slug()),
-        )
+    fn local_today(&self) -> time::Date {
+        time::OffsetDateTime::now_utc()
+            .to_offset(self.offset)
+            .date()
     }
 
     /// `--once`'s scoreboard: a cache entry younger than `max_age` is served
     /// as fresh without touching the network; anything older goes through
     /// the same transport `scoreboard` uses, falling back to the cache,
-    /// marked stale, when the fetch fails.
+    /// marked stale, when the fetch fails. A failed morning fetch (see
+    /// `scoreboard_today`) is not logged: `--once` keeps gameday.log clean
+    /// (see `once::fetch`).
     pub fn scoreboard_cached_within(
         &self,
         league: League,
         max_age: Duration,
     ) -> Result<(Vec<Game>, bool), ProviderError> {
-        let (url, key) = self.scoreboard_target(league);
-        self.cached_within(
+        self.scoreboard_today(
+            league,
+            self.local_today(),
+            max_age,
+            |url, etag| self.http(url, etag),
+            |_| {},
+        )
+    }
+
+    /// The league's board for `today` (the local date): the bare scoreboard
+    /// (`max_age` gates it as in `cached_within`; `Duration::ZERO` always
+    /// asks), plus, when ESPN's day has not rolled over yet, the dated board
+    /// for `today` merged in by event id.
+    ///
+    /// The morning gap: ESPN's bare board serves its own "current day", which
+    /// on 2026-11-13 still said 2026-11-12 at 10:15 ET and had rolled by
+    /// 11:46 ET. Until it rolls, tonight's games are on no other screen. So
+    /// when the bare body's `day.date` is exactly the day before `today`,
+    /// the dated board for `today` (`<league>-scoreboard-YYYYMMDD`, the key
+    /// date travel uses) is fetched at most once per [`LAGGING_DAY_EVERY`]:
+    /// its cache entry's age is the gate, so the bound holds across `--once`
+    /// processes too. A failed dated fetch never touches the bare result:
+    /// the board, its staleness flag and the footer are what they were
+    /// without it; a cached dated body for `today` is used when there is
+    /// one, and `dated_failed` is handed the error when there is none.
+    ///
+    /// `http(url, etag)` and `today` are parameters so a test can stand in
+    /// for ESPN and the clock.
+    pub(crate) fn scoreboard_today(
+        &self,
+        league: League,
+        today: time::Date,
+        max_age: Duration,
+        http: impl Fn(&str, Option<&str>) -> Result<Fetched, ProviderError>,
+        dated_failed: impl FnOnce(&ProviderError),
+    ) -> Result<(Vec<Game>, bool), ProviderError> {
+        // CFB is dated to the local date already (see `scoreboard_url_for`).
+        let url = scoreboard_url_for(league, (league == League::Cfb).then_some(today));
+        let key = format!("{}-scoreboard", league.slug());
+        let ((games, served), stale) = self.cached_within(
             &key,
             max_age,
-            |etag| self.http(&url, etag),
+            |etag| http(&url, etag),
+            |body| {
+                let games = map_scoreboard(league, body, self.offset).map_err(|source| {
+                    ProviderError::Map {
+                        key: key.clone(),
+                        source,
+                    }
+                })?;
+                Ok((games, served_day(body)))
+            },
+        )?;
+        // NFL's bare board is the current week and CFB's is already dated:
+        // neither ever lags a day.
+        let lagging = !matches!(league, League::Nfl | League::Cfb)
+            && served.is_some_and(|d| today.previous_day() == Some(d));
+        if !lagging {
+            return Ok((games, stale));
+        }
+        let dated_url = scoreboard_on_url(league, today);
+        let dated_key = dated_key(league, today);
+        let tonight = self.cached_within(
+            &dated_key,
+            LAGGING_DAY_EVERY,
+            |etag| http(&dated_url, etag),
             |body| {
                 map_scoreboard(league, body, self.offset).map_err(|source| ProviderError::Map {
-                    key: key.clone(),
+                    key: dated_key.clone(),
                     source,
                 })
             },
-        )
+        );
+        let tonight = match tonight {
+            Ok((tonight, dated_stale)) => {
+                if dated_stale {
+                    // The fetch failed and the cached copy answered. Its
+                    // write time is the gate, so stamp the attempt on it:
+                    // otherwise a failing dated URL is retried every 15 s
+                    // poll instead of once per LAGGING_DAY_EVERY.
+                    let _ = std::fs::File::options()
+                        .write(true)
+                        .open(self.cache_dir.join(&dated_key))
+                        .and_then(|f| f.set_modified(SystemTime::now()));
+                }
+                tonight
+            }
+            Err(e) => {
+                dated_failed(&e);
+                return Ok((games, stale));
+            }
+        };
+        // The bare copy wins: it is the league's board everywhere else in
+        // the app, and it is fetched every poll while the dated copy can be
+        // up to LAGGING_DAY_EVERY older.
+        let mut games = games;
+        for g in tonight {
+            if !games.iter().any(|b| b.id == g.id) {
+                games.push(g);
+            }
+        }
+        Ok((games, stale))
     }
+}
+
+/// How often a lagging league's dated board for the local date may be
+/// fetched (see `EspnProvider::scoreboard_today`): the app's idle scoreboard
+/// interval, [`crate::poll::SCOREBOARD_IDLE`], so a lagging league costs at
+/// most one extra request a minute whether the board polls every 15 s or
+/// every 60 s. Known limit, accepted: a game from tonight's slate that goes
+/// live before ESPN rolls its day over updates every 60 s, not 15 s, until
+/// the rollover puts it on the bare board.
+pub const LAGGING_DAY_EVERY: Duration = crate::poll::SCOREBOARD_IDLE;
+
+/// Cache key of a dated scoreboard: `<league>-scoreboard-YYYYMMDD`.
+fn dated_key(league: League, date: time::Date) -> String {
+    format!(
+        "{}-scoreboard-{:04}{:02}{:02}",
+        league.slug(),
+        date.year(),
+        date.month() as u8,
+        date.day()
+    )
 }
 
 /// Bare CFB scoreboard (no `dates`) returns the current *week*, not today —
@@ -503,13 +602,17 @@ pub fn cache_age(dir: &Path, key: &str) -> Option<Duration> {
 
 impl SportsProvider for EspnProvider {
     fn scoreboard(&self, league: League) -> Result<(Vec<Game>, bool), ProviderError> {
-        let (url, key) = self.scoreboard_target(league);
-        self.fetch(&url, &key, |body| {
-            map_scoreboard(league, body, self.offset).map_err(|source| ProviderError::Map {
-                key: key.clone(),
-                source,
-            })
-        })
+        self.scoreboard_today(
+            league,
+            self.local_today(),
+            Duration::ZERO,
+            |url, etag| self.http(url, etag),
+            // To gameday.log only: the board itself is fine without the
+            // dated copy, so the footer has nothing to say.
+            |e| {
+                let _ = e.short_logged();
+            },
+        )
     }
 
     fn scoreboard_on(
@@ -518,13 +621,7 @@ impl SportsProvider for EspnProvider {
         date: time::Date,
     ) -> Result<(Vec<Game>, bool), ProviderError> {
         let url = scoreboard_on_url(league, date);
-        let key = format!(
-            "{}-scoreboard-{:04}{:02}{:02}",
-            league.slug(),
-            date.year(),
-            date.month() as u8,
-            date.day()
-        );
+        let key = dated_key(league, date);
         self.fetch(&url, &key, |body| {
             map_scoreboard(league, body, self.offset).map_err(|source| ProviderError::Map {
                 key: key.clone(),
@@ -721,6 +818,253 @@ mod tests {
             stale,
             "old cache: HTTP attempted and failed, cache served stale"
         );
+    }
+
+    /// The morning gap, from real bodies (`fixtures/PROVENANCE-2026-11-13-morning.md`):
+    /// at 10:08 ET on 2026-11-13 ESPN's bare NBA board still served
+    /// 2026-11-12. `LAST_NIGHT` is that slate (one final) and `TONIGHT` is
+    /// `?dates=20261113` (two of its nine games). A dated body carries no
+    /// `day`, so `bare_on` adds the `day` a bare body has.
+    const LAST_NIGHT: &str = include_str!("../../fixtures/nba_scoreboard_2026-11-12.json");
+    const TONIGHT: &str = include_str!("../../fixtures/nba_scoreboard_2026-11-13.json");
+    const TODAY: time::Date = time::macros::date!(2026 - 11 - 13);
+
+    fn bare_on(body: &str, day: Option<&str>) -> String {
+        let mut v: serde_json::Value = serde_json::from_str(body).unwrap();
+        if let Some(day) = day {
+            v["day"] = serde_json::json!({ "date": day });
+        }
+        v.to_string()
+    }
+
+    fn ids(json: &str) -> Vec<String> {
+        map_scoreboard(League::Nba, json, time::UtcOffset::UTC)
+            .unwrap()
+            .into_iter()
+            .map(|g| g.id)
+            .collect()
+    }
+
+    /// ESPN as a closure: the bare URL answers `bare`, the dated URL for
+    /// TODAY answers `dated` (None = a 403). Counts the dated requests.
+    struct Espn {
+        bare: String,
+        dated: Option<String>,
+        dated_calls: std::cell::Cell<u32>,
+    }
+
+    impl Espn {
+        fn new(bare: String, dated: Option<&str>) -> Self {
+            Self {
+                bare,
+                dated: dated.map(str::to_string),
+                dated_calls: std::cell::Cell::new(0),
+            }
+        }
+        fn http(&self, url: &str, _: Option<&str>) -> Result<Fetched, ProviderError> {
+            let body = if url.ends_with("/scoreboard") {
+                Some(self.bare.clone())
+            } else {
+                assert!(url.ends_with("?dates=20261113"), "unexpected url {url}");
+                self.dated_calls.set(self.dated_calls.get() + 1);
+                self.dated.clone()
+            };
+            body.map(|body| Fetched::Body { body, etag: None })
+                .ok_or_else(|| ProviderError::Http {
+                    status: 403,
+                    key: String::new(),
+                    url: url.into(),
+                    detail: String::new(),
+                })
+        }
+        fn board(&self, p: &EspnProvider, max_age: Duration) -> (Vec<Game>, bool) {
+            p.scoreboard_today(
+                League::Nba,
+                TODAY,
+                max_age,
+                |u, e| self.http(u, e),
+                |e| panic!("dated fetch failed: {e}"),
+            )
+            .unwrap()
+        }
+    }
+
+    #[test]
+    fn a_board_still_on_yesterday_also_shows_tonights_games() {
+        let espn = Espn::new(bare_on(LAST_NIGHT, Some("2026-11-12")), Some(TONIGHT));
+        let p = EspnProvider::with_agent(
+            tmp("morning"),
+            time::macros::offset!(-5),
+            HTTP_TIMEOUT,
+            false,
+        );
+        let (games, stale) = espn.board(&p, Duration::ZERO);
+        assert!(!stale);
+        let got: Vec<String> = games.iter().map(|g| g.id.clone()).collect();
+        let want: Vec<String> = [ids(LAST_NIGHT), ids(TONIGHT)].concat();
+        assert_eq!(got, want, "last night's final, then tonight's two");
+        assert_eq!(espn.dated_calls.get(), 1);
+
+        // What the user sees at 10:08 ET: the NBA tab and Home both carry
+        // tonight's games.
+        let dir = tmp("morning-app");
+        let mut app = crate::app::App::new(
+            crate::config::Config::default_all(),
+            vec![],
+            dir,
+            time::macros::offset!(-5),
+        );
+        app.now_override = Some(time::macros::datetime!(2026-11-13 10:08 -5));
+        app.apply_boards(League::Nba, games, stale);
+        let tonight = ids(TONIGHT);
+        for tab in [crate::app::Tab::League(League::Nba), crate::app::Tab::Home] {
+            app.tab = tab;
+            let shown: Vec<String> = app.visible_games().into_iter().map(|g| g.id).collect();
+            assert!(
+                tonight.iter().all(|id| shown.contains(id)),
+                "{tab:?} shows {shown:?}, expected tonight's {tonight:?} among them"
+            );
+        }
+    }
+
+    #[test]
+    fn a_board_that_is_not_one_day_behind_asks_for_nothing_more() {
+        let p = provider(&tmp("not-lagging"));
+        let lagging = bare_on(LAST_NIGHT, Some("2026-11-12"));
+        // ESPN already on today, two days behind, ahead, or no `day` at all.
+        for day in [
+            Some("2026-11-13"),
+            Some("2026-11-11"),
+            Some("2026-11-14"),
+            None,
+        ] {
+            let espn = Espn::new(bare_on(LAST_NIGHT, day), Some(TONIGHT));
+            let (games, _) = espn.board(&p, Duration::ZERO);
+            assert_eq!(espn.dated_calls.get(), 0, "day {day:?}");
+            assert_eq!(games.len(), 1, "day {day:?}");
+        }
+        // NFL's week board and CFB's dated board never lag a day, whatever
+        // their body says: one request, the board's own.
+        for league in [League::Nfl, League::Cfb] {
+            let calls = std::cell::Cell::new(0);
+            let _ = p.scoreboard_today(
+                league,
+                TODAY,
+                Duration::ZERO,
+                |_, _| {
+                    calls.set(calls.get() + 1);
+                    Ok(Fetched::Body {
+                        body: lagging.clone(),
+                        etag: None,
+                    })
+                },
+                |_| {},
+            );
+            assert_eq!(calls.get(), 1, "{league:?}");
+        }
+    }
+
+    #[test]
+    fn a_failed_dated_fetch_leaves_the_bare_board_fresh_and_whole() {
+        let dir = tmp("dated-403");
+        let p = provider(&dir);
+        let espn = Espn::new(bare_on(LAST_NIGHT, Some("2026-11-12")), None);
+        let mut failed = Vec::new();
+        let (games, stale) = p
+            .scoreboard_today(
+                League::Nba,
+                TODAY,
+                Duration::ZERO,
+                |u, e| espn.http(u, e),
+                |e| failed.push(e.short()),
+            )
+            .unwrap();
+        assert!(!stale, "the bare board answered: not STALE");
+        assert_eq!(
+            games.iter().map(|g| &g.id).collect::<Vec<_>>(),
+            ids(LAST_NIGHT).iter().collect::<Vec<_>>()
+        );
+        assert_eq!(failed, ["ESPN 403 nba scoreboard 20261113"]);
+
+        // With tonight's slate cached from an earlier fetch, a failure
+        // serves that copy, and the attempt counts against the window.
+        let key = "nba-scoreboard-20261113";
+        cache_write(&dir, key, TONIGHT).unwrap();
+        let old = SystemTime::now() - LAGGING_DAY_EVERY - Duration::from_secs(1);
+        std::fs::File::options()
+            .write(true)
+            .open(dir.join(key))
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        let (games, stale) = espn.board(&p, Duration::ZERO);
+        assert!(!stale);
+        assert_eq!(games.len(), 3, "last night's one and the cached two");
+        assert_eq!(espn.dated_calls.get(), 2);
+        espn.board(&p, Duration::ZERO);
+        assert_eq!(espn.dated_calls.get(), 2, "a failure waits the window too");
+    }
+
+    #[test]
+    fn a_game_in_both_bodies_appears_once_as_the_bare_board_has_it() {
+        let tonight: serde_json::Value = serde_json::from_str(TONIGHT).unwrap();
+        let mut shared = tonight["events"][0].clone();
+        // Moved start: tells the bare copy from the dated one.
+        shared["date"] = "2026-11-14T00:30Z".into();
+        let mut bare: serde_json::Value =
+            serde_json::from_str(&bare_on(LAST_NIGHT, Some("2026-11-12"))).unwrap();
+        bare["events"].as_array_mut().unwrap().push(shared);
+        let espn = Espn::new(bare.to_string(), Some(TONIGHT));
+        let (games, _) = espn.board(&provider(&tmp("both")), Duration::ZERO);
+        let id = &ids(TONIGHT)[0];
+        let copies: Vec<&Game> = games.iter().filter(|g| &g.id == id).collect();
+        assert_eq!(copies.len(), 1, "{id} once");
+        assert_eq!(
+            copies[0].start,
+            Some(time::macros::datetime!(2026-11-14 00:30 UTC)),
+            "the bare board's copy"
+        );
+        assert_eq!(games.len(), 3);
+    }
+
+    #[test]
+    fn the_dated_board_is_asked_for_at_most_once_a_window() {
+        let dir = tmp("dated-window");
+        let p = provider(&dir);
+        let espn = Espn::new(bare_on(LAST_NIGHT, Some("2026-11-12")), Some(TONIGHT));
+        // The live board's 15 s polls, back to back: one dated request.
+        for _ in 0..4 {
+            let (games, _) = espn.board(&p, Duration::ZERO);
+            assert_eq!(games.len(), 3);
+        }
+        assert_eq!(espn.dated_calls.get(), 1);
+        // Once the cached copy is a window old, the next poll asks again.
+        let old = SystemTime::now() - LAGGING_DAY_EVERY - Duration::from_secs(1);
+        std::fs::File::options()
+            .write(true)
+            .open(dir.join("nba-scoreboard-20261113"))
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        espn.board(&p, Duration::ZERO);
+        assert_eq!(espn.dated_calls.get(), 2);
+    }
+
+    /// `--once` is a new process each run: the cache is the only memory it
+    /// has. A run that finds both entries young asks ESPN for nothing and
+    /// still prints tonight's games.
+    #[test]
+    fn once_shows_tonights_games_and_a_second_run_asks_for_nothing() {
+        let dir = tmp("once-morning");
+        let espn = Espn::new(bare_on(LAST_NIGHT, Some("2026-11-12")), Some(TONIGHT));
+        let want: Vec<String> = [ids(LAST_NIGHT), ids(TONIGHT)].concat();
+        for run in 0..2 {
+            let (games, stale) = espn.board(&provider(&dir), crate::poll::SCOREBOARD_LIVE);
+            assert!(!stale);
+            let got: Vec<String> = games.into_iter().map(|g| g.id).collect();
+            assert_eq!(got, want, "run {run}");
+        }
+        assert_eq!(espn.dated_calls.get(), 1);
     }
 
     #[test]

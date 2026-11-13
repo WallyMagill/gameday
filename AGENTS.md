@@ -20,7 +20,7 @@ while anything is live. No account, no key.
 - **Quadrant blocks only** (`▀▄█`) for digits and marks: every mono font has them; sextants tofu.
 - **Numbers carry receipts.** A timeout, cap, or weight is measured or says it is a guess and why.
 - **Failures name the value, the expectation, and the knob.**
-- **No new request load without a measured budget line.** Scoreboards every 15s live / 60s idle; summaries for the zoomed game and one-shot catch-ups only. CI's ESPN drift canary: 9 scoreboards per run, twice a day (`docs/dev.md`).
+- **No new request load without a measured budget line.** Scoreboards every 15s live / 60s idle, plus a lagging league's dated board for today at most once a minute while ESPN's day is still yesterday; summaries for the zoomed game and one-shot catch-ups only. CI's ESPN drift canary: 9 scoreboards per run, twice a day (`docs/dev.md`).
 
 ## Design work
 
