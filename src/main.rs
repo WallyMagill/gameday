@@ -670,23 +670,73 @@ fn install_panic_hook() {
     }));
 }
 
-/// SIGTERM / SIGHUP (a closed terminal, `kill`, a session manager) set this
-/// flag; the UI loop treats it as `q`, so the one restore path runs and the
-/// terminal is never left in raw mode. Ctrl-C arrives as a key event through
-/// crossterm and is handled by the keymap, not here.
+/// SIGTERM / SIGHUP (a closed terminal, `kill`, a session manager) set the
+/// returned flag; the UI loop treats it as `q`, so the one restore path runs
+/// and the terminal is never left in raw mode. If the loop has not returned
+/// (dropping the sender of `ui_done`) within [`TERM_GRACE`], the signal
+/// thread restores what it can and exits the process itself: see
+/// [`await_ui_quit`] for why the loop can be stuck. Ctrl-C arrives as a key
+/// event through crossterm and is handled by the keymap, not here.
 #[cfg(unix)]
-fn install_signal_flag() -> Arc<AtomicBool> {
+fn install_term_signals(ui_done: mpsc::Receiver<()>) -> Arc<AtomicBool> {
+    use signal_hook::consts::{SIGHUP, SIGTERM};
     let flag = Arc::new(AtomicBool::new(false));
-    for sig in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGHUP] {
-        // Registration only fails for signals that cannot be caught; TERM
-        // and HUP can, and a failure here would just leave the old behavior.
-        let _ = signal_hook::flag::register(sig, Arc::clone(&flag));
-    }
+    // Registration only fails for signals that cannot be caught; TERM and
+    // HUP can. On a failure they keep their default action, which kills the
+    // process outright: no restore, but no orphaned board either.
+    let Ok(mut signals) = signal_hook::iterator::Signals::new([SIGTERM, SIGHUP]) else {
+        return flag;
+    };
+    let quit = Arc::clone(&flag);
+    thread::spawn(move || {
+        if let Some(sig) = signals.forever().next() {
+            if let Some(code) = await_ui_quit(sig, &quit, &ui_done, TERM_GRACE) {
+                restore_terminal();
+                std::process::exit(code);
+            }
+        }
+    });
     flag
 }
 
+/// How long a term signal waits for the UI loop to quit on its own before
+/// the signal thread ends the process. Measured 2026-11-13 with the terminal
+/// intact: a `--demo` board exits 12-66 ms after SIGTERM or SIGHUP (10 runs),
+/// so 500 ms is about 7x the slowest, and a closed terminal still takes the
+/// process down well inside a second.
+#[cfg(unix)]
+const TERM_GRACE: Duration = Duration::from_millis(500);
+
+/// The signal thread's job once SIGTERM/SIGHUP `sig` arrives, kept apart
+/// from the thread so a test can drive it. Asks the UI loop to quit, then
+/// waits up to `grace` for `run_ui` to return (its sender disconnects).
+/// Returns the exit code to end the process with when the loop never came
+/// back, else `None`.
+///
+/// The loop can be stuck for good: once the terminal hangs up, crossterm
+/// 0.29's `event::poll` never returns. Its tty read loop
+/// (`event/source/unix/mio.rs`, `try_read`) only breaks on `WouldBlock`, and
+/// a hung-up tty answers every read with EOF, so it spins at full CPU without
+/// checking its timeout. The loop then never sees the flag, and before this
+/// backstop a closed tmux or vhs terminal left the board orphaned and still
+/// polling ESPN.
+#[cfg(unix)]
+fn await_ui_quit(
+    sig: i32,
+    quit: &AtomicBool,
+    ui_done: &mpsc::Receiver<()>,
+    grace: Duration,
+) -> Option<i32> {
+    quit.store(true, Ordering::Relaxed);
+    match ui_done.recv_timeout(grace) {
+        // 128 + signal number: the shell's convention for "ended by signal".
+        Err(mpsc::RecvTimeoutError::Timeout) => Some(128 + sig),
+        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => None,
+    }
+}
+
 #[cfg(not(unix))]
-fn install_signal_flag() -> Arc<AtomicBool> {
+fn install_term_signals(_ui_done: mpsc::Receiver<()>) -> Arc<AtomicBool> {
     Arc::new(AtomicBool::new(false))
 }
 
@@ -717,8 +767,11 @@ fn run_ui(
     wants: WantsShared,
     refresh: RefreshFlag,
 ) -> std::io::Result<()> {
+    // Dropped when run_ui returns, after `_restore` (locals drop in reverse
+    // order): that disconnect tells the signal thread the loop finished.
+    let (_ui_done, ui_done) = mpsc::channel::<()>();
     install_panic_hook();
-    let term_signal = install_signal_flag();
+    let term_signal = install_term_signals(ui_done);
     let mut published = gameday::poll::Wants::default();
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
@@ -859,6 +912,40 @@ mod tests {
         );
         // The UI thread's own panic is the case that does restore.
         assert!(super::should_restore(ui, ui));
+    }
+
+    /// A closed terminal must end the process even when the UI loop never
+    /// comes back to read the quit flag (crossterm spins on a hung-up tty).
+    /// When the loop does come back, the signal thread stands down, so the
+    /// loop's own restore stays the only one.
+    #[cfg(unix)]
+    #[test]
+    fn a_term_signal_ends_the_process_when_the_ui_loop_never_returns() {
+        use signal_hook::consts::{SIGHUP, SIGTERM};
+        use std::sync::atomic::AtomicBool;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        // Wedged: run_ui still holds its sender and never returns.
+        let quit = AtomicBool::new(false);
+        let (_held, ui_done) = mpsc::channel::<()>();
+        assert_eq!(
+            super::await_ui_quit(SIGHUP, &quit, &ui_done, Duration::ZERO),
+            Some(128 + SIGHUP),
+            "a wedged loop must not keep the process alive"
+        );
+        assert!(quit.load(Ordering::Relaxed), "the loop is asked first");
+
+        // Healthy: run_ui returned and dropped its sender.
+        let quit = AtomicBool::new(false);
+        let (done, ui_done) = mpsc::channel::<()>();
+        drop(done);
+        assert_eq!(
+            super::await_ui_quit(SIGTERM, &quit, &ui_done, super::TERM_GRACE),
+            None,
+            "a loop that quit on its own keeps the clean exit"
+        );
+        assert!(quit.load(Ordering::Relaxed));
     }
 
     fn parsed(args: &[&str]) -> super::Args {
