@@ -139,13 +139,14 @@ pub fn render_text(app: &mut App, opts: &Opts, stale: bool) -> String {
     let now = app.now();
     let sort = app.config.sort;
     let pins = app.pins.clone();
-    let mut sections: Vec<(&'static str, Vec<Game>)> = vec![
-        ("MY GAMES", d.my_games),
-        ("IN PLAY", d.in_play),
-        ("FINAL", d.finals),
-        ("LATER", d.later),
-    ];
     let mixed = d.mixed;
+    // The board's own sections in the board's own order (`derive()` decides
+    // it), so `--top N` spends its budget on what the board shows first.
+    let mut sections: Vec<(&'static str, Vec<Game>)> = d
+        .sections
+        .into_iter()
+        .map(|s| (s.kind.label(), s.games))
+        .collect();
 
     if opts.live {
         for (_, games) in &mut sections {

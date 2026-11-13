@@ -640,6 +640,7 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         timeouts,
         extras,
         favorite: false,
+        earlier_day: false,
     })
 }
 

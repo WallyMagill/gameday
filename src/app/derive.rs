@@ -24,20 +24,45 @@ thread_local! {
     pub(crate) static DERIVE_COUNT: Cell<u32> = const { Cell::new(0) };
 }
 
+/// Which section of the board a list is. The label is the rule's text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SectionKind {
+    MyGames,
+    InPlay,
+    Final,
+    Later,
+}
+
+impl SectionKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            SectionKind::MyGames => "MY GAMES",
+            SectionKind::InPlay => "IN PLAY",
+            SectionKind::Final => "FINAL",
+            SectionKind::Later => "LATER",
+        }
+    }
+}
+
+/// One section of the board, in draw order.
+#[derive(Clone, Debug)]
+pub struct Section {
+    pub kind: SectionKind,
+    pub games: Vec<Game>,
+}
+
 /// Every game list one frame renders, evaluated together — the board's four
 /// sections, the selection they concatenate into, and the feeds the
 /// chrome reads.
 pub struct Derived {
-    /// The MY GAMES band: pins first (pin order), then favorited-team games
-    /// (board order), deduped — a pinned favorite appears once. Never
-    /// re-sorted.
-    pub my_games: Vec<Game>,
-    /// Live games that are NOT in the band, in `OrderState`'s frozen order.
-    pub in_play: Vec<Game>,
-    pub finals: Vec<Game>,
-    pub later: Vec<Game>,
-    /// What j/k walks: `my_games ++ in_play ++ finals ++ later`, which is
-    /// exactly the order the board draws.
+    /// The board's four sections in the order it draws them, every one
+    /// present (an empty section is an empty list). The board, `--once`
+    /// text, `selection` (j/k and `--json`) and the lane all read this order,
+    /// so none of them decides it: MY GAMES, IN PLAY, then FINAL and LATER —
+    /// LATER first while nothing is live on the tab's unfiltered board.
+    pub sections: Vec<Section>,
+    /// What j/k walks: the sections concatenated, which is exactly the order
+    /// the board draws.
     pub selection: Vec<Game>,
     /// The hero game: the top of MY GAMES when that game is live, else the
     /// best live game, else the first thing on the board.
@@ -50,9 +75,52 @@ pub struct Derived {
     pub ticker_events: Vec<(Game, Play)>,
 }
 
+impl Derived {
+    /// One section's games (empty when the section has none).
+    pub fn section(&self, kind: SectionKind) -> &[Game] {
+        self.sections
+            .iter()
+            .find(|s| s.kind == kind)
+            .map(|s| s.games.as_slice())
+            .unwrap_or_default()
+    }
+
+    /// The MY GAMES band: pins first (pin order), then favorited-team games
+    /// (board order), deduped — a pinned favorite appears once; results from
+    /// an earlier day last. Never re-sorted between applies.
+    pub fn my_games(&self) -> &[Game] {
+        self.section(SectionKind::MyGames)
+    }
+
+    /// Live games that are NOT in the band, in `OrderState`'s frozen order.
+    pub fn in_play(&self) -> &[Game] {
+        self.section(SectionKind::InPlay)
+    }
+
+    pub fn finals(&self) -> &[Game] {
+        self.section(SectionKind::Final)
+    }
+
+    pub fn later(&self) -> &[Game] {
+        self.section(SectionKind::Later)
+    }
+
+    /// LATER is drawn above FINAL (nothing live on the tab's board).
+    pub fn later_first(&self) -> bool {
+        let at = |kind| self.sections.iter().position(|s| s.kind == kind);
+        at(SectionKind::Later) < at(SectionKind::Final)
+    }
+}
+
 impl App {
     pub fn visible_games(&self) -> Vec<Game> {
-        let games = match self.tab {
+        self.filtered(self.tab_games())
+    }
+
+    /// The tab's board before any `/` filter: what decides whether anything
+    /// is live, so typing a filter never flips the section order.
+    fn tab_games(&self) -> Vec<Game> {
+        match self.tab {
             Tab::Home => {
                 let concat = self.concat_boards();
                 home_games(&self.pins, &self.config.favorites, &concat, self.now())
@@ -61,7 +129,10 @@ impl App {
                     .collect()
             }
             Tab::League(league) => self.league_games(league),
-        };
+        }
+    }
+
+    fn filtered(&self, games: Vec<Game>) -> Vec<Game> {
         let q = self.active_filter().map(crate::filter::Query::parse);
         games
             .into_iter()
@@ -214,11 +285,20 @@ impl App {
     /// The board's four sections, built from one walk of `visible_games`.
     /// This is the spec: the band is pins-then-favorites in that fixed order,
     /// IN PLAY is whatever `OrderState` last froze, and FINAL/LATER are the
-    /// leftovers by status. `selection` is their concatenation — the same
-    /// order the board draws, so j/k and the rows can never disagree.
+    /// leftovers by status. A result from an earlier day (`Game::earlier_day`,
+    /// decided at apply) closes its section — the band and FINAL alike — and
+    /// LATER runs in start-time order. With nothing live on the tab, LATER is
+    /// drawn before FINAL: the next game is the news, last night's results
+    /// are not. `selection` is the sections' concatenation — the same order
+    /// the board draws, so j/k and the rows can never disagree.
     pub(crate) fn derive(&self) -> Derived {
         DERIVE_COUNT.with(|c| c.set(c.get() + 1));
-        let visible = self.visible_games();
+        let tab = self.tab_games();
+        // The flip reads the unfiltered tab, MY GAMES included: a filter
+        // that hides the one live game must not reorder the board under it.
+        // A status change is the only thing that can flip it — a real event.
+        let later_first = !tab.iter().any(|g| g.status == Status::Live);
+        let visible = self.filtered(tab);
 
         // The band: pruned pins in pin order, then favorites in board order.
         let mut my_games: Vec<Game> = Vec::new();
@@ -234,6 +314,9 @@ impl App {
                 my_games.push(g.clone());
             }
         }
+        // Stable: a favorite's months-old final drops under the band's
+        // current games and nothing else moves.
+        my_games.sort_by_key(|g| g.earlier_day);
 
         let rest: Vec<&Game> = visible
             .iter()
@@ -246,26 +329,48 @@ impl App {
             .collect();
         let in_play: Vec<Game> = self.order.ordered(&live).into_iter().cloned().collect();
         // A game called off (canceled, postponed) is over for the day too,
-        // so it closes the FINAL section — under every real result.
-        let finals: Vec<Game> = rest
+        // so it closes the FINAL section — under every real result. Results
+        // from an earlier day close it after that, in the same order.
+        let mut finals: Vec<Game> = rest
             .iter()
             .filter(|g| g.status == Status::Final)
             .chain(rest.iter().filter(|g| g.status == Status::Off))
             .map(|g| (*g).clone())
             .collect();
-        let later: Vec<Game> = rest
+        finals.sort_by_key(|g| g.earlier_day);
+        // Start-time order, a missing start last; stable, so equal starts
+        // keep board order. League order put Sunday's NFL above tonight.
+        let mut later: Vec<Game> = rest
             .iter()
             .filter(|g| g.status == Status::Pre)
             .map(|g| (*g).clone())
             .collect();
+        later.sort_by_key(|g| (g.start.is_none(), g.start));
 
-        let selection: Vec<Game> = my_games
+        let section = |kind, games| Section { kind, games };
+        let (third, fourth) = if later_first {
+            (
+                section(SectionKind::Later, later),
+                section(SectionKind::Final, finals),
+            )
+        } else {
+            (
+                section(SectionKind::Final, finals),
+                section(SectionKind::Later, later),
+            )
+        };
+        let sections = vec![
+            section(SectionKind::MyGames, my_games),
+            section(SectionKind::InPlay, in_play),
+            third,
+            fourth,
+        ];
+        let selection: Vec<Game> = sections
             .iter()
-            .chain(in_play.iter())
-            .chain(finals.iter())
-            .chain(later.iter())
-            .cloned()
+            .flat_map(|s| s.games.iter().cloned())
             .collect();
+        let my_games = &sections[0].games;
+        let in_play = &sections[1].games;
 
         // The hero is the top of MY GAMES when it is live (a pin
         // outranks watchability), else the best live game. With nothing live
@@ -299,10 +404,7 @@ impl App {
             .cloned()
             .collect();
         Derived {
-            my_games,
-            in_play,
-            finals,
-            later,
+            sections,
             selection,
             hero_id,
             mixed,
@@ -380,17 +482,21 @@ mod tests {
         let d = app.derive();
 
         assert_eq!(
-            ids(&d.my_games),
+            ids(d.my_games()),
             vec!["live2", "pre1"],
             "pins then favorites"
         );
-        assert_eq!(ids(&d.in_play), vec!["live1"], "the band is not in play");
-        assert_eq!(ids(&d.finals), vec!["fin1"]);
-        assert!(d.later.is_empty(), "pre1 is a my-game: {:?}", ids(&d.later));
+        assert_eq!(ids(d.in_play()), vec!["live1"], "the band is not in play");
+        assert_eq!(ids(d.finals()), vec!["fin1"]);
+        assert!(
+            d.later().is_empty(),
+            "pre1 is a my-game: {:?}",
+            ids(d.later())
+        );
         assert_eq!(
             ids(&d.selection),
             vec!["live2", "pre1", "live1", "fin1"],
-            "selection is my_games ++ in_play ++ finals ++ later"
+            "selection is the sections in order"
         );
         // The partition invariant `selection_len()` takes the shortcut on:
         // every visible game is in exactly one section, so the selection is
@@ -416,7 +522,7 @@ mod tests {
         );
         app.tab = Tab::League(League::Nfl);
         let d = app.derive();
-        assert_eq!(ids(&d.my_games), vec!["pre1"]);
+        assert_eq!(ids(d.my_games()), vec!["pre1"]);
         assert_eq!(
             d.hero_id.as_deref(),
             Some("live1"),

@@ -57,16 +57,20 @@ impl App {
             0
         } else {
             let d = self.derived();
-            let hero_in_band = d.my_games.iter().any(|g| Some(&g.id) == d.hero_id.as_ref());
-            let band_rows = d.my_games.len() - usize::from(hero_in_band);
+            let hero_in_band = d
+                .my_games()
+                .iter()
+                .any(|g| Some(&g.id) == d.hero_id.as_ref());
+            let band_rows = d.my_games().len() - usize::from(hero_in_band);
             let body_h = area.height.saturating_sub(2); // header + footer
             let plan = crate::board::layout::plan(
                 area.width,
                 body_h,
-                d.in_play.len(),
-                d.finals.len(),
-                d.later.len(),
+                d.in_play().len(),
+                d.finals().len(),
+                d.later().len(),
                 band_rows,
+                d.later_first(),
             );
             if plan.scores_lane {
                 ticker::LANE_HEIGHT

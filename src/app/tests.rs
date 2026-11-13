@@ -67,8 +67,8 @@ fn nfl_tab_shows_all_league_games() {
     // live_games/slate_games are retired: the board's sections come
     // out of derive() now, and a league tab is the same board filtered.
     let d = app.derive();
-    assert_eq!(d.in_play.len(), 1);
-    assert_eq!(d.later.len(), 1);
+    assert_eq!(d.in_play().len(), 1);
+    assert_eq!(d.later().len(), 1);
 }
 
 #[test]
@@ -102,11 +102,11 @@ fn filter_narrows_selection_and_esc_restores() {
     app.filter_changed();
     assert_eq!(app.selected, 0, "selection clamps to the narrowed list");
     // live_games() is retired: the filtered live list is in_play.
-    assert_eq!(app.derive().in_play.len(), 1);
+    assert_eq!(app.derive().in_play().len(), 1);
     // Esc in Normal mode clears the committed filter.
     app.on_key(KeyCode::Esc, KeyModifiers::NONE);
     assert_eq!(app.filter, None);
-    assert_eq!(app.derive().in_play.len(), 2);
+    assert_eq!(app.derive().in_play().len(), 2);
 }
 
 /// A broken config turns saving off, but the poll loop must not keep
@@ -320,8 +320,13 @@ fn unpinning_re_ranks_at_once_instead_of_parking_the_game_last() {
     let games = vec![g("1", "KC", "TB", true), best];
     let mut app = app_with(games.clone(), vec![]);
     app.tab = Tab::League(League::Nfl);
-    let ids =
-        |app: &App| -> Vec<String> { app.derive().in_play.iter().map(|x| x.id.clone()).collect() };
+    let ids = |app: &App| -> Vec<String> {
+        app.derive()
+            .in_play()
+            .iter()
+            .map(|x| x.id.clone())
+            .collect()
+    };
     assert_eq!(
         ids(&app),
         vec!["2", "1"],
@@ -331,7 +336,7 @@ fn unpinning_re_ranks_at_once_instead_of_parking_the_game_last() {
     // Select it (it is the hero, index 0) and pin, then unpin.
     app.selected = 0;
     app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
-    assert_eq!(app.derive().my_games.len(), 1, "pinned into MY GAMES");
+    assert_eq!(app.derive().my_games().len(), 1, "pinned into MY GAMES");
     assert_eq!(ids(&app), vec!["1"]);
     // One poll lands while it is pinned: the ranked order now has no
     // memory of it at all.
@@ -2581,8 +2586,13 @@ fn a_never_ordered_board_ranks_on_first_sighting_even_while_stale() {
     let hi = ranked("hi", "Q4", "1:30", 21, 21); // tied, deep in the 2-min window
     let mut app = app_with(vec![], vec![]);
     app.tab = Tab::League(League::Nfl);
-    let ids =
-        |app: &App| -> Vec<String> { app.derive().in_play.iter().map(|x| x.id.clone()).collect() };
+    let ids = |app: &App| -> Vec<String> {
+        app.derive()
+            .in_play()
+            .iter()
+            .map(|x| x.id.clone())
+            .collect()
+    };
 
     // Array order is the reverse of watchability order, and this is the
     // very first apply the board has ever seen — while stale.
@@ -2629,8 +2639,13 @@ fn a_never_ordered_board_ranks_on_first_sighting_even_while_stale() {
 fn a_stale_payload_carrying_a_never_seen_game_ranks_the_band_once() {
     let mut app = app_with(vec![], vec![]);
     app.tab = Tab::Home;
-    let ids =
-        |app: &App| -> Vec<String> { app.derive().in_play.iter().map(|x| x.id.clone()).collect() };
+    let ids = |app: &App| -> Vec<String> {
+        app.derive()
+            .in_play()
+            .iter()
+            .map(|x| x.id.clone())
+            .collect()
+    };
 
     // NFL stale, its own first sighting: array order reversed from
     // watchability (already covered above; seeds the fingerprint set with
@@ -3020,5 +3035,161 @@ fn notify_test_under_a_noop_backend_says_why() {
     assert_eq!(
         app.status_line.as_deref(),
         Some("notifications off: no notification backend on this OS")
+    );
+}
+
+/// A game for the day-boundary tests: `status`, starting at `start`.
+fn at(id: &str, away: &str, home: &str, status: Status, start: Option<OffsetDateTime>) -> Game {
+    Game {
+        status,
+        start,
+        ..g(id, away, home, false)
+    }
+}
+
+fn ids_of(games: &[Game]) -> Vec<&str> {
+    games.iter().map(|g| g.id.as_str()).collect()
+}
+
+/// An app whose clock is frozen at `now` before its one NFL board lands.
+fn app_at(now: OffsetDateTime, games: Vec<Game>) -> App {
+    let mut app = app_with(vec![], vec![]);
+    app.now_override = Some(now);
+    app.apply_boards(League::Nfl, games, false);
+    app
+}
+
+/// A result from before yesterday is stamped at apply and closes its
+/// section, in FINAL and in MY GAMES alike; last night's result and a final
+/// with no start stay current, in board order.
+#[test]
+fn an_earlier_days_result_closes_its_section() {
+    use time::macros::datetime;
+    let now = datetime!(2026-11-13 10:08 UTC);
+    let old = Some(datetime!(2026-10-31 19:00 UTC));
+    let last_night = Some(datetime!(2026-11-12 20:15 UTC));
+    let mut app = app_at(
+        now,
+        vec![
+            at("old", "ATL", "GS", Status::Final, old),
+            at("night", "WSH", "NYG", Status::Final, last_night),
+            at("nostart", "MIL", "TB", Status::Final, None),
+            at("old-off", "BAL", "NYY", Status::Off, old),
+            at("fav-old", "LIV", "CRY", Status::Final, old),
+            at("fav-next", "LIV", "ARS", Status::Pre, Some(now)),
+        ],
+    );
+    app.config.favorites.push(Favorite {
+        league: League::Nfl,
+        team_abbr: "LIV".into(),
+    });
+    let d = app.derive();
+    assert_eq!(
+        ids_of(d.finals()),
+        ["night", "nostart", "old", "old-off"],
+        "current results first, the earlier day's after them"
+    );
+    assert_eq!(ids_of(d.my_games()), ["fav-next", "fav-old"]);
+    let flagged: Vec<&str> = d
+        .selection
+        .iter()
+        .filter(|g| g.earlier_day)
+        .map(|g| g.id.as_str())
+        .collect();
+    assert_eq!(flagged, ["fav-old", "old", "old-off"]);
+}
+
+/// Midnight is not an event: a final that crosses from "yesterday" to
+/// "older" keeps its place until the next scoreboard lands.
+#[test]
+fn midnight_alone_does_not_move_a_row() {
+    use time::macros::datetime;
+    let games = vec![
+        at(
+            "a",
+            "WSH",
+            "NYG",
+            Status::Final,
+            Some(datetime!(2026-11-12 20:15 UTC)),
+        ),
+        at(
+            "b",
+            "TOR",
+            "PHI",
+            Status::Final,
+            Some(datetime!(2026-11-13 19:00 UTC)),
+        ),
+    ];
+    let mut app = app_at(datetime!(2026-11-13 23:59 UTC), games.clone());
+    assert_eq!(ids_of(app.derive().finals()), ["a", "b"]);
+    app.now_override = Some(datetime!(2026-11-14 00:01 UTC));
+    let d = app.derive();
+    assert_eq!(ids_of(d.finals()), ["a", "b"], "the clock alone moved");
+    assert!(!d.finals()[0].earlier_day, "nor did it date the row");
+    app.apply_boards(League::Nfl, games, false);
+    assert_eq!(
+        ids_of(app.derive().finals()),
+        ["b", "a"],
+        "the next scoreboard decides it"
+    );
+}
+
+/// With nothing live on the tab LATER comes before FINAL — in the sections
+/// and in the selection j/k and `--json` walk. One live game restores IN
+/// PLAY, FINAL, LATER, and a filter that hides that game does not flip it.
+#[test]
+fn nothing_live_puts_later_before_final() {
+    use crate::app::SectionKind::*;
+    let kinds = |d: &Derived| -> Vec<SectionKind> { d.sections.iter().map(|s| s.kind).collect() };
+    let mut fin = g("fin", "GB", "CHI", false);
+    fin.status = Status::Final;
+    let pre = g("pre", "NE", "SEA", false);
+    let mut app = app_with(vec![fin.clone(), pre.clone()], vec![]);
+    let d = app.derive();
+    assert_eq!(kinds(&d), [MyGames, InPlay, Later, Final]);
+    assert_eq!(ids_of(&d.selection), ["pre", "fin"]);
+
+    app.apply_boards(
+        League::Nfl,
+        vec![g("live", "KC", "TB", true), fin, pre],
+        false,
+    );
+    let d = app.derive();
+    assert_eq!(kinds(&d), [MyGames, InPlay, Final, Later]);
+    assert_eq!(ids_of(&d.selection), ["live", "fin", "pre"]);
+
+    app.filter = Some("gb".into());
+    let d = app.derive();
+    assert_eq!(
+        ids_of(&d.selection),
+        ["fin"],
+        "the filter hides the live game"
+    );
+    assert_eq!(
+        kinds(&d),
+        [MyGames, InPlay, Final, Later],
+        "and flips nothing"
+    );
+}
+
+/// LATER runs in start-time order — tonight before Sunday — with a missing
+/// start last and equal starts in board order.
+#[test]
+fn later_is_in_start_time_order() {
+    use time::macros::datetime;
+    let sunday = Some(datetime!(2026-11-15 13:00 UTC));
+    let tonight = Some(datetime!(2026-11-13 19:00 UTC));
+    let app = app_with(
+        vec![
+            at("sun1", "KC", "ATL", Status::Pre, sunday),
+            at("tbd", "NE", "SEA", Status::Pre, None),
+            at("sun2", "HOU", "CLE", Status::Pre, sunday),
+            at("tonight", "FSU", "PITT", Status::Pre, tonight),
+        ],
+        vec![],
+    );
+    assert_eq!(
+        ids_of(app.derive().later()),
+        ["tonight", "sun1", "sun2", "tbd"]
     );
 }

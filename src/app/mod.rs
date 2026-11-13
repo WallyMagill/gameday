@@ -13,7 +13,7 @@ pub mod net;
 mod order;
 mod persist;
 
-pub use derive::Derived;
+pub use derive::{Derived, Section, SectionKind};
 
 use crate::app::net::NetStatus;
 use crate::config::{Config, Pin};

@@ -80,12 +80,19 @@ pub fn fmt_start(start: OffsetDateTime, now: OffsetDateTime) -> String {
             &format!("{:?}", start.weekday()).to_uppercase()[..3]
         )
     } else {
-        format!(
-            "{} {} {clock}",
-            &format!("{:?}", start.month()).to_uppercase()[..3],
-            start.day()
-        )
+        format!("{} {clock}", fmt_date(start))
     }
+}
+
+/// [`fmt_start`]'s date half: `SEP 13`. A final from an earlier day prints
+/// its date with this, so a LATER row and a dated FINAL row spell a date the
+/// same way.
+pub fn fmt_date(t: OffsetDateTime) -> String {
+    format!(
+        "{} {}",
+        &format!("{:?}", t.month()).to_uppercase()[..3],
+        t.day()
+    )
 }
 
 /// Header wall clock: `9:30:01 PM`.

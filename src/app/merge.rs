@@ -90,6 +90,28 @@ pub(crate) fn resolve_catchup(
     }
 }
 
+/// How many local days back a result stays current: a final or called-off
+/// game that started today or on the day before is last night's news and
+/// prints undated; anything older is from an earlier day. Receipt for 1: at
+/// 10:08–10:15 ET on 2026-11-13, ESPN's NBA, NHL and college basketball
+/// boards were all still serving 2026-11-12, so last night's results sit on
+/// the board through the next morning and must not read as old there. The
+/// same capture had WNBA (Oct 31), MLB (Oct 28) and five Premier League
+/// finals (Nov 8) on their bare scoreboards — leagues between rounds or out
+/// of season, whose last game day ESPN keeps serving.
+pub(crate) const RESULT_CURRENT_DAYS: i64 = 1;
+
+/// Is `game` a result from before yesterday ([`RESULT_CURRENT_DAYS`])? Only
+/// a final or a called-off game can be; a game with no start is current.
+/// `now` is the apply's clock — this is decided when a scoreboard lands,
+/// never per draw, so a row never moves on the clock alone.
+pub(crate) fn earlier_day(game: &Game, now: OffsetDateTime) -> bool {
+    matches!(game.status, Status::Final | Status::Off)
+        && game.start.is_some_and(|start| {
+            (now.date() - start.to_offset(now.offset()).date()).whole_days() > RESULT_CURRENT_DAYS
+        })
+}
+
 /// Play identity: ESPN ids when both sides carry one, else the text (demo
 /// and sim plays have no ids). Never compare a real id against an empty one.
 pub(crate) fn same_play(a: &Play, b: &Play) -> bool {
@@ -104,6 +126,13 @@ impl App {
     pub fn apply_boards(&mut self, league: League, mut games: Vec<Game>, stale: bool) {
         let now = OffsetDateTime::now_utc();
         let prev_board = self.boards.get(&league).cloned().unwrap_or_default();
+        // A result from an earlier day is decided here, with this apply's
+        // clock: a scoreboard landing is an event, the clock passing
+        // midnight between two polls is not.
+        let local_now = self.now();
+        for g in &mut games {
+            g.earlier_day = earlier_day(g, local_now);
+        }
         // Score-change flash fires ONLY here — from data. A first sighting
         // (startup, new game) seeds last_scores without flashing.
         for g in &mut games {

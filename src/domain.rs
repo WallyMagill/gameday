@@ -424,6 +424,14 @@ pub struct Game {
     /// boards are never live); the mapper never sets it. Read by
     /// `rank::watchability` for the favorite term.
     pub favorite: bool,
+    /// A final or called-off game that started before yesterday — the
+    /// league is between rounds or out of season, and ESPN's bare scoreboard
+    /// is still serving its last game day. Its row prints its date and sorts
+    /// after every current row of its section. Stamped by `App::apply_boards`
+    /// from the clock at that apply (`app::merge::earlier_day`), so midnight
+    /// alone never moves a row; the mapper never sets it, and a date-traveled
+    /// board is never stamped (its header already names the day).
+    pub earlier_day: bool,
 }
 
 impl Default for Game {
@@ -450,6 +458,7 @@ impl Default for Game {
             timeouts: None,
             extras: Extras::None,
             favorite: false,
+            earlier_day: false,
         }
     }
 }
