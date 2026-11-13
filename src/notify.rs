@@ -89,11 +89,24 @@ impl Notifier for OsaScript {
     }
 }
 
+/// `notify-send`'s argument vector. `--` ends option parsing: GLib reads
+/// options anywhere on the line, so a play text of `--wait` used to become a
+/// flag (and block every notification process). The body's `&`, `<` and `>`
+/// are escaped because notification servers render a markup subset in the
+/// body; the summary (title) is plain text in the spec, so it is left alone.
+pub fn notify_send_args(title: &str, body: &str) -> Vec<String> {
+    let body = body
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    vec!["--".to_string(), format!("gameday · {title}"), body]
+}
+
 pub struct NotifySend;
 impl Notifier for NotifySend {
     fn send(&self, title: &str, body: &str) -> Result<(), String> {
         let mut cmd = Command::new("notify-send");
-        cmd.arg(format!("gameday · {title}")).arg(body);
+        cmd.args(notify_send_args(title, body));
         spawn_and_forget(cmd, None, "notify-send")
     }
     fn name(&self) -> &'static str {
@@ -221,6 +234,19 @@ mod tests {
     }
 
     #[test]
+    fn notify_send_args_end_options_and_escape_body_markup() {
+        assert_eq!(
+            notify_send_args("KC 7, TB 3", "--wait"),
+            ["--", "gameday · KC 7, TB 3", "--wait"],
+            "a body that looks like a flag stays a positional argument"
+        );
+        assert_eq!(
+            notify_send_args("t", "<b>A&M</b> > 3"),
+            ["--", "gameday · t", "&lt;b&gt;A&amp;M&lt;/b&gt; &gt; 3"]
+        );
+    }
+
+    #[test]
     fn the_gap_is_per_game_and_kind() {
         let mut s = NotifyState::default();
         assert!(s.allows("g1", Kind::Score, 100));
@@ -270,8 +296,8 @@ mod tests {
 
     /// M11: the no-op path logs its reason once, even across repeated sends
     /// — `note_once` dedupes on the reason-specific key. `log::set_file` is
-    /// process-global; this is the only test in the suite that calls it, so
-    /// there is nothing else to race it (see the module doc on `Noop::send`).
+    /// process-global, so this test holds `log::test_guard` like every other
+    /// test that sets it.
     #[test]
     fn the_noop_path_logs_its_reason_once() {
         let _g = crate::log::test_guard();

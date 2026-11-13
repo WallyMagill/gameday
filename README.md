@@ -6,20 +6,39 @@ A terminal sports board that ranks live games by watchability. Nine leagues, no 
 
 ## Install
 
+Pick one. Each block is a single line to paste.
+
+Homebrew (macOS, Linux):
+
 ```bash
 brew install WallyMagill/tap/gameday
-cargo install gameday
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.sh powershell -ExecutionPolicy Bypass -c "irm https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.ps1 | iex"
-| sh
 ```
 
-Or grab a binary from [Releases](https://github.com/WallyMagill/gameday/releases).
+Shell installer (macOS, Linux) — a prebuilt binary, no Rust toolchain:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.sh | sh
+```
+
+Cargo (builds from source; Rust 1.88 or newer):
+
+```bash
+cargo install gameday
+```
+
+Windows (PowerShell; the build is untested):
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.ps1 | iex"
+```
+
+Or grab a binary from [Releases](https://github.com/WallyMagill/gameday/releases). Then run `gameday`, or `gameday --demo` for a scripted slate with no network.
 
 ## The sixty-second tour
 
 ![tour](docs/tour.png)
 
-1. **The ranked list** — below MY GAMES, every live and upcoming game across your enabled leagues, most watchable first; the section rule names the order (`SORTED BY WATCHABILITY`).
+1. **The ranked list** — below MY GAMES, every live game across your enabled leagues under IN PLAY, most watchable first; the section rule names the order (`SORTED BY WATCHABILITY`). FINAL and LATER follow, LATER in start-time order; with nothing live, LATER comes first.
 2. **The hero** — the top-ranked game's own panel: both teams' marks, the score, and the clock, drawn big.
 3. **The chip** — a state label riding the hero or a row (`2-MIN`, `RED ZONE`, …) when a game crosses into a more watchable moment.
 4. **The situation fragment** — the down/distance/field-position (or its equivalent) beside a live row, e.g. `OKST 1ST & 10 AT OKST 46`.
@@ -53,6 +72,8 @@ Or grab a binary from [Releases](https://github.com/WallyMagill/gameday/releases
 | `sort` | `"watch"` | `watch` \| `time` \| `league` |
 | `notify` | `["favorites", "pins"]` | `[]` turns notifications off |
 
+Every key is optional: a file holding only `theme = "nord"` loads, and each missing key takes the default above. League names can be written in any case (`"nfl"`, `"NFL"`); gameday saves them as `"Nfl"`.
+
 A `config.toml` that doesn't parse is reported with its file, line and the expected value — the board runs on defaults and saves nothing until you fix it. Old `layout` and `score_style` keys from before v3.2 are ignored if present.
 
 ### Themes
@@ -72,6 +93,8 @@ A desktop notification fires when a favorite scores or a pinned/favorite game go
 ```
 gameday --once [--json] [--league L]... [--live] [--top N] [--color]
 ```
+
+The text is in the board's order: MY GAMES, IN PLAY, FINAL, LATER. With nothing live, LATER comes before FINAL, so `--top N` counts the next games to start (after MY GAMES) before last night's results. A final from before yesterday shows its date (`FINAL OCT 31`) and comes last in its section. `--json` lists `games` in the same order. `--demo` does not combine with `--once`.
 
 `--json` prints this schema (drops `--color` — scripts get plain data):
 
@@ -103,14 +126,16 @@ gameday --once [--json] [--league L]... [--live] [--top N] [--color]
 A status-bar recipe (tmux, polybar, whatever reads a shell command):
 
 ```bash
-#(gameday --once --live --top 1 --league mlb | tail -1)
+#(gameday --once --live --top 1 | tail -1)
 ```
 
-Exit codes: `0` with output printed (nothing printed at all when there's nothing to show), `1` when every requested league failed and nothing was cached (one line on stderr), `2` for argument errors. At 160 columns or wider, `--once` text carries each live row's last play on the same line as its situation, exactly like the board.
+It prints the top live game from your enabled leagues, and nothing when nothing is live. Add `--league nfl` to scope it to one.
+
+Exit codes: `0` with output printed (nothing printed at all when there's nothing to show), `1` when every requested league failed and nothing was cached (one line on stderr), `2` for argument errors (`--demo --once` is one). At 160 columns or wider, `--once` text carries each live row's last play on the same line as its situation, exactly like the board.
 
 ## Data
 
-Unofficial ESPN JSON (`site.web.api.espn.com`), polled — never a websocket: scoreboards every 15 s while any game is live, every 60 s when none is. The last good payload stays on disk, so a network failure shows `STALE` instead of going blank. Measured with nine leagues live: 38 requests a minute, scoreboards only; a full summary (play-by-play, box score) is fetched only for the game you zoom and for a one-shot scoring catch-up.
+Unofficial ESPN JSON (`site.web.api.espn.com`), over HTTPS only, polled — never a websocket: scoreboards every 15 s while any game is live, every 60 s when none is. While a league's ESPN scoreboard still shows yesterday, that league costs one more request a minute, for today's games: for a US user typically from midnight until ESPN rolls its day over late in the morning, east of the US up to most of the day. When the answer is that the league has no games today, it is not asked again that day. The last good payload stays on disk, so a network failure shows `STALE` instead of going blank. When the live board starts, it deletes cached game summaries and dated scoreboards that nothing has rewritten in 14 days; the last good scoreboard for each league and the standings are kept at any age. Measured with nine leagues enabled and one game live: 38 requests a minute, scoreboards only; a full summary (play-by-play, box score) is fetched only for the game you zoom and for a one-shot scoring catch-up.
 
 Team marks are quadrant-block renderings of league-owned logos, used only to identify teams; gameday is not affiliated with ESPN or any league, and a mark comes down on request. College now ships every FBS school plus eight D-I basketball conferences (ACC, Big East, Big Ten, Big 12, SEC, Atlantic 10, Mountain West, American) — 165 marks in all. A team without a committed mark falls back to its abbreviation painted in its own colors, which is the designed look, not a gap.
 
@@ -125,7 +150,7 @@ Developed and used day to day in Ghostty and tmux on macOS. Terminal.app and iTe
 
 ## Contributing
 
-See [`docs/dev.md`](docs/dev.md) for the build, the design loop, the capture tools, and the release procedure.
+See [`docs/dev.md`](docs/dev.md) for the build, the design loop, the capture tools, and the release procedure. To report a security problem privately, see [`SECURITY.md`](SECURITY.md).
 
 ## License
 

@@ -3580,6 +3580,32 @@ fn row_contains(term: &Terminal<TestBackend>, needle: &str) -> bool {
     })
 }
 
+/// With nothing live the board draws LATER above FINAL; one live game puts
+/// FINAL back above LATER.
+#[test]
+fn with_nothing_live_the_board_draws_later_above_final() {
+    let rule_y = |term: &Terminal<TestBackend>, label: &str| -> Option<u16> {
+        let buf = term.backend().buffer();
+        let area = *buf.area();
+        (0..area.height).find(|&y| {
+            let row: String = (0..area.width).map(|x| buf[(x, y)].symbol()).collect();
+            row.starts_with(&format!("{label} ─"))
+        })
+    };
+    let term = render(&mut board_app(0, 2, 2), 120, 40);
+    let s = buf_text(&term);
+    assert!(
+        rule_y(&term, "LATER").unwrap() < rule_y(&term, "FINAL").unwrap(),
+        "nothing live: LATER first\n{s}"
+    );
+    let term = render(&mut board_app(1, 2, 2), 120, 40);
+    let s = buf_text(&term);
+    assert!(
+        rule_y(&term, "FINAL").unwrap() < rule_y(&term, "LATER").unwrap(),
+        "a live game: FINAL first\n{s}"
+    );
+}
+
 #[test]
 fn a_truncated_section_renders_no_orphan_rule() {
     // The empty-list guard (above) only catches a
@@ -3587,22 +3613,29 @@ fn a_truncated_section_renders_no_orphan_rule() {
     // window cuts to zero must not draw its rule either — the reviewer's
     // exact reproductions at 60x13 and 60x16.
 
-    // LATER orphan: 8 finals + 8 later at 60x13 — the window runs out right
-    // after FINAL's rows, so LATER's rule used to draw with nothing under it.
+    // Second-section orphan: 8 finals + 8 later at 60x13, nothing live — so
+    // LATER is drawn first and FINAL second. The window runs out right after
+    // LATER's rows, so FINAL's rule would draw with nothing under it. (Before
+    // nothing-live boards put LATER first, this was the LATER rule under
+    // FINAL's rows; the guard is the same, the section below the cut moved.)
     let mut app = board_app(0, 8, 8);
     let term = render(&mut app, 60, 13);
     let s = buf_text(&term);
     assert!(
-        !row_contains(&term, "LATER ─"),
-        "no orphan LATER rule at 60x13:\n{s}"
+        row_contains(&term, "LATER ─"),
+        "LATER leads a board with nothing live:\n{s}"
+    );
+    assert!(
+        !row_contains(&term, "FINAL ─"),
+        "no orphan FINAL rule at 60x13:\n{s}"
     );
     assert!(
         s.contains("SCORES"),
         "the lane still fires for the truncated games:\n{s}"
     );
     assert!(
-        s.contains("8 LATER"),
-        "the lane still counts every later game:\n{s}"
+        s.contains("0 LATER · 8 FINAL"),
+        "the lane counts every final, in the board's own section order:\n{s}"
     );
 
     // FINAL orphan: 6 live + 6 final + 6 later at 60x16, selection at the
@@ -6148,6 +6181,9 @@ fn no_screen_floats_a_dead_column() {
 fn the_drive_description_is_available_without_moving_the_board() {
     let text_at = |drive: Option<&str>| -> String {
         let mut app = mk();
+        // Pinned: the header's clock would otherwise tick between the two
+        // draws and fail the comparison for a reason that is not a layout.
+        app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
         let mut game = g("1", "KC", "TB", true);
         if let Some(sit) = game.situation.as_mut() {
             sit.drive_desc = drive.map(str::to_string);

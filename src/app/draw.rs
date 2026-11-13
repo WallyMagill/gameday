@@ -16,8 +16,15 @@ impl App {
     /// instead of re-walking the boards. The cache is dropped again on the
     /// way out — a list read outside a draw is a stale list, so `derived()`
     /// panics there rather than answering.
+    ///
+    /// The selection is re-resolved against this frame's list before
+    /// anything draws it: the list can change without an apply (Home's
+    /// board and pin expiry read the clock), and the highlight, the footer's
+    /// GAME x/y and the next keypress must all name the same game.
     pub fn draw(&mut self, frame: &mut Frame) {
-        self.frame_cache = Some(self.derive());
+        let derived = self.derive();
+        self.sync_selected_in(&derived.selection);
+        self.frame_cache = Some(derived);
         self.draw_frame(frame);
         self.frame_cache = None;
     }
@@ -57,16 +64,20 @@ impl App {
             0
         } else {
             let d = self.derived();
-            let hero_in_band = d.my_games.iter().any(|g| Some(&g.id) == d.hero_id.as_ref());
-            let band_rows = d.my_games.len() - usize::from(hero_in_band);
+            let hero_in_band = d
+                .my_games()
+                .iter()
+                .any(|g| Some(&g.id) == d.hero_id.as_ref());
+            let band_rows = d.my_games().len() - usize::from(hero_in_band);
             let body_h = area.height.saturating_sub(2); // header + footer
             let plan = crate::board::layout::plan(
                 area.width,
                 body_h,
-                d.in_play.len(),
-                d.finals.len(),
-                d.later.len(),
+                d.in_play().len(),
+                d.finals().len(),
+                d.later().len(),
                 band_rows,
+                d.later_first(),
             );
             if plan.scores_lane {
                 ticker::LANE_HEIGHT

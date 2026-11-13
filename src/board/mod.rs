@@ -16,6 +16,9 @@
 //! SCORES  …off-screen games…     (only when something didn't fit)
 //! ```
 //!
+//! The order is `Derived::sections`, never decided here: with nothing live
+//! on the tab, LATER is drawn above FINAL.
+//!
 //! Three things this module owns and nothing else does:
 //!
 //! * **The window.** The block list is always built whole; the view is a
@@ -43,7 +46,7 @@ pub mod logo;
 pub mod rows;
 
 use crate::app::net::NetChip;
-use crate::app::{App, Tab};
+use crate::app::{App, SectionKind, Tab};
 use crate::domain::{Game, Status};
 use crate::rank;
 use crate::theme;
@@ -116,87 +119,94 @@ fn board_walk<'a>(
     selected: usize,
 ) -> (Vec<(Rect, crate::keymap::Hit)>, usize) {
     let d = app.derived();
+    let my_games = d.my_games();
+    let in_play = d.in_play();
 
     // The band's row cost excludes the hero even when the hero IS a band game
     // — `layout::plan` counts the hero separately and says double-charging it
     // is the caller's bug.
     let hero_id = d.hero_id.clone();
-    let hero_in_band = d.my_games.iter().any(|g| Some(&g.id) == hero_id.as_ref());
-    let band_rows = d.my_games.len() - usize::from(hero_in_band);
+    let hero_in_band = my_games.iter().any(|g| Some(&g.id) == hero_id.as_ref());
+    let band_rows = my_games.len() - usize::from(hero_in_band);
     let plan = layout::plan(
         area.width,
         area.height,
-        d.in_play.len(),
-        d.finals.len(),
-        d.later.len(),
+        in_play.len(),
+        d.finals().len(),
+        d.later().len(),
         band_rows,
+        d.later_first(),
     );
 
     // ---------------------------------------------------------- the blocks
+    // One walk of `Derived::sections`, in the order derive() handed them
+    // out; `index` walks `Derived::selection` in that same order.
     let mut blocks: Vec<Block> = Vec::new();
-    let mut index = 0usize; // walks Derived::selection in the same order
+    let mut index = 0usize;
 
     let hero_block =
         |game: &'a Game, i: usize| -> Block<'a> { Block::Hero(game, i, plan.hero_rows) };
-    if !d.my_games.is_empty() {
-        let pinned = d.my_games.iter().filter(|g| app_pins_hold(app, g)).count();
-        let caption = if pinned > 0 {
-            format!("{pinned} PINNED · NEVER RE-SORTS")
-        } else {
-            "NEVER RE-SORTS".to_string()
-        };
-        blocks.push(Block::Rule("MY GAMES", caption));
-    }
-    for game in &d.my_games {
-        if Some(&game.id) == hero_id.as_ref() && plan.hero_rows > 0 {
-            blocks.push(hero_block(game, index));
-        } else if game.status == Status::Live {
-            blocks.push(Block::Tier2(game, index));
-        } else {
-            blocks.push(Block::Tier3(game, index));
-        }
-        index += 1;
-    }
-
-    // The hero of a board with no band sits above the IN PLAY rule: it is the
-    // headline, not the first row of a section.
-    let in_play_hero = if hero_in_band || plan.hero_rows == 0 {
-        None
-    } else {
-        d.in_play
-            .iter()
-            .position(|g| Some(&g.id) == hero_id.as_ref())
-    };
-    if let Some(at) = in_play_hero {
-        blocks.push(hero_block(&d.in_play[at], index + at));
-    }
-    if d.in_play.len() > usize::from(in_play_hero.is_some()) {
-        blocks.push(Block::Rule(
-            "IN PLAY",
-            format!("SORTED BY {}", sort_phrase(app.config.sort)),
-        ));
-    }
-    let mut promoted = 0usize;
-    for (i, game) in d.in_play.iter().enumerate() {
-        if in_play_hero == Some(i) {
-            continue; // already drawn above the rule
-        }
-        if promoted < plan.tier1 {
-            promoted += 1;
-            blocks.push(Block::Tier1(game, index + i));
-        } else {
-            blocks.push(Block::Tier2(game, index + i));
-        }
-    }
-    index += d.in_play.len();
-
-    for (label, games) in [("FINAL", &d.finals), ("LATER", &d.later)] {
-        if games.is_empty() {
-            continue;
-        }
-        blocks.push(Block::Rule(label, String::new()));
-        for (i, game) in games.iter().enumerate() {
-            blocks.push(Block::Tier3(game, index + i));
+    for section in &d.sections {
+        let games = &section.games;
+        match section.kind {
+            SectionKind::MyGames => {
+                if !games.is_empty() {
+                    let pinned = games.iter().filter(|g| app_pins_hold(app, g)).count();
+                    let caption = if pinned > 0 {
+                        format!("{pinned} PINNED · NEVER RE-SORTS")
+                    } else {
+                        "NEVER RE-SORTS".to_string()
+                    };
+                    blocks.push(Block::Rule(section.kind.label(), caption));
+                }
+                for (i, game) in games.iter().enumerate() {
+                    if Some(&game.id) == hero_id.as_ref() && plan.hero_rows > 0 {
+                        blocks.push(hero_block(game, index + i));
+                    } else if game.status == Status::Live {
+                        blocks.push(Block::Tier2(game, index + i));
+                    } else {
+                        blocks.push(Block::Tier3(game, index + i));
+                    }
+                }
+            }
+            SectionKind::InPlay => {
+                // The hero of a board with no band sits above the IN PLAY
+                // rule: it is the headline, not the first row of a section.
+                let in_play_hero = if hero_in_band || plan.hero_rows == 0 {
+                    None
+                } else {
+                    games.iter().position(|g| Some(&g.id) == hero_id.as_ref())
+                };
+                if let Some(at) = in_play_hero {
+                    blocks.push(hero_block(&games[at], index + at));
+                }
+                if games.len() > usize::from(in_play_hero.is_some()) {
+                    blocks.push(Block::Rule(
+                        section.kind.label(),
+                        format!("SORTED BY {}", sort_phrase(app.config.sort)),
+                    ));
+                }
+                let mut promoted = 0usize;
+                for (i, game) in games.iter().enumerate() {
+                    if in_play_hero == Some(i) {
+                        continue; // already drawn above the rule
+                    }
+                    if promoted < plan.tier1 {
+                        promoted += 1;
+                        blocks.push(Block::Tier1(game, index + i));
+                    } else {
+                        blocks.push(Block::Tier2(game, index + i));
+                    }
+                }
+            }
+            SectionKind::Final | SectionKind::Later => {
+                if !games.is_empty() {
+                    blocks.push(Block::Rule(section.kind.label(), String::new()));
+                }
+                for (i, game) in games.iter().enumerate() {
+                    blocks.push(Block::Tier3(game, index + i));
+                }
+            }
         }
         index += games.len();
     }
@@ -361,6 +371,7 @@ fn board_walk<'a>(
                 height: 1,
             },
             &off,
+            d.later_first(),
         );
     }
     (zones, drawn.len())
@@ -444,8 +455,9 @@ pub(crate) fn draw_rule(frame: &mut Frame, area: Rect, label: &str, caption: &st
 
 /// The off-screen lane. Live games first, by name and score,
 /// because a game you can't see but is playing is the only thing the lane is
-/// for; when nothing live is off-screen it degrades to the counts.
-fn draw_lane(frame: &mut Frame, area: Rect, off: &[&Game]) {
+/// for; when nothing live is off-screen it degrades to the counts, named in
+/// the board's own section order (`later_first`: LATER is drawn above FINAL).
+fn draw_lane(frame: &mut Frame, area: Rect, off: &[&Game], later_first: bool) {
     if off.is_empty() {
         return;
     }
@@ -457,7 +469,13 @@ fn draw_lane(frame: &mut Frame, area: Rect, off: &[&Game]) {
             .filter(|g| matches!(g.status, Status::Final | Status::Off))
             .count();
         let later = off.iter().filter(|g| g.status == Status::Pre).count();
-        format!("{} OFF-SCREEN · {finals} FINAL · {later} LATER", off.len())
+        let (finals, later) = (format!("{finals} FINAL"), format!("{later} LATER"));
+        let (first, second) = if later_first {
+            (later, finals)
+        } else {
+            (finals, later)
+        };
+        format!("{} OFF-SCREEN · {first} · {second}", off.len())
     } else {
         live.iter()
             .map(|g| {

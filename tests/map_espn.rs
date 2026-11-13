@@ -489,6 +489,58 @@ fn a_malformed_event_is_skipped_not_fatal() {
 }
 
 #[test]
+fn a_non_ascii_team_color_is_absent_not_a_panic() {
+    // "aé3456" is six chars but seven bytes; slicing bytes 0..2 used to land
+    // inside the "é" and panic the poll thread.
+    let json = r##"{"events":[
+      {"id":"1","competitions":[{"status":{"type":{"state":"pre"}},"competitors":[
+        {"homeAway":"away","score":"0","team":{"id":"1","abbreviation":"NE","color":"aé3456","alternateColor":"#12345"}},
+        {"homeAway":"home","score":"0","team":{"id":"2","abbreviation":"SEA","color":"#0a1B2c","alternateColor":"zz0000"}}]}]}
+    ]}"##;
+    let g = &map_scoreboard(League::Nfl, json, et()).unwrap()[0];
+    let absent = [180, 180, 180];
+    assert_eq!(g.away.color, absent, "non-ASCII color is treated as absent");
+    assert_eq!(g.away.alt_color, absent, "five hex digits is not a color");
+    assert_eq!(g.home.color, [0x0a, 0x1b, 0x2c], "#RRGGBB still reads");
+    assert_eq!(g.home.alt_color, absent, "non-hex is treated as absent");
+}
+
+#[test]
+fn an_event_id_that_is_not_ascii_digits_is_skipped_and_the_rest_maps() {
+    // The id becomes a cache file name and a URL query value; on Windows
+    // "/../../x" would escape the cache directory.
+    let event = |id: &str| {
+        format!(
+            r#"{{"id":"{id}","competitions":[{{"status":{{"type":{{"state":"pre"}}}},"competitors":[
+        {{"homeAway":"away","score":"0","team":{{"id":"1","abbreviation":"NE"}}}},
+        {{"homeAway":"home","score":"0","team":{{"id":"2","abbreviation":"SEA"}}}}]}}]}}"#
+        )
+    };
+    let bad = ["/../../x", "", "12a", "١٢٣"];
+    let mut events: Vec<String> = bad.iter().map(|id| event(id)).collect();
+    events.push(event("401873001"));
+    let json = format!(r#"{{"events":[{}]}}"#, events.join(","));
+    let games = map_scoreboard(League::Nfl, &json, et()).unwrap();
+    assert_eq!(games.len(), 1, "bad ids are skipped, the good event maps");
+    assert_eq!(games[0].id, "401873001");
+
+    // The skip names the id and the expectation.
+    let one = format!(r#"{{"events":[{}]}}"#, event("/../../x"));
+    let v: serde_json::Value = serde_json::from_str(&one).unwrap();
+    let err = gameday::provider::map::map_event(League::Nfl, &v["events"][0], et())
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        err,
+        r#"event id "/../../x": expected one or more ASCII digits"#
+    );
+
+    // Only when every event is bad is it the "none mappable" error.
+    let all_bad = format!(r#"{{"events":[{},{}]}}"#, event("x"), event("../y"));
+    assert!(map_scoreboard(League::Nfl, &all_bad, et()).is_err());
+}
+
+#[test]
 fn all_events_unmappable_is_an_error_not_an_empty_board() {
     // Schema drift, not a quiet day: every event fails. The provider caches a
     // body only after it maps, so Ok(empty) here would evict last-good cache.

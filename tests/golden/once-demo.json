@@ -362,36 +362,6 @@
     },
     {
       "away": {
-        "abbr": "SF",
-        "name": "49ers",
-        "rank": null,
-        "record": "12-5",
-        "score": 0
-      },
-      "clock": "",
-      "home": {
-        "abbr": "SEA",
-        "name": "Seahawks",
-        "rank": null,
-        "record": "9-8",
-        "score": 0
-      },
-      "id": "nfl-pre",
-      "last_play": null,
-      "league": "nfl",
-      "period": "",
-      "pinned": false,
-      "situation": null,
-      "start": "2026-09-13T20:20:00-04:00",
-      "status": "pre",
-      "watch": {
-        "chip": null,
-        "score": 0,
-        "why": ""
-      }
-    },
-    {
-      "away": {
         "abbr": "HOU",
         "name": "Texans",
         "rank": null,
@@ -443,6 +413,36 @@
       "pinned": false,
       "situation": null,
       "start": "2026-09-13T16:25:00-04:00",
+      "status": "pre",
+      "watch": {
+        "chip": null,
+        "score": 0,
+        "why": ""
+      }
+    },
+    {
+      "away": {
+        "abbr": "SF",
+        "name": "49ers",
+        "rank": null,
+        "record": "12-5",
+        "score": 0
+      },
+      "clock": "",
+      "home": {
+        "abbr": "SEA",
+        "name": "Seahawks",
+        "rank": null,
+        "record": "9-8",
+        "score": 0
+      },
+      "id": "nfl-pre",
+      "last_play": null,
+      "league": "nfl",
+      "period": "",
+      "pinned": false,
+      "situation": null,
+      "start": "2026-09-13T20:20:00-04:00",
       "status": "pre",
       "watch": {
         "chip": null,

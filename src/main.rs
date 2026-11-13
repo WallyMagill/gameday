@@ -49,7 +49,7 @@ struct Args {
 }
 
 const HELP: &str = "\
-gameday — terminal sports board. Pin games, they tile.
+gameday — a terminal sports board that ranks live games by watchability.
 
 USAGE
   gameday                 live board (needs a terminal)
@@ -131,7 +131,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--json" => a.json = true,
             "--league" => {
                 let slug = next_value(&mut it, "--league")?;
-                match League::from_slug(&slug) {
+                match League::from_slug(&slug.to_ascii_lowercase()) {
                     Some(l) => a.leagues.push(l),
                     None => {
                         return Err(format!(
@@ -198,6 +198,16 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 return Err(format!("{flag} is a `gameday --once` flag; valid: {VALID}"));
             }
         }
+    }
+    // `--once` fetches live scores and has no demo slate; letting `--demo`
+    // ride along silently fetched from the network anyway.
+    if a.once && a.demo {
+        return Err(
+            "--demo and --once don't combine: --once prints live scores from ESPN, \
+             --demo is the scripted board. Run `gameday --demo` for the demo, \
+             or `gameday --once` for live scores"
+                .to_string(),
+        );
     }
     Ok(a)
 }
@@ -305,13 +315,12 @@ fn main() -> std::io::Result<()> {
         // A real terminal sizes the board to fit it; a pipe (a script, a
         // status bar, `| head`) gets the fixed ONCE_WIDTH instead of
         // whatever width a redirected stdout would misreport.
-        let width = if stdout().is_terminal() {
-            crossterm::terminal::size()
-                .map(|(w, _)| w)
-                .unwrap_or(once::ONCE_WIDTH)
+        let measured = if stdout().is_terminal() {
+            crossterm::terminal::size().ok().map(|(w, _)| w)
         } else {
-            once::ONCE_WIDTH
+            None
         };
+        let width = once::width_for(measured);
         let opts = once::Opts {
             json: args.json,
             leagues: args.leagues,
@@ -398,7 +407,20 @@ fn main() -> std::io::Result<()> {
     // skip lines go to gameday.log rather than over the board.
     gameday::log::set_file(dir.join("gameday.log"));
 
-    let provider = EspnProvider::new(dir.join("cache"), offset);
+    // Per-game and per-date cache entries accumulate forever otherwise (one
+    // real cache: 422 files, 186 MB). Live board only: `--once` stays as
+    // cheap as it can be, `--demo` never reads this cache, and `probe` uses
+    // its own temp dir. A failure is one log line, never a reason not to start.
+    let cache = dir.join("cache");
+    if let Err(e) = gameday::provider::espn::prune_cache(
+        &cache,
+        std::time::SystemTime::now(),
+        gameday::provider::espn::CACHE_MAX_AGE,
+    ) {
+        gameday::log::note(&format!("gameday: cache prune: {e}"));
+    }
+
+    let provider = EspnProvider::new(cache, offset);
     let (tx, rx) = mpsc::channel::<Msg>();
     // The single UI -> poll handshake: enabled leagues, liveness, the zoomed
     // game, the traveled slate, the standings league, and R. The UI
@@ -449,7 +471,7 @@ fn load_state(
 /// Dev verification: fetch and map one league's real scoreboard, print one
 /// line per game. Not part of the TUI.
 fn probe(slug: &str) -> std::io::Result<()> {
-    let Some(league) = League::from_slug(slug) else {
+    let Some(league) = League::from_slug(&slug.to_ascii_lowercase()) else {
         eprintln!(
             "probe: unknown league {slug:?}, expected one of: {}",
             League::ALL.map(|l| l.slug()).join("|")
@@ -463,6 +485,10 @@ fn probe(slug: &str) -> std::io::Result<()> {
     match result {
         Ok((games, stale)) => {
             println!("{} games={} stale={stale}", league.slug(), games.len());
+            // ESPN strings printed with `{}` go straight to the terminal, so
+            // each passes through `text::clean` (the `{:?}` fields are
+            // already escaped by Debug).
+            use gameday::text::clean;
             for g in &games {
                 let sit = g
                     .situation
@@ -471,8 +497,9 @@ fn probe(slug: &str) -> std::io::Result<()> {
                     .unwrap_or_default();
                 println!(
                     "{:>10}  {:?}  {:<3} {:>3} @ {:<3} {:>3}  [{} {}]  meter={:?}  rec={}/{}  sit={:?}  odds={:?}",
-                    g.id, g.status, g.away.abbr, g.away_score, g.home.abbr, g.home_score,
-                    g.period, g.clock, g.meter, g.away.record, g.home.record, sit, g.odds,
+                    clean(&g.id), g.status, clean(&g.away.abbr), g.away_score,
+                    clean(&g.home.abbr), g.home_score, clean(&g.period), clean(&g.clock),
+                    g.meter, clean(&g.away.record), clean(&g.home.record), sit, g.odds,
                 );
             }
             Ok(())
@@ -549,7 +576,7 @@ fn poll_loop(
                         sched.report(&req, false, done);
                         let _ = tx.send(Msg::Failed {
                             league: *league,
-                            error: e.short(),
+                            error: e.short_logged(),
                             retry_in: sched.next_retry(*league, done),
                         });
                     }
@@ -614,7 +641,7 @@ fn aux_failed(
     let _ = tx.send(Msg::AuxFailed {
         league,
         what,
-        error: error.short(),
+        error: error.short_logged(),
     });
 }
 
@@ -670,23 +697,73 @@ fn install_panic_hook() {
     }));
 }
 
-/// SIGTERM / SIGHUP (a closed terminal, `kill`, a session manager) set this
-/// flag; the UI loop treats it as `q`, so the one restore path runs and the
-/// terminal is never left in raw mode. Ctrl-C arrives as a key event through
-/// crossterm and is handled by the keymap, not here.
+/// SIGTERM / SIGHUP (a closed terminal, `kill`, a session manager) set the
+/// returned flag; the UI loop treats it as `q`, so the one restore path runs
+/// and the terminal is never left in raw mode. If the loop has not returned
+/// (dropping the sender of `ui_done`) within [`TERM_GRACE`], the signal
+/// thread restores what it can and exits the process itself: see
+/// [`await_ui_quit`] for why the loop can be stuck. Ctrl-C arrives as a key
+/// event through crossterm and is handled by the keymap, not here.
 #[cfg(unix)]
-fn install_signal_flag() -> Arc<AtomicBool> {
+fn install_term_signals(ui_done: mpsc::Receiver<()>) -> Arc<AtomicBool> {
+    use signal_hook::consts::{SIGHUP, SIGTERM};
     let flag = Arc::new(AtomicBool::new(false));
-    for sig in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGHUP] {
-        // Registration only fails for signals that cannot be caught; TERM
-        // and HUP can, and a failure here would just leave the old behavior.
-        let _ = signal_hook::flag::register(sig, Arc::clone(&flag));
-    }
+    // Registration only fails for signals that cannot be caught; TERM and
+    // HUP can. On a failure they keep their default action, which kills the
+    // process outright: no restore, but no orphaned board either.
+    let Ok(mut signals) = signal_hook::iterator::Signals::new([SIGTERM, SIGHUP]) else {
+        return flag;
+    };
+    let quit = Arc::clone(&flag);
+    thread::spawn(move || {
+        if let Some(sig) = signals.forever().next() {
+            if let Some(code) = await_ui_quit(sig, &quit, &ui_done, TERM_GRACE) {
+                restore_terminal();
+                std::process::exit(code);
+            }
+        }
+    });
     flag
 }
 
+/// How long a term signal waits for the UI loop to quit on its own before
+/// the signal thread ends the process. Measured 2026-11-13 with the terminal
+/// intact: a `--demo` board exits 12-66 ms after SIGTERM or SIGHUP (10 runs),
+/// so 500 ms is about 7x the slowest, and a closed terminal still takes the
+/// process down well inside a second.
+#[cfg(unix)]
+const TERM_GRACE: Duration = Duration::from_millis(500);
+
+/// The signal thread's job once SIGTERM/SIGHUP `sig` arrives, kept apart
+/// from the thread so a test can drive it. Asks the UI loop to quit, then
+/// waits up to `grace` for `run_ui` to return (its sender disconnects).
+/// Returns the exit code to end the process with when the loop never came
+/// back, else `None`.
+///
+/// The loop can be stuck for good: once the terminal hangs up, crossterm
+/// 0.29's `event::poll` never returns. Its tty read loop
+/// (`event/source/unix/mio.rs`, `try_read`) only breaks on `WouldBlock`, and
+/// a hung-up tty answers every read with EOF, so it spins at full CPU without
+/// checking its timeout. The loop then never sees the flag, and before this
+/// backstop a closed tmux or vhs terminal left the board orphaned and still
+/// polling ESPN.
+#[cfg(unix)]
+fn await_ui_quit(
+    sig: i32,
+    quit: &AtomicBool,
+    ui_done: &mpsc::Receiver<()>,
+    grace: Duration,
+) -> Option<i32> {
+    quit.store(true, Ordering::Relaxed);
+    match ui_done.recv_timeout(grace) {
+        // 128 + signal number: the shell's convention for "ended by signal".
+        Err(mpsc::RecvTimeoutError::Timeout) => Some(128 + sig),
+        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => None,
+    }
+}
+
 #[cfg(not(unix))]
-fn install_signal_flag() -> Arc<AtomicBool> {
+fn install_term_signals(_ui_done: mpsc::Receiver<()>) -> Arc<AtomicBool> {
     Arc::new(AtomicBool::new(false))
 }
 
@@ -717,8 +794,11 @@ fn run_ui(
     wants: WantsShared,
     refresh: RefreshFlag,
 ) -> std::io::Result<()> {
+    // Dropped when run_ui returns, after `_restore` (locals drop in reverse
+    // order): that disconnect tells the signal thread the loop finished.
+    let (_ui_done, ui_done) = mpsc::channel::<()>();
     install_panic_hook();
-    let term_signal = install_signal_flag();
+    let term_signal = install_term_signals(ui_done);
     let mut published = gameday::poll::Wants::default();
     enable_raw_mode()?;
     let _restore = RestoreTerminal;
@@ -861,6 +941,40 @@ mod tests {
         assert!(super::should_restore(ui, ui));
     }
 
+    /// A closed terminal must end the process even when the UI loop never
+    /// comes back to read the quit flag (crossterm spins on a hung-up tty).
+    /// When the loop does come back, the signal thread stands down, so the
+    /// loop's own restore stays the only one.
+    #[cfg(unix)]
+    #[test]
+    fn a_term_signal_ends_the_process_when_the_ui_loop_never_returns() {
+        use signal_hook::consts::{SIGHUP, SIGTERM};
+        use std::sync::atomic::AtomicBool;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        // Wedged: run_ui still holds its sender and never returns.
+        let quit = AtomicBool::new(false);
+        let (_held, ui_done) = mpsc::channel::<()>();
+        assert_eq!(
+            super::await_ui_quit(SIGHUP, &quit, &ui_done, Duration::ZERO),
+            Some(128 + SIGHUP),
+            "a wedged loop must not keep the process alive"
+        );
+        assert!(quit.load(Ordering::Relaxed), "the loop is asked first");
+
+        // Healthy: run_ui returned and dropped its sender.
+        let quit = AtomicBool::new(false);
+        let (done, ui_done) = mpsc::channel::<()>();
+        drop(done);
+        assert_eq!(
+            super::await_ui_quit(SIGTERM, &quit, &ui_done, super::TERM_GRACE),
+            None,
+            "a loop that quit on its own keeps the clean exit"
+        );
+        assert!(quit.load(Ordering::Relaxed));
+    }
+
     fn parsed(args: &[&str]) -> super::Args {
         let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         parse_args(&owned).expect("valid args")
@@ -895,6 +1009,31 @@ mod tests {
         assert!(e.contains("xfl") && e.contains("nfl|cfb"), "{e}");
         let e = err(&["gameday", "--once", "--top", "many"]);
         assert!(e.contains("--top") && e.contains("many"), "{e}");
+    }
+
+    #[test]
+    fn league_flag_takes_any_case() {
+        for slug in ["nfl", "Nfl", "NFL"] {
+            assert_eq!(
+                parsed(&["gameday", "--once", "--league", slug]).leagues,
+                vec![League::Nfl],
+                "{slug}"
+            );
+        }
+    }
+
+    #[test]
+    fn demo_and_once_together_is_an_argument_error_naming_both() {
+        for args in [
+            ["gameday", "--demo", "--once"],
+            ["gameday", "--once", "--demo"],
+        ] {
+            let e = err(&args);
+            assert!(
+                e.contains("--demo") && e.contains("--once") && e.contains("`gameday --demo`"),
+                "{e}"
+            );
+        }
     }
 
     #[test]

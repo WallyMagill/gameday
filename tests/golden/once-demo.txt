@@ -14,6 +14,6 @@ FINAL ────────────────────────�
 ·     BOS   4 TOR    2 FINAL          NHL
 ·     MCI   2 CHE    2 FT             EPL
 LATER ─────────────────────────────────────────────────────────────────────────────────────────────
-·     SF   @  SEA      SEP 13 8:20 PM NFL  NBC     SF -2.5  O/U 44.5
 ·     HOU  @  LAR      SEP 13 4:25 PM NFL  CBS     LAR -3  O/U 45.5
 ·     NO   @  CAR      SEP 13 4:25 PM NFL  CBS     CAR -1  O/U 40.5
+·     SF   @  SEA      SEP 13 8:20 PM NFL  NBC     SF -2.5  O/U 44.5

@@ -15,11 +15,12 @@ while anything is live. No account, no key.
 
 - **Structure over parsing.** Read the field ESPN publishes; never derive state from prose. Presentation-only normalization is allowed and labeled.
 - **The board reorders only on a real event** (a score, a status change, a chip flipping, a leverage band crossing). A clock that merely advanced never moves a row. New ranking inputs enter the fingerprint set deliberately.
+- **A result's day is decided when its scoreboard lands.** A final or called-off game from before yesterday (`Game::earlier_day`) is stamped at every apply, never per draw, so after midnight the first scoreboard to land (within one poll interval, even with unchanged bytes) dates it and moves its row, and a draw never does. Section order lives only in `Derived::sections`.
 - **One score formatter; logos never move a digit.** The hero and the takeover agree on every digit cell.
 - **Quadrant blocks only** (`▀▄█`) for digits and marks: every mono font has them; sextants tofu.
 - **Numbers carry receipts.** A timeout, cap, or weight is measured or says it is a guess and why.
 - **Failures name the value, the expectation, and the knob.**
-- **No new request load without a measured budget line.** Scoreboards every 15s live / 60s idle; summaries for the zoomed game and one-shot catch-ups only. CI's ESPN drift canary: 9 scoreboards per run, twice a day (`docs/dev.md`).
+- **No new request load without a measured budget line.** Scoreboards every 15s live / 60s idle, plus, while a league's ESPN day is still yesterday, its dated board for today at most once a minute whatever the outcome (once a date when that slate is empty); summaries for the zoomed game and one-shot catch-ups only. CI's ESPN drift canary: 9 scoreboards per run, twice a day (`docs/dev.md`).
 
 ## Design work
 

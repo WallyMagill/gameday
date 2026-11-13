@@ -291,3 +291,80 @@ fn notify_defaults_to_favorites_and_pins_and_an_empty_list_disables() {
     assert_eq!(back.notify, c.notify);
     assert!(back.notify_pins() && !back.notify_favorites());
 }
+
+/// No config is written on first run, so the first one is hand-written, and
+/// the README documents a default for every key. A one-line file used to fail
+/// with "missing field `enabled_tabs`" and run on defaults without saving.
+#[test]
+fn a_one_line_config_fills_every_other_key_with_its_default() {
+    let dir = tmp("partial");
+    fs::write(dir.join("config.toml"), "theme = \"nord\"\n").unwrap();
+    let r = resolve_dir(Some(dir.clone()), &dir, None, None);
+    let out = load_config(&r);
+    assert_eq!(out.error, None);
+    assert_eq!(
+        out.value,
+        Config {
+            theme: "nord".into(),
+            ..Config::default_all()
+        }
+    );
+
+    fs::write(
+        dir.join("config.toml"),
+        "favorites = [{ league = \"Nfl\", team_abbr = \"KC\" }]\n",
+    )
+    .unwrap();
+    let out = load_config(&r);
+    assert_eq!(out.error, None);
+    assert_eq!(out.value.enabled_tabs, League::ALL.to_vec());
+    assert_eq!(out.value.theme, "broadcast");
+    assert_eq!(out.value.notify, ["favorites", "pins"]);
+    assert_eq!(out.value.favorites[0].team_abbr, "KC");
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// The error for a bad league listed lowercase slugs as valid while only
+/// `Nfl` parsed. Any case parses now, and a save keeps writing `Nfl`, so a
+/// config written by an earlier version round-trips unchanged.
+#[test]
+fn league_names_parse_in_any_case_and_save_in_the_form_they_always_had() {
+    let dir = tmp("league-case");
+    fs::write(
+        dir.join("config.toml"),
+        "enabled_tabs = [\"nfl\", \"NBA\", \"Mlb\"]\nfavorites = [{ league = \"nhl\", team_abbr = \"TOR\" }]\n",
+    )
+    .unwrap();
+    let c = Config::load_from(&dir).unwrap();
+    assert_eq!(c.enabled_tabs, [League::Nfl, League::Nba, League::Mlb]);
+    assert_eq!(c.favorites[0].league, League::Nhl);
+    c.save_to(&dir).unwrap();
+    let text = fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert!(
+        text.contains("\"Nfl\"") && text.contains("\"Nba\"") && text.contains("\"Nhl\""),
+        "{text}"
+    );
+    assert!(
+        !text.contains("\"nfl\"") && !text.contains("\"NBA\""),
+        "{text}"
+    );
+
+    // A file written in today's form loads and saves byte for byte.
+    let before = text.clone();
+    Config::load_from(&dir).unwrap().save_to(&dir).unwrap();
+    assert_eq!(fs::read_to_string(dir.join("config.toml")).unwrap(), before);
+
+    // pins.json keeps its form too.
+    fs::write(
+        dir.join("pins.json"),
+        "[{\"game_id\":\"9\",\"league\":\"WNBA\",\"final_at\":null}]",
+    )
+    .unwrap();
+    let pins = load_pins(&dir).unwrap();
+    assert_eq!(pins[0].league, League::Wnba);
+    save_pins(&dir, &pins).unwrap();
+    assert!(fs::read_to_string(dir.join("pins.json"))
+        .unwrap()
+        .contains("\"Wnba\""));
+    fs::remove_dir_all(&dir).ok();
+}
