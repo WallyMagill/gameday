@@ -11,6 +11,7 @@ All notable changes to gameday are recorded here. The format follows
 
 ### Fixed
 - README install block: each method is its own copy-pasteable line, with Windows separate. The PowerShell installer had been pasted into the middle of the shell one-liner, so pasting the block failed. The crates.io page keeps the old README until the next version publishes.
+- README status-bar recipe no longer names `--league mlb`, which prints nothing from November to March.
 
 ## [1.0.1] — 2026-09-28
 

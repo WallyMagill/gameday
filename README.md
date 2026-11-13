@@ -122,8 +122,10 @@ gameday --once [--json] [--league L]... [--live] [--top N] [--color]
 A status-bar recipe (tmux, polybar, whatever reads a shell command):
 
 ```bash
-#(gameday --once --live --top 1 --league mlb | tail -1)
+#(gameday --once --live --top 1 | tail -1)
 ```
+
+It prints the top live game from your enabled leagues, and nothing when nothing is live. Add `--league nfl` to scope it to one.
 
 Exit codes: `0` with output printed (nothing printed at all when there's nothing to show), `1` when every requested league failed and nothing was cached (one line on stderr), `2` for argument errors. At 160 columns or wider, `--once` text carries each live row's last play on the same line as its situation, exactly like the board.
 
