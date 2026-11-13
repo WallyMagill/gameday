@@ -103,7 +103,7 @@ impl Config {
     pub fn save_to(&self, dir: &Path) -> Result<(), ConfigError> {
         fs::create_dir_all(dir)?;
         let text = toml::to_string_pretty(self)?;
-        fs::write(dir.join("config.toml"), text)?;
+        crate::atomic::write(&dir.join("config.toml"), text)?;
         Ok(())
     }
 }
@@ -120,7 +120,7 @@ pub fn load_pins(dir: &Path) -> Result<Vec<Pin>, ConfigError> {
 pub fn save_pins(dir: &Path, pins: &[Pin]) -> Result<(), ConfigError> {
     fs::create_dir_all(dir)?;
     let text = serde_json::to_string_pretty(pins)?;
-    fs::write(dir.join("pins.json"), text)?;
+    crate::atomic::write(&dir.join("pins.json"), text)?;
     Ok(())
 }
 

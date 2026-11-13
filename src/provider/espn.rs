@@ -227,7 +227,7 @@ impl EspnProvider {
                     // must not turn a good payload into an error.
                     match etag {
                         Some(t) => {
-                            let _ = std::fs::write(self.etag_path(key), t);
+                            let _ = crate::atomic::write(&self.etag_path(key), t);
                         }
                         None => {
                             let _ = std::fs::remove_file(self.etag_path(key));
@@ -403,7 +403,7 @@ pub fn standings_url(league: League) -> String {
 
 pub fn cache_write(dir: &Path, key: &str, body: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
-    std::fs::write(dir.join(key), body)
+    crate::atomic::write(&dir.join(key), body)
 }
 
 /// How old (since last write) a per-game or per-date cache entry may get
@@ -416,24 +416,34 @@ pub const CACHE_MAX_AGE: Duration = Duration::from_secs(14 * 24 * 60 * 60);
 
 /// The entries that pile up, one per game or per date: `<league>-<id>-summary`,
 /// `<league>-<id>-stats`, `<league>-scoreboard-YYYYMMDD`, and their `.etag`
-/// sidecars. Never the bare `<league>-scoreboard` (the last good payload STALE
-/// serves) or `<league>-standings`, one file per league, and never a name it
-/// does not recognize.
+/// sidecars; and the temp file a killed write left behind
+/// (`.<entry>.<pid>-<seq>.tmp`, see [`crate::atomic::write`]) for any entry the
+/// cache writes. Never the bare `<league>-scoreboard` (the last good payload
+/// STALE serves) or `<league>-standings`, one file per league, and never a
+/// name it does not recognize.
 fn is_accumulating(name: &str) -> bool {
-    let name = name.strip_suffix(".etag").unwrap_or(name);
-    let Some((slug, rest)) = name.split_once('-') else {
-        return false;
-    };
-    if League::from_slug(slug).is_none() {
-        return false;
+    match crate::atomic::leftover_target(name) {
+        Some(entry) => cache_entry(entry).is_some(),
+        None => cache_entry(name) == Some(true),
     }
+}
+
+/// `Some(true)` for a per-game or per-date entry (or its `.etag`),
+/// `Some(false)` for a per-league one, None for a name the cache never writes.
+fn cache_entry(name: &str) -> Option<bool> {
+    let name = name.strip_suffix(".etag").unwrap_or(name);
+    let (slug, rest) = name.split_once('-')?;
+    League::from_slug(slug)?;
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if rest == "scoreboard" || rest == "standings" {
+        return Some(false);
+    }
     if let Some(date) = rest.strip_prefix("scoreboard-") {
-        return date.len() == 8 && digits(date);
+        return (date.len() == 8 && digits(date)).then_some(true);
     }
     match rest.rsplit_once('-') {
-        Some((id, "summary" | "stats")) => digits(id),
-        _ => false,
+        Some((id, "summary" | "stats")) => digits(id).then_some(true),
+        _ => None,
     }
 }
 
@@ -721,7 +731,7 @@ mod tests {
         let ancient = now - 400 * day;
         let old = now - CACHE_MAX_AGE - day;
         let young = now - CACHE_MAX_AGE + day;
-        let files: [(&str, SystemTime, bool); 14] = [
+        let files: [(&str, SystemTime, bool); 20] = [
             // (name, mtime, survives)
             ("nfl-401873001-summary", old, false),
             ("nfl-401873001-summary.etag", old, false),
@@ -739,6 +749,15 @@ mod tests {
             ("xfl-401-summary", ancient, true),
             ("nfl-scoreboard-2026", ancient, true),
             ("notes.txt", ancient, true),
+            // A killed write's temp file, for any entry the cache writes,
+            // once old; one young enough to be a write in flight is kept.
+            (".nfl-scoreboard.4242-0.tmp", old, false),
+            (".nfl-401873001-summary.etag.4242-17.tmp", old, false),
+            (".cfb-scoreboard.77-3.tmp", young, true),
+            // Temp-shaped names it does not recognize: kept.
+            (".notes.txt.4242-0.tmp", ancient, true),
+            (".nfl-scoreboard.4242.tmp", ancient, true),
+            ("nfl-scoreboard.4242-0.tmp", ancient, true),
         ];
         for (name, mtime, _) in files {
             let path = dir.join(name);
@@ -750,7 +769,7 @@ mod tests {
                 .set_modified(mtime)
                 .unwrap();
         }
-        assert_eq!(prune_cache(&dir, now, CACHE_MAX_AGE), Ok(5));
+        assert_eq!(prune_cache(&dir, now, CACHE_MAX_AGE), Ok(7));
         for (name, _, survives) in files {
             assert_eq!(dir.join(name).exists(), survives, "{name}");
         }
