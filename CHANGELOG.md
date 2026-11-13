@@ -9,6 +9,9 @@ All notable changes to gameday are recorded here. The format follows
 ### Added
 - An ESPN drift canary in CI (`.github/workflows/espn-canary.yml`, `scripts/espn-canary.sh`). Twice a day it runs the real binary against all nine leagues' live scoreboards and fails in any of four cases: a league doesn't fetch, the mapper drops an event, ESPN sends a status gameday hasn't been checked against, or gameday's status disagrees with ESPN's own `state` + `completed`. Budget: 9 scoreboard requests per run. `docs/dev.md` has what to do when it fails.
 
+### Fixed
+- README install block: each method is its own copy-pasteable line, with Windows separate. The PowerShell installer had been pasted into the middle of the shell one-liner, so pasting the block failed. The crates.io page keeps the old README until the next version publishes.
+
 ## [1.0.1] — 2026-09-28
 
 Security and dependency patch, plus one fix: canceled and postponed games.

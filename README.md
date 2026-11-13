@@ -6,14 +6,33 @@ A terminal sports board that ranks live games by watchability. Nine leagues, no 
 
 ## Install
 
+Pick one. Each block is a single line to paste.
+
+Homebrew (macOS, Linux):
+
 ```bash
 brew install WallyMagill/tap/gameday
-cargo install gameday
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.sh powershell -ExecutionPolicy Bypass -c "irm https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.ps1 | iex"
-| sh
 ```
 
-Or grab a binary from [Releases](https://github.com/WallyMagill/gameday/releases).
+Shell installer (macOS, Linux) — a prebuilt binary, no Rust toolchain:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.sh | sh
+```
+
+Cargo (builds from source; Rust 1.88 or newer):
+
+```bash
+cargo install gameday
+```
+
+Windows (PowerShell; the build is untested):
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/WallyMagill/gameday/releases/latest/download/gameday-installer.ps1 | iex"
+```
+
+Or grab a binary from [Releases](https://github.com/WallyMagill/gameday/releases). Then run `gameday`, or `gameday --demo` for a scripted slate with no network.
 
 ## The sixty-second tour
 
