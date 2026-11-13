@@ -555,3 +555,50 @@ fn a_morning_with_nothing_live_leads_with_what_is_next() {
     assert_eq!(order, ["pre", "final", "final"], "the JSON is board order");
     assert_eq!(v["games"][2]["start"], "2026-10-31T19:00:00-05:00");
 }
+
+/// serde_json escapes only U+0000-U+001F: an ESPN string carrying a C1 CSI
+/// (U+009B), DEL (U+007F) or a right-to-left override (U+202E) used to reach
+/// `--json` output verbatim. Every ESPN-sourced field drops them now.
+#[test]
+fn json_strings_carry_no_c1_del_or_bidi_controls() {
+    let offset = time::UtcOffset::from_hms(-4, 0, 0).unwrap();
+    let bad = "\u{9b}31m\u{7f}\u{202e}";
+    let json = format!(
+        r#"{{"events":[{{"id":"401","competitions":[{{"status":{{"displayClock":"1:00{bad}","period":4,"type":{{"state":"in","shortDetail":"Q4"}}}},
+          "situation":{{"lastPlay":{{"text":"Kelce{bad} catch"}},"downDistanceText":"1st{bad} & 10","possessionText":"KC{bad} 20","possession":"1"}},
+          "competitors":[
+            {{"homeAway":"away","score":"7","records":[{{"type":"total","summary":"1-0{bad}"}}],"team":{{"id":"1","abbreviation":"KC{bad}","name":"Chiefs{bad}"}}}},
+            {{"homeAway":"home","score":"3","team":{{"id":"2","abbreviation":"TB","name":"Bucs"}}}}]}}]}}]}}"#
+    );
+    let games = gameday::provider::map::map_scoreboard(League::Nfl, &json, offset).unwrap();
+    let raw = format!("{games:?}");
+    assert!(
+        raw.contains("\\u{202e}"),
+        "the payload reached the domain: {raw}"
+    );
+    let dir = std::env::temp_dir().join(format!("gd-once-ctl-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = once::build_app(
+        demo::demo_config(),
+        vec![],
+        dir,
+        offset,
+        time::macros::datetime!(2026-09-27 21:00:00 -4),
+        vec![(League::Nfl, games, false)],
+    );
+    let v = once::render_json(&mut app, &opts(), false);
+    let out = serde_json::to_string(&v).unwrap();
+    for c in ['\u{9b}', '\u{7f}', '\u{202e}'] {
+        assert!(!out.contains(c), "U+{:04X} survived: {out}", c as u32);
+    }
+    let g = &v["games"][0];
+    assert_eq!(g["away"]["abbr"], "KC31m");
+    assert_eq!(g["away"]["name"], "Chiefs31m");
+    assert_eq!(g["away"]["record"], "1-031m");
+    assert_eq!(g["clock"], "1:0031m");
+    assert_eq!(g["last_play"], "Kelce31m catch");
+    assert!(
+        g["situation"].as_str().unwrap().contains("1ST31M & 10"),
+        "{g}"
+    );
+}

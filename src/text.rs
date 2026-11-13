@@ -19,6 +19,21 @@ pub fn truncate(s: &str, width: usize) -> String {
     }
 }
 
+/// ESPN text made safe for output that no terminal widget filters: `--once
+/// --json` (serde_json escapes only U+0000-U+001F) and `gameday probe`.
+/// Removes every `char::is_control` character (C0, DEL, C1 such as U+009B,
+/// the one-byte CSI) and the bidi embeddings, overrides and isolates
+/// (U+202A-U+202E, U+2066-U+2069) that can make text read in a different
+/// order than it is stored. The board itself needs none of this: ratatui
+/// drops control graphemes when it draws.
+pub fn clean(s: &str) -> String {
+    s.chars()
+        .filter(|&c| {
+            !c.is_control() && !matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+        })
+        .collect()
+}
+
 /// Last word of the leading capitalized-name run ("Patrick Mahomes pass to
 /// T. Kelce" -> "Mahomes"), keeping generational suffixes ("Jazz Chisholm
 /// Jr. walks" -> "Chisholm Jr."). Play text leads with the player's name in
@@ -134,6 +149,15 @@ pub fn startup_offset() -> UtcOffset {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clean_drops_controls_and_bidi_overrides_and_keeps_text() {
+        assert_eq!(
+            clean("A\u{9b}31mB\u{7f}C\u{202e}D\u{2066}E\u{1b}[2J\tF"),
+            "A31mBCDE[2JF"
+        );
+        assert_eq!(clean("Bot 7th · Müller 90'+3'"), "Bot 7th · Müller 90'+3'");
+    }
 
     #[test]
     fn fits_untouched() {

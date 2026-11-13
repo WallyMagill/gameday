@@ -13,18 +13,32 @@ pub enum MapError {
     /// the skip line names which row was dropped and which path was missing.
     #[error("event {id}: missing {path}")]
     Event { id: String, path: &'static str },
+    /// The event id becomes a cache file name and a URL query value, so
+    /// anything but ASCII digits (every id in every captured scoreboard) is
+    /// refused rather than joined onto a path.
+    #[error("event id {id:?}: expected one or more ASCII digits")]
+    EventId { id: String },
 }
 
+/// The color a team gets when ESPN sends none (or one we can't read).
+const NO_COLOR: [u8; 3] = [180, 180, 180];
+
+/// `"#RRGGBB"` or `"RRGGBB"`, exactly six ASCII hex digits; anything else is
+/// treated as absent. Checked as bytes before slicing: a multi-byte char
+/// within the first six bytes used to panic on a non-char-boundary slice.
 fn hex_color(s: &str) -> [u8; 3] {
-    let s = s.trim_start_matches('#');
-    if s.len() >= 6 {
-        let r = u8::from_str_radix(&s[0..2], 16).unwrap_or(180);
-        let g = u8::from_str_radix(&s[2..4], 16).unwrap_or(180);
-        let b = u8::from_str_radix(&s[4..6], 16).unwrap_or(180);
-        [r, g, b]
-    } else {
-        [180, 180, 180]
+    let s = s.strip_prefix('#').unwrap_or(s);
+    if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return NO_COLOR;
     }
+    let byte = |i: usize| u8::from_str_radix(&s[i..i + 2], 16).unwrap_or(180);
+    [byte(0), byte(2), byte(4)]
+}
+
+/// An event id is used as a file name (`{league}-{id}-summary`) and as the
+/// summary URL's `event=` value: accept only what ESPN actually sends.
+fn valid_event_id(id: &str) -> bool {
+    !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// `completed` is `status.type.completed`. Only an explicit `false` on a
@@ -327,6 +341,9 @@ pub fn map_event(league: League, ev: &Value, offset: UtcOffset) -> Result<Game, 
         .and_then(|x| x.as_str())
         .ok_or(MapError::Missing("id"))?
         .to_string();
+    if !valid_event_id(&id) {
+        return Err(MapError::EventId { id });
+    }
     let miss = |path: &'static str| MapError::Event {
         id: id.clone(),
         path,

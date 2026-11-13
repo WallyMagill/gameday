@@ -463,6 +463,10 @@ fn probe(slug: &str) -> std::io::Result<()> {
     match result {
         Ok((games, stale)) => {
             println!("{} games={} stale={stale}", league.slug(), games.len());
+            // ESPN strings printed with `{}` go straight to the terminal, so
+            // each passes through `text::clean` (the `{:?}` fields are
+            // already escaped by Debug).
+            use gameday::text::clean;
             for g in &games {
                 let sit = g
                     .situation
@@ -471,8 +475,9 @@ fn probe(slug: &str) -> std::io::Result<()> {
                     .unwrap_or_default();
                 println!(
                     "{:>10}  {:?}  {:<3} {:>3} @ {:<3} {:>3}  [{} {}]  meter={:?}  rec={}/{}  sit={:?}  odds={:?}",
-                    g.id, g.status, g.away.abbr, g.away_score, g.home.abbr, g.home_score,
-                    g.period, g.clock, g.meter, g.away.record, g.home.record, sit, g.odds,
+                    clean(&g.id), g.status, clean(&g.away.abbr), g.away_score,
+                    clean(&g.home.abbr), g.home_score, clean(&g.period), clean(&g.clock),
+                    g.meter, clean(&g.away.record), clean(&g.home.record), sit, g.odds,
                 );
             }
             Ok(())

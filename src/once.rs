@@ -12,6 +12,7 @@ use crate::dump;
 use crate::provider::espn::EspnProvider;
 use crate::provider::ProviderError;
 use crate::rank;
+use crate::text::clean;
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
@@ -256,16 +257,19 @@ fn rfc3339(t: OffsetDateTime) -> String {
 
 fn team_json(team: &crate::domain::Team, score: u16) -> serde_json::Value {
     serde_json::json!({
-        "abbr": team.abbr,
-        "name": team.name,
+        "abbr": clean(&team.abbr),
+        "name": clean(&team.name),
         "score": score,
-        "record": team.record,
+        "record": clean(&team.record),
         "rank": team.rank,
     })
 }
 
 /// The pinned JSON schema: `derive().selection` (board order) filtered the
-/// same way `render_text` narrows its rows, one object per game.
+/// same way `render_text` narrows its rows, one object per game. Every string
+/// that came from ESPN passes through [`clean`]: serde_json escapes only
+/// U+0000-U+001F, so DEL, C1 controls and bidi overrides would otherwise
+/// reach whatever terminal a script prints the value to.
 pub fn render_json(app: &mut App, opts: &Opts, stale: bool) -> serde_json::Value {
     let d = app.derive();
     let now = app.now();
@@ -289,16 +293,16 @@ pub fn render_json(app: &mut App, opts: &Opts, stale: bool) -> serde_json::Value
             };
             serde_json::json!({
                 "league": g.league.slug(),
-                "id": g.id,
+                "id": clean(&g.id),
                 "status": status,
-                "period": g.period,
-                "clock": g.clock,
+                "period": clean(&g.period),
+                "clock": clean(&g.clock),
                 "start": g.start.map(rfc3339),
                 "away": team_json(&g.away, g.away_score),
                 "home": team_json(&g.home, g.home_score),
                 "watch": { "score": w.score, "chip": w.chip, "why": w.why },
-                "situation": rows::situation_summary(g),
-                "last_play": g.last_plays.first().map(|p| p.text.clone()),
+                "situation": rows::situation_summary(g).map(|s| clean(&s)),
+                "last_play": g.last_plays.first().map(|p| clean(&p.text)),
                 "pinned": pins.iter().any(|p| p.game_id == g.id),
             })
         })

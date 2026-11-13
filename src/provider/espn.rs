@@ -12,6 +12,32 @@ use crate::{Game, GameStats, Summary};
 /// enough that the poll thread doesn't wedge behind one request.
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Largest response body accepted, counted AFTER gzip decoding (ureq's own
+/// limit sits under its decoder, so 65 KB of gzip once decoded to 64 MiB
+/// unchecked). Receipt: the largest real payload in the owner's cache is
+/// 1,057,405 bytes (an MLB summary, 2026-11); 16 MiB is about 15 times that.
+pub const MAX_BODY_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Read at most `cap` decoded bytes from `reader`. More than `cap` is an
+/// error naming the cap and its knob; nothing past `cap + 1` bytes is ever
+/// buffered. Bytes are read, not chars, so the cut can never split a UTF-8
+/// sequence into a read error; ureq's lossy decoder already made them UTF-8.
+fn read_capped(reader: impl std::io::Read, cap: u64) -> Result<String, String> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    reader
+        .take(cap.saturating_add(1))
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("body read: {e}"))?;
+    if buf.len() as u64 > cap {
+        return Err(format!(
+            "body larger than {cap} bytes after decoding (MAX_BODY_BYTES in src/provider/espn.rs)"
+        ));
+    }
+    Ok(String::from_utf8(buf)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()))
+}
+
 /// Honest UA: names the program, its version, and where to complain.
 pub const USER_AGENT: &str = concat!(
     "gameday/",
@@ -25,6 +51,8 @@ pub struct EspnProvider {
     /// and carried here: the poll thread can't read the TZ database itself.
     pub offset: time::UtcOffset,
     agent: ureq::Agent,
+    /// [`MAX_BODY_BYTES`]; a field only so a test can shrink it.
+    max_body: u64,
 }
 
 /// What one HTTP attempt produced: a body (with the ETag to store beside it),
@@ -89,6 +117,7 @@ impl EspnProvider {
             cache_dir,
             offset,
             agent: ureq::Agent::new_with_config(config),
+            max_body: MAX_BODY_BYTES,
         }
     }
 
@@ -115,14 +144,19 @@ impl EspnProvider {
                     .get("etag")
                     .and_then(|v| v.to_str().ok())
                     .map(str::to_string);
-                let body = r
-                    .body_mut()
-                    .read_to_string()
-                    .map_err(|e| ProviderError::Http {
+                // `read_capped` is the one bound, on the decoded bytes, so it
+                // holds whichever side of ureq's decoder ureq's own `limit`
+                // sits on (under it through 3.5.0, after it from 3.5.2).
+                // Wire bytes that decode to nothing cost time, not memory,
+                // and `timeout_recv_body` bounds the time. `lossy_utf8` keeps
+                // what `read_to_string` did with bad UTF-8.
+                let reader = r.body_mut().with_config().lossy_utf8(true).reader();
+                let body =
+                    read_capped(reader, self.max_body).map_err(|detail| ProviderError::Http {
                         status: 0,
                         key: String::new(),
                         url: url.into(),
-                        detail: format!("body read: {e}"),
+                        detail,
                     })?;
                 Ok(Fetched::Body { body, etag })
             }
@@ -813,6 +847,13 @@ mod tests {
     fn one_shot_server(
         response: &'static str,
     ) -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
+        one_shot_server_bytes(response.as_bytes().to_vec())
+    }
+
+    /// [`one_shot_server`] for a response that isn't text (a gzip body).
+    fn one_shot_server_bytes(
+        response: Vec<u8>,
+    ) -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
         use std::io::{BufRead, BufReader, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -837,7 +878,7 @@ mod tests {
                 }
                 let _ = tx.send(request);
                 let mut stream = stream;
-                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.write_all(&response);
                 let _ = stream.flush();
             }
         });
@@ -887,6 +928,45 @@ mod tests {
                 etag: Some("\"def\"".to_string()),
             }
         );
+    }
+
+    /// The cap counts decoded bytes: 96 bytes of gzip (65,536 zero bytes,
+    /// `gzip.compress(b"\0" * 65536, mtime=0)`) against a 1,000-byte cap must
+    /// fail, though the compressed body is well under it.
+    #[test]
+    fn a_gzip_body_over_the_decoded_cap_is_an_error_naming_the_cap() {
+        const GZIP_64K_ZEROS: &[u8] = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff\xed\xc1\x01\x01\x00\x00\x00\x80\x90\xfe\xaf\xee\x08\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x6a\xeb\x8e\x97\xd7\x00\x00\x01\x00";
+        let mut response =
+            b"HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 96\r\n\r\n".to_vec();
+        response.extend_from_slice(GZIP_64K_ZEROS);
+        assert_eq!(GZIP_64K_ZEROS.len(), 96);
+        let (addr, _rx) = one_shot_server_bytes(response);
+        let mut p = provider(&tmp("gzip-bomb"));
+        p.max_body = 1_000;
+        let err = p.http(&format!("http://{addr}/x"), None).unwrap_err();
+        match err {
+            ProviderError::Http { status, detail, .. } => {
+                assert_eq!(status, 0);
+                assert_eq!(
+                    detail,
+                    "body larger than 1000 bytes after decoding (MAX_BODY_BYTES in src/provider/espn.rs)"
+                );
+            }
+            other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn read_capped_takes_exactly_the_cap_and_refuses_one_more() {
+        assert_eq!(read_capped(&b"abcd"[..], 4).unwrap(), "abcd");
+        assert!(read_capped(&b"abcde"[..], 4)
+            .unwrap_err()
+            .contains("4 bytes"));
+        // A cut that lands inside a multi-byte char is still the cap error,
+        // not a UTF-8 read error.
+        assert!(read_capped("aé".as_bytes(), 2)
+            .unwrap_err()
+            .contains("2 bytes"));
     }
 
     #[test]
