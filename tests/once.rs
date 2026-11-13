@@ -602,3 +602,10 @@ fn json_strings_carry_no_c1_del_or_bidi_controls() {
         "{g}"
     );
 }
+
+#[test]
+fn a_zero_width_terminal_renders_at_the_pipe_width() {
+    assert_eq!(once::width_for(Some(0)), once::ONCE_WIDTH);
+    assert_eq!(once::width_for(None), once::ONCE_WIDTH);
+    assert_eq!(once::width_for(Some(132)), 132);
+}

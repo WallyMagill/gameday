@@ -131,7 +131,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--json" => a.json = true,
             "--league" => {
                 let slug = next_value(&mut it, "--league")?;
-                match League::from_slug(&slug) {
+                match League::from_slug(&slug.to_ascii_lowercase()) {
                     Some(l) => a.leagues.push(l),
                     None => {
                         return Err(format!(
@@ -198,6 +198,16 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 return Err(format!("{flag} is a `gameday --once` flag; valid: {VALID}"));
             }
         }
+    }
+    // `--once` fetches live scores and has no demo slate; letting `--demo`
+    // ride along silently fetched from the network anyway.
+    if a.once && a.demo {
+        return Err(
+            "--demo and --once don't combine: --once prints live scores from ESPN, \
+             --demo is the scripted board. Run `gameday --demo` for the demo, \
+             or `gameday --once` for live scores"
+                .to_string(),
+        );
     }
     Ok(a)
 }
@@ -305,13 +315,12 @@ fn main() -> std::io::Result<()> {
         // A real terminal sizes the board to fit it; a pipe (a script, a
         // status bar, `| head`) gets the fixed ONCE_WIDTH instead of
         // whatever width a redirected stdout would misreport.
-        let width = if stdout().is_terminal() {
-            crossterm::terminal::size()
-                .map(|(w, _)| w)
-                .unwrap_or(once::ONCE_WIDTH)
+        let measured = if stdout().is_terminal() {
+            crossterm::terminal::size().ok().map(|(w, _)| w)
         } else {
-            once::ONCE_WIDTH
+            None
         };
+        let width = once::width_for(measured);
         let opts = once::Opts {
             json: args.json,
             leagues: args.leagues,
@@ -449,7 +458,7 @@ fn load_state(
 /// Dev verification: fetch and map one league's real scoreboard, print one
 /// line per game. Not part of the TUI.
 fn probe(slug: &str) -> std::io::Result<()> {
-    let Some(league) = League::from_slug(slug) else {
+    let Some(league) = League::from_slug(&slug.to_ascii_lowercase()) else {
         eprintln!(
             "probe: unknown league {slug:?}, expected one of: {}",
             League::ALL.map(|l| l.slug()).join("|")
@@ -987,6 +996,31 @@ mod tests {
         assert!(e.contains("xfl") && e.contains("nfl|cfb"), "{e}");
         let e = err(&["gameday", "--once", "--top", "many"]);
         assert!(e.contains("--top") && e.contains("many"), "{e}");
+    }
+
+    #[test]
+    fn league_flag_takes_any_case() {
+        for slug in ["nfl", "Nfl", "NFL"] {
+            assert_eq!(
+                parsed(&["gameday", "--once", "--league", slug]).leagues,
+                vec![League::Nfl],
+                "{slug}"
+            );
+        }
+    }
+
+    #[test]
+    fn demo_and_once_together_is_an_argument_error_naming_both() {
+        for args in [
+            ["gameday", "--demo", "--once"],
+            ["gameday", "--once", "--demo"],
+        ] {
+            let e = err(&args);
+            assert!(
+                e.contains("--demo") && e.contains("--once") && e.contains("`gameday --demo`"),
+                "{e}"
+            );
+        }
     }
 
     #[test]

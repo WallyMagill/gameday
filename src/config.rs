@@ -29,27 +29,37 @@ pub struct Pin {
     pub final_at: Option<OffsetDateTime>,
 }
 
+/// Every key is optional: one that is absent takes its value from
+/// [`Config::default_all`] (the defaults the README documents), so a
+/// hand-written `config.toml` holding only `theme = "nord"` loads. Unknown
+/// keys are ignored, as they always were.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Config {
+    /// Default: all nine leagues.
     pub enabled_tabs: Vec<League>,
+    /// Default: none.
     pub favorites: Vec<Favorite>,
     /// Theme name: any loaded theme (`theme::names()` — the built-ins plus
     /// `<config_dir>/themes/*.toml`). Kept as a string so an unknown value
     /// degrades to broadcast (with a stderr note naming the valid set)
     /// instead of failing the whole config load.
-    #[serde(default = "default_theme")]
     pub theme: String,
     /// Board order: watch (watchability, default) | time | league. The board
     /// only re-sorts on a data event — see `rank::OrderState`.
-    #[serde(default)]
     pub sort: SortKey,
     /// Which games get a desktop notification (a favorite scored, a pinned
     /// game went final): any of "favorites"/"pins", case-insensitive.
     /// `notify = ["favorites", "pins"]` is the default; `[]` turns
     /// notifications off entirely; an unknown word is kept on round-trip but
     /// means nothing.
-    #[serde(default = "default_notify")]
     pub notify: Vec<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::default_all()
+    }
 }
 
 fn default_theme() -> String {

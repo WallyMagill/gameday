@@ -28,6 +28,18 @@ use time::{OffsetDateTime, UtcOffset};
 /// narrow enough that a script piping to a normal terminal window never wraps.
 pub const ONCE_WIDTH: u16 = 100;
 
+/// The width `--once` renders at. `measured` is the terminal's width when
+/// stdout is a terminal that answered, else None (a pipe, a cron job). A
+/// terminal reporting 0 columns (seen under `script`, where `stty size` says
+/// `0 0`) gets the same ONCE_WIDTH a pipe does: a 0-wide buffer printed only
+/// blank lines.
+pub fn width_for(measured: Option<u16>) -> u16 {
+    match measured {
+        Some(w) if w > 0 => w,
+        _ => ONCE_WIDTH,
+    }
+}
+
 pub struct Opts {
     pub json: bool,
     pub leagues: Vec<League>,
