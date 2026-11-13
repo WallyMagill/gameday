@@ -89,11 +89,24 @@ impl Notifier for OsaScript {
     }
 }
 
+/// `notify-send`'s argument vector. `--` ends option parsing: GLib reads
+/// options anywhere on the line, so a play text of `--wait` used to become a
+/// flag (and block every notification process). The body's `&`, `<` and `>`
+/// are escaped because notification servers render a markup subset in the
+/// body; the summary (title) is plain text in the spec, so it is left alone.
+pub fn notify_send_args(title: &str, body: &str) -> Vec<String> {
+    let body = body
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    vec!["--".to_string(), format!("gameday · {title}"), body]
+}
+
 pub struct NotifySend;
 impl Notifier for NotifySend {
     fn send(&self, title: &str, body: &str) -> Result<(), String> {
         let mut cmd = Command::new("notify-send");
-        cmd.arg(format!("gameday · {title}")).arg(body);
+        cmd.args(notify_send_args(title, body));
         spawn_and_forget(cmd, None, "notify-send")
     }
     fn name(&self) -> &'static str {
@@ -217,6 +230,19 @@ mod tests {
         assert_eq!(
             applescript_literal("line one\r\nline two"),
             r#""line one\r\nline two""#
+        );
+    }
+
+    #[test]
+    fn notify_send_args_end_options_and_escape_body_markup() {
+        assert_eq!(
+            notify_send_args("KC 7, TB 3", "--wait"),
+            ["--", "gameday · KC 7, TB 3", "--wait"],
+            "a body that looks like a flag stays a positional argument"
+        );
+        assert_eq!(
+            notify_send_args("t", "<b>A&M</b> > 3"),
+            ["--", "gameday · t", "&lt;b&gt;A&amp;M&lt;/b&gt; &gt; 3"]
         );
     }
 
