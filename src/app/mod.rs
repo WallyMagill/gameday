@@ -102,7 +102,9 @@ pub struct App {
     /// pins use — so a reorder carries the highlight to that game's new row
     /// instead of leaving it on whatever slid into the old one. Set by every
     /// deliberate move (j/k, paging, a click), cleared by a tab switch and
-    /// by the game leaving the list; `sync_selected` re-resolves it.
+    /// by `g`/Home; kept while a `/` filter hides the game, handed to the
+    /// game in its row when it leaves the board. `sync_selected` re-resolves
+    /// it.
     selected_anchor: Option<(League, String)>,
     pub pins: Vec<Pin>,
     pub config: Config,

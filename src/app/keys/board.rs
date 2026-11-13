@@ -178,24 +178,33 @@ impl App {
 
     /// `sync_selected` against a list already in hand (`draw` passes the
     /// frame's). The anchored game's row when it is in `selection`;
-    /// otherwise the row clamped to the list, and the game is let go — a
-    /// filter that hid it, a tab or date that does not carry it, or a game
-    /// that left the board. An unanchored selection only clamps, so one the
+    /// otherwise the row clamped to the list. A game a `/` filter merely
+    /// hides is kept, so clearing the filter brings the highlight back to
+    /// it. A game gone from the tab's board (it dropped off, or a date step
+    /// left it behind) is let go, and the game now in the clamped row takes
+    /// its place — unless that row is the top one, which an unanchored
+    /// selection follows. An unanchored selection only clamps, so one the
     /// user never moved stays on the top row.
     pub(in crate::app) fn sync_selected_in(&mut self, selection: &[Game]) {
-        if let Some((league, id)) = &self.selected_anchor {
-            match selection
-                .iter()
-                .position(|g| g.league == *league && g.id == *id)
-            {
-                Some(row) => {
-                    self.selected = row;
-                    return;
-                }
-                None => self.selected_anchor = None,
-            }
+        if let Some(row) = self.anchored_row(selection) {
+            self.selected = row;
+            return;
         }
         self.selected = self.selected.min(selection.len().saturating_sub(1));
+        let Some((league, id)) = &self.selected_anchor else {
+            return;
+        };
+        let filtered_out = self.active_filter().is_some()
+            && self
+                .tab_games()
+                .iter()
+                .any(|g| g.league == *league && g.id == *id);
+        if !filtered_out {
+            self.selected_anchor = selection
+                .get(self.selected)
+                .filter(|_| self.selected > 0)
+                .map(|g| (g.league, g.id.clone()));
+        }
     }
 
     /// The date `league`'s tab is viewing, None when it's live today.

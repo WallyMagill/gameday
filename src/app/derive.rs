@@ -119,7 +119,7 @@ impl App {
 
     /// The tab's board before any `/` filter: what decides whether anything
     /// is live, so typing a filter never flips the section order.
-    fn tab_games(&self) -> Vec<Game> {
+    pub(in crate::app) fn tab_games(&self) -> Vec<Game> {
         match self.tab {
             Tab::Home => {
                 let concat = self.concat_boards();
@@ -190,8 +190,22 @@ impl App {
         self.visible_games().len()
     }
 
+    /// The game a keypress acts on: the anchored game when it is in the
+    /// list, else the highlighted row. The list can change by the clock
+    /// alone (a pin expiring, Home's board) between the last draw and the
+    /// key, so the row index may already name the game next to it.
     pub(crate) fn selected_game(&self) -> Option<Game> {
-        self.derive().selection.get(self.selected).cloned()
+        let selection = self.derive().selection;
+        let row = self.anchored_row(&selection).unwrap_or(self.selected);
+        selection.get(row).cloned()
+    }
+
+    /// The anchored game's row in `selection`, if one is anchored and there.
+    pub(in crate::app) fn anchored_row(&self, selection: &[Game]) -> Option<usize> {
+        let (league, id) = self.selected_anchor.as_ref()?;
+        selection
+            .iter()
+            .position(|g| g.league == *league && g.id == *id)
     }
 
     /// Scoring plays across every enabled board, newest first per game,

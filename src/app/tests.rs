@@ -3291,8 +3291,10 @@ fn an_untouched_selection_stays_on_the_top_row() {
     );
 }
 
-/// The picked game leaving the list falls back to the clamped row and lets
-/// go of the game: a later return does not pull the highlight back to it.
+/// The picked game leaving the board falls back to the clamped row, and the
+/// game now in that row becomes the picked one: a later return does not
+/// pull the highlight back. A `/` filter that hides the game only clamps
+/// the row; clearing it puts the highlight back on the game.
 #[test]
 fn a_selected_game_that_leaves_the_list_falls_back_to_the_clamped_row() {
     let mut app = app_tonight();
@@ -3306,16 +3308,146 @@ fn a_selected_game_that_leaves_the_list_falls_back_to_the_clamped_row() {
     assert_eq!(app.selected, 1, "clamped to the shorter list");
     assert_eq!(app.selected_game().map(|g| g.id), Some("dal".into()));
 
-    // It comes back; the selection stays where the fallback put it.
+    // It comes back; the selection stays on DAL@PHI.
     app.apply_boards(League::Nfl, tonight_board(false), false);
-    assert_eq!(app.selected, 1, "the anchor was dropped, not kept");
+    assert_eq!(app.selected, 1, "NYG@WSH's return does not pull it back");
 
-    // A `/` filter hides the picked game: same fallback, never out of range.
+    // A `/` filter hides the picked game: the row clamps, never out of
+    // range, and the game is kept for when the filter clears.
     app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
     app.filter = Some("kc".into());
     app.filter_changed();
     assert_eq!(app.selected, 0);
     assert_eq!(app.selected_game().map(|g| g.id), Some("kc".into()));
+    app.filter = None;
+    app.filter_changed();
+    assert_eq!(app.selected, 2, "back on NYG@WSH");
+    assert_eq!(app.selected_game().map(|g| g.id), Some("nyg".into()));
+}
+
+/// The reviewer's case: `j` onto DAL@PHI, a typo'd `/dx` hides it for one
+/// keystroke, backspace, Esc. The highlight is back on DAL@PHI and still
+/// follows it, so the next reorder cannot slide another game under `space`.
+#[test]
+fn a_filter_that_hides_the_picked_game_for_a_keystroke_keeps_it() {
+    let mut app = app_tonight();
+    app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(app.selected_game().map(|g| g.id), Some("dal".into()));
+    for code in [
+        KeyCode::Char('/'),
+        KeyCode::Char('d'),
+        KeyCode::Char('x'),
+        KeyCode::Backspace,
+        KeyCode::Esc,
+    ] {
+        crate::input::handle_key(&mut app, code, KeyModifiers::NONE);
+    }
+    assert_eq!(app.active_filter(), None);
+    assert_eq!(app.selected_game().map(|g| g.id), Some("dal".into()));
+
+    app.apply_boards(League::Nfl, tonight_board(true), false);
+    assert_eq!(app.selected, 2, "the highlight moved down with DAL@PHI");
+    app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+    assert_eq!(app.pins[0].game_id, "dal");
+}
+
+/// The picked game drops off the board and the row clamps to row 1: the
+/// game there is now the picked one and the next reorder carries the
+/// highlight with it. Clamped to row 0 instead, nothing is picked and the
+/// highlight stays with the top of the board.
+#[test]
+fn a_game_that_leaves_the_board_hands_its_row_on() {
+    use time::macros::datetime;
+    let mut app = app_tonight();
+    app.on_key(KeyCode::Char('G'), KeyModifiers::NONE);
+    let mut board = tonight_board(false);
+    board.pop();
+    app.apply_boards(League::Nfl, board.clone(), false);
+    assert_eq!(app.selected_game().map(|g| g.id), Some("dal".into()));
+    // KC@TB goes final: nothing is live, LATER jumps above FINAL.
+    board[0].status = Status::Final;
+    app.apply_boards(League::Nfl, board, false);
+    assert_eq!(ids_of(&app.derive().selection), ["dal", "kc"]);
+    assert_eq!(app.selected, 0, "the highlight went up with DAL@PHI");
+
+    let mut app = app_tonight();
+    app.on_key(KeyCode::Char('G'), KeyModifiers::NONE);
+    app.apply_boards(
+        League::Nfl,
+        vec![at(
+            "kc",
+            "KC",
+            "TB",
+            Status::Live,
+            Some(datetime!(2026-11-13 18:00 UTC)),
+        )],
+        false,
+    );
+    assert_eq!(app.selected, 0);
+    let mut board = tonight_board(false);
+    board[0].status = Status::Final;
+    app.apply_boards(League::Nfl, board, false);
+    assert_eq!(ids_of(&app.derive().selection), ["dal", "nyg", "kc"]);
+    assert_eq!(app.selected, 0, "the top row, not KC@TB");
+}
+
+/// The list can change by the clock alone between the last draw and a
+/// keypress: a pin's six hours run out and its game leaves MY GAMES. `z`
+/// still zooms the game the user picked, not the one now in its old row.
+#[test]
+fn a_keypress_acts_on_the_picked_game_after_the_clock_moved_the_list() {
+    use time::macros::datetime;
+    let mut app = app_tonight();
+    app.pins.push(Pin {
+        game_id: "nyg".into(),
+        league: League::Nfl,
+        final_at: Some(datetime!(2026-11-13 19:00 UTC)),
+    });
+    assert_eq!(ids_of(&app.derive().selection), ["nyg", "kc", "dal"]);
+    app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(app.selected_game().map(|g| g.id), Some("kc".into()));
+
+    app.now_override = Some(datetime!(2026-11-14 01:30 UTC));
+    assert_eq!(ids_of(&app.derive().selection), ["kc", "dal", "nyg"]);
+    app.on_key(KeyCode::Char('z'), KeyModifiers::NONE);
+    assert!(
+        matches!(&app.view, View::Zoom { game_id, .. } if game_id == "kc"),
+        "z zooms the picked game: {:?}",
+        app.view
+    );
+}
+
+/// `g` and Home go back to the top of the board and to following it: the
+/// next reorder leaves the highlight on row 0 with whatever leads.
+#[test]
+fn g_and_home_return_the_selection_to_the_top_row() {
+    for key in [KeyCode::Char('g'), KeyCode::Home] {
+        let mut app = app_tonight();
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        app.on_key(key, KeyModifiers::NONE);
+        assert_eq!(app.selected, 0);
+        let mut board = tonight_board(false);
+        board[0].status = Status::Final;
+        app.apply_boards(League::Nfl, board, false);
+        assert_eq!(ids_of(&app.derive().selection), ["dal", "nyg", "kc"]);
+        assert_eq!(app.selected, 0, "{key:?}: the highlight stays on top");
+    }
+}
+
+/// Arriving on row 0 by `k` or PgUp is a move onto that game: the
+/// highlight follows KC@TB when it goes final and sinks.
+#[test]
+fn k_or_pgup_onto_the_top_row_picks_that_game() {
+    for key in [KeyCode::Char('k'), KeyCode::PageUp] {
+        let mut app = app_tonight();
+        app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        app.on_key(key, KeyModifiers::NONE);
+        assert_eq!(app.selected, 0);
+        let mut board = tonight_board(false);
+        board[0].status = Status::Final;
+        app.apply_boards(League::Nfl, board, false);
+        assert_eq!(app.selected, 2, "{key:?}: the highlight followed KC@TB");
+    }
 }
 
 /// The flip this release added: the last live game goes final, LATER jumps
