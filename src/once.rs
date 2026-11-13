@@ -81,9 +81,10 @@ pub struct Outcome {
 }
 
 /// One thread per league, joined together: the slowest league bounds the
-/// whole call at one `espn::HTTP_TIMEOUT` (10s) instead of nine in a row —
-/// nine sequential worst-case timeouts would be a 90s hang for a command
-/// billed as "fetch once and exit".
+/// whole call instead of nine in a row. One request's worst case is four
+/// `espn::HTTP_TIMEOUT`s (resolve, connect, response, body: 40s), so nine
+/// sequential worst cases would be a six-minute hang for a command billed
+/// as "fetch once and exit".
 fn fetch_with(
     leagues: &[League],
     f: impl Fn(League) -> ScoreboardResult + Sync,
@@ -106,14 +107,17 @@ fn fetch_with(
     for (league, r) in results {
         match r {
             Ok((games, stale)) => boards.push((league, games, stale)),
-            Err(e) => errors.push((league, e.short_logged())),
+            Err(e) => errors.push((league, e.short())),
         }
     }
     (boards, errors)
 }
 
 /// Every league in parallel; each answer is (league, games, stale). Errors
-/// are the provider's short text; the full text goes to gameday.log.
+/// are the provider's short text. Unlike the board, `--once` does not write
+/// the full text to gameday.log: a status bar runs it every few seconds, each
+/// run is a new process, and the log has no rotation, so an offline hour
+/// would add nine lines per run.
 pub fn fetch(source: &(impl OnceSource + Sync), leagues: &[League]) -> (Boards, Errors) {
     fetch_with(leagues, |l| source.once_scoreboard(l))
 }

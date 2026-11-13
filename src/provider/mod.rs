@@ -86,7 +86,7 @@ impl ProviderError {
         }
     }
 
-    /// [`short`](Self::short) for the footer or stderr, after writing the
+    /// [`short`](Self::short) for the board's footer, after writing the
     /// full text (status, URL, detail) to gameday.log. The poll loop meets
     /// the same failure every 15 s while it lasts, so the line is written
     /// once per distinct text (`log::note_once`), like the mapper's skips.
