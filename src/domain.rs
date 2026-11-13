@@ -450,9 +450,11 @@ pub struct Game {
     /// league is between rounds or out of season, and ESPN's bare scoreboard
     /// is still serving its last game day. Its row prints its date and sorts
     /// after every current row of its section. Stamped by `App::apply_boards`
-    /// from the clock at that apply (`app::merge::earlier_day`), so midnight
-    /// alone never moves a row; the mapper never sets it, and a date-traveled
-    /// board is never stamped (its header already names the day).
+    /// from the clock at every apply (`app::merge::earlier_day`), so after
+    /// midnight the first scoreboard to land (within one poll interval, even
+    /// with unchanged bytes) dates the row and moves it, and a draw never
+    /// does; the mapper never sets it, and a date-traveled board is never
+    /// stamped (its header already names the day).
     pub earlier_day: bool,
 }
 

@@ -3099,10 +3099,11 @@ fn an_earlier_days_result_closes_its_section() {
     assert_eq!(flagged, ["fav-old", "old", "old-off"]);
 }
 
-/// Midnight is not an event: a final that crosses from "yesterday" to
-/// "older" keeps its place until the next scoreboard lands.
+/// A draw is not an event: a final that crosses from "yesterday" to "older"
+/// keeps its place on every draw until the next scoreboard lands, and that
+/// scoreboard moves it even though it carries the same games.
 #[test]
-fn midnight_alone_does_not_move_a_row() {
+fn after_midnight_a_draw_moves_no_row_and_the_next_scoreboard_does() {
     use time::macros::datetime;
     let games = vec![
         at(

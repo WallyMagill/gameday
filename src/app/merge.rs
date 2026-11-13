@@ -104,7 +104,8 @@ pub(crate) const RESULT_CURRENT_DAYS: i64 = 1;
 /// Is `game` a result from before yesterday ([`RESULT_CURRENT_DAYS`])? Only
 /// a final or a called-off game can be; a game with no start is current.
 /// `now` is the apply's clock — this is decided when a scoreboard lands,
-/// never per draw, so a row never moves on the clock alone.
+/// never per draw: after midnight the first scoreboard to land moves the
+/// row, even with unchanged bytes, and a draw never does.
 pub(crate) fn earlier_day(game: &Game, now: OffsetDateTime) -> bool {
     matches!(game.status, Status::Final | Status::Off)
         && game.start.is_some_and(|start| {
@@ -127,8 +128,8 @@ impl App {
         let now = OffsetDateTime::now_utc();
         let prev_board = self.boards.get(&league).cloned().unwrap_or_default();
         // A result from an earlier day is decided here, with this apply's
-        // clock: a scoreboard landing is an event, the clock passing
-        // midnight between two polls is not.
+        // clock, at every apply: a draw never re-decides it, so a final
+        // that passes midnight moves at the next scoreboard, not before.
         let local_now = self.now();
         for g in &mut games {
             g.earlier_day = earlier_day(g, local_now);

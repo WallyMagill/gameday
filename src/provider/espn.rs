@@ -134,7 +134,8 @@ impl EspnProvider {
             // always arrives as an `Ok` response, and the `Ok` arm below
             // checks the status itself before reading the body.
             .http_status_as_error(true)
-            // HTTPS_PROXY / ALL_PROXY / NO_PROXY from the environment. This
+            // The proxy variables from the environment, in ureq's order
+            // (SECURITY.md lists them; HTTP_PROXY applies to https too). This
             // is what makes `HTTPS_PROXY=http://127.0.0.1:9 gameday` the
             // offline test.
             .proxy(ureq::Proxy::try_from_env())
@@ -773,6 +774,14 @@ mod tests {
         let day = Duration::from_secs(24 * 60 * 60);
         let now = SystemTime::now() + CACHE_MAX_AGE + day;
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        // Root (a packager's container) ignores the read-only bit, so the
+        // removal this test needs to fail would succeed. Probe it first.
+        if std::fs::write(dir.join("probe"), "").is_ok() {
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::remove_dir_all(&dir).ok();
+            eprintln!("skipped: a 0o555 directory is writable for this user (root?), so no removal can fail");
+            return;
+        }
         let got = prune_cache(&dir, now, CACHE_MAX_AGE);
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         let err = got.unwrap_err();

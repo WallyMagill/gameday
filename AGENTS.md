@@ -15,7 +15,7 @@ while anything is live. No account, no key.
 
 - **Structure over parsing.** Read the field ESPN publishes; never derive state from prose. Presentation-only normalization is allowed and labeled.
 - **The board reorders only on a real event** (a score, a status change, a chip flipping, a leverage band crossing). A clock that merely advanced never moves a row. New ranking inputs enter the fingerprint set deliberately.
-- **A result's day is decided when its scoreboard lands.** A final or called-off game from before yesterday (`Game::earlier_day`) is stamped at apply, never per draw, so midnight alone never moves a row. Section order lives only in `Derived::sections`.
+- **A result's day is decided when its scoreboard lands.** A final or called-off game from before yesterday (`Game::earlier_day`) is stamped at every apply, never per draw, so after midnight the first scoreboard to land (within one poll interval, even with unchanged bytes) dates it and moves its row, and a draw never does. Section order lives only in `Derived::sections`.
 - **One score formatter; logos never move a digit.** The hero and the takeover agree on every digit cell.
 - **Quadrant blocks only** (`▀▄█`) for digits and marks: every mono font has them; sextants tofu.
 - **Numbers carry receipts.** A timeout, cap, or weight is measured or says it is a guess and why.

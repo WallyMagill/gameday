@@ -6181,6 +6181,9 @@ fn no_screen_floats_a_dead_column() {
 fn the_drive_description_is_available_without_moving_the_board() {
     let text_at = |drive: Option<&str>| -> String {
         let mut app = mk();
+        // Pinned: the header's clock would otherwise tick between the two
+        // draws and fail the comparison for a reason that is not a layout.
+        app.now_override = Some(time::macros::datetime!(2026-08-31 21:37:05 +0));
         let mut game = g("1", "KC", "TB", true);
         if let Some(sit) = game.situation.as_mut() {
             sit.drive_desc = drive.map(str::to_string);
