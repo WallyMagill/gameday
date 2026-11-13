@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 use crate::domain::{League, StandingsTable};
 use crate::poll::STANDINGS_TTL;
 use crate::provider::map::{map_scoreboard, map_standings, map_stats, map_summary};
-use crate::provider::{ProviderError, SportsProvider};
+use crate::provider::{ProviderError, Refusal, SportsProvider};
 use crate::{Game, GameStats, Summary};
 
 /// Guess: ESPN answers in well under a second when it answers at all; 10s is
@@ -18,21 +18,29 @@ pub const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 /// 1,057,405 bytes (an MLB summary, 2026-11); 16 MiB is about 15 times that.
 pub const MAX_BODY_BYTES: u64 = 16 * 1024 * 1024;
 
-/// Read at most `cap` decoded bytes from `reader`. More than `cap` is an
-/// error naming the cap and its knob; nothing past `cap + 1` bytes is ever
+/// Read at most `cap` decoded bytes from `reader` (the body of `url`). More
+/// than `cap` is [`Refusal::TooLarge`]; nothing past `cap + 1` bytes is ever
 /// buffered. Bytes are read, not chars, so the cut can never split a UTF-8
 /// sequence into a read error; ureq's lossy decoder already made them UTF-8.
-fn read_capped(reader: impl std::io::Read, cap: u64) -> Result<String, String> {
+/// `key` is left empty for `stamp` to fill, as in `http`.
+fn read_capped(reader: impl std::io::Read, cap: u64, url: &str) -> Result<String, ProviderError> {
     use std::io::Read;
     let mut buf = Vec::new();
     reader
         .take(cap.saturating_add(1))
         .read_to_end(&mut buf)
-        .map_err(|e| format!("body read: {e}"))?;
+        .map_err(|e| ProviderError::Http {
+            status: 0,
+            key: String::new(),
+            url: url.into(),
+            detail: format!("body read: {e}"),
+        })?;
     if buf.len() as u64 > cap {
-        return Err(format!(
-            "body larger than {cap} bytes after decoding (MAX_BODY_BYTES in src/provider/espn.rs)"
-        ));
+        return Err(ProviderError::Refused {
+            key: String::new(),
+            url: url.into(),
+            why: Refusal::TooLarge { cap },
+        });
     }
     Ok(String::from_utf8(buf)
         .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()))
@@ -77,6 +85,11 @@ fn stamp(err: ProviderError, key: &str) -> ProviderError {
             key: key.to_string(),
             url,
             detail,
+        },
+        ProviderError::Refused { url, why, .. } => ProviderError::Refused {
+            key: key.to_string(),
+            url,
+            why,
         },
         other => other,
     }
@@ -164,13 +177,7 @@ impl EspnProvider {
                 // and `timeout_recv_body` bounds the time. `lossy_utf8` keeps
                 // what `read_to_string` did with bad UTF-8.
                 let reader = r.body_mut().with_config().lossy_utf8(true).reader();
-                let body =
-                    read_capped(reader, self.max_body).map_err(|detail| ProviderError::Http {
-                        status: 0,
-                        key: String::new(),
-                        url: url.into(),
-                        detail,
-                    })?;
+                let body = read_capped(reader, self.max_body, url)?;
                 Ok(Fetched::Body { body, etag })
             }
             Err(ureq::Error::StatusCode(code)) => Err(ProviderError::Http {
@@ -178,6 +185,13 @@ impl EspnProvider {
                 key: String::new(),
                 url: url.into(),
                 detail: String::new(),
+            }),
+            // `https_only` refused a hop: every ESPN URL is https, so in
+            // production this is a redirect down to http.
+            Err(ureq::Error::RequireHttpsOnly(to)) => Err(ProviderError::Refused {
+                key: String::new(),
+                url: url.into(),
+                why: Refusal::NotHttps { to },
             }),
             Err(e) => Err(ProviderError::Http {
                 status: 0,
@@ -791,16 +805,28 @@ mod tests {
         EspnProvider::with_agent(dir.to_path_buf(), time::UtcOffset::UTC, HTTP_TIMEOUT, false)
     }
 
+    /// ureq checks `https_only` on every hop with the same error, so a
+    /// plain-http URL stands in for an https-to-http redirect (no local
+    /// https server here). The footer must not call it "unreachable", and
+    /// the log line names the URL, what was expected, and the knob.
     #[test]
     fn the_production_agent_refuses_plain_http() {
         let p = EspnProvider::new(tmp("https-only"), time::UtcOffset::UTC);
-        let err = p.http("http://127.0.0.1:9/x", None).unwrap_err();
-        match err {
-            ProviderError::Http { status, detail, .. } => {
-                assert_eq!(status, 0);
-                assert!(detail.contains("https only"), "{detail}");
-            }
-            other => panic!("expected Http, got {other:?}"),
+        let err = stamp(
+            p.http("http://127.0.0.1:9/x", None).unwrap_err(),
+            "nfl-scoreboard",
+        );
+        assert!(
+            matches!(
+                &err,
+                ProviderError::Refused { why: Refusal::NotHttps { to }, .. } if to == "http://127.0.0.1:9/x"
+            ),
+            "{err:?}"
+        );
+        assert_eq!(err.short(), "ESPN not https nfl scoreboard");
+        let full = err.to_string();
+        for part in ["http://127.0.0.1:9/x", "expected https", "https_only"] {
+            assert!(full.contains(part), "{part:?} missing from {full:?}");
         }
     }
     fn ok_map(s: &str) -> Result<String, ProviderError> {
@@ -1114,30 +1140,45 @@ mod tests {
         let (addr, _rx) = one_shot_server_bytes(response);
         let mut p = provider(&tmp("gzip-bomb"));
         p.max_body = 1_000;
-        let err = p.http(&format!("http://{addr}/x"), None).unwrap_err();
-        match err {
-            ProviderError::Http { status, detail, .. } => {
-                assert_eq!(status, 0);
-                assert_eq!(
-                    detail,
-                    "body larger than 1000 bytes after decoding (MAX_BODY_BYTES in src/provider/espn.rs)"
-                );
-            }
-            other => panic!("expected Http, got {other:?}"),
-        }
+        let err = stamp(
+            p.http(&format!("http://{addr}/x"), None).unwrap_err(),
+            "nfl-scoreboard",
+        );
+        assert!(
+            matches!(
+                &err,
+                ProviderError::Refused {
+                    why: Refusal::TooLarge { cap: 1_000 },
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+        // The footer says the answer was too big, not that ESPN was
+        // unreachable; the log line names the value, the cap, and the knob.
+        assert_eq!(err.short(), "ESPN too big nfl scoreboard");
+        assert!(
+            err.to_string().ends_with(
+                "decoded body passed 1000 bytes (reading stopped at 1001), expected at most 1000 (MAX_BODY_BYTES in src/provider/espn.rs)"
+            ),
+            "{err}"
+        );
     }
 
     #[test]
     fn read_capped_takes_exactly_the_cap_and_refuses_one_more() {
-        assert_eq!(read_capped(&b"abcd"[..], 4).unwrap(), "abcd");
-        assert!(read_capped(&b"abcde"[..], 4)
-            .unwrap_err()
-            .contains("4 bytes"));
+        let too_large = |cap| ProviderError::Refused {
+            key: String::new(),
+            url: "u".into(),
+            why: Refusal::TooLarge { cap },
+        };
+        assert_eq!(read_capped(&b"abcd"[..], 4, "u").unwrap(), "abcd");
+        let err = read_capped(&b"abcde"[..], 4, "u").unwrap_err();
+        assert_eq!(err.to_string(), too_large(4).to_string());
         // A cut that lands inside a multi-byte char is still the cap error,
         // not a UTF-8 read error.
-        assert!(read_capped("aé".as_bytes(), 2)
-            .unwrap_err()
-            .contains("2 bytes"));
+        let err = read_capped("aé".as_bytes(), 2, "u").unwrap_err();
+        assert_eq!(err.to_string(), too_large(2).to_string());
     }
 
     #[test]

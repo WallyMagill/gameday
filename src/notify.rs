@@ -296,8 +296,8 @@ mod tests {
 
     /// M11: the no-op path logs its reason once, even across repeated sends
     /// — `note_once` dedupes on the reason-specific key. `log::set_file` is
-    /// process-global; this is the only test in the suite that calls it, so
-    /// there is nothing else to race it (see the module doc on `Noop::send`).
+    /// process-global, so this test holds `log::test_guard` like every other
+    /// test that sets it.
     #[test]
     fn the_noop_path_logs_its_reason_once() {
         let _g = crate::log::test_guard();

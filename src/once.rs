@@ -106,14 +106,14 @@ fn fetch_with(
     for (league, r) in results {
         match r {
             Ok((games, stale)) => boards.push((league, games, stale)),
-            Err(e) => errors.push((league, e.short())),
+            Err(e) => errors.push((league, e.short_logged())),
         }
     }
     (boards, errors)
 }
 
 /// Every league in parallel; each answer is (league, games, stale). Errors
-/// are the provider's short text.
+/// are the provider's short text; the full text goes to gameday.log.
 pub fn fetch(source: &(impl OnceSource + Sync), leagues: &[League]) -> (Boards, Errors) {
     fetch_with(leagues, |l| source.once_scoreboard(l))
 }

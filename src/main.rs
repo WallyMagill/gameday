@@ -576,7 +576,7 @@ fn poll_loop(
                         sched.report(&req, false, done);
                         let _ = tx.send(Msg::Failed {
                             league: *league,
-                            error: e.short(),
+                            error: e.short_logged(),
                             retry_in: sched.next_retry(*league, done),
                         });
                     }
@@ -641,7 +641,7 @@ fn aux_failed(
     let _ = tx.send(Msg::AuxFailed {
         league,
         what,
-        error: error.short(),
+        error: error.short_logged(),
     });
 }
 
