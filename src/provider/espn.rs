@@ -84,12 +84,20 @@ fn stamp(err: ProviderError, key: &str) -> ProviderError {
 
 impl EspnProvider {
     pub fn new(cache_dir: PathBuf, offset: time::UtcOffset) -> Self {
-        Self::with_timeouts(cache_dir, offset, HTTP_TIMEOUT)
+        Self::with_agent(cache_dir, offset, HTTP_TIMEOUT, true)
     }
 
     /// Split out so tests can shrink the bound (real timeouts would make a
-    /// stalled-server test take as long as the timeout itself).
-    fn with_timeouts(cache_dir: PathBuf, offset: time::UtcOffset, timeout: Duration) -> Self {
+    /// stalled-server test take as long as the timeout itself) and talk to a
+    /// local plain-HTTP server (`https_only: false`). Production always
+    /// passes `true`: every ESPN URL is https, and ureq's default follows a
+    /// redirect from https down to http.
+    fn with_agent(
+        cache_dir: PathBuf,
+        offset: time::UtcOffset,
+        timeout: Duration,
+        https_only: bool,
+    ) -> Self {
         let config = ureq::Agent::config_builder()
             // Three timeouts stand in for ureq 2's connect+read pair:
             // connect (the TCP handshake), recv_response (headers — a
@@ -98,10 +106,15 @@ impl EspnProvider {
             // default), and recv_body (the response body). ureq 2's single
             // `timeout_read` covered both headers and body; ureq 3 splits
             // them, so both must be set to keep the same bound.
+            //
+            // Resolve (DNS) is a fourth phase ureq 3 leaves unbounded; a
+            // stalled lookup would hold `--once` past its documented 10 s.
+            .timeout_resolve(Some(timeout))
             .timeout_connect(Some(timeout))
             .timeout_recv_response(Some(timeout))
             .timeout_recv_body(Some(timeout))
             .user_agent(USER_AGENT)
+            .https_only(https_only)
             // 4xx/5xx surface as `Error::StatusCode(code)`. 304 is neither —
             // ureq 3's `is_client_error() || is_server_error()` check never
             // classifies a 3xx as an error regardless of this flag — so it
@@ -629,8 +642,23 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
+    /// The production agent with `https_only` off, so the one-shot servers
+    /// below (plain HTTP on 127.0.0.1) can answer it.
     fn provider(dir: &Path) -> EspnProvider {
-        EspnProvider::new(dir.to_path_buf(), time::UtcOffset::UTC)
+        EspnProvider::with_agent(dir.to_path_buf(), time::UtcOffset::UTC, HTTP_TIMEOUT, false)
+    }
+
+    #[test]
+    fn the_production_agent_refuses_plain_http() {
+        let p = EspnProvider::new(tmp("https-only"), time::UtcOffset::UTC);
+        let err = p.http("http://127.0.0.1:9/x", None).unwrap_err();
+        match err {
+            ProviderError::Http { status, detail, .. } => {
+                assert_eq!(status, 0);
+                assert!(detail.contains("https only"), "{detail}");
+            }
+            other => panic!("expected Http, got {other:?}"),
+        }
     }
     fn ok_map(s: &str) -> Result<String, ProviderError> {
         if s.starts_with('{') {
@@ -985,7 +1013,7 @@ mod tests {
     /// unbounded by default, unlike ureq 2's single `timeout_read`, which
     /// covered both headers and body. A server that accepts the connection
     /// and then never answers must not wedge the poll thread forever.
-    /// `with_timeouts` overrides the real 10s `HTTP_TIMEOUT` down to 300ms
+    /// `with_agent` overrides the real 10s `HTTP_TIMEOUT` down to 300ms
     /// so this test doesn't take as long as the bound it's proving.
     #[test]
     fn a_stalled_server_times_out_instead_of_hanging_forever() {
@@ -1001,7 +1029,8 @@ mod tests {
             }
         });
         let dir = tmp("stall");
-        let p = EspnProvider::with_timeouts(dir, time::UtcOffset::UTC, Duration::from_millis(300));
+        let p =
+            EspnProvider::with_agent(dir, time::UtcOffset::UTC, Duration::from_millis(300), false);
         let err = p.http(&format!("http://{addr}/x"), None).unwrap_err();
         match err {
             ProviderError::Http { status, detail, .. } => {
