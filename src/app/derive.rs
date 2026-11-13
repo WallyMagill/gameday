@@ -182,9 +182,9 @@ impl App {
     /// How many rows j/k can land on, without building the lists. The four
     /// sections partition `visible_games()` — every visible game lands in
     /// exactly one of them — so the selection is the same length as the
-    /// visible board. `clamp_selected`/`move_selected` run on the keypress
-    /// path and only ever wanted this number; a full `derive()` there also
-    /// cloned the whole scoring feed. The invariant is asserted in
+    /// visible board. An unanchored `sync_selected` runs on every apply and
+    /// filter keystroke and only wants this number; a full `derive()` there
+    /// also cloned the whole scoring feed. The invariant is asserted in
     /// `the_sections_partition_the_board_in_selection_order`.
     pub(crate) fn selection_len(&self) -> usize {
         self.visible_games().len()

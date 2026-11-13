@@ -95,7 +95,15 @@ pub fn date_label(d: time::Date) -> String {
 
 pub struct App {
     pub tab: Tab,
+    /// The highlighted row in `Derived::selection`. Once the user has moved
+    /// it, it follows `selected_anchor`; until then it is the top row.
     pub selected: usize,
+    /// The game the user put the selection on — (league, event id), the key
+    /// pins use — so a reorder carries the highlight to that game's new row
+    /// instead of leaving it on whatever slid into the old one. Set by every
+    /// deliberate move (j/k, paging, a click), cleared by a tab switch and
+    /// by the game leaving the list; `sync_selected` re-resolves it.
+    selected_anchor: Option<(League, String)>,
     pub pins: Vec<Pin>,
     pub config: Config,
     pub boards: HashMap<League, Vec<Game>>,
@@ -279,6 +287,7 @@ impl App {
         Self {
             tab: Tab::Home,
             selected: 0,
+            selected_anchor: None,
             pins,
             config,
             boards: HashMap::new(),
@@ -471,10 +480,7 @@ impl App {
     pub fn on_hit(&mut self, hit: keymap::Hit) {
         use keymap::Hit;
         match hit {
-            Hit::Row(i) => {
-                self.selected = i;
-                self.clamp_selected();
-            }
+            Hit::Row(i) => self.select_row(i),
             // A header click pops the picker like the Tab key: the preview
             // must not leak out as the live theme, so it reverts first.
             Hit::TabChip(tab) => {
@@ -591,9 +597,9 @@ impl App {
     }
 
     /// Selection indices shift whenever the filter narrows the lists; callers
-    /// that change the filter re-clamp through here.
+    /// that change the filter re-resolve the selection through here.
     pub(crate) fn filter_changed(&mut self) {
-        self.clamp_selected();
+        self.sync_selected();
     }
 
     /// The game the Zoom view is showing, looked up across every board so a

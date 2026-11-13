@@ -1673,8 +1673,11 @@ fn selection_continues_from_live_tiles_into_the_slate() {
     app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
     assert_eq!(app.pins.len(), 1);
     assert_eq!(app.pins[0].game_id, "pre2");
+    // The pin moves pre2 up into MY GAMES and the selection goes with it,
+    // so the next j lands on the live tile under it.
+    assert_eq!(app.selected, 0, "the selection followed pre2 into MY GAMES");
     app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.selected, 0, "wraps back to the live tile");
+    assert_eq!(app.selected_game().map(|g| g.id), Some("live1".into()));
 }
 
 #[test]
@@ -3193,4 +3196,164 @@ fn later_is_in_start_time_order() {
         ids_of(app.derive().later()),
         ["tonight", "sun1", "sun2", "tbd"]
     );
+}
+
+/// Tonight's NFL board for the selection tests: KC@TB live, then DAL@PHI
+/// and NYG@WSH in LATER, in that start order. `wsh_live` is the event that
+/// reorders it: NYG@WSH kicks off and climbs into IN PLAY, above DAL@PHI.
+fn tonight_board(wsh_live: bool) -> Vec<Game> {
+    use time::macros::datetime;
+    vec![
+        at(
+            "kc",
+            "KC",
+            "TB",
+            Status::Live,
+            Some(datetime!(2026-11-13 18:00 UTC)),
+        ),
+        at(
+            "dal",
+            "DAL",
+            "PHI",
+            Status::Pre,
+            Some(datetime!(2026-11-13 20:00 UTC)),
+        ),
+        at(
+            "nyg",
+            "NYG",
+            "WSH",
+            if wsh_live { Status::Live } else { Status::Pre },
+            Some(datetime!(2026-11-13 21:00 UTC)),
+        ),
+    ]
+}
+
+fn app_tonight() -> App {
+    let mut app = app_at(
+        time::macros::datetime!(2026-11-13 19:30 UTC),
+        tonight_board(false),
+    );
+    app.tab = Tab::League(League::Nfl);
+    app
+}
+
+/// Selection follows the game, not the row index: the user walks to
+/// DAL@PHI, NYG@WSH kicks off and climbs above it, and the highlight moves
+/// down with DAL@PHI — on screen as well as in state — so `space` pins the
+/// game the user picked rather than whatever slid into its old row.
+#[test]
+fn a_reorder_moves_the_selection_with_its_game() {
+    let mut app = app_tonight();
+    app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(app.selected_game().map(|g| g.id), Some("dal".into()));
+
+    app.apply_boards(League::Nfl, tonight_board(true), false);
+    assert_eq!(
+        ids_of(&app.derive().selection)[2],
+        "dal",
+        "the event moved DAL@PHI down a row"
+    );
+    assert_eq!(app.selected, 2, "the highlight moved with it");
+
+    let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let caret_rows: Vec<String> = (0..40)
+        .map(|y| (0..120).map(|x| buf[(x, y)].symbol()).collect::<String>())
+        .filter(|row| row.contains('▸') && !row.contains("selected"))
+        .collect();
+    assert!(
+        !caret_rows.is_empty() && caret_rows.iter().all(|row| row.contains("DAL")),
+        "the caret is on DAL@PHI's row: {caret_rows:#?}"
+    );
+
+    app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+    assert_eq!(app.pins.len(), 1);
+    assert_eq!(app.pins[0].game_id, "dal", "space pins the picked game");
+}
+
+/// A selection nobody moved belongs to the top of the board, whatever game
+/// is there: KC@TB, on row 0, goes final and sinks to the bottom, and the
+/// highlight stays on row 0, so `z` zooms what leads now.
+#[test]
+fn an_untouched_selection_stays_on_the_top_row() {
+    let mut app = app_tonight();
+    let mut board = tonight_board(false);
+    board[0].status = Status::Final;
+    app.apply_boards(League::Nfl, board, false);
+    assert_eq!(ids_of(&app.derive().selection), ["dal", "nyg", "kc"]);
+    assert_eq!(app.selected, 0, "the highlight did not chase KC@TB down");
+    app.on_key(KeyCode::Char('z'), KeyModifiers::NONE);
+    assert!(
+        matches!(&app.view, View::Zoom { game_id, .. } if game_id == "dal"),
+        "z zooms the game that leads: {:?}",
+        app.view
+    );
+}
+
+/// The picked game leaving the list falls back to the clamped row and lets
+/// go of the game: a later return does not pull the highlight back to it.
+#[test]
+fn a_selected_game_that_leaves_the_list_falls_back_to_the_clamped_row() {
+    let mut app = app_tonight();
+    app.on_key(KeyCode::Char('G'), KeyModifiers::NONE);
+    assert_eq!(app.selected_game().map(|g| g.id), Some("nyg".into()));
+
+    // NYG@WSH leaves the board: the last row is now DAL@PHI.
+    let mut board = tonight_board(false);
+    board.pop();
+    app.apply_boards(League::Nfl, board, false);
+    assert_eq!(app.selected, 1, "clamped to the shorter list");
+    assert_eq!(app.selected_game().map(|g| g.id), Some("dal".into()));
+
+    // It comes back; the selection stays where the fallback put it.
+    app.apply_boards(League::Nfl, tonight_board(false), false);
+    assert_eq!(app.selected, 1, "the anchor was dropped, not kept");
+
+    // A `/` filter hides the picked game: same fallback, never out of range.
+    app.on_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    app.filter = Some("kc".into());
+    app.filter_changed();
+    assert_eq!(app.selected, 0);
+    assert_eq!(app.selected_game().map(|g| g.id), Some("kc".into()));
+}
+
+/// The flip this release added: the last live game goes final, LATER jumps
+/// above FINAL, and the LATER game the user picked goes from the bottom row
+/// to the top. The highlight goes with it.
+#[test]
+fn the_later_final_flip_keeps_the_selection_on_its_game() {
+    use time::macros::datetime;
+    let board = |kc: Status| {
+        vec![
+            at("kc", "KC", "TB", kc, Some(datetime!(2026-11-13 20:00 UTC))),
+            at(
+                "gb",
+                "GB",
+                "CHI",
+                Status::Final,
+                Some(datetime!(2026-11-13 17:00 UTC)),
+            ),
+            at(
+                "ne",
+                "NE",
+                "SEA",
+                Status::Pre,
+                Some(datetime!(2026-11-14 00:15 UTC)),
+            ),
+        ]
+    };
+    let mut app = app_at(datetime!(2026-11-13 22:30 UTC), board(Status::Live));
+    app.tab = Tab::League(League::Nfl);
+    assert_eq!(ids_of(&app.derive().selection), ["kc", "gb", "ne"]);
+    app.on_key(KeyCode::Char('G'), KeyModifiers::NONE);
+    assert_eq!(app.selected, 2);
+
+    app.apply_boards(League::Nfl, board(Status::Final), false);
+    let d = app.derive();
+    assert!(d.later_first(), "nothing live: LATER above FINAL");
+    assert_eq!(ids_of(&d.selection), ["ne", "kc", "gb"]);
+    assert_eq!(app.selected, 0, "the highlight went up with NE@SEA");
+    app.on_key(KeyCode::Char(' '), KeyModifiers::NONE);
+    assert_eq!(app.pins[0].game_id, "ne");
 }

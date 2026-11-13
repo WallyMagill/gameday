@@ -3,7 +3,7 @@
 
 use crate::app::{App, Tab, DATE_TRAVEL_MAX_DAYS};
 use crate::config::{Favorite, Pin};
-use crate::domain::League;
+use crate::domain::{Game, League};
 use crate::views::View;
 use crossterm::event::KeyCode;
 
@@ -44,21 +44,32 @@ impl App {
     pub(in crate::app) fn move_selected(&mut self, delta: isize) {
         let n = self.selection_len();
         if n == 0 {
-            self.selected = 0;
+            self.select_row(0);
             return;
         }
-        self.selected = (self.selected as isize + delta).rem_euclid(n as isize) as usize;
+        self.select_row((self.selected as isize + delta).rem_euclid(n as isize) as usize);
     }
 
     /// PgUp/PgDn/g/G on the board: page the selection, clamped — the ends
     /// are the ends, unlike `move_selected`'s wrap.
     pub(in crate::app) fn page_selected(&mut self, delta: isize) {
         let n = self.selection_len();
-        self.selected = if n == 0 {
+        self.select_row(if n == 0 {
             0
         } else {
             (self.selected as isize + delta).clamp(0, n as isize - 1) as usize
-        };
+        });
+    }
+
+    /// Every deliberate move lands here: the selection goes to `row`
+    /// (clamped) and holds on to the game in it, so the next reorder carries
+    /// the highlight along with that game.
+    pub(in crate::app) fn select_row(&mut self, row: usize) {
+        let selection = self.derive().selection;
+        self.selected = row.min(selection.len().saturating_sub(1));
+        self.selected_anchor = selection
+            .get(self.selected)
+            .map(|g| (g.league, g.id.clone()));
     }
 
     fn toggle_pin(&mut self) {
@@ -86,7 +97,7 @@ impl App {
         // unpin. A user keystroke is an event under the same gate as
         // `s` or `:sort`, so the frozen-order rule is untouched.
         self.force_reorder();
-        self.clamp_selected();
+        self.sync_selected();
     }
 
     fn toggle_favorite(&mut self) {
@@ -118,7 +129,7 @@ impl App {
         self.mark_favorites();
         self.persist_config();
         self.force_reorder(); // membership change — see `toggle_pin`
-        self.clamp_selected();
+        self.sync_selected();
     }
 
     /// 's': cycle WATCH → TIME → LEAGUE → WATCH and re-derive the order right
@@ -147,16 +158,44 @@ impl App {
     pub fn set_tab(&mut self, tab: Tab) {
         self.tab = tab;
         self.selected = 0;
+        self.selected_anchor = None;
         self.view = View::Board;
     }
 
-    pub(in crate::app) fn clamp_selected(&mut self) {
-        let n = self.selection_len();
-        if n == 0 {
-            self.selected = 0;
-        } else if self.selected >= n {
-            self.selected = n - 1;
+    /// Re-resolve the selection after the list may have changed: a board
+    /// apply, a filter, a pin or favorite, a date step — and every frame,
+    /// since Home's board and pin expiry read the clock. The order itself
+    /// is never touched here; only which row the highlight is on.
+    pub(in crate::app) fn sync_selected(&mut self) {
+        if self.selected_anchor.is_none() {
+            // Nothing to find, so no `derive()`: the length is enough.
+            self.selected = self.selected.min(self.selection_len().saturating_sub(1));
+            return;
         }
+        let selection = self.derive().selection;
+        self.sync_selected_in(&selection);
+    }
+
+    /// `sync_selected` against a list already in hand (`draw` passes the
+    /// frame's). The anchored game's row when it is in `selection`;
+    /// otherwise the row clamped to the list, and the game is let go — a
+    /// filter that hid it, a tab or date that does not carry it, or a game
+    /// that left the board. An unanchored selection only clamps, so one the
+    /// user never moved stays on the top row.
+    pub(in crate::app) fn sync_selected_in(&mut self, selection: &[Game]) {
+        if let Some((league, id)) = &self.selected_anchor {
+            match selection
+                .iter()
+                .position(|g| g.league == *league && g.id == *id)
+            {
+                Some(row) => {
+                    self.selected = row;
+                    return;
+                }
+                None => self.selected_anchor = None,
+            }
+        }
+        self.selected = self.selected.min(selection.len().saturating_sub(1));
     }
 
     /// The date `league`'s tab is viewing, None when it's live today.
@@ -178,7 +217,7 @@ impl App {
         };
         let off = self.viewed_date_offset.entry(league).or_insert(0);
         *off = (*off + delta).clamp(-DATE_TRAVEL_MAX_DAYS, DATE_TRAVEL_MAX_DAYS);
-        self.clamp_selected();
+        self.sync_selected();
     }
 
     /// The (league, date) the on-demand dated fetch should answer for — the

@@ -384,7 +384,7 @@ impl App {
         self.net.ok(Instant::now(), stale);
         self.pins = prune_pins(std::mem::take(&mut self.pins), now);
         self.persist_pins_quiet();
-        self.clamp_selected();
+        self.sync_selected();
     }
 
     /// Stamp `Game.favorite` from `config.favorites` on every board. Called
@@ -425,7 +425,7 @@ impl App {
     pub fn merge_dated_board(&mut self, league: League, date: time::Date, games: Vec<Game>) {
         self.clear_aux_error(league, "dated");
         self.dated_boards.insert((league, date), games);
-        self.clamp_selected();
+        self.sync_selected();
     }
 
     pub fn merge_summary(&mut self, game_id: &str, summary: Summary) {
