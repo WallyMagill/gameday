@@ -49,7 +49,7 @@ struct Args {
 }
 
 const HELP: &str = "\
-gameday — terminal sports board. Pin games, they tile.
+gameday — a terminal sports board that ranks live games by watchability.
 
 USAGE
   gameday                 live board (needs a terminal)
