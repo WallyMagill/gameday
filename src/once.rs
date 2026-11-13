@@ -82,9 +82,11 @@ pub struct Outcome {
 
 /// One thread per league, joined together: the slowest league bounds the
 /// whole call instead of nine in a row. One request's worst case is four
-/// `espn::HTTP_TIMEOUT`s (resolve, connect, response, body: 40s), so nine
-/// sequential worst cases would be a six-minute hang for a command billed
-/// as "fetch once and exit".
+/// `espn::HTTP_TIMEOUT`s (resolve, connect, response, body: 40s), and a
+/// league whose ESPN day is still yesterday makes two in a row (its bare
+/// board, then today's dated board), so one league's worst case is 80s.
+/// Nine in a row would be up to 640s (seven lagging leagues at 80s, NFL and
+/// CFB at 40s) for a command billed as "fetch once and exit".
 fn fetch_with(
     leagues: &[League],
     f: impl Fn(League) -> ScoreboardResult + Sync,
