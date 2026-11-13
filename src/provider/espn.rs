@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::domain::{League, StandingsTable};
 use crate::poll::STANDINGS_TTL;
@@ -391,6 +391,78 @@ pub fn cache_write(dir: &Path, key: &str, body: &str) -> std::io::Result<()> {
     std::fs::write(dir.join(key), body)
 }
 
+/// How old (since last write) a per-game or per-date cache entry may get
+/// before startup removes it. A guess, chosen wide: a pinned game drops 6
+/// hours after its final, date travel reaches 7 days from today, and the
+/// cache only serves a body when the fresh fetch fails, so an entry nothing
+/// has rewritten in two weeks is not on screen; pruning one by mistake costs
+/// one refetch.
+pub const CACHE_MAX_AGE: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+
+/// The entries that pile up, one per game or per date: `<league>-<id>-summary`,
+/// `<league>-<id>-stats`, `<league>-scoreboard-YYYYMMDD`, and their `.etag`
+/// sidecars. Never the bare `<league>-scoreboard` (the last good payload STALE
+/// serves) or `<league>-standings`, one file per league, and never a name it
+/// does not recognize.
+fn is_accumulating(name: &str) -> bool {
+    let name = name.strip_suffix(".etag").unwrap_or(name);
+    let Some((slug, rest)) = name.split_once('-') else {
+        return false;
+    };
+    if League::from_slug(slug).is_none() {
+        return false;
+    }
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if let Some(date) = rest.strip_prefix("scoreboard-") {
+        return date.len() == 8 && digits(date);
+    }
+    match rest.rsplit_once('-') {
+        Some((id, "summary" | "stats")) => digits(id),
+        _ => false,
+    }
+}
+
+/// Remove accumulating entries (see [`is_accumulating`]) in `dir` last
+/// written more than `max_age` before `now`. Returns how many were removed.
+/// A missing dir is nothing to prune; a failure is returned for the caller
+/// to log, naming the first file that could not be removed.
+pub fn prune_cache(dir: &Path, now: SystemTime, max_age: Duration) -> Result<usize, String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(format!("read {}: {e}", dir.display())),
+    };
+    let mut removed = 0;
+    let mut failed: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !is_accumulating(name) {
+            continue;
+        }
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age > max_age);
+        if !old {
+            continue;
+        }
+        match std::fs::remove_file(entry.path()) {
+            Ok(()) => removed += 1,
+            Err(e) => failed.push(format!("{}: {e}", entry.path().display())),
+        }
+    }
+    match failed.first() {
+        None => Ok(removed),
+        Some(first) => Err(format!(
+            "removed {removed}, {} failed (first: {first})",
+            failed.len()
+        )),
+    }
+}
+
 pub fn cache_read(dir: &Path, key: &str) -> std::io::Result<String> {
     std::fs::read_to_string(dir.join(key))
 }
@@ -624,6 +696,77 @@ mod tests {
             stale,
             "old cache: HTTP attempted and failed, cache served stale"
         );
+    }
+
+    #[test]
+    fn prune_removes_old_per_game_and_per_date_entries_and_keeps_the_rest() {
+        let dir = tmp("prune");
+        let now = SystemTime::now();
+        let day = Duration::from_secs(24 * 60 * 60);
+        let ancient = now - 400 * day;
+        let old = now - CACHE_MAX_AGE - day;
+        let young = now - CACHE_MAX_AGE + day;
+        let files: [(&str, SystemTime, bool); 14] = [
+            // (name, mtime, survives)
+            ("nfl-401873001-summary", old, false),
+            ("nfl-401873001-summary.etag", old, false),
+            ("cfb-401752001-stats", old, false),
+            ("nfl-scoreboard-20260913", old, false),
+            ("nfl-scoreboard-20260913.etag", old, false),
+            ("nba-401810001-summary", young, true),
+            ("mlb-scoreboard-20261101", young, true),
+            // The last good payload STALE serves: kept at any age.
+            ("nfl-scoreboard", ancient, true),
+            ("nfl-scoreboard.etag", ancient, true),
+            ("cfb-scoreboard", ancient, true),
+            // One per league, and names it does not recognize: kept.
+            ("nfl-standings", ancient, true),
+            ("xfl-401-summary", ancient, true),
+            ("nfl-scoreboard-2026", ancient, true),
+            ("notes.txt", ancient, true),
+        ];
+        for (name, mtime, _) in files {
+            let path = dir.join(name);
+            std::fs::write(&path, "{}").unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(mtime)
+                .unwrap();
+        }
+        assert_eq!(prune_cache(&dir, now, CACHE_MAX_AGE), Ok(5));
+        for (name, _, survives) in files {
+            assert_eq!(dir.join(name).exists(), survives, "{name}");
+        }
+        assert_eq!(
+            prune_cache(&dir.join("absent"), now, CACHE_MAX_AGE),
+            Ok(0),
+            "no cache dir yet is nothing to prune"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A removal that fails is reported, naming the file, not swallowed and
+    /// not a panic.
+    #[cfg(unix)]
+    #[test]
+    fn a_prune_that_cannot_remove_names_the_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tmp("prune-ro");
+        let path = dir.join("nfl-401-summary");
+        std::fs::write(&path, "{}").unwrap();
+        let day = Duration::from_secs(24 * 60 * 60);
+        let now = SystemTime::now() + CACHE_MAX_AGE + day;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let got = prune_cache(&dir, now, CACHE_MAX_AGE);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let err = got.unwrap_err();
+        assert!(
+            err.starts_with("removed 0, 1 failed") && err.contains("nfl-401-summary"),
+            "{err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -407,7 +407,20 @@ fn main() -> std::io::Result<()> {
     // skip lines go to gameday.log rather than over the board.
     gameday::log::set_file(dir.join("gameday.log"));
 
-    let provider = EspnProvider::new(dir.join("cache"), offset);
+    // Per-game and per-date cache entries accumulate forever otherwise (one
+    // real cache: 422 files, 186 MB). Live board only: `--once` stays as
+    // cheap as it can be, `--demo` never reads this cache, and `probe` uses
+    // its own temp dir. A failure is one log line, never a reason not to start.
+    let cache = dir.join("cache");
+    if let Err(e) = gameday::provider::espn::prune_cache(
+        &cache,
+        std::time::SystemTime::now(),
+        gameday::provider::espn::CACHE_MAX_AGE,
+    ) {
+        gameday::log::note(&format!("gameday: cache prune: {e}"));
+    }
+
+    let provider = EspnProvider::new(cache, offset);
     let (tx, rx) = mpsc::channel::<Msg>();
     // The single UI -> poll handshake: enabled leagues, liveness, the zoomed
     // game, the traveled slate, the standings league, and R. The UI
