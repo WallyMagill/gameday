@@ -1,6 +1,6 @@
 # gameday — old finals and the nothing-live order
 
-Date: 2026-11-13. Status: behavior approved in principle (Walter, 2026-11-13); the stale clock cell's look waits on a render sitting.
+Date: 2026-11-13. Status: approved (Walter, 2026-11-13), behavior and look; shipping in 1.1.0.
 Evidence: the 10:08 EST capture of all nine bare scoreboards on 2026-11-13, with nothing live. The FINAL section listed a WNBA final from Oct 31, an MLB final from Oct 28 and five Premier League finals from Nov 8, undated, beside last night's results. `--once --top 5` printed five of last night's finals while 18 upcoming games sat under LATER. Trimmed fixtures: `fixtures/PROVENANCE-2026-11-13-slate.md`.
 
 ## Directions
@@ -12,11 +12,15 @@ Recorded as directions, not rulings. Each names what won, why, and what reopens 
 3. **With nothing live, LATER is drawn above FINAL.** "Nothing live" is read on the tab's unfiltered board, MY GAMES included, so a `/` filter never flips it; only a status change can. With anything live the order stays IN PLAY, FINAL, LATER. Reasoning: with nothing live the next game is the news, and `--once --top N` should return it. `derive()` hands out the one ordered section list that the board, `--once` text, the selection (j/k, `--json`), the lane's counts and the layout cascade all read. Reopens if the flip reads as the board jumping when a lone late game ends.
 4. **LATER runs in start-time order**: missing starts last, equal starts in board order. Reasoning: league order put Sunday's NFL above tonight's 7:00 PM kickoff, and after item 3 `--top 3` would have returned the wrong games. Reopens never on its own.
 
-## Render gate (pending)
+## Render gate (closed 2026-11-13)
+
+Direction: **A**, `FINAL OCT 31` — chosen by Walter from the rendered frames below. He gave no reason; the recommendation's reasoning was that the status word stays in the cell every other final uses, so the date reads as an addition, not a different kind of row; reopens if a longer status word or a narrower clock cell crowds it.
+
+Two more directions from the same sitting. The release is **1.1.0**, not 1.0.2 — reasoning: a script can observe the new `--once` order, the config that now loads, and the exit status after a closed terminal; reopens never. `docs/demo.gif` is **not re-recorded** — reasoning: only its three LATER rows changed order, and a re-record on the capture machine came out with a taller font and a cropped board; reopens when the demo slate or the board's look changes.
 
 The stale final's clock cell (`CLOCK_W` 14), on the real 10:08 slate, at 120×36 and 80×24 (`out/design/`):
 
-- **A** `FINAL OCT 31`, `FT NOV 8`: the status word, then the date. Shipped as the default.
+- **A** `FINAL OCT 31`, `FT NOV 8`: the status word, then the date. Chosen.
 - **B** `OCT 31`: the date alone.
 - **C** `OCT 31 7:00 PM`: the date and start time, the form a far-off LATER row already prints.
 
