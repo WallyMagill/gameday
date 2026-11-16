@@ -1186,7 +1186,7 @@ mod tests {
             (80, 24, 4),
             (60, 20, 4),
         ] {
-            let tier = crate::board::layout::plan(w, h, 8, 2, 4, 0);
+            let tier = crate::board::layout::plan(w, h, 8, 2, 4, 0, false);
             let mut p = plan();
             p.digits_full = tier.hero_digits_full;
             let term = render(w, tier.hero_rows, &game, &p);
@@ -1218,7 +1218,7 @@ mod tests {
             );
         }
         // The compact bracket has no room for a glyph at all and says so in text.
-        let tier = crate::board::layout::plan(55, 38, 3, 1, 2, 0);
+        let tier = crate::board::layout::plan(55, 38, 3, 1, 2, 0, false);
         assert_eq!((tier.hero_rows, tier.hero_digits_full), (2, false));
         let term = render(55, tier.hero_rows, &game, &plan());
         assert!(text_of(term.backend().buffer()).contains("24 - 21"));

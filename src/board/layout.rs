@@ -88,8 +88,9 @@ fn live_alloc(live: usize, tier1_cap: usize, budget: u16) -> (usize, usize, u16)
 
 /// The sizes ladder as a top-down subtraction: hero first by the
 /// width/height gates (never by `live`/`finals`/`later`/`my_games` — see the
-/// module doc), then MY GAMES, then rows run out bottom-up — later first,
-/// then finals, then tier2 truncates (lane on, paying for its own row),
+/// module doc), then MY GAMES, then rows run out bottom-up — the lower of
+/// FINAL/LATER first (LATER, unless `later_first` puts it above FINAL), then
+/// the upper one, then tier2 truncates (lane on, paying for its own row),
 /// tier1 demotes, hero shrinks last. The lane is decided by a first pass
 /// with no row reserved for it; if that pass would have truncated anything,
 /// the whole cascade below MY GAMES reruns with one row set aside for the
@@ -108,8 +109,9 @@ pub fn plan(
     finals: usize,
     later: usize,
     my_games: usize,
+    later_first: bool,
 ) -> TierPlan {
-    let full = plan_detailed(width, height, live, finals, later, my_games);
+    let full = plan_detailed(width, height, live, finals, later, my_games, later_first);
     TierPlan {
         hero_rows: full.hero_rows,
         hero_digits_full: full.hero_digits_full,
@@ -142,6 +144,7 @@ fn plan_detailed(
     finals: usize,
     later: usize,
     my_games: usize,
+    later_first: bool,
 ) -> FullPlan {
     // The last row of the ladder: `need 40×12, have W×H` — no hero fits below.
     let (hero_rows, hero_digits_full): (u16, bool) = if width < 40 || height < 12 {
@@ -202,9 +205,23 @@ fn plan_detailed(
     let live_left = live.saturating_sub(tier1_0);
     let remaining_0 = budget.saturating_sub(live_cost_0);
     let finals_target = finals.min(2);
-    let (finals_0, finals_cost_0) = section_alloc(finals_target, remaining_0);
-    let remaining_1 = remaining_0.saturating_sub(finals_cost_0);
-    let (later_0, _) = section_alloc(later, remaining_1);
+    // FINAL and LATER fill in the board's own order (`Derived::sections`),
+    // so the one drawn lower is the one that runs out first.
+    let tail = |remaining: u16| -> (usize, usize) {
+        let (upper, lower) = if later_first {
+            (later, finals_target)
+        } else {
+            (finals_target, later)
+        };
+        let (upper_rows, upper_cost) = section_alloc(upper, remaining);
+        let (lower_rows, _) = section_alloc(lower, remaining.saturating_sub(upper_cost));
+        if later_first {
+            (lower_rows, upper_rows)
+        } else {
+            (upper_rows, lower_rows)
+        }
+    };
+    let (finals_0, later_0) = tail(remaining_0);
 
     // The ticker lane comes on exactly when the un-laned pass would
     // have cut something short of what it asked for.
@@ -214,10 +231,7 @@ fn plan_detailed(
         // The lane pays for its own row before the cascade fills again.
         let budget = budget.saturating_sub(1);
         let (tier1, tier2, live_cost) = live_alloc(live, tier1_cap, budget);
-        let remaining = budget.saturating_sub(live_cost);
-        let (finals_rows, finals_cost) = section_alloc(finals_target, remaining);
-        let remaining = remaining.saturating_sub(finals_cost);
-        let (later_rows, _) = section_alloc(later, remaining);
+        let (finals_rows, later_rows) = tail(budget.saturating_sub(live_cost));
         (tier1, tier2, finals_rows, later_rows)
     } else {
         (tier1_0, tier2_0, finals_0, later_0)
@@ -244,24 +258,24 @@ mod tests {
         // 120x40: full hero, up to 3 promoted, no lane. The Full
         // bracket is 12 rows — nameplate + 8 digit rows + fragment + meter +
         // play — so the flagship hero is never poorer than the 80×24 one.
-        let p = plan(120, 38, 8, 2, 4, 0);
+        let p = plan(120, 38, 8, 2, 4, 0, false);
         assert_eq!(p.hero_rows, 12);
         assert!(p.hero_digits_full);
         assert_eq!(p.tier1, 3);
         assert!(!p.scores_lane);
         // 80x24: quad hero, all tier 2, lane when truncated.
-        let p = plan(80, 22, 8, 2, 4, 0);
+        let p = plan(80, 22, 8, 2, 4, 0, false);
         assert!(p.hero_rows <= 6 && p.hero_rows >= 4);
         assert!(!p.hero_digits_full);
         assert_eq!(p.tier1, 0);
         // All 8 live games fit; it's LATER that truncates and trips the lane.
         assert!(p.scores_lane, "LATER doesn't fit 22 rows — lane on");
         // <60 cols: 2-row compact hero, still one list.
-        let p = plan(55, 38, 3, 1, 2, 0);
+        let p = plan(55, 38, 3, 1, 2, 0, false);
         assert_eq!(p.hero_rows, 2);
         // Never negative / overlapping: sum of allocated rows <= height.
         for (w, h) in [(40u16, 12u16), (60, 20), (100, 30), (200, 60)] {
-            let p = plan_detailed(w, h, 12, 5, 8, 2);
+            let p = plan_detailed(w, h, 12, 5, 8, 2, false);
             let used = p.hero_rows
                 + p.band_rows
                 + 3 * p.tier1 as u16
@@ -277,20 +291,20 @@ mod tests {
     #[test]
     fn rows_run_out_bottom_up() {
         // Shrinking height drops LATER to a count line before touching live rows.
-        let tall = plan_detailed(120, 38, 6, 3, 6, 0);
-        let short = plan_detailed(120, 26, 6, 3, 6, 0);
+        let tall = plan_detailed(120, 38, 6, 3, 6, 0, false);
+        let short = plan_detailed(120, 26, 6, 3, 6, 0, false);
         assert!(short.later < tall.later, "later shrinks first");
         assert!(
             short.tier2 + short.tier1 >= 6usize.min(tall.tier1 + tall.tier2),
             "live rows survive"
         );
         // Down further: finals go, then the lane appears.
-        let tiny = plan_detailed(120, 16, 6, 3, 6, 0);
+        let tiny = plan_detailed(120, 16, 6, 3, 6, 0, false);
         assert_eq!(tiny.finals, 0);
         assert!(tiny.scores_lane);
         // The public `plan` agrees with `plan_detailed` on every field it
         // still carries — it's a strict projection, not a second cascade.
-        let public = plan(120, 26, 6, 3, 6, 0);
+        let public = plan(120, 26, 6, 3, 6, 0, false);
         assert_eq!(public.hero_rows, short.hero_rows);
         assert_eq!(public.hero_digits_full, short.hero_digits_full);
         assert_eq!(public.tier1, short.tier1);
@@ -304,25 +318,36 @@ mod tests {
     /// content.
     #[test]
     fn no_live_games_means_no_reservation() {
-        let finals_only = plan(120, 36, 0, 5, 4, 0);
+        let finals_only = plan(120, 36, 0, 5, 4, 0, false);
         assert_eq!(finals_only.band_rows, 0, "no live game can fire a band");
-        let live = plan(120, 36, 6, 5, 4, 0);
+        let live = plan(120, 36, 6, 5, 4, 0, false);
         assert_eq!(live.band_rows, crate::board::cut::BAND_ROWS);
         // The reservation is charged before the tiers, like the lane's row:
         // a live board at H allocates the content a finals-only board would
         // have allocated at H - BAND_ROWS, never more.
-        let reserved = plan_detailed(120, 30, 6, 2, 3, 0);
-        let shorter = plan_detailed(120, 30 - crate::board::cut::BAND_ROWS, 6, 2, 3, 0);
+        let reserved = plan_detailed(120, 30, 6, 2, 3, 0, false);
+        let shorter = plan_detailed(120, 30 - crate::board::cut::BAND_ROWS, 6, 2, 3, 0, false);
         assert_eq!(reserved.tier1, shorter.tier1);
         assert_eq!(reserved.tier2, shorter.tier2);
         assert_eq!(reserved.finals, shorter.finals);
         assert_eq!(reserved.later, shorter.later);
     }
 
+    /// With nothing live LATER is drawn above FINAL, so FINAL is the
+    /// section at the bottom and the one that runs out first.
+    #[test]
+    fn the_lower_section_runs_out_first() {
+        let final_first = plan_detailed(120, 8, 0, 2, 6, 0, false);
+        assert_eq!((final_first.finals, final_first.later), (2, 3));
+        let later_first = plan_detailed(120, 8, 0, 2, 6, 0, true);
+        assert_eq!((later_first.finals, later_first.later), (0, 6));
+        assert!(final_first.scores_lane && later_first.scores_lane);
+    }
+
     #[test]
     fn my_games_rows_come_off_the_same_budget() {
-        let without = plan_detailed(120, 30, 6, 2, 3, 0);
-        let with = plan_detailed(120, 30, 6, 2, 3, 2);
+        let without = plan_detailed(120, 30, 6, 2, 3, 0, false);
+        let with = plan_detailed(120, 30, 6, 2, 3, 2, false);
         assert!(with.tier2 <= without.tier2, "band rows are not free");
     }
 
@@ -347,8 +372,10 @@ mod tests {
         ];
         for &w in &widths {
             for &h in &heights {
-                for &(live, finals, later, my_games) in &counts {
-                    let p = plan_detailed(w, h, live, finals, later, my_games);
+                for (&(live, finals, later, my_games), later_first) in
+                    counts.iter().flat_map(|c| [(c, false), (c, true)])
+                {
+                    let p = plan_detailed(w, h, live, finals, later, my_games, later_first);
                     let my_games_rows = my_games.min(h as usize); // matches section_alloc's cap
                     let sections_rendering = [
                         my_games_rows > 0,

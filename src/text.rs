@@ -19,6 +19,39 @@ pub fn truncate(s: &str, width: usize) -> String {
     }
 }
 
+/// ESPN text made safe for output that no terminal widget filters: `--once
+/// --json` (serde_json escapes only U+0000-U+001F) and `gameday probe`.
+/// Removes every `char::is_control` character (C0, DEL, C1 such as U+009B,
+/// the one-byte CSI) and the bidi embeddings, overrides and isolates
+/// (U+202A-U+202E, U+2066-U+2069) that can make text read in a different
+/// order than it is stored. Whitespace controls (`\t`, `\n`, `\r`, VT, FF,
+/// NEL) are a word break, not noise: a run of them becomes one space, and
+/// none at all when a space already sits beside the run, so `"Line\nTwo"`
+/// reads `"Line Two"`. The board itself needs none of this: ratatui drops
+/// control graphemes when it draws.
+pub fn clean(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    // A run of whitespace controls seen and not yet written as its space.
+    let mut gap = false;
+    for c in s.chars() {
+        if c.is_control() && c.is_whitespace() {
+            gap = true;
+        } else if c.is_control() || matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}') {
+            // Dropped; a gap around it still counts as one run.
+        } else {
+            if gap && c != ' ' && !out.ends_with(' ') {
+                out.push(' ');
+            }
+            gap = false;
+            out.push(c);
+        }
+    }
+    if gap && !out.ends_with(' ') {
+        out.push(' ');
+    }
+    out
+}
+
 /// Last word of the leading capitalized-name run ("Patrick Mahomes pass to
 /// T. Kelce" -> "Mahomes"), keeping generational suffixes ("Jazz Chisholm
 /// Jr. walks" -> "Chisholm Jr."). Play text leads with the player's name in
@@ -80,12 +113,19 @@ pub fn fmt_start(start: OffsetDateTime, now: OffsetDateTime) -> String {
             &format!("{:?}", start.weekday()).to_uppercase()[..3]
         )
     } else {
-        format!(
-            "{} {} {clock}",
-            &format!("{:?}", start.month()).to_uppercase()[..3],
-            start.day()
-        )
+        format!("{} {clock}", fmt_date(start))
     }
+}
+
+/// [`fmt_start`]'s date half: `SEP 13`. A final from an earlier day prints
+/// its date with this, so a LATER row and a dated FINAL row spell a date the
+/// same way.
+pub fn fmt_date(t: OffsetDateTime) -> String {
+    format!(
+        "{} {}",
+        &format!("{:?}", t.month()).to_uppercase()[..3],
+        t.day()
+    )
 }
 
 /// Header wall clock: `9:30:01 PM`.
@@ -127,6 +167,26 @@ pub fn startup_offset() -> UtcOffset {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clean_drops_controls_and_bidi_overrides_and_keeps_text() {
+        assert_eq!(
+            clean("A\u{9b}31mB\u{7f}C\u{202e}D\u{2066}E\u{1b}[2J\tF"),
+            "A31mBCDE[2J F"
+        );
+        assert_eq!(clean("Bot 7th · Müller 90'+3'"), "Bot 7th · Müller 90'+3'");
+    }
+
+    /// ESPN's `"Line\nTwo"` must not become `"LineTwo"` in `--json`.
+    #[test]
+    fn clean_turns_whitespace_controls_into_one_space() {
+        assert_eq!(clean("Line\nTwo"), "Line Two");
+        assert_eq!(clean("Line\r\nTwo\tThree"), "Line Two Three");
+        assert_eq!(clean("Line \nTwo"), "Line Two", "space before the run");
+        assert_eq!(clean("Line\n Two"), "Line Two", "space after the run");
+        assert_eq!(clean("Line\n\u{1b}\nTwo"), "Line Two", "one run");
+        assert_eq!(clean("Line\n"), "Line ");
+    }
 
     #[test]
     fn fits_untouched() {

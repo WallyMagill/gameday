@@ -124,10 +124,11 @@ pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
     let band_rows = crate::board::layout::plan(
         area.width,
         area.height,
-        d.in_play.len().max(1),
-        d.finals.len(),
-        d.later.len(),
+        d.in_play().len().max(1),
+        d.finals().len(),
+        d.later().len(),
         0,
+        d.later_first(),
     )
     .band_rows;
     let area = Rect {

@@ -5,6 +5,7 @@
 
 pub mod alerts;
 pub mod app;
+pub mod atomic;
 pub mod board;
 pub mod command;
 pub mod config;

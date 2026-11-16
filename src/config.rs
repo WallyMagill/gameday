@@ -29,27 +29,37 @@ pub struct Pin {
     pub final_at: Option<OffsetDateTime>,
 }
 
+/// Every key is optional: one that is absent takes its value from
+/// [`Config::default_all`] (the defaults the README documents), so a
+/// hand-written `config.toml` holding only `theme = "nord"` loads. Unknown
+/// keys are ignored, as they always were.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Config {
+    /// Default: all nine leagues.
     pub enabled_tabs: Vec<League>,
+    /// Default: none.
     pub favorites: Vec<Favorite>,
     /// Theme name: any loaded theme (`theme::names()` — the built-ins plus
     /// `<config_dir>/themes/*.toml`). Kept as a string so an unknown value
     /// degrades to broadcast (with a stderr note naming the valid set)
     /// instead of failing the whole config load.
-    #[serde(default = "default_theme")]
     pub theme: String,
     /// Board order: watch (watchability, default) | time | league. The board
     /// only re-sorts on a data event — see `rank::OrderState`.
-    #[serde(default)]
     pub sort: SortKey,
     /// Which games get a desktop notification (a favorite scored, a pinned
     /// game went final): any of "favorites"/"pins", case-insensitive.
     /// `notify = ["favorites", "pins"]` is the default; `[]` turns
     /// notifications off entirely; an unknown word is kept on round-trip but
     /// means nothing.
-    #[serde(default = "default_notify")]
     pub notify: Vec<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::default_all()
+    }
 }
 
 fn default_theme() -> String {
@@ -93,7 +103,7 @@ impl Config {
     pub fn save_to(&self, dir: &Path) -> Result<(), ConfigError> {
         fs::create_dir_all(dir)?;
         let text = toml::to_string_pretty(self)?;
-        fs::write(dir.join("config.toml"), text)?;
+        crate::atomic::write(&dir.join("config.toml"), text)?;
         Ok(())
     }
 }
@@ -110,7 +120,7 @@ pub fn load_pins(dir: &Path) -> Result<Vec<Pin>, ConfigError> {
 pub fn save_pins(dir: &Path, pins: &[Pin]) -> Result<(), ConfigError> {
     fs::create_dir_all(dir)?;
     let text = serde_json::to_string_pretty(pins)?;
-    fs::write(dir.join("pins.json"), text)?;
+    crate::atomic::write(&dir.join("pins.json"), text)?;
     Ok(())
 }
 

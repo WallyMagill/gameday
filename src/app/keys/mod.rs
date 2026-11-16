@@ -62,7 +62,13 @@ impl App {
             };
             if let Some(delta) = delta {
                 match self.view {
-                    View::Board => self.page_selected(delta),
+                    View::Board => {
+                        self.page_selected(delta);
+                        // g/Home: back to following the top of the board.
+                        if delta == -FAR {
+                            self.selected_anchor = None;
+                        }
+                    }
                     View::Zoom { .. } => self.move_zoom_scroll(delta),
                     View::PlaysFeed => self.move_feed_scroll(delta),
                     View::Standings(_) => self.move_standings_scroll(delta),

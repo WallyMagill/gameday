@@ -25,7 +25,7 @@
 //! state and `now` all arrive in [`RowCtx`].
 
 use crate::domain::{Game, GameStats, League, Status};
-use crate::text::{fmt_start, truncate};
+use crate::text::{fmt_date, fmt_start, truncate};
 use crate::theme::{self, Roles, TeamColorScope};
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -229,15 +229,48 @@ fn state_text(game: &Game, now: OffsetDateTime) -> String {
 }
 
 fn state_text_raw(game: &Game, now: OffsetDateTime) -> String {
+    let dated = game.start.filter(|_| game.earlier_day);
     match game.status {
         Status::Live => format!("{} {}", game.period, game.clock).trim().to_string(),
-        Status::Final => match game.league {
-            League::Epl | League::Mls => "FT".into(),
-            _ => "FINAL".into(),
-        },
+        Status::Final => {
+            let word = match game.league {
+                League::Epl | League::Mls => "FT",
+                _ => "FINAL",
+            };
+            match dated {
+                Some(start) => earlier_day_clock(word, start),
+                None => word.into(),
+            }
+        }
         Status::Pre => game.start.map(|t| fmt_start(t, now)).unwrap_or_default(),
-        Status::Off => game.period.clone(),
+        // ESPN's word is up to nine cells (`POSTPONED`, `SUSPENDED`, `NO
+        // RESULT`), so word-and-date overruns `CLOCK_W`: an earlier day's
+        // called-off row prints the date here and the word moves to the
+        // prose column ([`off_word`]), which a called-off row leaves empty.
+        Status::Off => match dated {
+            Some(start) => fmt_date(start),
+            None => game.period.clone(),
+        },
     }
+}
+
+/// The clock cell of a final from an earlier day (`Game::earlier_day`):
+/// `FINAL OCT 31`, `FT NOV 8` — the status word, then the date in
+/// `fmt_start`'s own spelling. The longest is `FINAL SEP 30` at twelve
+/// cells. This line is the render gate's shipped option (A,
+/// `out/design/stale-final-a-*.png`); the others are one-line swaps — B, the
+/// date alone: `fmt_date(start)`; C, the date and the start time, exactly a
+/// far-off LATER row's form: `fmt_start(start, now)` (pass `now` in from
+/// `state_text_raw`).
+fn earlier_day_clock(word: &str, start: OffsetDateTime) -> String {
+    format!("{word} {}", fmt_date(start))
+}
+
+/// The status word of a called-off row whose clock cell holds its date
+/// instead (see `state_text_raw`), for the prose column.
+fn off_word(game: &Game) -> Option<&str> {
+    (game.status == Status::Off && game.earlier_day && game.start.is_some())
+        .then_some(game.period.as_str())
 }
 
 /// The situation fragment the frame prints beside a promoted row:
@@ -614,9 +647,12 @@ pub fn draw_tier3(frame: &mut Frame, area: Rect, game: &Game, ctx: &RowCtx) {
     // A final's story, in its fixed ladder: its own
     // headline, else the leaders line, else the newest scoring play (the
     // list is oldest first), else whatever the situation still says.
-    let headline = final_story(game, ctx.leaders_line.as_deref())
-        .or_else(|| situation_summary(game))
-        .unwrap_or_default();
+    let story = final_story(game, ctx.leaders_line.as_deref()).or_else(|| situation_summary(game));
+    let headline = match (off_word(game), story) {
+        (Some(word), Some(story)) => format!("{word} · {story}"),
+        (Some(word), None) => word.to_string(),
+        (None, story) => story.unwrap_or_default(),
+    };
     if !headline.is_empty() {
         let room = (area.width.saturating_sub(TEXT_X)) as usize;
         let span = Span::styled(truncate(&headline, room), Style::default().fg(r.dim));
@@ -1448,6 +1484,43 @@ mod tests {
             "CLOCK_W holds the longest state"
         );
         assert_eq!(BCAST_W as usize, "NETFLIX".len());
+    }
+
+    /// A result from an earlier day names its date in the clock cell, in
+    /// `fmt_start`'s spelling; last night's does not. A called-off row's word
+    /// is too long to share the cell, so the date takes the cell and the word
+    /// moves to the empty prose column.
+    #[test]
+    fn an_earlier_days_result_prints_its_date() {
+        let at = |league, status, period: &str, earlier_day| Game {
+            league,
+            status,
+            period: period.into(),
+            start: Some(datetime!(2026-11-08 09:00 -5)),
+            earlier_day,
+            ..live_game("BRE", "BHA")
+        };
+        let clock = |g: &Game| state_text(g, ctx().now);
+        assert_eq!(
+            clock(&at(League::Epl, Status::Final, "FT", true)),
+            "FT NOV 8"
+        );
+        assert_eq!(
+            clock(&at(League::Nba, Status::Final, "Q4", true)),
+            "FINAL NOV 8"
+        );
+        assert_eq!(clock(&at(League::Nba, Status::Final, "Q4", false)), "FINAL");
+
+        let off = Game {
+            last_plays: vec![],
+            situation: None,
+            ..at(League::Mlb, Status::Off, "POSTPONED", true)
+        };
+        let term = render(120, 1, &off, &ctx(), draw_tier3);
+        let buf = term.backend().buffer();
+        let text = text_of(buf);
+        assert_eq!(col_of(buf, 0, "NOV 8"), Some(CLOCK_X), "{text}");
+        assert_eq!(col_of(buf, 0, "POSTPONED"), Some(TEXT_X), "{text}");
     }
 
     /// The tier-3 FINAL ladder in its fixed order — `headline` → leaders line →

@@ -117,13 +117,13 @@ impl App {
         let shown = self.tv_shown_in(d);
         // Re-ranked: MY GAMES' top wins outright while it is
         // live; otherwise whichever IN PLAY game the ranking would lead with
-        // right now. `d.in_play` (not `live_all`) is what keeps the caption
+        // right now. `d.in_play()` (not `live_all`) is what keeps the caption
         // inside the tab and the `/` filter — a cut TV cannot make is worse
         // than no warning at all.
-        let next = match d.my_games.first().filter(|g| g.status == Status::Live) {
+        let next = match d.my_games().first().filter(|g| g.status == Status::Live) {
             Some(game) => game.id.clone(),
             None => crate::rank::top_id(
-                &d.in_play,
+                d.in_play(),
                 self.config.sort,
                 &self.config.enabled_tabs,
                 self.now(),
@@ -159,9 +159,9 @@ impl App {
     /// The slate `n` walks: every live game, board order — the shown game
     /// plus the ALSO LIVE strip, in the order TV draws them.
     pub(crate) fn tv_slate(d: &Derived) -> Vec<&Game> {
-        d.my_games
+        d.my_games()
             .iter()
-            .chain(d.in_play.iter())
+            .chain(d.in_play().iter())
             .filter(|g| g.status == Status::Live)
             .collect()
     }

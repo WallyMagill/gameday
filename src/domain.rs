@@ -1,4 +1,7 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+/// Serializes as the variant name (`"Nfl"`), the form every saved config
+/// and pins.json already holds; deserializes from any case of the slug
+/// (`"Nfl"`, `"nfl"`, `"NFL"`), see the `Deserialize` impl below.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum League {
     Nfl,
     Cfb,
@@ -56,6 +59,25 @@ impl League {
 
     pub fn from_slug(s: &str) -> Option<League> {
         League::ALL.into_iter().find(|l| l.slug() == s)
+    }
+}
+
+/// Every slug, in `League::ALL` order: the expected set an unknown league
+/// name is reported against.
+const SLUGS: [&str; 9] = [
+    "nfl", "cfb", "cbb", "nba", "wnba", "nhl", "mlb", "epl", "mls",
+];
+
+/// Case-insensitive: the derived impl accepted only the variant name
+/// (`Nfl`), while the error beside it listed the lowercase slugs as valid,
+/// so `league = "nfl"` in a hand-written config failed to parse.
+impl<'de> serde::Deserialize<'de> for League {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        League::ALL
+            .into_iter()
+            .find(|l| l.slug().eq_ignore_ascii_case(&s))
+            .ok_or_else(|| serde::de::Error::unknown_variant(&s, &SLUGS))
     }
 }
 
@@ -424,6 +446,16 @@ pub struct Game {
     /// boards are never live); the mapper never sets it. Read by
     /// `rank::watchability` for the favorite term.
     pub favorite: bool,
+    /// A final or called-off game that started before yesterday — the
+    /// league is between rounds or out of season, and ESPN's bare scoreboard
+    /// is still serving its last game day. Its row prints its date and sorts
+    /// after every current row of its section. Stamped by `App::apply_boards`
+    /// from the clock at every apply (`app::merge::earlier_day`), so after
+    /// midnight the first scoreboard to land (within one poll interval, even
+    /// with unchanged bytes) dates the row and moves it, and a draw never
+    /// does; the mapper never sets it, and a date-traveled board is never
+    /// stamped (its header already names the day).
+    pub earlier_day: bool,
 }
 
 impl Default for Game {
@@ -450,6 +482,7 @@ impl Default for Game {
             timeouts: None,
             extras: Extras::None,
             favorite: false,
+            earlier_day: false,
         }
     }
 }
@@ -583,6 +616,26 @@ mod tests {
             assert_eq!(League::from_slug(l.slug()), Some(l), "slug {}", l.slug());
         }
         assert_eq!(League::from_slug("xfl"), None);
+    }
+
+    #[test]
+    fn leagues_deserialize_in_any_case_and_serialize_as_before() {
+        assert_eq!(SLUGS, League::ALL.map(League::slug));
+        for text in ["\"Nfl\"", "\"nfl\"", "\"NFL\""] {
+            assert_eq!(
+                serde_json::from_str::<League>(text).unwrap(),
+                League::Nfl,
+                "{text}"
+            );
+        }
+        assert_eq!(serde_json::to_string(&League::Wnba).unwrap(), "\"Wnba\"");
+        let err = serde_json::from_str::<League>("\"xfl\"")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("unknown variant `xfl`") && err.contains("`mls`"),
+            "{err}"
+        );
     }
 
     #[test]

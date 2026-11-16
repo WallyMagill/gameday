@@ -12,6 +12,7 @@ use crate::dump;
 use crate::provider::espn::EspnProvider;
 use crate::provider::ProviderError;
 use crate::rank;
+use crate::text::clean;
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
@@ -26,6 +27,18 @@ use time::{OffsetDateTime, UtcOffset};
 /// the same neighborhood `dump::DUMP_COLS` (120) was measured against, just
 /// narrow enough that a script piping to a normal terminal window never wraps.
 pub const ONCE_WIDTH: u16 = 100;
+
+/// The width `--once` renders at. `measured` is the terminal's width when
+/// stdout is a terminal that answered, else None (a pipe, a cron job). A
+/// terminal reporting 0 columns (seen under `script`, where `stty size` says
+/// `0 0`) gets the same ONCE_WIDTH a pipe does: a 0-wide buffer printed only
+/// blank lines.
+pub fn width_for(measured: Option<u16>) -> u16 {
+    match measured {
+        Some(w) if w > 0 => w,
+        _ => ONCE_WIDTH,
+    }
+}
 
 pub struct Opts {
     pub json: bool,
@@ -68,9 +81,12 @@ pub struct Outcome {
 }
 
 /// One thread per league, joined together: the slowest league bounds the
-/// whole call at one `espn::HTTP_TIMEOUT` (10s) instead of nine in a row —
-/// nine sequential worst-case timeouts would be a 90s hang for a command
-/// billed as "fetch once and exit".
+/// whole call instead of nine in a row. One request's worst case is four
+/// `espn::HTTP_TIMEOUT`s (resolve, connect, response, body: 40s), and a
+/// league whose ESPN day is still yesterday makes two in a row (its bare
+/// board, then today's dated board), so one league's worst case is 80s.
+/// Nine in a row would be up to 640s (seven lagging leagues at 80s, NFL and
+/// CFB at 40s) for a command billed as "fetch once and exit".
 fn fetch_with(
     leagues: &[League],
     f: impl Fn(League) -> ScoreboardResult + Sync,
@@ -100,7 +116,10 @@ fn fetch_with(
 }
 
 /// Every league in parallel; each answer is (league, games, stale). Errors
-/// are the provider's short text.
+/// are the provider's short text. Unlike the board, `--once` does not write
+/// the full text to gameday.log: a status bar runs it every few seconds, each
+/// run is a new process, and the log has no rotation, so an offline hour
+/// would add nine lines per run.
 pub fn fetch(source: &(impl OnceSource + Sync), leagues: &[League]) -> (Boards, Errors) {
     fetch_with(leagues, |l| source.once_scoreboard(l))
 }
@@ -139,13 +158,14 @@ pub fn render_text(app: &mut App, opts: &Opts, stale: bool) -> String {
     let now = app.now();
     let sort = app.config.sort;
     let pins = app.pins.clone();
-    let mut sections: Vec<(&'static str, Vec<Game>)> = vec![
-        ("MY GAMES", d.my_games),
-        ("IN PLAY", d.in_play),
-        ("FINAL", d.finals),
-        ("LATER", d.later),
-    ];
     let mixed = d.mixed;
+    // The board's own sections in the board's own order (`derive()` decides
+    // it), so `--top N` spends its budget on what the board shows first.
+    let mut sections: Vec<(&'static str, Vec<Game>)> = d
+        .sections
+        .into_iter()
+        .map(|s| (s.kind.label(), s.games))
+        .collect();
 
     if opts.live {
         for (_, games) in &mut sections {
@@ -255,16 +275,19 @@ fn rfc3339(t: OffsetDateTime) -> String {
 
 fn team_json(team: &crate::domain::Team, score: u16) -> serde_json::Value {
     serde_json::json!({
-        "abbr": team.abbr,
-        "name": team.name,
+        "abbr": clean(&team.abbr),
+        "name": clean(&team.name),
         "score": score,
-        "record": team.record,
+        "record": clean(&team.record),
         "rank": team.rank,
     })
 }
 
 /// The pinned JSON schema: `derive().selection` (board order) filtered the
-/// same way `render_text` narrows its rows, one object per game.
+/// same way `render_text` narrows its rows, one object per game. Every string
+/// that came from ESPN passes through [`clean`]: serde_json escapes only
+/// U+0000-U+001F, so DEL, C1 controls and bidi overrides would otherwise
+/// reach whatever terminal a script prints the value to.
 pub fn render_json(app: &mut App, opts: &Opts, stale: bool) -> serde_json::Value {
     let d = app.derive();
     let now = app.now();
@@ -288,16 +311,16 @@ pub fn render_json(app: &mut App, opts: &Opts, stale: bool) -> serde_json::Value
             };
             serde_json::json!({
                 "league": g.league.slug(),
-                "id": g.id,
+                "id": clean(&g.id),
                 "status": status,
-                "period": g.period,
-                "clock": g.clock,
+                "period": clean(&g.period),
+                "clock": clean(&g.clock),
                 "start": g.start.map(rfc3339),
                 "away": team_json(&g.away, g.away_score),
                 "home": team_json(&g.home, g.home_score),
                 "watch": { "score": w.score, "chip": w.chip, "why": w.why },
-                "situation": rows::situation_summary(g),
-                "last_play": g.last_plays.first().map(|p| p.text.clone()),
+                "situation": rows::situation_summary(g).map(|s| clean(&s)),
+                "last_play": g.last_plays.first().map(|p| clean(&p.text)),
                 "pinned": pins.iter().any(|p| p.game_id == g.id),
             })
         })
