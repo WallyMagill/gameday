@@ -25,3 +25,12 @@ install-updater = false
 # this, `dist plan` fails the Release workflow on the edited file. After a dist
 # upgrade: drop this line, `dist generate --mode ci`, re-pin, restore it.
 allow-dirty = ["ci"]
+
+# dist 0.32.0 builds aarch64-apple-darwin on `macos-14`, which GitHub retired
+# on 2026-11-02: the v1.1.0 Release run of 2026-11-16 cancelled that job with
+# "The configuration 'macos-14-arm64-us-default' is not supported" and
+# published nothing. `macos-15` is the image the x86_64-apple-darwin job
+# already runs on (`macos-15-intel`). Drop this once a dist upgrade defaults
+# to a supported image.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
